@@ -130,7 +130,6 @@ const base: Record<string, (body: any) => [number, unknown]> = {
       prompts: [],
       default_prompt_id: null,
       resources: { servers: [], services: [], environments: [], code_projects: [], collections: [], documents: [] },
-      tools: [],
       experts: [],
     },
   ],

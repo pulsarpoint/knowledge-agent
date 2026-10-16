@@ -144,7 +144,20 @@ test("agents are created only through one New agent panel with the wizard", asyn
 test.each(["search", "operations", "code", "custom-code"])("every agent has the same tabs: %s", async (id) => {
   render(app(`/agents/${id}`));
   await screen.findByRole("combobox", { name: "Model" });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Tools", "Test"]);
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Test"]);
+});
+
+test("an unknown view such as the old Tools tab opens General", async () => {
+  render(app("/agents/custom-code?view=tools"));
+  await screen.findByRole("combobox", { name: "Model" });
+  expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.queryByRole("tab", { name: "Tools" })).toBeNull();
+});
+
+test("the agents list has no Tools column", async () => {
+  render(app("/agents"));
+  await screen.findByRole("link", { name: "Payments code" });
+  expect(screen.queryByRole("columnheader", { name: "Tools" })).toBeNull();
 });
 
 test("agent removal requires confirmation and preserves the record on conflicts", async () => {

@@ -11,23 +11,17 @@ import AgentProfileSettings from "./AgentProfileSettings";
 import AgentResources from "./AgentResources";
 import AgentTestView from "./AgentTestView";
 import AgentPromptCard from "./AgentPromptCard";
-import AgentToolsView from "./AgentToolsView";
 import AgentActions from "./AgentActions";
 
 export default function AgentDetailView({ agentId }: { agentId: string }) {
   const [params, setParams] = useSearchParams();
   const [profile, setProfile] = useState<AgentProfile>();
-  const sections = ["general", "resources", "tools", "test"];
+  const sections = ["general", "resources", "test"];
   const selected = params.get("view") ?? "";
   const view = sections.includes(selected) ? selected : "general";
   const [error, setError] = useState("");
   const [profileDirty, setProfileDirty] = useState(false);
   const [resourcesDirty, setResourcesDirty] = useState(false);
-  const [toolsDirty, setToolsDirty] = useState(false);
-  const [toolsOpened, setToolsOpened] = useState(false);
-  useEffect(() => {
-    if (view === "tools") setToolsOpened(true);
-  }, [view]);
   const [reload, setReload] = useState(0);
   const [promptDirty, setPromptDirty] = useState(false);
   useEffect(() => {
@@ -111,17 +105,6 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
                     {profile.original.name}
                   </Link>
                 </p>
-              )}
-              {toolsOpened && (
-                <div hidden={view !== "tools"}>
-                  <AgentToolsView
-                    key={reload}
-                    agentId={agentId}
-                    revision={profile.revision}
-                    onDirtyChange={setToolsDirty}
-                    onSaved={(revision) => setProfile((current) => current && { ...current, revision })}
-                  />
-                </div>
               )}
               <div hidden={view !== "general"} className="flex flex-col gap-6">
                 <AgentProfileSettings

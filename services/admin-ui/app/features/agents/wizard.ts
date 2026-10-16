@@ -1,6 +1,5 @@
 import { request } from "~/lib/api";
 import type { AccessType } from "./api";
-import type { CatalogTool, ToolSwitches } from "./tools";
 
 export interface WizardResource {
   id: string;
@@ -26,7 +25,6 @@ export interface AgentProposal {
 export interface WizardOptions {
   prompt: string;
   schema: Record<string, unknown>;
-  tools?: CatalogTool[];
   catalog: {
     models: (WizardResource & { provider: string; model: string; api_format: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
@@ -40,19 +38,6 @@ export interface WizardOptions {
     existing_agents: { name: string; description: string; when_to_use: string }[];
   };
 }
-export type NewAgent = AgentProposal & {
-  tools?: string[];
-  /** May start subagents, and the tools a subagent may not be given. */
-  subagents?: boolean;
-  subagent_blocked?: string[];
-};
-/** What an access gives the tool catalog rules (the backend's flags without "Answer only from documents"): code
- * projects, collections and servers. */
-export const accessSwitches = (resources: { type: string; id: string }[]): ToolSwitches => ({
-  repositories_enabled: resources.some((item) => item.type === "code_project"),
-  documents_enabled: resources.some((item) => item.type === "collection"),
-  ssh_enabled: resources.some((item) => item.type === "server"),
-});
 export const getWizardOptions = () => request<WizardOptions>("/api/agents/wizard/options");
 export const generateAgent = (role: string, model_id: string) =>
   request<{ proposal: AgentProposal }>("/api/agents/wizard/generate", {
@@ -60,7 +45,7 @@ export const generateAgent = (role: string, model_id: string) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role, model_id }),
   });
-export const createWizardAgent = (value: NewAgent) =>
+export const createWizardAgent = (value: AgentProposal) =>
   request<{ id: string }>("/api/agents/wizard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

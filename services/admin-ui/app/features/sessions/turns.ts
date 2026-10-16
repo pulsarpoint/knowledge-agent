@@ -1,5 +1,7 @@
 import type { SessionEvent } from "./api";
-import { SUBAGENT_TOOL } from "~/features/agents/tools";
+
+/** The tool that starts a subagent (its events carry a parent_call_id). */
+const SUBAGENT_TOOL = "run_subagent";
 
 export type TurnStatus = "working" | "completed" | "failed" | "stopped";
 export type SubagentStatus = "working" | "done" | "failed" | "stopped";

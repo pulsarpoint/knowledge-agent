@@ -143,7 +143,7 @@ test("no open run: an empty conversation with the settings summary; the first me
   show();
   const pane = await screen.findByRole("region", { name: "Ask agent" });
   expect(within(pane).getByText("Ask the agent to change this document.")).toBeInTheDocument();
-  expect(within(pane).getByLabelText("Current settings")).toHaveTextContent("Claude · web-1, Payments · 3 tools");
+  expect(within(pane).getByLabelText("Current settings")).toHaveTextContent("Claude · web-1, Payments");
   expect(within(pane).getByRole("button", { name: "New chat" })).toBeDisabled();
   fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Add log rotation." } });
   fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
@@ -163,9 +163,7 @@ test("no open run: an empty conversation with the settings summary; the first me
         collection_ids: [],
         documents: [{ id: "doc-1", editable: true }],
       },
-      tools: ["ssh_run", "save_document", "get_document"],
       expert_ids: [],
-      subagents: false,
     }),
   );
   await waitFor(() => expect(live.requested.at(-1)).toBe("r1"));

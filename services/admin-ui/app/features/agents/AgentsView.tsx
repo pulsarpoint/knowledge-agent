@@ -3,7 +3,6 @@ import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react
 import { ArrowRight, Copy, Sparkles, Trash2 } from "lucide-react";
 import AgentWizard from "./AgentWizard";
 import { toast } from "sonner";
-import { toolsSummaryLabel } from "./tools";
 import { cloneAgent } from "./clones";
 import { countsSummary, deleteAgent, describeHistory, getAgentHistory, getAgents, type AgentSummary } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -113,9 +112,7 @@ export default function AgentsView() {
     }
   }
   const filtered = agents?.filter((a) =>
-    `${a.name} ${a.description} ${countsSummary(a.counts)} ${toolsSummaryLabel(a.tools_summary)}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+    `${a.name} ${a.description} ${countsSummary(a.counts)}`.toLowerCase().includes(query.toLowerCase()),
   );
   return (
     <section className="flex flex-col gap-6" aria-label="Agent list">
@@ -156,7 +153,6 @@ export default function AgentsView() {
               <TableRow>
                 <TableHead>Agent</TableHead>
                 <TableHead>Resources</TableHead>
-                <TableHead>Tools</TableHead>
                 <TableHead>Model</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>
@@ -185,7 +181,6 @@ export default function AgentsView() {
                     )}
                   </TableCell>
                   <TableCell className="max-w-xs whitespace-normal">{countsSummary(a.counts)}</TableCell>
-                  <TableCell className="max-w-xs whitespace-normal">{toolsSummaryLabel(a.tools_summary)}</TableCell>
                   <TableCell>{a.model_name ?? "Not configured"}</TableCell>
                   <TableCell>
                     <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "Enabled" : "Disabled"}</Badge>
@@ -222,7 +217,7 @@ export default function AgentsView() {
               ))}
               {filtered?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                     No agents match your search.
                   </TableCell>
                 </TableRow>

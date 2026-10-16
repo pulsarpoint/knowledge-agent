@@ -46,9 +46,7 @@ test("the calls use /api/sessions", async () => {
       collection_ids: [],
       documents: [],
     },
-    tools: [],
     expert_ids: [],
-    subagents: false,
   });
   expect(calls).toEqual([
     "GET /api/sessions?document_id=d%201",

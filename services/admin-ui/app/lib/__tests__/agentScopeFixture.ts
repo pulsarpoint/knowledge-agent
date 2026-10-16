@@ -8,7 +8,6 @@ export const agentOptions: AgentOptions = {
     revision: 3,
     model: { id: "m1", name: "GPT" },
     system_prompt: "You operate servers.",
-    subagents_allowed: true,
   },
   models: [{ id: "m1", name: "GPT" }],
   default_model_id: "m1",
@@ -22,23 +21,5 @@ export const agentOptions: AgentOptions = {
     collections: [],
     documents: [],
   },
-  tools: [
-    {
-      name: "ssh_run",
-      label: "SSH",
-      summary: "Run a command",
-      group: "servers",
-      needs: "ssh",
-      requires: "at least one server",
-    },
-    {
-      name: "read_file",
-      label: "Read file",
-      summary: "Read a file",
-      group: "code",
-      needs: "files",
-      requires: "a code project or a collection",
-    },
-  ],
   experts: [{ id: "e1", name: "Payments expert", when_to_use: "Payments questions" }],
 };

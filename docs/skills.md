@@ -34,3 +34,10 @@ Create example:
 Updates use the same fields plus `revision`. Status changes use `{"enabled": false, "revision": 1}`. Successful changes return the updated record and revision. Metadata changes are recorded in `ka.audit_events`; full instructions are not copied into audit messages. Migration `0011_agent_skills.up.sql` creates `ka.agent_skills` with uniqueness and content constraints.
 
 An agent uses a skill when its access object (`ka.agents.access`) references it (`{"type": "skill", "id": ...}`). Saving a skill in the library does not automatically assign it; one agent may reference many skills and one skill may be referenced by many agents. Agent instructions are in General.
+
+**Listed at creation, loaded on use.** A run's instructions list only the skills in its access, each by name and
+description, in a **Skills** section (a run without skills has none); the instruction text never goes into the
+prompt. When the agent uses a skill (the person names it, or the task matches its description) it calls the
+`load_skill(name)` tool, which returns the skill's Markdown instructions read from `ka.agent_skills` at that moment
+(enabled skills only). A name that is not in the run's access, or a disabled skill, gets "This skill is not available
+in this run."

@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import AgentDetailView from "~/features/agents/AgentDetailView";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
-import * as tools from "~/features/agents/tools";
 import * as llm from "~/features/llm/api";
 
 vi.mock("~/features/agents/api", async () => ({
@@ -13,11 +12,6 @@ vi.mock("~/features/agents/api", async () => ({
   getAgents: vi.fn(),
   getAgentOptions: vi.fn(),
   saveAgent: vi.fn(),
-}));
-vi.mock("~/features/agents/tools", async () => ({
-  ...(await vi.importActual("~/features/agents/tools")),
-  getAgentTools: vi.fn(),
-  saveAgentTools: vi.fn(),
 }));
 vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
@@ -38,19 +32,6 @@ const agent: profiles.AgentProfile = {
   system_prompt: "",
   instructions: "",
   access: { resources: [], roles: { content_editor: false } },
-};
-const expertRow: tools.AgentTool = {
-  tool: "expert:p1",
-  label: "Payments",
-  summary: "Payment questions.",
-  group: "experts",
-  mode: "on",
-  usage: null,
-  default_usage: "",
-  subagent_allowed: false,
-  available: true,
-  reason: null,
-  tab: null,
 };
 
 beforeEach(() => {
@@ -75,11 +56,6 @@ beforeEach(() => {
     models: [],
     assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 },
   });
-  vi.mocked(tools.getAgentTools).mockImplementation(async () => ({ revision: 4, tools: [structuredClone(expertRow)] }));
-  vi.mocked(tools.saveAgentTools).mockImplementation(async (_id, revision, saved) => ({
-    revision: revision + 1,
-    tools: saved,
-  }));
 });
 afterEach(() => vi.unstubAllGlobals());
 function Detail() {
@@ -112,29 +88,10 @@ test("Offer as an expert needs When to use and is saved", async () => {
   expect(profiles.saveAgent).toHaveBeenLastCalledWith(expect.objectContaining({ id: "caller", expert: true }));
 });
 
-test("the Tools tab lists experts and saves them off", async () => {
-  const user = userEvent.setup();
-  open("/agents/caller?view=tools");
-  const group = await screen.findByRole("group", { name: "Experts" });
-  expect(within(group).getByText("Payment questions.")).toBeVisible();
-  expect(within(group).queryByText("Per run")).toBeNull();
-  expect(within(group).queryByRole("button", { name: /Edit usage/ })).toBeNull();
-  expect(screen.queryByText(tools.EXPERT_SELF_NOTE)).toBeNull();
-  await user.click(within(group).getByRole("switch", { name: "Payments" }));
-  await user.click(screen.getByRole("button", { name: "Save tools" }));
-  expect(tools.saveAgentTools).toHaveBeenCalledOnce();
-  const sent = vi.mocked(tools.saveAgentTools).mock.calls[0][2].find((item) => item.tool === "expert:p1")!;
-  expect(sent).toMatchObject({ mode: "off", usage: null, subagent_allowed: false });
-});
-
-test("the Experts group shows the empty and the self notes", async () => {
-  vi.mocked(tools.getAgentTools).mockResolvedValue({ revision: 4, expert: true, tools: [] });
-  open("/agents/caller?view=tools");
-  const group = await screen.findByRole("group", { name: "Experts" });
-  expect(
-    within(group).getByText("No experts yet. Turn on Offer as an expert on an agent's General tab."),
-  ).toBeVisible();
-  expect(within(group).getByText("When this agent runs as an expert it cannot call experts.")).toBeVisible();
+test("General has no May start subagents switch: every saved agent may start subagents", async () => {
+  open("/agents/caller");
+  await screen.findByRole("switch", { name: "Offer as an expert" });
+  expect(screen.queryByRole("switch", { name: "May start subagents" })).toBeNull();
 });
 
 test("All agents and the agent header show the Expert badge", async () => {

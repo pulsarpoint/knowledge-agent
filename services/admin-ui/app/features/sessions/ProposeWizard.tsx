@@ -113,12 +113,6 @@ export function buildProposalPrompt(type: ResourceType, given: ProposalOptions):
   return extra ? `${text}\n\nExtra instructions:\n${extra}` : text;
 }
 
-/** The proposal tools a wizard run turns on. */
-export function proposalTools(type: ResourceType, given: ProposalOptions): string[] {
-  const options = applicable(type, given);
-  return [...(options.services ? ["propose_service"] : []), ...(options.documents ? ["propose_document"] : [])];
-}
-
 /** The run's first message (and so its title). */
 export function proposalMessage(type: ResourceType, given: ProposalOptions): string {
   const options = applicable(type, given);
@@ -139,8 +133,8 @@ function complete(type: ResourceType, step: Step, given: ProposalOptions): boole
   return true;
 }
 
-/** The start request of a wizard run: the resource chat's settings (model, resources, tools, experts), the generated
- * prompt as the system prompt (no library prompt), the chosen proposal tools and the tag `proposals`. */
+/** The start request of a wizard run: the resource chat's settings (model, resources, experts), the generated prompt as
+ * the system prompt (no library prompt), the content editor role (the run may propose) and the tag `proposals`. */
 export function wizardInput(
   resource: { type: ResourceType; id: string; name: string },
   agentOptions: AgentOptions,
@@ -154,7 +148,7 @@ export function wizardInput(
     ...base,
     prompt_id: null,
     system_prompt: prompt.trim(),
-    tools: [...new Set([...base.tools, ...proposalTools(resource.type, options)])],
+    content_editor: true,
     tags: ["proposals"],
   };
 }
@@ -215,7 +209,6 @@ export default function ProposeWizard({
     settings.options && settings.settings
       ? wizardInput(resource, settings.options, settings.settings, options, prompt)
       : null;
-  const tools = input ? [...new Set(["get_resource", ...input.tools])] : [];
 
   const reset = () => {
     setStep("what");
@@ -388,25 +381,17 @@ export default function ProposeWizard({
                   />
                   <FieldDescription>The run's system prompt. Edit it as you like.</FieldDescription>
                 </Field>
-                <Field>
-                  <FieldLabel id="propose-tools">Tools</FieldLabel>
-                  {settings.error ? (
-                    <Alert variant="destructive">
-                      <AlertDescription>{settings.error}</AlertDescription>
-                    </Alert>
-                  ) : !input ? (
-                    <p className="text-sm text-muted-foreground">Loading…</p>
-                  ) : (
-                    <ul aria-labelledby="propose-tools" className="flex flex-wrap gap-1.5">
-                      {tools.map((name) => (
-                        <li key={name} className="rounded border px-2 py-0.5 font-mono text-xs">
-                          {name}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <FieldDescription>The chat settings of this {type} for the rest (model, resources).</FieldDescription>
-                </Field>
+                {settings.error ? (
+                  <Alert variant="destructive">
+                    <AlertDescription>{settings.error}</AlertDescription>
+                  </Alert>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {input
+                      ? `The agent gets every tool and may propose changes for your review. The chat settings of this ${type} for the rest (model, resources).`
+                      : "Loading…"}
+                  </p>
+                )}
                 {blockedReason && (
                   <Alert>
                     <AlertDescription>{blockedReason}</AlertDescription>

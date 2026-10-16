@@ -70,7 +70,7 @@ const open = (path: string) =>
 test("the agent page has no Prompts or Versions tab", async () => {
   open("/agents/custom");
   await screen.findByRole("heading", { name: "Payments analyst", level: 2 });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Tools", "Test"]);
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Test"]);
 });
 
 test("General edits and saves the prompt with the agent revision", async () => {

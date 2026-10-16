@@ -59,7 +59,7 @@ limit, no per-turn time limit, no 300-second limit).
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run.").
 - The inventory tool `get_resource(resource_type, resource_id)` (`server`, `service`, `environment` or `code_project`,
-  and its uuid) is on in every run that has resources (it is not chosen on the Tools tab) and follows the same allowlist: it answers only about the resources the run was given, with everything recorded
+  and its uuid) is offered in every run, like every tool, and follows the same allowlist: it answers only about the resources the run was given, with everything recorded
   about it and links to related resources; a linked resource the run was not given, anything else, or a malformed id,
   gets "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
   Its answer has the resource's `inventory_document` (`{id, title}` of its live inventory document — the live document
@@ -161,11 +161,11 @@ See [agent configuration](agent-profiles.md), [SSH settings](server-operations.m
 
 ## Tools
 
-Tools are part of an agent's configuration (`config['tools']`, edited on the Tools tab, see
-[agent configuration](agent-profiles.md)). Built-in tools are `@tool` functions whose attributes are in
-`tools/tools.json`, copied into `ka.tools` at start. The model gets exactly the selected tools whose needs are met;
-MCP tools are filtered the same way and edited MCP usage is added to the prompt as `Tool notes:`. `code_graph` is
-offered when a selected code project has a current generated graph (`code_graph` results carry its `generated_at`; if
+Every run gets every tool: the whole catalog with its built-in usage text, every tool of the MCP servers in its access
+and its experts (see [agent configuration](agent-profiles.md#tools) and `knowledge_admin/tools/README.md`). Built-in
+tools are `@tool` functions whose attributes are in `tools/tools.json`, copied into `ka.tools` at start. There is no
+per-agent choice and no "needs" rule; each tool's `check_<tool>` refuses what the run's access object does not allow.
+`code_graph` answers for a code project of the run that has a current generated graph (`code_graph` results carry its `generated_at`; if
 the project was synced after the graph was generated, the answer carries a note to regenerate it or confirm with
 `read_file`).
 
@@ -175,11 +175,10 @@ or `No tools used`. The workspace counts live: the session detail returns its co
 last tool call they include, and the page adds the streamed tool calls after it (a replay after a reconnect counts
 once; earlier activity loaded by scrolling up is already counted).
 
-**Subagents (`run_subagent`).** An agent with **May start subagents** gets `run_subagent(task, tools, resources)`. A
+**Subagents (`run_subagent`).** Every native session run (not a subagent's own) gets `run_subagent(task, resources)`. A
 subagent works on one task (at most 20,000 characters) without the conversation: its configuration is a copy of the
-agent's pinned configuration with only the given tools on (names as the agent sees them; MCP servers kept only for the
-given MCP tools, their other tools off; never `run_subagent`, never a tool not allowed for subagents), the resource
-lists narrowed to the given ids (each must be in the agent's current lists; given resources make it a per-run run, so
+agent's pinned configuration with every tool but `run_subagent` (the parent's MCP servers kept, no experts, content
+editor off), the resource lists narrowed to the given ids (each must be in the agent's current lists; given resources make it a per-run run, so
 an empty list gives nothing), the built-in prompt `knowledge_agents/prompts/subagent.md`, no instructions, skills off
 and the same model. It gets only the turn's already decrypted credentials its configuration references (SSH private
 keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at
@@ -192,7 +191,7 @@ counts. **Stop** stops the agent and every subagent; a subagent of an ended turn
 
 **Experts (`ask_<slug>`).** A native agent, including the ad-hoc agent of a new-document run, gets one tool per offered expert
 (see [agent configuration](agent-profiles.md)): an agent with **Offer as an expert** that is enabled, has a model and
-is not the caller, and that the caller has not switched off. The name is `ask_` plus the expert's name lowercased with
+is not the caller (a run's `expert_ids` may narrow them). The name is `ask_` plus the expert's name lowercased with
 every run of characters other than `a-z0-9` replaced by `_`, trimmed of `_`, at most 50 characters (an empty slug gives
 `expert`; a slug taken by an earlier expert, ordered by name and id, gets `_2`, `_3`, ...). The description is `Ask <name>, an
 expert agent. <When to use>` plus ` It uses its own resources; pass some of them to narrow it to those (it accepts:

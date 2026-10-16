@@ -3,7 +3,7 @@ import { ApiError } from "~/lib/api";
 import { isResourceScope, previewSession, type AgentOptions, type ChatScope, type SessionDetail } from "./api";
 import { AGENT_KINDS } from "~/lib/resources";
 import ResourcePicker from "~/components/ResourcePicker";
-import { OWN, shownTools, startInput, withScope, type AgentSettings } from "./agentSettings";
+import { OWN, startInput, withScope, type AgentSettings } from "./agentSettings";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -12,18 +12,10 @@ import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Spinner } from "~/components/ui/spinner";
-import { Switch } from "~/components/ui/switch";
 import { Textarea } from "~/components/ui/textarea";
 
 /** The documents of a document's run show above the resource kinds, always on. */
 const DOCUMENTS = { key: "documents", field: "documents", plural: "Documents" };
-const GROUPS: [string, string][] = [
-  ["code", "Code"],
-  ["documents", "Documents"],
-  ["servers", "Servers"],
-  ["inventory", "Inventory"],
-  ["memory", "Memory"],
-];
 
 /** The Ask agent settings for a document, or the narrowing of a saved agent: editable before a conversation starts (Preview shows the JSON the next message
  * starts with), read-only while a conversation is open (its saved configuration; Start new chat with these settings). */
@@ -67,8 +59,7 @@ export default function AgentSettingsSheet({
   useEffect(() => {
     setPreview(null);
   }, [settings, previewMessage]); // a changed input makes the preview stale
-  const shown = shownTools(options, settings);
-  const { chosen, off, experts } = settings;
+  const { chosen, experts } = settings;
   const documents = new Map(options.resources.documents.map((item) => [item.id, item]));
   const choosePrompt = (key: string) =>
     onChange({
@@ -155,6 +146,9 @@ export default function AgentSettingsSheet({
             )}
             <FieldSet>
               <FieldLegend>Servers and resources</FieldLegend>
+              <FieldDescription>
+                Every run gets every tool; these resources decide what the tools may reach.
+              </FieldDescription>
               {/* A new document is implied: the run writes it. The documents show first: always on for a document's
                   run, picked like the rest for a saved agent's run (each as the agent has it). */}
               <ResourcePicker
@@ -189,48 +183,7 @@ export default function AgentSettingsSheet({
               />
             </FieldSet>
             <FieldSet>
-              <FieldLegend>Tools</FieldLegend>
-              {GROUPS.map(([group, label]) => {
-                const tools = shown.filter((tool) => tool.group === group);
-                if (tools.length === 0) return null;
-                return (
-                  <FieldSet key={group}>
-                    <FieldLegend variant="label">{label}</FieldLegend>
-                    {tools.map((tool) => (
-                      <Field key={tool.name} orientation="horizontal">
-                        <Checkbox
-                          id={`settings-tool-${tool.name}`}
-                          aria-label={tool.label}
-                          disabled={locked}
-                          checked={!off.includes(tool.name)}
-                          onCheckedChange={(on) =>
-                            onChange({
-                              off: on === true ? off.filter((name) => name !== tool.name) : [...off, tool.name],
-                            })
-                          }
-                        />
-                        <FieldLabel htmlFor={`settings-tool-${tool.name}`}>{tool.label}</FieldLabel>
-                        <FieldDescription>{tool.summary}</FieldDescription>
-                      </Field>
-                    ))}
-                  </FieldSet>
-                );
-              })}
-            </FieldSet>
-            <FieldSet>
-              <FieldLegend>Agents</FieldLegend>
-              {(!agent || agent.subagents_allowed) && (
-                <Field orientation="horizontal">
-                  <Switch
-                    id="settings-subagents"
-                    aria-label="Allow subagents"
-                    disabled={locked}
-                    checked={settings.subagents}
-                    onCheckedChange={(subagents) => onChange({ subagents })}
-                  />
-                  <FieldLabel htmlFor="settings-subagents">Allow subagents</FieldLabel>
-                </Field>
-              )}
+              <FieldLegend>Experts</FieldLegend>
               {options.experts.length === 0 && <FieldDescription>No experts.</FieldDescription>}
               {options.experts.map((expert) => (
                 <Field key={expert.id} orientation="horizontal">

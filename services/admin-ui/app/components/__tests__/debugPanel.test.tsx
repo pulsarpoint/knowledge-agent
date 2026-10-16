@@ -36,7 +36,7 @@ vi.mock("~/features/sessions/RunWorkspace", () => ({
   ),
 }));
 
-const options = { ...shared, tools: shared.tools.filter((tool) => tool.needs !== "editable_document") };
+const options = shared;
 const view = {
   instructions: "You answer.\n\nResource: server s1 (web-1)",
   prompt: { id: "p1", name: "Server assistant", version: 2 },
@@ -203,7 +203,7 @@ test("in a chat: Debug before the first message previews the next start", async 
   expect(screen.getByTestId("conversation").parentElement).toHaveClass("hidden");
   const preview = calls.find((call) => call.key === "POST /api/sessions/preview")!.body;
   expect(preview.started_from).toEqual({ server_id: "s1" });
-  expect(preview.tools).not.toContain("propose_service");
+  expect(preview).not.toHaveProperty("content_editor");
   expect(calls.some((call) => call.key.includes("/debug"))).toBe(false);
 });
 

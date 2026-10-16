@@ -4,29 +4,7 @@ import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import ProposeWizard, { buildProposalPrompt, DEFAULT_PROPOSAL_OPTIONS } from "~/features/sessions/ProposeWizard";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 
-// as the backend offers them for a resource: the proposal tools only a request turns on, none that edits a document
-const options = {
-  ...shared,
-  tools: [
-    ...shared.tools.filter((tool) => tool.needs !== "editable_document"),
-    {
-      name: "propose_service",
-      label: "Propose service",
-      summary: "Propose a service",
-      group: "inventory",
-      needs: "server_proposals",
-      requires: "a server run whose request turns it on",
-    },
-    {
-      name: "propose_document",
-      label: "Propose document",
-      summary: "Propose a document",
-      group: "inventory",
-      needs: "resource_proposals",
-      requires: "a run whose request turns it on",
-    },
-  ],
-};
+const options = shared;
 
 function api(routes: Record<string, (body: any) => [number, unknown]>) {
   const calls: { key: string; body: any }[] = [];
@@ -139,7 +117,7 @@ describe("buildProposalPrompt", () => {
   });
 });
 
-test("a server offers services and documents; the options; Review shows the prompt and tools; Start opens the chat", async () => {
+test("a server offers services and documents; the options; Review shows the prompt; Start opens the chat", async () => {
   const user = userEvent.setup();
   const calls = api({
     "GET /api/sessions/options?server_id=s1": () => [200, options],
@@ -176,10 +154,8 @@ test("a server offers services and documents; the options; Review shows the prom
   const prompt = within(dialog).getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
   expect(prompt.value).toContain("Cover in every document: configuration, health checks, ports and paths.");
   expect(prompt.value).toMatch(/Extra instructions:\nCheck the backups\.$/);
-  const tools = within(dialog).getByRole("list", { name: "Tools" });
-  expect(within(tools).getByText("propose_service")).toBeInTheDocument();
-  expect(within(tools).getByText("propose_document")).toBeInTheDocument();
-  expect(within(tools).getByText("get_resource")).toBeInTheDocument();
+  expect(within(dialog).queryByRole("list", { name: "Tools" })).toBeNull(); // every run gets every tool
+  expect(within(dialog).getByText(/may propose changes for your review/)).toBeInTheDocument();
   await user.type(prompt, "\nBe brief.");
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
 
@@ -190,12 +166,14 @@ test("a server offers services and documents; the options; Review shows the prom
   expect(started.prompt_id).toBeNull();
   expect(started.system_prompt).toBe(prompt.value.trim());
   expect(started.system_prompt).toMatch(/Be brief\.$/);
-  expect(started.tools).toEqual(expect.arrayContaining(["propose_service", "propose_document"]));
+  expect(started.content_editor).toBe(true);
+  expect(started).not.toHaveProperty("tools");
+  expect(started).not.toHaveProperty("subagents");
   expect(started.message).toBe("Propose services and documents for this server.");
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("only the chosen proposal tools are on: documents only", async () => {
+test("documents only: the prompt and message ask for documents, the run may still propose", async () => {
   const user = userEvent.setup();
   const calls = api({
     "GET /api/sessions/options?server_id=s1": () => [200, options],
@@ -208,14 +186,13 @@ test("only the chosen proposal tools are on: documents only", async () => {
   await user.click(within(dialog).getByRole("button", { name: "Next" }));
   expect(within(dialog).queryByRole("checkbox", { name: "Look for new services" })).toBeNull();
   await user.click(within(dialog).getByRole("button", { name: "Next" }));
-  const tools = within(dialog).getByRole("list", { name: "Tools" });
-  expect(within(tools).queryByText("propose_service")).toBeNull();
-  expect(within(tools).getByText("propose_document")).toBeInTheDocument();
+  expect((within(dialog).getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).not.toContain(
+    "propose_service",
+  );
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
   await waitFor(() => expect(calls.some((call) => call.key === "POST /api/sessions")).toBe(true));
   const started = calls.find((call) => call.key === "POST /api/sessions")!.body;
-  expect(started.tools).toContain("propose_document");
-  expect(started.tools).not.toContain("propose_service");
+  expect(started.content_editor).toBe(true);
   expect(started.message).toBe("Propose documents for this server.");
 });
 
@@ -245,14 +222,11 @@ test("a service offers documents only and starts from the service", async () => 
   expect(within(dialog).queryByRole("checkbox", { name: "One document per service" })).toBeNull();
   expect(within(dialog).getByRole("checkbox", { name: "An overview document of the service" })).toBeChecked();
   await user.click(within(dialog).getByRole("button", { name: "Next" }));
-  const tools = within(dialog).getByRole("list", { name: "Tools" });
-  expect(within(tools).queryByText("propose_service")).toBeNull();
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r7"));
   const started = calls.find((call) => call.key === "POST /api/sessions")!.body;
   expect(started.started_from).toEqual({ service_id: "v1" });
-  expect(started.tools).toContain("propose_document");
-  expect(started.tools).not.toContain("propose_service");
+  expect(started.content_editor).toBe(true);
   expect(started.tags).toEqual(["proposals"]);
 });
 

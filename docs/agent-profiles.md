@@ -9,12 +9,11 @@ inherited from another agent. Agents share these tabs:
 
 | Tab | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Content editor** (off by default: "Lets this agent propose services and documents and edit editable documents."), **Answer only from documents**, May start subagents, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
+| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Content editor** (off by default: "Lets this agent propose services and documents and edit editable documents."), **Answer only from documents**, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
 | Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**; a document has an **Editable** switch (read-only by default). A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
-| Tools | Choose which tools the agent gets, edit their usage instructions; a tool whose need is unmet links to Resources |
 | Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; a document goes with the agent's own Editable; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
-Other `?view=` values open General.
+Other `?view=` values (including the former `tools`) open General.
 
 **Access.** What an agent may use is one access object, `ka.agents.access`:
 `{"resources": [{"type", "id", "editable"?}], "roles": {"content_editor": bool}}`. Types are `server`, `service`,
@@ -47,49 +46,24 @@ Every agent has its own configuration; no parent agent is introduced.
 
 ## Tools
 
-The **Tools** tab lists the tools of a native agent in groups (Code, Documents, Servers, MCP, Agents; empty groups are
-hidden, except Agents), each with an on/off switch, a one-line summary and its usage instructions. **Edit usage** replaces the
-built-in instructions the model reads with your own text (up to 8,000 characters; the row shows **Edited**);
-**Reset** returns to the built-in text. A tool whose capability is not available shows a "Needs …" row instead of
-a switch effect: `Needs code projects`, `Needs documents`, `Needs "Answer only from documents"`, `Needs SSH servers`,
-`Needs MCP`; it stays saved but is not offered until the need is met, and links to where it is met (`tab`: **Resources**, or **General** for "Answer only from documents"). MCP tools of the selected servers are on by default; an
-edited usage text for one is added to the prompt as **Tool notes** (the tool's own description still comes from the
-server). **Save tools** saves the whole list with the agent's revision (`GET/PUT /api/agents/{id}/tools`; a stale
-list returns 409 "The tools changed since you opened them. Reload.").
+Every run gets every tool: the whole tool catalog with its built-in usage text, every tool of the MCP servers in its
+access, `load_skill`, `run_subagent` (except in a subagent's own run) and one tool per offered expert. There is no
+Tools tab, no per-agent tool choice, no edited usage text and no "Needs …" rule (migration 0115 dropped
+`ka.agent_tools` and `ka.tools.needs`). The access object decides what a tool may do: each tool checks its arguments
+against the run's resources and roles and refuses the rest (for example "This document is not available in this
+run."; `report_not_covered` outside a grounded run refuses "This run does not answer only from documents."). Agent
+runs, run records, session pages and Test chats still show how often each tool was used. See
+[Agent execution](agents.md#tools).
 
-Save rules: when **Answer only from documents** is on, `report_not_covered` cannot be switched off ("Grounded answers
-need report_not_covered."); switching a capability on switches all
-of its tools on (replacing earlier off rows; `report_not_covered` only with **Answer only from documents**; Documents
-bring the file tools only without code projects and without **Answer only from documents**); an agent
-gets all tools of every resource kind in its access when it is created or a kind is added to it; agents saved before
-keep their tool rows. The wizard's explicit tool choice wins over these defaults (an agent created with a hand-picked
-list gets just that list). Tools of a server that is not selected, or unknown tools,
-are refused. The agent wizard
-has a **Tools** page that follows the chosen capabilities, and **All agents** has a **Tools** column
-(for example `7 tools · Code 6 · Servers 1` or `No tools`). Tools are part
-of the configuration; conversations saved before 0078 use the tools their capabilities gave.
+**Subagents.** Every saved agent's run may start subagents with `run_subagent`: helpers that work on separate parts of
+the task in parallel, each with every tool except `run_subagent` and the run's access narrowed to the resources it is
+given, with content editor off. There is no switch for it.
 
-**Subagents.** **May start subagents** (General, off by default; the wizard asks the same on its
-Tools page) lets the agent hand separate parts of its work to helpers that run in parallel. The switch is the
-`run_subagent` row in `ka.agent_tools` (`mode = 'on'`, `subagent_allowed = false`; `GET/PUT /api/agents/{id}`
-`subagents`); turning it off deletes the row. While it is on, the Tools tab's **Agents** group lists **Start subagents**
-(its switch follows General; **Edit usage** / **Reset** change the instructions the model reads about when to start
-subagents) and **A subagent may use**: one checkbox per tool of the agent that is on (catalog and MCP tools), checked by
-default (`subagent_allowed`). While it is off, the group says "Turn on May start subagents in General to let this
-agent start helpers." and the Tools API refuses `run_subagent` ("Turn on May start subagents in General first.").
-Clone and Apply copy the row and `subagent_allowed` with the other tool rows.
-
-**Experts.** **Offer as an expert** (General, native agents, off by default; `expert` in `GET/PUT /api/agents/{id}` and
-in the list, which shows an **Expert** badge) offers the agent to every other native agent as a tool. Saving it on
-needs a non-empty When to use (400 "Experts need When to use."). An expert is offered while it is enabled and has a
-model; a caller never gets itself. The Tools tab's **Experts** group lists every other expert with its When to use
-and a switch, on by default; switching one off stores an `expert:<agent id>` row in `ka.agent_tools`
-(`mode = 'off'`, `subagent_allowed = false`) and switching it back on deletes the row. `PUT /api/agents/{id}/tools`
-accepts `expert:<id>` entries (`on` or `off`) for existing experts other than the agent; usage is not editable. With
-no experts the group says "No experts yet. Turn on Offer as an expert on an agent's General tab."; on an agent that is
-itself an expert it says "When this agent runs as an expert it cannot call experts." Clone copies the `expert:` rows
-and starts with the switch off; Apply to original leaves the original's switch as it is and never copies a row naming
-the original itself. Deleting an agent deletes the `expert:<its id>` rows of all callers.
+**Experts.** **Offer as an expert** (General, off by default; `expert` in `GET/PUT /api/agents/{id}` and in the list,
+which shows an **Expert** badge) offers the agent to every other agent as a tool. Saving it on needs a non-empty When to
+use (400 "Experts need When to use."). An expert is offered while it is enabled and has a model; a caller never gets
+itself, and an expert's own run calls no experts. Every run gets every offered expert; a run may narrow them in its
+chat settings (`expert_ids` in the start request). There is no per-agent choice of experts.
 
 ## New agent
 
@@ -101,7 +75,7 @@ environments, skills, MCP servers, services, model connections, and existing
 agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
 
-The wizard asks for **Agent model** (default: the first model in the catalog) first (page 1) and shows it on the review. The review has General (identity, instructions, the **Content editor** switch and a summary of the proposed resources), Prompt, Resources (the catalog per type, with **Editable** for picked documents) and Tools tabs. `POST /api/agents/wizard` accepts `access` (references and roles) and `instructions`. The Tools page is always shown.
+The wizard asks for **Agent model** (default: the first model in the catalog) first (page 1) and shows it on the review. The review has General (identity, instructions, the **Content editor** switch and a summary of the proposed resources), Prompt and Resources (the catalog per type, with **Editable** for picked documents) tabs. `POST /api/agents/wizard` accepts `access` (references and roles) and `instructions`; it has no tool choice (a `tools` field is refused as an unknown field).
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource

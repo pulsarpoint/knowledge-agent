@@ -1,5 +1,4 @@
 import { request } from "~/lib/api";
-import type { ToolsSummary } from "./tools";
 import type { ResourceIds, RunKey } from "~/lib/resources";
 /** The types of resource an agent's access may reference, with their labels, in the order the editor shows them. */
 export const ACCESS_TYPES = [
@@ -28,6 +27,7 @@ export interface AgentAccess {
   roles: { content_editor: boolean };
 }
 export const CONTENT_EDITOR_HELP = "Lets this agent propose services and documents and edit editable documents.";
+export const EXPERT_HELP = "Other agents can call this agent as a tool. Its When to use text tells them when.";
 /** "1 server · 2 documents", or "No resources". */
 export function countsSummary(counts: Partial<Record<AccessType, number>>): string {
   const parts = ACCESS_TYPES.filter(({ type }) => counts[type]).map(
@@ -42,7 +42,6 @@ export interface AgentProfile {
   description: string;
   when_to_use: string;
   enabled: boolean;
-  subagents?: boolean;
   expert?: boolean;
   documents_grounded: boolean;
   revision: number;
@@ -57,7 +56,6 @@ export interface AgentSummary extends AgentProfile {
   counts: Record<AccessType, number>;
   model_name: string | null;
   original_name?: string | null;
-  tools_summary?: ToolsSummary;
 }
 /** Every resource of the project an agent's access may reference, by type. */
 export type AgentOptions = Record<AccessType, AccessEntry[]>;
@@ -83,7 +81,6 @@ export const saveAgent = (value: AgentProfile) => {
     documents_grounded,
     instructions,
     access,
-    subagents,
     expert,
     model_id,
   } = value;
@@ -105,7 +102,6 @@ export const saveAgent = (value: AgentProfile) => {
           ),
         roles: { content_editor: access.roles.content_editor },
       },
-      ...(subagents !== undefined ? { subagents } : {}),
       ...(expert !== undefined ? { expert } : {}),
       ...(model_id !== undefined ? { model_id } : {}),
     }),

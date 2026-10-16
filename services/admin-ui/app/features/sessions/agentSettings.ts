@@ -4,10 +4,8 @@ import { INVENTORY_TAG } from "~/features/documents/api";
 import {
   getSessionOptions,
   isResourceScope,
-  toolApplies,
   type AgentOptions,
   type AgentResources,
-  type AgentTool,
   type ChatScope,
   type NewDocument,
   type SessionDetail,
@@ -34,8 +32,6 @@ export interface AgentSettings {
   chosen: AgentResources;
   /** A saved agent's run: the documents of its access picked for it (each as the agent has it). */
   documents?: string[];
-  off: string[]; // tools the person unticked (a tool that newly applies starts ticked)
-  subagents: boolean;
   experts: string[];
 }
 
@@ -60,8 +56,6 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
       systemPrompt: options.agent.system_prompt,
       chosen,
       documents: options.resources.documents.map((item) => item.id),
-      off: [],
-      subagents: options.agent.subagents_allowed,
       experts: options.experts.map((item) => item.id),
     };
   }
@@ -74,8 +68,6 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
     promptKey: first ? first.id : OWN,
     systemPrompt: first ? first.content : "",
     chosen,
-    off: [],
-    subagents: false,
     experts: [],
   };
 }
@@ -95,7 +87,6 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
   if (options.agent && revision !== options.agent.revision) return base; // the agent changed since the save
   const models = new Set(options.models.map((item) => item.id));
   const prompts = new Set(options.prompts.map((item) => item.id));
-  const tools = new Set(options.tools.map((item) => item.name));
   const experts = new Set(options.experts.map((item) => item.id));
   const sameLinks = JSON.stringify(strings(linked).sort()) === JSON.stringify(linkedIds(options));
   const chosen = { ...base.chosen };
@@ -123,8 +114,6 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
     systemPrompt,
     chosen,
     ...(options.agent ? { documents: strings(settings.documents).filter((id) => documents.has(id)) } : {}),
-    off: strings(settings.off).filter((name) => tools.has(name)),
-    subagents: settings.subagents === true,
     experts: strings(settings.experts).filter((id) => experts.has(id)),
   };
 }
@@ -133,12 +122,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
  * against today's options like restored settings: resources that are gone or not usable, experts that are gone and a
  * model that is gone are left out (the default model instead). */
 export function settingsFromSession(options: AgentOptions, session: SessionDetail): AgentSettings {
-  const config = (session.config ?? {}) as {
-    tools?: { items?: { tool: string; mode: string }[] };
-    experts?: { id: string }[];
-  };
-  const items = config.tools?.items ?? [];
-  const tools = new Set(options.tools.map((tool) => tool.name));
+  const config = (session.config ?? {}) as { experts?: { id: string }[] };
   const experts = new Set(options.experts.map((item) => item.id));
   // what the run was started for (an environment, not what it brought); runs started before it was recorded: what they were given
   const resources = (session.chosen_resources ?? session.run_resources ?? {}) as Partial<
@@ -160,10 +144,6 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     chosen,
     // the documents a run was given are not recorded: a saved agent's run starts again with all of them
     ...(options.agent ? { documents: options.resources.documents.map((item) => item.id) } : {}),
-    off: items.filter((item) => tools.has(item.tool) && item.mode !== "on").map((item) => item.tool),
-    subagents:
-      (!options.agent || options.agent.subagents_allowed) &&
-      items.some((item) => item.tool === "run_subagent" && item.mode === "on"),
     experts: (config.experts ?? []).map((entry) => String(entry.id)).filter((id) => experts.has(id)),
   };
 }
@@ -179,13 +159,8 @@ export function pickReason(options: AgentOptions, settings: AgentSettings): stri
   return has && !picked ? "Pick at least one resource" : null;
 }
 
-/** The tools that apply to what is chosen. */
-export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
-  options.tools.filter((tool) => toolApplies(tool, settings.chosen, options.resources));
-
 const SCOPE_FIELD = { server: "server_ids", service: "service_ids", environment: "environment_ids" } as const;
-/** A server, service or environment scope always has its resource chosen (the run is about it), so the tools that need
- * it show and are sent; so does an inventory document's resource (Start adds it too), a server only when the run can
+/** A server, service or environment scope always has its resource chosen (the run is about it); so does an inventory document's resource (Start adds it too), a server only when the run can
  * use it (one without usable SSH is left out, and the start says so). */
 export function withScope(scope: ChatScope, settings: AgentSettings, options?: AgentOptions): AgentSettings {
   const resource = isResourceScope(scope)
@@ -207,9 +182,6 @@ export function withScope(scope: ChatScope, settings: AgentSettings, options?: A
 
 export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
   const settings = withScope(scope, raw, options);
-  const tools = shownTools(options, settings)
-    .filter((tool) => !settings.off.includes(tool.name))
-    .map((tool) => tool.name);
   if (scope.kind === "agent") {
     // a saved agent keeps its own model and prompt; the run only narrows it (a document as the agent has it)
     const picked = settings.documents ?? [];
@@ -217,9 +189,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       agent_id: scope.id,
       message: message.trim(),
       context: "",
-      tools,
       expert_ids: settings.experts,
-      subagents: settings.subagents,
       resources: {
         ...settings.chosen,
         documents: options.resources.documents
@@ -229,7 +199,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (isResourceScope(scope)) {
-    // a chat on a server, service or environment: the resource is always among its resources (no proposal tools)
+    // a chat on a server, service or environment: the resource is always among its resources (it may not change content)
     return {
       started_from:
         scope.kind === "server"
@@ -243,9 +213,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       system_prompt: settings.systemPrompt.trim(),
       context: "",
       resources: { ...settings.chosen, documents: [] },
-      tools,
       expert_ids: settings.experts,
-      subagents: settings.subagents,
     };
   }
   if (scope.kind === "new-document") {
@@ -266,9 +234,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       system_prompt: settings.systemPrompt.trim(),
       context: "",
       resources: { ...settings.chosen, documents: [{ new: document, editable: true }] },
-      tools,
       expert_ids: settings.experts,
-      subagents: settings.subagents,
     };
   }
   return {
@@ -282,13 +248,11 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       ...settings.chosen,
       documents: options.resources.documents.map((item) => ({ id: item.id, editable: item.editable })),
     },
-    tools,
     expert_ids: settings.experts,
-    subagents: settings.subagents,
   };
 }
 
-/** "Claude · web-1, Payments · 2 tools": the model, up to three chosen resources (+n more) and the tools on. */
+/** "Claude · web-1, Payments": the model and up to three chosen resources (+n more). */
 export function settingsSummary(options: AgentOptions, settings: AgentSettings): string {
   const model = options.models.find((item) => item.id === settings.modelId)?.name ?? "No model";
   const names = AGENT_KINDS.flatMap(({ key, field }) =>
@@ -298,8 +262,7 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
     names.length === 0
       ? "no resources"
       : names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
-  const on = shownTools(options, settings).filter((tool) => !settings.off.includes(tool.name)).length;
-  return `${model} · ${resources} · ${on} tool${on === 1 ? "" : "s"}`;
+  return `${model} · ${resources}`;
 }
 
 /** The Ask agent settings of a document, the Test settings of a saved agent, or the settings for writing a new document:

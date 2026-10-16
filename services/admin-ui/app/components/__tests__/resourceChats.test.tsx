@@ -12,21 +12,7 @@ import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
-// as the backend offers them for a service: propose_document (only a request turns it on), none that edits a document
-const options = {
-  ...shared,
-  tools: [
-    ...shared.tools.filter((tool) => tool.needs !== "editable_document"),
-    {
-      name: "propose_document",
-      label: "Propose document",
-      summary: "Propose a document",
-      group: "inventory",
-      needs: "resource_proposals",
-      requires: "a run whose request turns it on",
-    },
-  ],
-};
+const options = shared;
 
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
 vi.mock("~/features/sessions/useSessionEvents", async () => {
@@ -288,7 +274,7 @@ test("Chat never opens a Propose wizard run as the latest open chat", async () =
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r2"));
 });
 
-test("New chat starts a run from the resource without proposal tools and opens it", async () => {
+test("New chat starts a run from the resource that may not change content and opens it", async () => {
   live.sessions.r2 = detail("r2", "waiting");
   let listed = [run("r2", "waiting", "Open one")];
   const calls = api({
@@ -313,7 +299,8 @@ test("New chat starts a run from the resource without proposal tools and opens i
   await waitFor(() => expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(true));
   const body = calls.find((c) => c.key === "POST /api/sessions")!.body;
   expect(body.started_from).toEqual({ service_id: "v1" });
-  expect(body.tools).not.toContain("propose_document");
+  expect(body).not.toHaveProperty("content_editor");
+  expect(body).not.toHaveProperty("tools");
   expect(body.resources.service_ids).toContain("v1");
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r9"));
   expect(await within(chats).findByRole("button", { name: /Is it up\?/ })).toBeInTheDocument();

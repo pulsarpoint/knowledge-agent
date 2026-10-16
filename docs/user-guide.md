@@ -378,7 +378,8 @@ the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of an
 A chat answers questions about the resource: its prompt is the resource type's assistant prompt (**Server
 assistant**, **Service assistant**, **Environment assistant** in **Administration → Prompts**), which uses the
 smallest read-only command that answers. **Settings** locks the resource on; you may add other resources. A server
-chat needs SSH to be set up and allowed for the server. A plain chat never has the proposal tools.
+chat needs SSH to be set up and allowed for the server. A plain chat may not change content: its proposal and
+edit tools refuse.
 
 Every chat (here, Ask agent beside a document, Documents → New and an agent's Test tab) has a **Debug** tab beside the
 **Conversation**. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
@@ -395,8 +396,8 @@ are never shown.
    document, one document per service (servers and environments), the aspects to cover (configuration, logs, health
    checks, ports and paths); and extra instructions.
 3. **Review** — the prompt built from those choices (the steps of the **Server discovery** prompt, one block per
-   option; edit it as you like) and the tools that will be on (`propose_service` only when services were chosen,
-   `propose_document` only when documents were). **Start** starts the run and opens it as the page's chat, so you can
+   option; edit it as you like). The run gets every tool, like every run, and may propose (it starts with the Content editor
+   role); the prompt asks only for what you chose. **Start** starts the run and opens it as the page's chat, so you can
    watch it and write to it while it works.
 
 **Proposals** (`/servers/:id/proposals`, and the same for services and environments) lists every proposal made in
@@ -502,8 +503,9 @@ Fetch tickets does not.
 
 `/skills` — a library of reusable Markdown instructions that agents can be given.
 Fields: name (lowercase-with-dashes, unique), description, instructions (Markdown),
-enabled. Search and filter by status; toggle enabled inline. Skills are context only
-(injected into the agent's instructions, never executed) and cannot be deleted — disable them.
+enabled. Search and filter by status; toggle enabled inline. Skills are instructions only (never executed) and cannot
+be deleted — disable them. A run lists the skills in its access by name and description; the agent loads a skill's
+full instructions with the `load_skill` tool when it uses it.
 
 ### 4.10 MCP servers
 
@@ -528,7 +530,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 - **Start blank** — skip generation (no model needed) and fill in the same review tabs
   yourself.
 
-Review and edit the tabs (General, Prompt, Resources, Tools; **Content editor** is on General), then **Create agent** (enabled once name and system prompt are
+Review and edit the tabs (General, Prompt, Resources; **Content editor** is on General), then **Create agent** (enabled once name and system prompt are
 filled in). The agent model is optional — an agent without a model is
 saved but runs only after you choose one with **Model** on its General tab.
 
@@ -536,9 +538,8 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose services and documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **May start subagents** (the agent can hand separate parts of its work to helpers that run in parallel); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose services and documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**; a document may be made **Editable** (only a Content editor changes it). A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
-| **Tools** | Switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. The **Experts** group lists the agents offered as experts, each with a switch (on by default). |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
@@ -553,8 +554,8 @@ narrow screen open **Run details**). **Send message** works while the agent work
 step); **Stop** ends the current turn.
 
 **Settings** opens a sheet. A Test run can only narrow the saved agent; nothing can be added. The model and prompt are
-shown read-only ("Change them in General."); to try another prompt, clone the agent. In the sheet you can untick tools,
-choose some of the agent's experts, turn off **Allow subagents** (shown when the agent allows them) and choose some of
+shown read-only ("Change them in General."); to try another prompt, clone the agent. In the sheet you can
+choose some of the agent's experts and some of
 its resources (see *Resources of a run* below). **Preview** shows the
 configuration the run would use. Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
@@ -564,11 +565,13 @@ them, and **Review and apply** opens them for editing, then **Apply to this agen
 
 **Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
-**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with all tools of the capabilities they use; adding the first resource of a kind (a code project, a collection, a server) switches all of its tools on. Agents created earlier keep their tools. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used.
+**Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources and
+the **Content editor** role: a tool without what it needs refuses (for example `This run has no servers.`), and
+`report_not_covered` works only with **Answer only from documents**. **Agent runs**, run records, session pages and
+Test chats show how often each tool was used.
 
-**Subagents.** With **May start subagents** on (General, or the wizard's Tools page) a native agent can start helpers
-with `run_subagent`: each gets a complete task, the tools you allow under **A subagent may use** that the agent passes
-it, and some or all of the agent's resources, but not the conversation. Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
+**Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except
+`run_subagent`, and some or all of the run's resources (content editor off), but not the conversation. Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
 default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. In the Test tab and on the
 session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
@@ -577,20 +580,16 @@ the main turn's Worked line counts only the agent's own work. **Stop** stops the
 
 **Experts.** Turn on **Offer as an expert** on an agent's General tab (it needs a When to use text, which tells other
 agents when to call it; the agent must be enabled and have a model). Every other native agent, including the agent of a
-new-document run, then gets a tool `ask_<name>` for it. In an agent's **Tools** tab the **Experts** group lists the
-experts with their When to use and the kinds of resources they accept; switch one off to stop this agent
-from calling it. The group says "No experts yet. Turn on Offer as an expert on an agent's General tab." when there is
-none, and an expert itself sees "When this agent runs as an expert it cannot call experts." An expert works on
+new-document run, then gets a tool `ask_<name>` for it; an expert itself calls no experts. A run may narrow the
+experts in its chat **Settings**. An expert works on
 its own resources, or on those the caller passes, which must be the caller's own and in the expert's resources. An expert starts without the
-conversation, may start its own subagents if it has that switch on, uses its own model and keys, and returns its final
+conversation, may start its own subagents, uses its own model and keys, and returns its final
 answer. The helpers of one turn (subagents and expert calls together) are limited to 16; sessions started before an
 expert was added do not see it. In the Test tab and on the session page an expert call appears in the Worked block as
 `Asked <name> · <task>` with **Open**, and under **Agents in this run** as `Expert · <name>` once it has started
 (selecting it shows its history; **Main agent** goes back); a call refused before it started shows as a failed tool
 line. In **Agent runs**, filtering by the expert's agent lists the calls made to it as "Called as expert by <caller>";
 opening one shows that call's record, including the expert's own subagents.
-In the wizard, a hand-picked tool
-list wins over the "all tools" default.
 
 **Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Test** tab **Settings**
 lists the agent's resources by type and you pick from them (the choice is kept for the session and shown in the header
@@ -1106,29 +1105,31 @@ before exposing it beyond localhost.
 
 ## Appendix A: Agent tools and safety
 
-Which of these a native agent actually gets is chosen on its **Tools** tab; the "Given when" column is the default.
+Every run gets every tool below; the "Works when" column says when a tool acts rather than refusing (the run's
+resources and roles decide).
 
-| Tool | Given when | Safety limits |
+| Tool | Works when | Safety limits |
 | --- | --- | --- |
-| `list_files`, `read_file`, `search_files` | Code or Documents capability on | Only selected roots plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
-| `shell_run` | Code or Documents capability on | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
-| `code_graph` | Code capability on and a selected project has a generated graph | Indexed symbol, route and call queries on a disposable snapshot copy |
-| `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
-| `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
-| `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
-| `get_resource`, `get_document` | Inventory tools. `get_resource` is on in every run that has servers, services, environments or code projects (it is not listed on the **Tools** tab); `get_document` when chosen for a run or switched on in the **Tools** tab | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or linked to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
-| Proposal tools | **Propose…** wizard runs | Exist only in a run started from a server, service or environment whose start asks for them (the **Propose…** wizard does); `propose_service` only in a run started from a server. A plain chat or a saved agent's run never has them. They record proposals that you accept or reject, and write nothing to the inventory themselves |
-| MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
-| `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
-| `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |
-| `run_subagent` | **May start subagents** on (native agents, sessions only) | Starts a helper with a subset of the agent's tools and resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
-| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and not switched off for this agent (native agents, sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
+| `list_files`, `read_file`, `search_files` | The run has code projects or collections | Only selected roots plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
+| `shell_run` | The run has code projects or collections | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
+| `code_graph` | The run has the code project and it has a generated graph | Indexed symbol, route and call queries on a disposable snapshot copy |
+| `code_search` | The run has code projects | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
+| `ast_grep` | The run has code projects | Structural code queries; 30 s timeout |
+| `ssh_run` | The run has the server and it is allowed SSH with a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
+| `get_resource`, `get_document` | Inventory tools: the run was given the resource or document | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or linked to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
+| Proposal tools | **Propose…** wizard runs | Act only in a content-editor run started from a server, service or environment (the **Propose…** wizard asks for the role); `propose_service` only in a run started from a server. A plain chat refuses them. They record proposals that you accept or reject, and write nothing to the inventory themselves |
+| MCP tools | The run has the MCP server | Every tool of the tested MCP servers in the run's access |
+| `search_documents`, `read_document` | The run has collections | Search and read only the granted RAG collections; **Answer only from documents** asks the agent to answer from them and cite every claim |
+| `report_not_covered` | **Answer only from documents** on (else "This run does not answer only from documents.") | Records what is missing and marks the answer **not covered** |
+| `run_subagent` | Agent sessions (never inside a subagent) | Starts a helper with every tool but `run_subagent`, a subset of the run's resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
+| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and the run did not leave it out (sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
+| `load_skill` | The skill is in the run's access and enabled | Returns the skill's instructions by name; any other name gets "This skill is not available in this run." |
 
 Every tool works on the run's resources only; a kind the run has none of is refused with `This run has no ….`
 
 Every agent's instructions include "use only configured resources; never display
-secrets", and secrets are redacted from activity, answers and traces. Skills and
-Services add context only — no tools.
+secrets", and secrets are redacted from activity, answers and traces. Skills are
+instructions loaded with `load_skill` and services add context; neither adds tools.
 
 **Treat SSH access with care**: an agent with SSH enabled can change the server.
 Use a dedicated low-privilege user, keep **Allow sudo to root** off unless needed,

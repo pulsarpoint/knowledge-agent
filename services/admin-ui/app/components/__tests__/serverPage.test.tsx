@@ -4,29 +4,7 @@ import ServerPage from "~/features/servers/ServerPage";
 import { WidePageContext } from "~/lib/widePage";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 
-// as the backend offers them for a server: the proposal tools (only a request turns them on), none that edits a document
-const options = {
-  ...shared,
-  tools: [
-    ...shared.tools.filter((tool) => tool.needs !== "editable_document"),
-    {
-      name: "propose_service",
-      label: "Propose service",
-      summary: "Propose a service",
-      group: "inventory",
-      needs: "server_proposals",
-      requires: "a run whose request turns it on",
-    },
-    {
-      name: "propose_document",
-      label: "Propose document",
-      summary: "Propose a document",
-      group: "inventory",
-      needs: "resource_proposals",
-      requires: "a run whose request turns it on",
-    },
-  ],
-};
+const options = shared;
 
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
 vi.mock("~/features/sessions/useSessionEvents", async () => {
@@ -252,7 +230,7 @@ test("shows the server, its services and documents, and its chats", async () => 
   expect(screen.queryByRole("region", { name: "Proposals panel" })).toBeNull();
 });
 
-test("Chat opens a new conversation; the first message starts a run from the server without proposal tools", async () => {
+test("Chat opens a new conversation; the first message starts a run from the server that may not change content", async () => {
   const calls = api({
     ...base(),
     "POST /api/sessions": () => {
@@ -280,9 +258,8 @@ test("Chat opens a new conversation; the first message starts a run from the ser
   await waitFor(() => expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(true));
   const body = calls.find((c) => c.key === "POST /api/sessions")!.body;
   expect(body.started_from).toEqual({ server_id: "s1" });
-  expect(body.tools).not.toContain("propose_service");
-  expect(body.tools).not.toContain("propose_document");
-  expect(body.tools).not.toContain("save_document");
+  expect(body).not.toHaveProperty("content_editor"); // a plain chat: the backend rule (no content editor)
+  expect(body).not.toHaveProperty("tools");
   expect(body.message).toBe("Disk usage?");
   expect(body.resources.server_ids).toContain("s1");
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1?chat=r1"));

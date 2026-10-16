@@ -2,7 +2,6 @@ import { useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { Sparkles } from "lucide-react";
 import {
-  accessSwitches,
   createWizardAgent,
   generateAgent,
   getWizardOptions,
@@ -11,7 +10,6 @@ import {
   type WizardResource,
 } from "./wizard";
 import { ACCESS_TYPES, CONTENT_EDITOR_HELP, countsSummary, type AccessType } from "./api";
-import { NEED_REASONS, SUBAGENTS_HELP, TOOL_GROUPS, impliedTools, toolNeedMet } from "./tools";
 import { PROMPT_LIMIT } from "./AgentPromptCard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -140,9 +138,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [model, setModel] = useState("");
   const [agentModel, setAgentModel] = useState<string | null>(null); // the model the new agent runs on
   const [proposal, setProposal] = useState<AgentProposal>();
-  const [toolChoice, setToolChoice] = useState<string[] | null>(null);
-  const [subagents, setSubagents] = useState(false);
-  const [subagentBlocked, setSubagentBlocked] = useState<string[]>([]); // tools a subagent may not be given
   const [step, setStep] = useState<"describe" | "review">("describe");
   const [tab, setTab] = useState("general");
   const [busy, setBusy] = useState<"generate" | "create" | null>(null);
@@ -171,12 +166,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     };
   }, [reload]);
   const catalog = options?.catalog;
-  const catalogTools = options?.tools ?? [];
-  const switches = accessSwitches(proposal?.access.resources ?? []);
-  const impliedNames = proposal ? impliedTools(catalogTools, switches) : [];
-  const chosenTools = toolChoice ?? impliedNames;
-  const inCatalogOrder = (names: string[]) =>
-    catalogTools.map((tool) => tool.name).filter((name) => names.includes(name));
   const agentModelField = (
     <Field>
       <FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel>
@@ -216,9 +205,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     try {
       const data = await generateAgent(role, model);
       setProposal({ ...data.proposal, model_id: agentModel });
-      setToolChoice(null);
-      setSubagents(false);
-      setSubagentBlocked([]);
       setStep("review");
       setTab("general");
     } catch (reason) {
@@ -229,9 +215,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   }
   function startBlank() {
     setError("");
-    setToolChoice(null);
-    setSubagents(false);
-    setSubagentBlocked([]);
     setProposal(blankProposal(agentModel));
     setStep("review");
     setTab("general");
@@ -246,13 +229,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     setBusy("create");
     setError("");
     try {
-      const saved = await createWizardAgent({
-        ...proposal,
-        model_id: agentModel,
-        ...(toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}),
-        subagents,
-        subagent_blocked: subagentBlocked.filter((name) => chosenTools.includes(name)),
-      });
+      const saved = await createWizardAgent({ ...proposal, model_id: agentModel });
       toast.success(`Agent ${proposal.name.trim()} created`);
       onCreated(saved.id);
     } catch (reason) {
@@ -396,7 +373,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                       ["general", "General"],
                       ["prompt", "Prompt"],
                       ["resources", "Resources"],
-                      ["tools", "Tools"],
                     ].map(([value, label]) => (
                       <TabsTrigger key={value} value={value}>
                         {label}
@@ -535,85 +511,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                           </FieldGroup>
                         );
                       })}
-                    </FieldGroup>
-                  </TabsContent>
-                  <TabsContent value="tools">
-                    <FieldGroup>
-                      <FieldDescription>
-                        {toolChoice ? "Your choice of tools." : "Follows the resources until you change a tool."} Usage
-                        instructions can be edited on the agent’s Tools tab after it is created.
-                      </FieldDescription>
-                      {TOOL_GROUPS.filter(([group]) => group !== "agents").map(([group, label]) => {
-                        const items = catalogTools.filter((tool) => tool.group === group);
-                        return items.length ? (
-                          <FieldSet key={group}>
-                            <FieldLegend>{label}</FieldLegend>
-                            {items.map((tool) => {
-                              const met = toolNeedMet(tool.needs, switches);
-                              return (
-                                <Field key={tool.name} orientation="horizontal" className={met ? "" : "opacity-60"}>
-                                  <Switch
-                                    id={`wizard-tool-${tool.name}`}
-                                    checked={chosenTools.includes(tool.name)}
-                                    onCheckedChange={(on) =>
-                                      setToolChoice(
-                                        inCatalogOrder([
-                                          ...chosenTools.filter((name) => name !== tool.name),
-                                          ...(on ? [tool.name] : []),
-                                        ]),
-                                      )
-                                    }
-                                  />
-                                  <FieldContent>
-                                    <FieldLabel htmlFor={`wizard-tool-${tool.name}`}>{tool.label}</FieldLabel>
-                                    <FieldDescription>
-                                      {tool.summary}
-                                      {!met && tool.needs ? ` ${NEED_REASONS[tool.needs]}.` : ""}
-                                    </FieldDescription>
-                                  </FieldContent>
-                                </Field>
-                              );
-                            })}
-                          </FieldSet>
-                        ) : null;
-                      })}
-                      {toolChoice && (
-                        <Button type="button" variant="outline" className="w-fit" onClick={() => setToolChoice(null)}>
-                          Follow the resources
-                        </Button>
-                      )}
-                      <FieldSet>
-                        <FieldLegend>Agents</FieldLegend>
-                        <Field orientation="horizontal">
-                          <Switch id="wizard-subagents" checked={subagents} onCheckedChange={setSubagents} />
-                          <FieldContent>
-                            <FieldLabel htmlFor="wizard-subagents">May start subagents</FieldLabel>
-                            <FieldDescription>{SUBAGENTS_HELP}</FieldDescription>
-                          </FieldContent>
-                        </Field>
-                        {subagents && (
-                          <FieldSet>
-                            <FieldLegend variant="label">A subagent may use</FieldLegend>
-                            {inCatalogOrder(chosenTools).map((name) => (
-                              <Field key={name} orientation="horizontal">
-                                <Checkbox
-                                  id={`wizard-subagent-${name}`}
-                                  checked={!subagentBlocked.includes(name)}
-                                  onCheckedChange={(checked) =>
-                                    setSubagentBlocked((current) =>
-                                      checked === true ? current.filter((item) => item !== name) : [...current, name],
-                                    )
-                                  }
-                                />
-                                <FieldLabel htmlFor={`wizard-subagent-${name}`}>
-                                  {catalogTools.find((tool) => tool.name === name)?.label ?? name}
-                                </FieldLabel>
-                              </Field>
-                            ))}
-                            {chosenTools.length === 0 && <FieldDescription>No tools are on.</FieldDescription>}
-                          </FieldSet>
-                        )}
-                      </FieldSet>
                     </FieldGroup>
                   </TabsContent>
                 </Tabs>

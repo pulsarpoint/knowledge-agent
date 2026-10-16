@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { CONTENT_EDITOR_HELP, saveAgent, type AgentProfile } from "./api";
-import { EXPERT_HELP, SUBAGENTS_HELP } from "./tools";
+import { CONTENT_EDITOR_HELP, EXPERT_HELP, saveAgent, type AgentProfile } from "./api";
 import { codeCompatible, getLlmSettings, type ModelProfile } from "~/features/llm/api";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -206,18 +205,6 @@ export default function AgentProfileSettings({
                     <FieldDescription>
                       Search the knowledge base, cite every claim, and report questions the documents do not cover.
                     </FieldDescription>
-                  </div>
-                </Field>
-                <Field orientation="horizontal">
-                  <Switch
-                    id="agent-subagents"
-                    disabled={busy}
-                    checked={Boolean(draft.subagents)}
-                    onCheckedChange={(subagents) => change({ subagents })}
-                  />
-                  <div>
-                    <FieldLabel htmlFor="agent-subagents">May start subagents</FieldLabel>
-                    <FieldDescription>{SUBAGENTS_HELP}</FieldDescription>
                   </div>
                 </Field>
                 <Field orientation="horizontal" data-invalid={needsWhen || undefined}>

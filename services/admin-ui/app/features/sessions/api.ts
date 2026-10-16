@@ -295,14 +295,6 @@ export interface AgentBringer extends AgentResource {
   brings_code: boolean;
   brings_servers: boolean;
 }
-export interface AgentTool {
-  name: string;
-  label: string;
-  summary: string;
-  group: string;
-  needs: string | null;
-  requires: string | null;
-}
 export interface AgentOptions {
   /** Set when the options are for a saved agent. */
   agent?: {
@@ -311,7 +303,6 @@ export interface AgentOptions {
     revision: number;
     model: { id: string; name: string } | null;
     system_prompt: string;
-    subagents_allowed: boolean;
   };
   models: { id: string; name: string }[];
   default_model_id: string | null;
@@ -325,7 +316,6 @@ export interface AgentOptions {
     collections: AgentResource[];
     documents: { id: string; name: string; linked: boolean; editable: boolean }[];
   };
-  tools: AgentTool[];
   experts: { id: string; name: string; when_to_use: string }[];
 }
 export type AgentResources = ResourceIds<AgentKey>;
@@ -357,9 +347,9 @@ export interface StartInput {
   resources: AgentResources & {
     documents: ({ id: string; editable: boolean } | { new: NewDocument; editable: true })[];
   };
-  tools: string[];
   expert_ids: string[];
-  subagents: boolean;
+  /** An ad-hoc run that may change content asks for the content editor role (the Propose wizard). */
+  content_editor?: boolean;
 }
 /** A resource's chats (listed by tag) also carry their proposal counts. */
 export type RunSummary = SessionSummary & {
@@ -371,36 +361,6 @@ export type RunSummary = SessionSummary & {
 };
 export const agentRunPath = (documentId: string, runId: string) =>
   `/documents/${encodeURIComponent(documentId)}/agent/${encodeURIComponent(runId)}`;
-
-/** Which tools apply: a tool shows when what it needs is selected (inventory and other no-need tools always). A ticked
- * service or environment counts only for what it brings (a code project; a server the run can use), as Start judges it. */
-export function toolApplies(tool: AgentTool, chosen: AgentResources, resources: AgentOptions["resources"]): boolean {
-  const ticked = [
-    ...resources.services.filter((item) => chosen.service_ids.includes(item.id)),
-    ...resources.environments.filter((item) => chosen.environment_ids.includes(item.id)),
-  ];
-  const code = chosen.code_project_ids.length > 0 || ticked.some((item) => item.brings_code);
-  switch (tool.needs) {
-    case null:
-      return true;
-    case "ssh":
-      return (
-        resources.servers.some((item) => item.usable && chosen.server_ids.includes(item.id)) ||
-        ticked.some((item) => item.brings_servers)
-      );
-    case "editable_document":
-      return true; // the Ask agent always gives one
-    case "server_proposals":
-    case "resource_proposals":
-      return false; // proposal tools: only the Propose wizard turns them on, never a chat's settings
-    case "documents":
-      return chosen.collection_ids.length > 0;
-    case "files":
-      return code || chosen.collection_ids.length > 0; // matches `requires`: a code project or a collection
-    default:
-      return code; // code, code_graph
-  }
-}
 
 const SAVE_TOOLS = ["save_document", "edit_document", "save_doc", "edit_doc"];
 /** Whether the turn saved the document's draft: a save or edit call that did not fail. */

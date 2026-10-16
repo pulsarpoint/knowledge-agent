@@ -44,19 +44,21 @@ function Harness({
   );
 }
 
-test("editable: linked resources ticked, unusable server disabled, a newly applying tool starts ticked", () => {
+test("editable: linked resources ticked, unusable server disabled; no tool switches (every run gets every tool)", () => {
   render(<Harness />);
   expect(screen.getByRole("heading", { name: "Agent settings" })).toBeInTheDocument();
   expect(screen.getByText("What the agent may use in the next conversation on “Runbook”.")).toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: "web-1" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "prod-1" })).toBeDisabled();
   expect(screen.getByText("SSH is not set up for this server.")).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: "Save a document" })).toBeChecked();
-  expect(screen.queryByRole("checkbox", { name: "Read file" })).toBeNull();
+  expect(screen.queryByText("Tools")).toBeNull();
+  expect(screen.queryByRole("switch", { name: "Allow subagents" })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "Shop" }));
-  expect(screen.getByRole("checkbox", { name: "Read file" })).toBeChecked();
-  fireEvent.click(screen.getByRole("checkbox", { name: "SSH" }));
-  expect(JSON.parse(screen.getByLabelText("Settings state").textContent!).off).toEqual(["ssh_run"]);
+  const state = JSON.parse(screen.getByLabelText("Settings state").textContent!);
+  expect(state.chosen.code_project_ids).toEqual(["c1"]);
+  expect(state).not.toHaveProperty("off");
+  expect(state).not.toHaveProperty("subagents");
+  expect(screen.getByRole("checkbox", { name: "Payments expert" })).toBeInTheDocument(); // experts still narrow
 });
 
 test("the document is a checked, disabled resource, and the prompt list ends with Own prompt", () => {
@@ -128,10 +130,8 @@ test("a saved agent shows its model and prompt read-only and offers only narrowi
   expect(screen.queryByRole("textbox", { name: "System prompt" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Prompt" })).toBeNull();
   expect(screen.getByRole("checkbox", { name: "web-1" })).toBeChecked(); // everything it has, by default
-  expect(screen.getByRole("checkbox", { name: "SSH" })).toBeChecked();
-  fireEvent.click(screen.getByRole("checkbox", { name: "web-1" }));
-  expect(screen.queryByRole("checkbox", { name: "SSH" })).toBeNull();
-  expect(screen.getByRole("switch", { name: "Allow subagents" })).toBeInTheDocument();
+  expect(screen.queryByRole("switch", { name: "Allow subagents" })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "Payments expert" })).toBeChecked();
 });
 
 test("a saved agent's run picks a subset of its documents and servers, each document as the agent has it", () => {
