@@ -73,10 +73,11 @@ content), `instructions`, `documents`, `code`, `ssh`, `skills`, `mcp`, and `serv
 Identity, description, when-to-use text, availability and revisions are included.
 No records are created or updated by loading. A missing agent raises `LookupError`.
 
-Each capability has an `enabled` flag and retains its saved selections while
-disabled. Deleted collections and archived code projects are excluded. Agents are
-granted whole RAG collections (`all_collections` or a picked list); there are no
-subfolder grants. `selected` marks explicit selections within the collection list.
+It also returns the agent's `access` object as stored (resource references and roles).
+Each section holds the items the access object references and is enabled when it has
+items; deleted collections, archived code projects and other references to resources
+that no longer exist are skipped. Agents are granted whole RAG collections; there are
+no subfolder grants.
 
 `code` contains `enabled`, `all_projects`, and `projects`. Each code project has
 `id`, `name`, `description`, and absolute `folder_paths` under `CODE_ROOT`. Git-backed
@@ -97,12 +98,9 @@ paths remain paths on their SSH servers. Database paths remain relative.
 Service context does not grant access to its linked repositories or servers.
 
 Each selected SSH server contains its hostname, port, login user, sudo permission,
-trusted host keys and effective connection settings. `connection_source` identifies
-shared server settings or the agent's complete override. A cleared override key
-stays cleared. `instructions`, `skills` and `mcp_servers` resolve server overrides;
-their source fields show whether they came from this agent's settings or its
-server override. Empty overrides stay empty; inherited values come only from the
-same agent. Capability flags and server/resource availability still apply.
+trusted host keys and connection settings: always the server's own
+(`connection_source` is `server`; there are no per-agent overrides). Server
+availability and its SSH-enabled flag still apply.
 
 Credentials are references, never plaintext or ciphertext in the returned object:
 

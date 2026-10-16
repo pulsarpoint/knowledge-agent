@@ -336,7 +336,7 @@ Collections are stored in `ka.rag_collections` (name, description, search mode, 
 - `rag_files`: per-collection files (`collection_id`, full `path` under `DATA_ROOT`, `path_id`), hashes and fingerprints, job provenance.
 - `rag_chunks`: ordered extracted text and PostgreSQL full-text vectors.
 - `rag_vectors`: model-profile and content-hash keyed pgvector embeddings, shared across collections.
-- `agent_collections` and `agents.all_collections`: which collections an agent may use.
+- `agents.access`: an agent's `collection` references are the collections it may use (deleting a collection leaves them; runs skip them).
 - `rag_folders`: kept read-only for old job history; nothing new writes to it.
 
 Full-text retrieval uses PostgreSQL's `simple` configuration. Vector search uses exact cosine distance. This implementation uses exact vector scans rather than an approximate index, suitable for initial local corpora.

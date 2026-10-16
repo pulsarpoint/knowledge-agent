@@ -84,7 +84,6 @@ def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) 
             'when_to_use': '',
             'enabled': True,
             'revision': 0,
-            'resources': 'per_run',
             'model': model,
             'system_prompt': {'content': system_prompt},
             'instructions': '',

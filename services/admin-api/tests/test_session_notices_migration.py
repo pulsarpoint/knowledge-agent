@@ -13,6 +13,7 @@ from session_rows import a_model, add_ad_hoc_session
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0083_session_notices.up.sql', '0083_session_notices.down.sql'
 LATER_UP, LATER_DOWN = '0084_remove_claude_code.up.sql', '0084_remove_claude_code.down.sql'
+DROP_UP, DROP_DOWN = '0114_drop_agent_resource_tables.up.sql', '0114_drop_agent_resource_tables.down.sql'
 
 
 def run(conn, name: str) -> None:
@@ -120,6 +121,7 @@ def test_down_removes_the_notices_and_up_restores_them(store):
     project, _, (first, _) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
+        run(conn, DROP_DOWN)  # 0084 down reads the capability switches 0114 dropped
         run(conn, LATER_DOWN)  # 0084 renamed the table the down migration names
         run(conn, DOWN)
         conn.commit()
@@ -129,6 +131,7 @@ def test_down_removes_the_notices_and_up_restores_them(store):
         assert notices(listener) == []
         run(conn, UP)
         run(conn, LATER_UP)
+        run(conn, DROP_UP)
         conn.commit()
         conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (first,))
         conn.commit()

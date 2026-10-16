@@ -81,16 +81,12 @@ def create(client, url, *, test=True):
     return server
 
 
-def test_registry_encryption_discovery_assignment_and_deletion(store, tmp_path, remote_mcp):
+def test_registry_encryption_discovery_and_deletion(store, tmp_path, remote_mcp):
     client = _client(tmp_path, repository_store=store)
     url, calls = remote_mcp
     server = create(client, url, test=False)
     path = f'/api/mcp/servers/{server["id"]}'
     assert client.get('/api/mcp/servers').status_code == 403
-    assert (
-        client.put('/api/mcp/code', headers=HEADERS, json={'revision': 1, 'mcp_server_ids': [server['id']]}).status_code
-        == 400
-    )
     with store.connect() as conn:
         encrypted = bytes(
             conn.execute('SELECT token_ciphertext FROM ka.mcp_servers WHERE id=%s', (UUID(server['id']),)).fetchone()[
@@ -128,12 +124,6 @@ def test_registry_encryption_discovery_assignment_and_deletion(store, tmp_path, 
     server = result.json()['server']
     assert calls == []
     assert server['tools'][0]['name'] == 'read_info'
-    config = client.get('/api/mcp/code', headers=HEADERS).json()
-    assert (
-        client.put('/api/mcp/code', headers=HEADERS, json={**config, 'mcp_server_ids': [server['id']]}).status_code
-        == 200
-    )
-    assert client.put('/api/mcp/code', headers=HEADERS, json=config).status_code == 409
     assert 'isolated-token' not in client.get('/api/mcp/servers', headers=HEADERS).text
     assert client.request('DELETE', path, headers=HEADERS, json={'revision': server['revision']}).status_code == 400
     assert (
@@ -142,9 +132,7 @@ def test_registry_encryption_discovery_assignment_and_deletion(store, tmp_path, 
         ).status_code
         == 200
     )
-    assert client.get('/api/mcp/code', headers=HEADERS).json()['mcp_server_ids'] == []
     with store.connect() as conn:
-        assert not conn.execute('SELECT * FROM ka.agent_config_mcp_servers').fetchall()
         assert 'isolated-token' not in str(conn.execute('SELECT details FROM ka.audit_events').fetchall())
 
 

@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 
+from access_helpers import give
 from knowledge_admin.repositories import RepositoryInput
 from test_api import _client
 from test_repositories import HEADERS
@@ -306,10 +307,7 @@ def test_delete_service_removes_links_but_preserves_shared_assets_and_audits(sto
     other_id = client.post('/api/services', headers=HEADERS, json={**value, 'name': 'Keep service'}).json()['id']
     other = client.get(f'/api/services/{other_id}/context', headers=HEADERS).json()['service']
     with store.connect() as conn:
-        conn.execute(
-            "INSERT INTO ka.agent_services(agent_id,service_id) VALUES ('search',%s),('search',%s)",
-            (UUID(service_id), UUID(other_id)),
-        )
+        give(conn, 'search', [('service', service_id), ('service', other_id)])
         repository = conn.execute('SELECT * FROM ka.repositories WHERE id=%s', (repository_id,)).fetchone()
     endpoint = f'/api/services/{service_id}'
     params = {'revision': 1, 'confirmed': True}
@@ -332,9 +330,11 @@ def test_delete_service_removes_links_but_preserves_shared_assets_and_audits(sto
             conn.execute('SELECT 1 FROM ka.service_deployments WHERE service_id=%s', (UUID(service_id),)).fetchone()
             is None
         )
-        assert conn.execute("SELECT service_id FROM ka.agent_services WHERE agent_id='search'").fetchall() == [
-            {'service_id': UUID(other_id)}
-        ]
+        # the agent's reference to the deleted service stays (skipped at run start, missing in the editor)
+        assert [
+            item['id']
+            for item in conn.execute("SELECT access FROM ka.agents WHERE id='search'").fetchone()['access']['resources']
+        ] == [service_id, other_id]
         audit = conn.execute(
             "SELECT resource_type,actor_id,details FROM ka.audit_events WHERE action='service.deleted' AND resource_id=%s",
             (UUID(service_id),),

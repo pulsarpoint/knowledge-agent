@@ -17,6 +17,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0084_remove_claude_code.up.sql', '0084_remove_claude_code.down.sql'
+LATER = '0114_drop_agent_resource_tables.down.sql'  # 0084 down reads the capability switches
 FLAGS = ('repositories_enabled', 'documents_enabled', 'documents_grounded', 'ssh_enabled')
 
 
@@ -63,6 +64,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         model = a_model(conn, actor)
+        run(conn, LATER)
         run(conn, DOWN)
         combinations = {}
         for values in itertools.product((False, True), repeat=4):

@@ -40,7 +40,6 @@ ENTRY = {
     'name': 'Payments',
     'when_to_use': 'Payments questions.',
     'tool': 'ask_payments',
-    'resources': 'per_run',
     'accepts': ['code_project_ids'],
     'description': 'Ask Payments, an expert agent. Payments questions. It works only on the resources you pass '
     '(it accepts: code projects).',
@@ -50,7 +49,6 @@ FIXED = {
     'id': 'ledger',
     'name': 'Ledger',
     'tool': 'ask_ledger',
-    'resources': 'fixed',
     'accepts': [],
     'description': 'Ask Ledger, an expert agent. Ledger questions. It uses its own resources.',
 }

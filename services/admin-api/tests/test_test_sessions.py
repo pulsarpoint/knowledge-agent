@@ -36,8 +36,7 @@ def tester(store, tmp_path, monkeypatch):
     ).json()
     with store.connect() as conn:
         conn.execute(
-            """UPDATE ka.agents SET model_id=%s,enabled=true,documents_enabled=false,repositories_enabled=false,
-            ssh_enabled=false,skills_enabled=false,mcp_enabled=false,services_enabled=false WHERE id=%s""",
+            'UPDATE ka.agents SET model_id=%s,enabled=true WHERE id=%s',
             (model['id'], agent['id']),
         )
     return SimpleNamespace(

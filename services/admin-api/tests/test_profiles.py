@@ -114,35 +114,6 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
     assert options.status_code == 200 and options.json()['code_project'][0]['id'] == repository['id']
 
 
-def test_mcp_selections_are_independent_and_available_to_every_agent(store, tmp_path):
-    client = _client(tmp_path, repository_store=store)
-    first = create(client, 'First code')
-    second = create(client, 'Second code')
-    server = client.post(
-        '/api/mcp/servers', headers=HEADERS, json={'name': 'Mock', 'url': 'http://mock.test/mcp'}
-    ).json()
-    with store.connect() as conn:
-        conn.execute(
-            'UPDATE ka.mcp_servers SET tools=\'[{"name":"lookup"}]\',last_tested_at=now() WHERE id=%s',
-            (UUID(server['id']),),
-        )
-    response = client.put(
-        '/api/mcp/code',
-        headers=HEADERS,
-        params={'agent_id': first['id']},
-        json={'revision': 1, 'mcp_server_ids': [server['id']]},
-    )
-    assert response.status_code == 200, response.text
-    assert client.get('/api/mcp/code', headers=HEADERS, params={'agent_id': first['id']}).json()['mcp_server_ids'] == [
-        server['id']
-    ]
-    assert (
-        client.get('/api/mcp/code', headers=HEADERS, params={'agent_id': second['id']}).json()['mcp_server_ids'] == []
-    )
-    assert client.get('/api/mcp/code', headers=HEADERS).json()['mcp_server_ids'] == []
-    assert client.get('/api/mcp/code', headers=HEADERS, params={'agent_id': 'operations'}).status_code == 200
-
-
 def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     for payload in [

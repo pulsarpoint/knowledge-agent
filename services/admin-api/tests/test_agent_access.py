@@ -17,6 +17,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0113_agent_access.up.sql', '0113_agent_access.down.sql'
+DROP_UP, DROP_DOWN = '0114_drop_agent_resource_tables.up.sql', '0114_drop_agent_resource_tables.down.sql'
 EMPTY = {'resources': [], 'roles': {'content_editor': False}}
 
 
@@ -75,6 +76,7 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
             "INSERT INTO ka.rag_collections(project_id,name,deleted_at) VALUES (%s,'old',now()) RETURNING id",
             (w.project,),
         ).fetchone()['id']
+        run(conn, DROP_DOWN)  # the old tables back; these agents have no access yet
         run(conn, DOWN)
         conn.execute(
             "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'other','Other')", (other, w.project)
@@ -153,6 +155,7 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
             )
         }
         run(conn, UP)  # the tests' database stays at the latest schema
+        run(conn, DROP_UP)
     assert not {'access', 'instructions'} & columns
 
 
@@ -285,11 +288,10 @@ def test_an_agent_without_access_runs_with_nothing(world):
 # --- handlers and experts -------------------------------------------------------------------------------------------
 
 
-def test_a_handler_can_send_to_a_formerly_per_run_agent_with_its_whole_access(world):
+def test_a_handler_can_send_to_any_enabled_agent_with_its_whole_access(world):
     w = world
     agent = a_saved_agent(w)
     with w.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (agent,))
         give(conn, agent, [('service', w.nginx)])
     listed = w.client.get('/api/event-handlers/agents', headers=HEADERS).json()['agents']
     assert agent in [row['id'] for row in listed]
@@ -355,3 +357,139 @@ def test_an_expert_is_a_content_editor_only_when_it_and_its_caller_are(world):
             give(conn, expert, [('service', w.nginx)], content_editor=own)
         config, _ = experts.load(w.store, w.project, offered, None, caller)
         assert config['access']['roles'] == {'content_editor': expected}, (own, caller)
+
+
+# --- 0114 ----------------------------------------------------------------------------------------------------------
+
+OLD_TABLES = {
+    'agent_repositories',
+    'agent_collections',
+    'agent_services',
+    'skills_agents',
+    'operations_servers',
+    'operations_settings',
+    'agent_configs',
+    'agent_config_skills',
+    'agent_config_mcp_servers',
+    'agent_server_connections',
+}
+OLD_COLUMNS = {
+    'documents_enabled',
+    'repositories_enabled',
+    'ssh_enabled',
+    'skills_enabled',
+    'mcp_enabled',
+    'services_enabled',
+    'all_collections',
+    'all_repositories',
+    'resources',
+}
+
+
+def old_names(conn) -> tuple[set, set]:
+    tables = {
+        row['table_name']
+        for row in conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='ka'")
+    } & OLD_TABLES
+    columns = {
+        row['column_name']
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='ka' AND table_name='agents'"
+        )
+    } & OLD_COLUMNS
+    return tables, columns
+
+
+def test_the_old_storage_is_dropped_and_down_converts_the_access_back(world):
+    w = world
+    agent, empty = a_saved_agent(w, 'Operator'), a_saved_agent(w, 'Empty')
+    skill = w.client.post(
+        '/api/skills', headers=HEADERS, json={'name': 'inspect', 'description': 'Inspect', 'instructions': 'Look.'}
+    ).json()['id']
+    mcp = w.client.post(
+        '/api/mcp/servers', headers=HEADERS, json={'name': 'Docs', 'url': 'http://mock.test/mcp'}
+    ).json()['id']
+    with w.store.connect() as conn:
+        assert old_names(conn) == (set(), set())
+        conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (w.project,))
+        collection = conn.execute(
+            "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'runbooks') RETURNING id", (w.project,)
+        ).fetchone()['id']
+        give(
+            conn,
+            agent,
+            [
+                ('server', w.server['id']),
+                ('service', w.nginx),
+                ('environment', w.environment),  # no old table: left out
+                ('code_project', w.shop),
+                ('collection', collection),
+                ('collection', uuid4()),  # deleted for good: left out
+                ('skill', skill),
+                ('mcp_server', mcp),
+            ],
+        )
+        conn.execute("UPDATE ka.agents SET instructions='Check the disk first.' WHERE id=%s", (agent,))
+        run(conn, DROP_DOWN)
+        assert old_names(conn) == (OLD_TABLES, OLD_COLUMNS)
+        flags = conn.execute(
+            """SELECT id,documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,
+            services_enabled,all_collections,all_repositories,resources FROM ka.agents WHERE id=ANY(%s)""",
+            ([agent, empty],),
+        ).fetchall()
+        selections = {
+            table: [tuple(str(value) for value in row.values()) for row in conn.execute(query, (agent,))]
+            for table, query in {
+                'servers': 'SELECT server_id FROM ka.operations_servers WHERE agent=%s',
+                'settings': 'SELECT project_id FROM ka.operations_settings WHERE agent=%s',
+                'services': 'SELECT service_id FROM ka.agent_services WHERE agent_id=%s',
+                'repositories': 'SELECT repository_id FROM ka.agent_repositories WHERE agent_id=%s',
+                'collections': 'SELECT collection_id FROM ka.agent_collections WHERE agent_id=%s',
+                'skills': 'SELECT skill_id FROM ka.skills_agents WHERE agent_id=%s',
+                'configs': 'SELECT instructions FROM ka.agent_configs WHERE agent=%s AND server_id IS NULL',
+                'mcp': """SELECT m.mcp_server_id FROM ka.agent_config_mcp_servers m
+                    JOIN ka.agent_configs g ON g.id=m.config_id WHERE g.agent=%s""",
+            }.items()
+        }
+        run(conn, DROP_UP)
+        assert old_names(conn) == (set(), set())
+    switches = {row['id']: row for row in flags}
+    assert {key: value for key, value in switches[agent].items() if key != 'id'} == {
+        **dict.fromkeys(
+            (
+                'documents_enabled',
+                'repositories_enabled',
+                'ssh_enabled',
+                'skills_enabled',
+                'mcp_enabled',
+                'services_enabled',
+            ),
+            True,
+        ),
+        'all_collections': False,
+        'all_repositories': False,
+        'resources': 'fixed',
+    }
+    assert not any(value for key, value in switches[empty].items() if key not in ('id', 'resources'))
+    assert selections == {
+        'servers': [(w.server['id'],)],
+        'settings': [(str(w.project),)],
+        'services': [(str(w.nginx),)],
+        'repositories': [(str(w.shop),)],
+        'collections': [(str(collection),)],
+        'skills': [(skill,)],
+        'configs': [('Check the disk first.',)],
+        'mcp': [(mcp,)],
+    }
+
+
+def test_an_agent_with_access_can_be_deleted(world):
+    agent = a_saved_agent(world)
+    with world.store.connect() as conn:
+        give(conn, agent, [('server', world.server['id']), ('service', world.nginx), ('code_project', world.shop)])
+    revision = world.client.get(f'/api/agents/{agent}', headers=HEADERS).json()['revision']
+    deleted = world.client.request(
+        'DELETE', f'/api/agents/{agent}', headers=HEADERS, json={'revision': revision, 'confirmed': True}
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert world.client.get(f'/api/agents/{agent}', headers=HEADERS).status_code == 404

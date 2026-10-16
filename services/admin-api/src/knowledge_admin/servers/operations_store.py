@@ -89,14 +89,6 @@ class OperationsStore:
             actor = self.db.actor(conn, *identity)
             credential = row['credential_id']
             if value.private_key is not None:
-                if (
-                    credential is not None
-                    and conn.execute(
-                        'SELECT 1 FROM ka.agent_server_connections WHERE credential_id=%s', (credential,)
-                    ).fetchone()
-                    is not None
-                ):
-                    credential = None
                 credential = credential or uuid4()
                 nonce = os.urandom(12)
                 ciphertext = nonce + self.db.cipher.encrypt(
@@ -119,10 +111,7 @@ class OperationsStore:
                 (value.username, value.port, value.allow_sudo, value.known_hosts, credential, ready, server_id),
             )
             if credential is None and row['credential_id'] is not None:
-                conn.execute(
-                    'DELETE FROM ka.credentials WHERE id=%s AND NOT EXISTS (SELECT 1 FROM ka.agent_server_connections WHERE credential_id=%s)',
-                    (row['credential_id'], row['credential_id']),
-                )
+                conn.execute('DELETE FROM ka.credentials WHERE id=%s', (row['credential_id'],))
             self.audit(
                 conn,
                 actor,

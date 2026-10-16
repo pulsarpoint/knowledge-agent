@@ -200,20 +200,9 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
     assert client.get(path, headers=HEADERS).json()['enabled'] is False
 
 
-def test_per_agent_connections_and_server_overrides_are_no_longer_read(store, saved_agent):
-    """A server uses its own SSH settings and the agent's instructions (phase 2: references only)."""
-    _, server, ssh, *_ = saved_agent
-    with store.connect() as conn:
-        conn.execute(
-            """INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,username,port)
-            SELECT 'operations',id,project_id,'agent-user',2222 FROM ka.servers WHERE id=%s""",
-            (UUID(server['id']),),
-        )
-        conn.execute(
-            """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
-            SELECT project_id,'operations',id,'Inspect this host only.',false,false FROM ka.servers WHERE id=%s""",
-            (UUID(server['id']),),
-        )
+def test_a_server_uses_its_own_ssh_settings_and_the_agents_instructions(store, saved_agent):
+    """Phase 2: references only; there are no per-agent connections or per-server overrides."""
+    _, _, ssh, *_ = saved_agent
     host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
     assert (host['connection_source'], host['username']) == ('server', 'operator')
     assert host['known_hosts'] == ssh['known_hosts']
@@ -229,14 +218,12 @@ def test_per_agent_connections_and_server_overrides_are_no_longer_read(store, sa
     assert key == ssh['private_key']  # the server's own key
 
 
-def test_switches_and_all_scopes_are_no_longer_read_and_missing_items_are_skipped(store, saved_agent):
-    """The access object decides: a kind's switch and "all" are not read; an archived code project and a deleted
-    collection it references are skipped; a server, skill or MCP server switched off stays listed as it is."""
+def test_missing_items_are_skipped_and_switched_off_ones_stay_listed(store, saved_agent):
+    """The access object decides: an archived code project and a deleted collection it references are skipped; a
+    server, skill or MCP server switched off stays listed as it is."""
     _, server, _, skill, mcp, repo, _ = saved_agent
     with store.connect() as conn:
-        conn.execute("""UPDATE ka.agents SET enabled=false,documents_enabled=false,repositories_enabled=false,
-            ssh_enabled=false,skills_enabled=false,mcp_enabled=false,services_enabled=false,
-            all_collections=true,all_repositories=true WHERE id='operations'""")
+        conn.execute("UPDATE ka.agents SET enabled=false WHERE id='operations'")
         conn.execute('UPDATE ka.servers SET ssh_allowed=false WHERE id=%s', (UUID(server['id']),))
         conn.execute('UPDATE ka.agent_skills SET enabled=false WHERE id=%s', (UUID(skill['id']),))
         conn.execute('UPDATE ka.mcp_servers SET enabled=false WHERE id=%s', (UUID(mcp['id']),))
@@ -294,8 +281,6 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
     client = _client(tmp_path, repository_store=store)
     agent = create(client, 'Independent agent')
     with store.connect() as conn:
-        conn.execute('DELETE FROM ka.agent_configs WHERE agent=%s', (agent['id'],))
-        conn.execute('DELETE FROM ka.operations_settings WHERE agent=%s', (agent['id'],))
         parameters = conn.info.get_parameters()
     for name in ('host', 'port', 'user', 'dbname'):
         monkeypatch.setenv('PGDATABASE' if name == 'dbname' else 'PG' + name.upper(), parameters[name])
@@ -305,9 +290,6 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
     assert config['system_prompt']['content'] == 'Instructions for Independent agent.'
     assert config['settings_revision'] is None and config['instructions'] == ''
     assert config['ssh']['servers'] == config['code']['projects'] == config['skills']['items'] == []
-    with store.connect() as conn:
-        assert conn.execute('SELECT 1 FROM ka.agent_configs WHERE agent=%s', (agent['id'],)).fetchone() is None
-        assert conn.execute('SELECT 1 FROM ka.operations_settings WHERE agent=%s', (agent['id'],)).fetchone() is None
     for missing in (agent['name'], "' OR true --"):
         with pytest.raises(LookupError):
             get_agent_config(missing)

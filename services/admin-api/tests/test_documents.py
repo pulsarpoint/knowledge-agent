@@ -337,7 +337,7 @@ def test_document_migrations_roundtrip_and_preserve_populated_tables(store):
         for name in newer:
             conn.execute((migrations / f'{name}.up.sql').read_text(), prepare=False)
         assert conn.execute("SELECT to_regclass('ka.document_details') AS name").fetchone()['name'] is not None
-        assert conn.execute("SELECT to_regclass('ka.agent_collections') AS name").fetchone()['name'] is not None
+        assert conn.execute("SELECT to_regclass('ka.agent_collections') AS name").fetchone()['name'] is None  # 0114
 
 
 def test_edit_service_can_swap_deployments_without_losing_document_links(store, tmp_path):

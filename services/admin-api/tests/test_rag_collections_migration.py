@@ -22,6 +22,7 @@ def legacy(store):
 
 
 def _seed(conn):
+    conn.execute((MIGRATIONS / '0114_drop_agent_resource_tables.down.sql').read_text(), prepare=False)
     conn.execute((MIGRATIONS / '0066_rag_managed_collections.down.sql').read_text(), prepare=False)
     conn.execute((MIGRATIONS / '0065_rag_collection_paths.down.sql').read_text(), prepare=False)
     conn.execute((MIGRATIONS / '0063_rag_collections.down.sql').read_text(), prepare=False)

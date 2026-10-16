@@ -17,6 +17,7 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0080_clone_agents.up.sql', '0080_clone_agents.down.sql'
 REMOVED = '0084_remove_claude_code.down.sql'  # renames ka.agent_sessions back to agent_sessions_cc
 LATER = '0081_test_sessions.down.sql'  # 0080 down re-adds agent_sessions.agent_version_id
+DROPPED = '0114_drop_agent_resource_tables.down.sql'  # the per-type tables 0080 materialised versions into
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (
     ('agents', 'active_config_version_id'),
@@ -32,7 +33,14 @@ BEFORE = {
 }
 
 
+def with_old_tables(conn) -> None:
+    """0114 down, once: these tests write and read the per-type tables (0114 down fills them from each agent's access)."""
+    if conn.execute("SELECT to_regclass('ka.agent_configs') AS r").fetchone()['r'] is None:
+        conn.execute((MIGRATIONS / DROPPED).read_text(), prepare=False)
+
+
 def run(conn, name: str):
+    with_old_tables(conn)
     if name == DOWN and conn.execute("SELECT to_regclass('ka.agent_sessions_cc') AS r").fetchone()['r'] is None:
         conn.execute((MIGRATIONS / REMOVED).read_text(), prepare=False)  # newest first, as golang-migrate does
     if name == DOWN and conn.execute("SELECT to_regclass('ka.operations_runs') AS r").fetchone()['r'] is None:
@@ -102,13 +110,14 @@ def held(found: dict) -> dict:
 def convert(store) -> None:
     """Every agent's access object as 0113 converts the per-type tables (what 0080 materialised into them)."""
     with store.connect() as conn:
-        run(conn, '0113_agent_access.down.sql')
+        run(conn, '0113_agent_access.down.sql')  # (after 0114 down)
         run(conn, '0113_agent_access.up.sql')
 
 
 def own_connection(store, server_id: str, username: str, port: int) -> None:
     """A per-agent SSH connection of the operations agent (written before 0113 stopped reading them)."""
     with store.connect() as conn:
+        with_old_tables(conn)
         conn.execute(
             """INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,username,port)
             SELECT 'operations',id,project_id,%s,%s FROM ka.servers WHERE id=%s""",
@@ -126,7 +135,6 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
         'UPDATE ka.agents SET active_config_version_id=%s,next_config_version=2 WHERE id=%s', (version, agent_id)
     )
     return conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
-
 
     server = saved_agent[1]
     client, server = saved_agent[0], saved_agent[1]

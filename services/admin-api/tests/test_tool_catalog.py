@@ -44,7 +44,6 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), to
         'description': '',
         'instructions': '',
         'enabled': True,
-        'resources': 'fixed',
         'system_prompt': {'content': 'Answer.'},
         'code': {'enabled': code, 'projects': [], 'graphs': list(graphs)},
         'documents': {'enabled': documents, 'grounded': grounded, 'all_collections': False, 'collections': []},

@@ -420,7 +420,6 @@ def build_api(workspace: Workspace, key: str, transport=None):
             )
             removed = conn.execute('DELETE FROM ka.rag_files WHERE collection_id=%s', (collection_id,)).rowcount
             conn.execute('DELETE FROM ka.rag_collection_paths WHERE collection_id=%s', (collection_id,))
-            conn.execute('DELETE FROM ka.agent_collections WHERE collection_id=%s', (collection_id,))
             conn.execute(ORPHAN_VECTORS_SQL, (project,))
             conn.execute(
                 'UPDATE ka.rag_collections SET deleted_at=now(),updated_at=now() WHERE id=%s', (collection_id,)

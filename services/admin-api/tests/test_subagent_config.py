@@ -62,7 +62,6 @@ def parent(**change) -> dict:
         'when_to_use': '',
         'enabled': True,
         'revision': 3,
-        'resources': 'fixed',
         'model': MODEL,
         'system_prompt': {'content': 'Lead the work.'},
         'instructions': 'Use the runbook.',
@@ -153,7 +152,7 @@ def test_a_subagent_gets_only_the_given_tools_and_resources_and_its_own_prompt()
     ]
     assert (sub['documents']['all_collections'], sub['documents']['collections']) == (False, [])
     assert sub['ssh']['servers'] == [] and sub['services']['items'] == []
-    assert sub['resources'] == 'per_run' and sub['run_resources'] == {**NO_RESOURCES, 'code_project_ids': ['worker']}
+    assert sub['run_resources'] == {**NO_RESOURCES, 'code_project_ids': ['worker']}
     assert sub['system_prompt'] == {'content': PROMPT} and PROMPT.startswith(
         'You are a helper started by another agent'
     )
@@ -171,7 +170,7 @@ def test_without_resources_a_subagent_keeps_the_parents_lists_and_mode():
     sub = subagent_config(parent(), ['ssh_run'], None, offered=OFFERED, mcp_tools=MCP)
     assert [p['id'] for p in sub['code']['projects']] == ['app', 'worker']
     assert sub['documents']['all_collections'] is True and [s['id'] for s in sub['ssh']['servers']] == ['prod']
-    assert sub['resources'] == 'fixed' and 'run_resources' not in sub
+    assert 'run_resources' not in sub
     assert (sub['mcp']['enabled'], sub['mcp']['servers']) == (False, [])  # no MCP tool given: no MCP server
     # all of the parent's resources but its skills (and MCP servers without a given MCP tool)
     assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
@@ -237,7 +236,6 @@ def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
             ['read_file'],
             {'code_project_ids': ['app']},  # a per-run parent's lists are its run's resources
             {
-                'resources': 'per_run',
                 'run_resources': {**NO_RESOURCES, 'code_project_ids': ['worker']},
                 'code': {
                     'enabled': True,

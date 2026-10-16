@@ -32,10 +32,9 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
 | `rag_workspaces`, `rag_collections`, `rag_files`, `rag_file_log`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: its own search and processing settings; its folders are in `ka.rag_collection_paths`); per-collection file hashes, per-file status (`rag_file_log`), searchable text and cached embeddings |
-| `agent_collections`, `agents.all_collections` | Which RAG collections an agent may search and read (whole collections; `all_collections` grants every one) |
 | `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |
-| `agents` and agent configuration/association tables | Agent definitions, prompt/model assignments, skills, tools and resources |
+| `agents`, `agent_tools` | Agent definitions: prompt, model, `instructions` and `access` (what the agent may use, as one object: `{"resources": [{type, id, editable?}], "roles": {"content_editor"}}`, references only; 0113), and per-agent tool rows |
 | `agent_sessions`, `agent_session_inputs`, `agent_session_reviews` | `agent_sessions.last_draft_id` is the run's last draft (no foreign key: drafts are deleted on promote and discard; its outcome is read from `audit_events`). New-document (`documents`; earlier Generate documents), Test, event, `resource` (a chat or Propose wizard run on a server, service or environment; server discovery runs became these in 0106) and `revision` runs (Ask agent on a document, `target_document_id`) sessions (`purpose`; `server_id` is set only for a resource run started from a server), their `tags` (at most 10 labels lists find runs by: `servers/<id>`, `services/<id>` or `environments/<id>` for where a resource run started, `proposals` for a Propose wizard run; GIN-indexed), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
 | `audit_events` | Immutable attributed configuration events; a partial index on `(resource_id, created_at)` for `resource_type = 'document_draft'` serves a deleted draft's outcome (`document.draft.promoted`, `.discarded`, `.replaced`) |
 
@@ -375,18 +374,11 @@ Migration `0111_memory` adds two tables.
 
 `ka.memory_versions` (`memory_id`, `revision`): the earlier revision (name, metadata, content, who changed it and when), copied before each update, restore or delete.
 
-## SSH agent configuration scopes
+## Agent access
 
-Migration `0017_agent_server_configs` stores global defaults (`server_id IS NULL`) and optional server overrides in `ka.agent_configs`. The unique `(project_id, agent, server_id)` constraint uses `NULLS NOT DISTINCT`. Nullable instructions and nullable API skill selections mean inherit; explicit empty values clear that setting for the server. `ka.agent_config_skills` stores explicit assignments, while `inherit_skills` distinguishes inheritance from an empty selection. Global rows require explicit instructions and skills.
-
-The settings revision and server allowlist remain in `ka.operations_settings` / `ka.operations_servers`. All config mutations are serialized against that settings revision. Effective per-server settings are snapshotted into each run; configuration changes block further commands from an older snapshot. Global defaults are created when the settings are initialized and have no delete API. Server overrides cascade when their server is deleted. Existing instructions and global skill selections are migrated before the old columns/table are removed.
-
-Migration `0018_remove_operations_enable_switch` removes `ka.operations_settings.enabled`. The saved allowlist determines which servers the agent may access; an empty allowlist blocks execution. Server-level SSH permissions and sudo policy remain enforced.
-
-## Agent skill assignments
-
-Migration `0023_skills_agents` adds `ka.skills_agents(agent_id, skill_id, project_id)`. The primary key `(agent_id, skill_id)` prevents duplicate assignments; foreign keys reference `ka.agents` and `ka.agent_skills`. Both foreign keys clean up assignments when the referenced row is deleted. An index on `skill_id` supports reverse lookups. The migration moves agent-level assignments from the server-null configuration into this table and preserves server-specific overrides in `ka.agent_config_skills`. `agents.skills_enabled` controls whether assigned skills are included; disabling it does not delete assignments.
-
-## SSH connection overrides
-
-Migration `0024_agent_server_connections` adds optional complete SSH connection overrides keyed by `(agent_id, server_id)`, including username, encrypted credential reference, port, host verification, sudo permission, revision, and test status. Composite foreign keys enforce the server/credential project and SSH credential kind. Missing rows use server defaults; rows without a key explicitly disable authentication. Existing rows in other tables are preserved by the migration. Overrides cascade on server deletion; application cleanup removes unreferenced SSH credentials.
+Migration `0113_agent_access` stores what a saved agent may use as `ka.agents.access` (resource references and the
+`content_editor` role) and its instructions as `ka.agents.instructions`. Migration `0114_drop_agent_resource_tables`
+drops the storage that held this before: the per-type selection tables, the agent-level and per-server
+configurations with their skill and MCP selections, the per-agent SSH connection overrides, the per-kind switches and
+`agents.resources`. A server's own SSH settings in `ka.servers` always apply. A reference to a deleted resource stays
+in the access object until the agent is saved; nothing cascades into it.

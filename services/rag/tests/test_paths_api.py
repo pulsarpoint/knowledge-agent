@@ -7,6 +7,7 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytest
+from psycopg.types.json import Jsonb
 from test_workspace import add_folder, collection, create, sync
 
 # env and workspace_postgres come from conftest.py
@@ -413,25 +414,22 @@ def test_folders_rag_skips_are_refused_when_typed(env):
     assert status(env, created)['paths'] == []
 
 
-def test_deleting_a_collection_removes_its_agent_grants(env):
+def test_deleting_a_collection_leaves_agents_access_alone(env):
+    """An agent's reference to a deleted collection is skipped at run start and shown as missing in its editor."""
     client, prefix, roots = env[1], env[3], env[6]
     (roots['jira'] / 'docs').mkdir()
     created = collection(env)
-    kept = collection(env, 'kept')
+    access = {'resources': [{'type': 'collection', 'id': created}], 'roles': {'content_editor': False}}
     with env[0].connect() as conn:
         agent = conn.execute('SELECT id FROM ka.agents ORDER BY id LIMIT 1').fetchone()['id']  # a seeded agent
-        conn.execute(
-            'INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES (%s,%s),(%s,%s)',
-            (agent, created, agent, kept),
-        )
+        conn.execute('UPDATE ka.agents SET access=%s WHERE id=%s', (Jsonb(access), agent))
     revision = status(env, created)['revision']
     assert (
         client.delete(prefix + f'/collections/{created}', params={'revision': revision, 'confirmed': True}).status_code
         == 200
     )
     with env[0].connect() as conn:
-        grants = conn.execute('SELECT collection_id FROM ka.agent_collections WHERE agent_id=%s', (agent,)).fetchall()
-    assert [str(g['collection_id']) for g in grants] == [kept]
+        assert conn.execute('SELECT access FROM ka.agents WHERE id=%s', (agent,)).fetchone()['access'] == access
 
 
 def test_removing_a_folder_drops_vectors_no_chunk_uses(env):

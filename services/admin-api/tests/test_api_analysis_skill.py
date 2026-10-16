@@ -21,7 +21,11 @@ def test_api_analysis_fixture_is_editable_and_not_automatically_assigned(store, 
     with store.connect() as conn:
         row = conn.execute('SELECT project_id FROM ka.agent_skills WHERE id=%s', (skill['id'],)).fetchone()
         assert (
-            conn.execute('SELECT count(*) AS n FROM ka.skills_agents WHERE skill_id=%s', (skill['id'],)).fetchone()['n']
+            conn.execute(
+                """SELECT count(*) AS n FROM ka.agents
+                WHERE access->'resources' @> jsonb_build_array(jsonb_build_object('type','skill','id',%s::text))""",
+                (skill['id'],),
+            ).fetchone()['n']
             == 0
         )
         conn.execute('SELECT ka.seed_api_analysis_skill(%s)', (row['project_id'],))
@@ -47,5 +51,7 @@ def test_api_analysis_fixture_is_editable_and_not_automatically_assigned(store, 
         )
     updated = client.get(f'/api/skills/{skill["id"]}', headers=HEADERS).json()
     assert updated['instructions'] == 'An administrator replacement.' and updated['enabled'] is False
-    with store.connect() as conn, pytest.raises(psycopg.errors.RaiseException, match='edited or assigned'):
-        conn.execute((repo / 'db/migrations/0059_api_analysis_skill.down.sql').read_text(), prepare=False)
+    with store.connect() as conn:
+        conn.execute((repo / 'db/migrations/0114_drop_agent_resource_tables.down.sql').read_text(), prepare=False)
+        with pytest.raises(psycopg.errors.RaiseException, match='edited or assigned'):
+            conn.execute((repo / 'db/migrations/0059_api_analysis_skill.down.sql').read_text(), prepare=False)

@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import psycopg
 from fastapi.encoders import jsonable_encoder
@@ -15,7 +15,6 @@ from psycopg.rows import dict_row
 
 from knowledge_admin.data_root import data_path
 
-Resources = Literal['fixed', 'per_run']
 AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
 AD_HOC_NAME = 'Ad-hoc agent'
 MODEL = """SELECT id,name,provider,model,api_format,base_url,aws_region,enabled,revision,
@@ -65,7 +64,6 @@ class AgentConfig(TypedDict):
     when_to_use: str
     enabled: bool
     revision: int
-    resources: Resources
     model: dict[str, Any] | None
     system_prompt: dict[str, Any]
     instructions: str
@@ -337,7 +335,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
         agent = conn.execute(
-            """SELECT id,name,description,when_to_use,enabled,revision,model_id,resources,system_prompt,
+            """SELECT id,name,description,when_to_use,enabled,revision,model_id,system_prompt,
             documents_grounded,access,instructions FROM ka.agents WHERE id=%s""",
             (agent_id,),
         ).fetchone()
@@ -420,7 +418,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'when_to_use': agent['when_to_use'],
                 'enabled': agent['enabled'],
                 'revision': agent['revision'],
-                'resources': agent['resources'],
                 'model': model,
                 'system_prompt': {'content': agent['system_prompt']},
                 'instructions': instructions,

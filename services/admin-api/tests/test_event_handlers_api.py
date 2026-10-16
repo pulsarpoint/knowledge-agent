@@ -140,9 +140,7 @@ def test_send_to_agent_handlers_and_the_agent_list(tester):
         error(t.client.post('/api/event-handlers', headers=HEADERS, json={**body, 'name': 'B', 'prompt': ' '}), 400)
         == 'Prompt: write what the agent should do.'
     )
-    with t.store.connect() as conn:  # any enabled agent: a run narrows its access object
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (t.agent,))
-    assert t.agent in [
+    assert t.agent in [  # any enabled agent: a run narrows its access object
         agent['id'] for agent in t.client.get('/api/event-handlers/agents', headers=HEADERS).json()['agents']
     ]
     created = t.client.post('/api/event-handlers', headers=HEADERS, json={**body, 'name': 'C'})

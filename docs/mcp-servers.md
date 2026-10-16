@@ -33,8 +33,6 @@ All endpoints require the existing Keycloak administrator group.
 | `POST /api/mcp/servers` | Create a connection |
 | `PUT /api/mcp/servers/{id}` | Update with `revision`; omit `token` to preserve it, use `null` to remove it |
 | `POST /api/mcp/servers/{id}/test` | Initialize and discover tools using the supplied `revision` |
-| `DELETE /api/mcp/servers/{id}` | Remove connection and assignments with `revision` and `confirmed: true` |
-| `GET /api/mcp/code` | Read an agent's MCP selection and revision (`agent_id`, default `code`) |
-| `PUT /api/mcp/code` | Save `revision` and `mcp_server_ids` |
+| `DELETE /api/mcp/servers/{id}` | Remove the connection with `revision` and `confirmed: true` (agents referencing it show it as missing) |
 
-SSH settings endpoints accept `mcp_server_ids` alongside existing fields: Global requires a list; server overrides accept `null` for inheritance. Omission preserves saved selections for existing API clients. Migration `0019_mcp_servers.up.sql` adds the connection registry, configuration joins, and inheritance flag. Existing agents start with no additional MCP connections.
+An agent uses an MCP server when its access object references it (`{"type": "mcp_server", "id": ...}`). Migration `0019_mcp_servers.up.sql` added the connection registry; the per-agent selections it added were replaced by the access object (0113, 0114).

@@ -1,4 +1,4 @@
-"""Administer HTTP MCP servers, encrypted tokens, discovery, and code assignments."""
+"""Administer HTTP MCP servers, encrypted tokens and discovery."""
 
 import asyncio
 from functools import partial
@@ -15,11 +15,9 @@ from mcp.client.streamable_http import streamable_http_client
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-from knowledge_llm import ModelUnavailable
-from knowledge_llm.profiles import profile
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
-from knowledge_admin.llm.mcp_settings import PUBLIC_COLUMNS, credential_aad, save_selection
+from knowledge_admin.llm.mcp_settings import PUBLIC_COLUMNS, credential_aad
 
 
 class MCPInput(BaseModel):
@@ -70,17 +68,6 @@ class RevisionInput(BaseModel):
 
 class DeleteInput(RevisionInput):
     confirmed: Literal[True]
-
-
-class SelectionInput(RevisionInput):
-    mcp_server_ids: list[UUID] = Field(max_length=20)
-
-    @field_validator('mcp_server_ids')
-    @classmethod
-    def distinct(cls, value):
-        if len(value) != len(set(value)):
-            raise ValueError('Select each MCP server only once.')
-        return value
 
 
 async def discover(url, token):
@@ -260,60 +247,5 @@ def build_api(app_name, store):
                 'message': error or f'Connected. Discovered {len(tools)} tools.',
                 'server': saved,
             }
-
-    def code_config(conn, agent_id):
-        try:
-            profile(conn, agent_id)
-        except ModelUnavailable:
-            raise HTTPException(404, 'Code agent not found') from None
-        project = store.project(conn, app_name)
-        conn.execute(
-            "INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills) VALUES (%s,%s,'',false) ON CONFLICT DO NOTHING",
-            (project, agent_id),
-        )
-        return conn.execute(
-            'SELECT id,project_id,revision FROM ka.agent_configs WHERE project_id=%s AND agent=%s AND server_id IS NULL FOR UPDATE',
-            (project, agent_id),
-        ).fetchone()
-
-    @router.get('/code')
-    def selection(agent_id: str = 'code'):
-        db = database()
-        with db.connect() as conn:
-            config = code_config(conn, agent_id)
-            return {
-                'revision': config['revision'],
-                'mcp_server_ids': [
-                    r['mcp_server_id']
-                    for r in conn.execute(
-                        'SELECT mcp_server_id FROM ka.agent_config_mcp_servers WHERE config_id=%s ORDER BY mcp_server_id',
-                        (config['id'],),
-                    )
-                ],
-            }
-
-    @router.put('/code')
-    def assign(value: SelectionInput, request: Request, agent_id: str = 'code'):
-        db = database()
-        with db.connect() as conn:
-            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))  # serialized with Apply
-            config = code_config(conn, agent_id)
-            if value.revision != config['revision']:
-                raise HTTPException(409, 'Code agent MCP settings changed. Reload before saving.')
-            try:
-                save_selection(conn, config['project_id'], config['id'], value.mcp_server_ids)
-            except ValueError as exc:
-                raise HTTPException(400, str(exc)) from None
-            actor = audit(
-                conn,
-                request,
-                'mcp.code_assignment.updated',
-                None,
-                {'mcp_server_ids': [str(s) for s in value.mcp_server_ids]},
-            )
-            conn.execute(
-                'UPDATE ka.agent_configs SET revision=revision+1,updated_by=%s WHERE id=%s', (actor, config['id'])
-            )
-            return {'revision': config['revision'] + 1, 'mcp_server_ids': value.mcp_server_ids}
 
     return router

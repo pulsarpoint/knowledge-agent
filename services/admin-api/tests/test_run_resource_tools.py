@@ -62,7 +62,6 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         'name': 'Code analyst',
         'description': '',
         'enabled': True,
-        'resources': 'per_run',
         'instructions': '',
         'system_prompt': {'content': 'Analyse code.'},
         'code': {

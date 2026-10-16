@@ -117,7 +117,7 @@ def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
     sub['documents'] = {**documents, 'all_collections': False, 'collections': chosen['collection_ids']}
     sub['ssh'] = {**sub['ssh'], 'servers': chosen['server_ids']}
     sub['services'] = {**sub['services'], 'items': chosen['service_ids']}
-    sub['resources'], sub['run_resources'] = 'per_run', given
+    sub['run_resources'] = given
 
 
 def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_tools: Mapping[str, str]) -> None:
