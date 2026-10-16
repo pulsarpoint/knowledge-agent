@@ -4,6 +4,8 @@ carries the resource block."""
 
 from pathlib import Path
 
+from psycopg.types.json import Jsonb
+
 from access_helpers import give, of
 from knowledge_admin.access import listing
 from discovery_world import world  # noqa: F401  (fixture)
@@ -136,7 +138,7 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
 
 def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(analyst):
     a = analyst
-    session = agent_start(a, run_resources={'code_project_ids': [a.app]})
+    session = agent_start(a, resources={'code_project_ids': [a.app]})
     access, config = stored(a.store, session['id'])
     assert access == {
         'resources': [entry('code_project', a.app, 'App', '', folder_paths=[str(a.root / 'app')])],
@@ -148,7 +150,7 @@ def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(an
     with a.store.connect() as conn:
         give(conn, a.agent, [('code_project', a.app)])
         before = conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n']
-    assert refused(a, 400, run_resources={'code_project_ids': [a.worker]}) == (
+    assert refused(a, 400, resources={'code_project_ids': [a.worker]}) == (
         f"code project {a.worker} is not in the agent's access"
     )
     with a.store.connect() as conn:
@@ -167,7 +169,7 @@ def test_a_widening_pick_is_refused_with_the_narrowing_text(analyst, monkeypatch
         return real(conn, project, [item for item in holds if item['id'] != a.worker], *rest, **change)
 
     monkeypatch.setattr(run_access, 'run_access', without_worker)
-    message = refused(a, 400, run_resources={'code_project_ids': [a.worker]})
+    message = refused(a, 400, resources={'code_project_ids': [a.worker]})
     assert message == f"code project {a.worker} is not in the agent's access"
 
 
@@ -212,10 +214,19 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     ssh_ready(world)
     sid = start(world, {'service_id': str(world.nginx)})
     with world.store.connect() as conn:
+        conn.execute((MIGRATIONS / '0116_drop_run_resources.down.sql').read_text(), prepare=False)
+        recorded = {  # as a run started before 0116 recorded what it was given
+            'code_project_ids': [str(world.shop)],
+            'collection_ids': [],
+            'server_ids': [world.server['id']],
+            'service_ids': [str(world.nginx)],
+        }
+        conn.execute('UPDATE ka.agent_sessions SET run_resources=%s WHERE id=%s', (Jsonb(recorded), sid))
         conn.execute((MIGRATIONS / '0112_session_access.down.sql').read_text(), prepare=False)
         row = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
         assert 'access' not in row['agent_config']
         conn.execute((MIGRATIONS / '0112_session_access.up.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0116_drop_run_resources.up.sql').read_text(), prepare=False)
     access, config = stored(world.store, sid)
     names = [(item['type'], item['name'], item['source']) for item in access['resources']]
     assert names == [('code_project', 'Shop', 'given'), ('server', 'web-1', 'given'), ('service', 'nginx', 'given')]
@@ -242,3 +253,41 @@ def test_code_projects_carry_their_folders_and_graph_and_collections_their_paths
         },
         {'type': 'collection', 'id': 'c1', 'name': 'docs', 'description_short': '', 'paths': ['/data/docs']},
     ]
+
+
+def shape(access: dict) -> list[tuple[str, str, str]]:
+    return [(item['type'], item['id'], item['source']) for item in access['resources']]
+
+
+def test_an_ad_hoc_run_and_a_saved_agent_run_are_built_alike(world):
+    """One way to build a run: an environment given to a saved agent's run brings what an environment chat's does,
+    with the same sources; a brought server without a usable SSH connection is left out of both."""
+    from access_helpers import give
+    from test_generations import native_agent
+
+    agent = native_agent(world.client, 'Environment agent', model_id=world.model)
+    with world.store.connect() as conn:
+        give(conn, agent, [('environment', world.environment)])
+
+    def saved() -> dict:
+        body = {'agent_id': agent, 'message': 'Hi', 'resources': {'environment_ids': [str(world.environment)]}}
+        response = world.client.post('/api/sessions', headers=HEADERS, json=body)
+        assert response.status_code == 201, response.text
+        return response.json()['config']['access']
+
+    for ready in (False, True):
+        if ready:
+            ssh_ready(world)
+        ad_hoc, _ = stored(world.store, start(world, {'environment_id': str(world.environment)}))
+        assert shape(saved()) == shape(ad_hoc)
+        assert (('server', world.server['id'], f'via environment {world.environment}') in shape(ad_hoc)) is ready
+
+
+def test_the_session_detail_returns_what_the_run_was_given(world):
+    """Start new chat with these settings restores what the person chose: an environment, not what it brings."""
+    ssh_ready(world)
+    session = world.client.get(
+        f'/api/sessions/{start(world, {"environment_id": str(world.environment)})}', headers=HEADERS
+    ).json()
+    assert session['given_resources'] == [{'type': 'environment', 'id': str(world.environment)}]
+    assert 'run_resources' not in session and 'chosen_resources' not in session

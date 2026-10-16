@@ -53,7 +53,7 @@ def test_sdk_tuning_schema_still_rejects_invalid_encoded_changes(changes):
         schema.validate_json(json.dumps({'suggestion': 'Suggested changes.', 'changes': changes}))
 
 
-NARROWED = {'run_resources': {'code_project_ids': []}, 'code': {'enabled': True, 'all_projects': False, 'projects': []}}
+NARROWED = {'access': {'resources': [], 'roles': {'content_editor': False}}}  # a chat given none of its resources
 
 
 def saved_review(store, agent_id: str, changes: dict, agent_config: dict | None = None) -> str:

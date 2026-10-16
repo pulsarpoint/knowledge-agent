@@ -1,6 +1,5 @@
 import { request } from "~/lib/api";
 import type { ToolCount } from "./runs";
-import type { RunResourcesInput } from "~/features/agents/api";
 import type { AgentKey, ResourceIds } from "~/lib/resources";
 import type { Turn } from "./turns";
 import type { Proposal } from "~/features/servers/discovery";
@@ -61,11 +60,10 @@ export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
 export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>
   (RESOURCE_TYPES as string[]).includes(scope.kind);
 
-export interface SessionFolder {
-  path: string;
-  kind: "code_project" | "folder";
-  name: string;
-  code_project_id?: string;
+/** One resource a run was given (its access entry with source 'given'). */
+export interface GivenResource {
+  type: string;
+  id: string;
 }
 export interface SessionSummary {
   id: string;
@@ -104,22 +102,19 @@ export interface SessionDetail extends SessionSummary {
   draft: string | null;
   draft_turn: number | null;
   model_id: string;
-  /** What the session started with. Test sessions: the agent's own system prompt (earlier sessions also hold their
-   *  documentation prompt; only sessions saved before migration 0080 may carry `agent_version`). Generate documents
-   *  sessions: the user's system prompt, the context they generated or edited, and the saved prompt chosen (null: their own). */
+  /** What the session started with: a saved agent's run its agent's system prompt and context; an ad-hoc run the
+   *  user's system prompt, its context and the saved prompt chosen (null: their own). */
   prompt_snapshot: {
     system_prompt: string;
     context?: string;
     prompt_id?: string | null;
-    agent_version?: { id: string; version: number; label: string } | null;
   };
-  /** What to document and the working folders (earlier sessions hold servers and notes instead of the new keys). */
-  context_snapshot: { folders: SessionFolder[]; code_project_ids: string[]; instructions?: string };
-  /** What an ad-hoc run was given for this session (null: a saved agent's run, which records its access instead). */
-  run_resources?: RunResourcesInput | null;
-  /** What the run was started for: the resources chosen, environments too, before what they bring (null: a saved
-   *  agent's run given all of its access, or a run started before it was recorded). A new document the run writes links these. */
-  chosen_resources?: (RunResourcesInput & { environment_ids: string[] }) | null;
+  /** Where the run started: `{server_id | service_id | environment_id}` (a chat on a resource), `{new_document}`
+   *  (Documents → New), `{document_id}` (Ask agent); `{}` for a saved agent's run. */
+  context_snapshot: Record<string, unknown>;
+  /** What the run was given: what the person chose, an environment rather than what it brings (Start new chat with
+   *  these settings restores it). */
+  given_resources: GivenResource[];
   /** Test sessions: the configuration pinned when the session started (credential references only). */
   config?: Record<string, unknown>;
   /** Test sessions: their saved suggestions, oldest first. */

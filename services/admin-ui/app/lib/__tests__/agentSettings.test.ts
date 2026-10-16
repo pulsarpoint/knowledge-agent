@@ -96,13 +96,11 @@ test("settingsFromSession rebuilds the settings a run started with", () => {
   const session = {
     model_id: "m1",
     prompt_snapshot: { system_prompt: "Run prompt.", prompt_id: null },
-    run_resources: {
-      server_ids: ["s1"],
-      service_ids: [],
-      environment_ids: [],
-      code_project_ids: ["c1"],
-      collection_ids: [],
-    },
+    given_resources: [
+      { type: "server", id: "s1" },
+      { type: "code_project", id: "c1" },
+      { type: "document", id: "d1" },
+    ],
     config: {
       experts: [{ id: "e1", name: "Payments expert" }],
     },
@@ -127,14 +125,11 @@ test("settingsFromSession restores what the run was started for, not what an env
   const session = {
     model_id: "m1",
     prompt_snapshot: { system_prompt: "Run prompt.", prompt_id: null },
-    run_resources: { server_ids: ["s1"], service_ids: ["v1"], code_project_ids: ["c1"], collection_ids: [] },
-    chosen_resources: {
-      server_ids: [],
-      service_ids: [],
-      environment_ids: ["e1"],
-      code_project_ids: ["c1"],
-      collection_ids: [],
-    },
+    // the run reached v1 and s1 through e1: they are not what it was given
+    given_resources: [
+      { type: "environment", id: "e1" },
+      { type: "code_project", id: "c1" },
+    ],
     config: {},
   } as unknown as SessionDetail;
   expect(settingsFromSession(withEnvironment, session).chosen).toEqual({
@@ -150,13 +145,13 @@ test("settingsFromSession leaves out what today's options no longer have or cann
   const session = {
     model_id: "gone-model",
     prompt_snapshot: { system_prompt: "Run prompt.", prompt_id: null },
-    run_resources: {
-      server_ids: ["s1", "s2", "s9"],
-      service_ids: ["v1"],
-      environment_ids: [],
-      code_project_ids: ["c9"],
-      collection_ids: [],
-    },
+    given_resources: [
+      { type: "server", id: "s1" },
+      { type: "server", id: "s2" },
+      { type: "server", id: "s9" },
+      { type: "service", id: "v1" },
+      { type: "code_project", id: "c9" },
+    ],
     config: {
       experts: [{ id: "e1" }, { id: "e9" }],
     },

@@ -8,7 +8,7 @@ from typing import Any
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
-from knowledge_admin.knowledge_agents.run_resources import KINDS, picks
+from knowledge_admin.sessions.run_access import KINDS, agent_access, picks
 
 UNAVAILABLE = 'Expert {name} is not available.'
 FAILED = 'Expert {name} failed: {message}'
@@ -78,7 +78,6 @@ def load(
     a content editor only when its agent and the calling run both are; and its decrypted credentials. ValueError: a message for the model (also a given resource
     outside its access). Synchronous: the caller runs it in a thread."""
     from knowledge_admin.agents.runner import load_credentials  # agents imports this package
-    from knowledge_admin.sessions.run_access import agent_access  # sessions imports this package
 
     unavailable = ValueError(UNAVAILABLE.format(name=entry['name']))
     try:

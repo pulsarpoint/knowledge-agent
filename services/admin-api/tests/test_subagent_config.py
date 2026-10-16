@@ -106,7 +106,6 @@ def test_a_subagent_gets_every_tool_but_run_subagent_the_given_resources_and_its
     assert [p['id'] for p in entries(sub['access'], 'code_project')] == ['worker']
     assert entries(sub['access'], 'code_project')[0]['graph_path'] == '/index/worker/graph.sqlite'
     assert entries(sub['access'], 'collection') == [] and entries(sub['access'], 'server') == []
-    assert sub['run_resources'] == {**NO_RESOURCES, 'code_project_ids': ['worker']}
     assert sub['system_prompt'] == {'content': PROMPT} and PROMPT.startswith(
         'You are a helper started by another agent'
     )
@@ -122,7 +121,6 @@ def test_a_subagent_gets_every_tool_but_run_subagent_the_given_resources_and_its
 
 def test_without_resources_a_subagent_keeps_the_parents_lists():
     sub = subagent_config(parent(), None)
-    assert 'run_resources' not in sub
     assert [s['id'] for s in selected_servers(sub)] == ['docs']
     assert entries(sub['access'], 'server')[0]['hostname'] == 'prod.test'  # the connection comes with its entry
     # all of the parent's resources but its skills
@@ -160,7 +158,6 @@ def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
         ('service', 'deployed', 'via server prod'),
         ('mcp_server', 'docs', 'given'),
     ]
-    assert sub['run_resources']['service_ids'] == ['deployed']
 
 
 @pytest.mark.parametrize(

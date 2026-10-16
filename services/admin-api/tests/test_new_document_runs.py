@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from access_helpers import of
+from access_helpers import ids, of
 from knowledge_admin.agents.runner import ssh_servers
 from knowledge_admin.capabilities import inventory
 from knowledge_admin import access as access_rules
@@ -317,8 +317,8 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, resources=resources))
     assert response.status_code == 201, response.text
     session = response.json()
-    assert session['run_resources']['service_ids'] == [s.service]  # the tools still reach what it brought
-    assert sorted(session['run_resources']['code_project_ids']) == sorted([s.repo, s.worker])
+    assert ids(session['config'], 'service') == [s.service]  # the tools still reach what it brought
+    assert sorted(ids(session['config'], 'code_project')) == sorted([s.repo, s.worker])
     config = {**session['config'], 'session_id': session['id']}
     new_id = of(session['config'], 'document')[0]['id']
     assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
@@ -339,21 +339,24 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
     }
 
 
-def test_a_run_without_its_chosen_resources_links_what_it_was_given():
-    # a session started before chosen_resources was recorded links its run_resources, as it did
-    given = {'code_project_ids': ['p'], 'collection_ids': ['c'], 'server_ids': ['h'], 'service_ids': ['s']}
-    assert _run_links({'built_for': built_for({'run_resources': given})}) == {
+def test_a_new_document_is_built_for_what_the_run_was_given():
+    # its picks, or its access entries given: what the person chose (collections and documents are not linked)
+    given = [
+        {'type': 'collection', 'id': 'c'},
+        {'type': 'server', 'id': 'h'},
+        {'type': 'environment', 'id': 'e'},
+        {'type': 'document', 'id': 'd'},
+        {'type': 'code_project', 'id': 'p'},
+        {'type': 'service', 'id': 's'},
+    ]
+    assert _run_links({'built_for': built_for(given)}) == {
         'code_project_ids': ['p'],
-        'environment_ids': [],
+        'environment_ids': ['e'],
         'service_ids': ['s'],
         'server_ids': ['h'],
         'deployment_ids': [],
     }
-    chosen = {**given, 'server_ids': [], 'service_ids': [], 'environment_ids': ['e']}
-    assert _run_links({'built_for': built_for({'run_resources': given, 'chosen_resources': chosen})})[
-        'environment_ids'
-    ] == ['e']
-    assert _run_links({'built_for': built_for({})}) == {
+    assert _run_links({'built_for': built_for([])}) == {
         key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')
     }
 
@@ -523,10 +526,9 @@ def test_an_inventory_run_saves_the_inventory_draft_built_for_exactly_its_resour
     response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
     assert response.status_code == 201, response.text
     session = response.json()
-    chosen = session['config']['chosen_resources']
-    assert {key: value for key, value in chosen.items() if value} == {'service_ids': [s.service]}
-    assert s.service in session['run_resources']['service_ids']  # it still reads what the person gave it
-    assert s.repo in session['run_resources']['code_project_ids']
+    assert built(session) == [['service', s.service]]  # its resource alone, not the environment it was given
+    assert s.service in ids(session['config'], 'service')  # it still reads what the person gave it
+    assert s.repo in ids(session['config'], 'code_project')
     config = {**session['config'], 'session_id': session['id']}
     new_id = of(session['config'], 'document')[0]['id']
     assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
@@ -614,8 +616,10 @@ def inventory_start(s, kind: str, resource_id: str, **change):
     return session, {**session['config'], 'session_id': session['id']}
 
 
-def chosen_only(session) -> dict:
-    return {key: value for key, value in session['config']['chosen_resources'].items() if value}
+def built(session) -> list[list[str]]:
+    """What the run's new document is built for."""
+    [document] = of(session['config'], 'document')
+    return document['built_for']
 
 
 def read(config, kind: str, resource_id: str) -> dict:
@@ -637,11 +641,10 @@ def test_an_inventory_run_for_a_service_reads_the_service_and_what_it_brings(ses
     monkeypatch.setattr(inventory, '_store', s.store)
     ready_prod(s)
     session, config = inventory_start(s, 'service', s.service)
-    assert chosen_only(session) == {'service_ids': [s.service]}
-    resources = session['run_resources']
-    assert resources['service_ids'] == [s.service]
-    assert sorted(resources['code_project_ids']) == sorted([s.repo, s.worker])
-    assert resources['server_ids'] == [s.server['id']]
+    assert built(session) == [['service', s.service]]
+    assert ids(config, 'service') == [s.service]
+    assert sorted(ids(config, 'code_project')) == sorted([s.repo, s.worker])
+    assert ids(config, 'server') == [s.server['id']]
     assert read(config, 'service', s.service)['name'] == 'Payments'
 
 
@@ -652,8 +655,8 @@ def test_an_inventory_run_for_a_server_with_ssh_reads_it_runs_commands_on_it_and
     monkeypatch.setattr(inventory, '_store', s.store)
     ready_prod(s)
     session, config = inventory_start(s, 'server', s.server['id'])
-    assert chosen_only(session) == {'server_ids': [s.server['id']]}
-    assert session['run_resources']['server_ids'] == [s.server['id']]
+    assert built(session) == [['server', s.server['id']]]
+    assert ids(config, 'server', 'given') == [s.server['id']]
     assert read(config, 'server', s.server['id'])['name'] == 'prod-1'
     assert read(config, 'service', s.service)['name'] == 'Payments'  # deployed on it, pinned as a server chat pins it
     assert [server['id'] for server in ssh_servers(config)] == [s.server['id']]
@@ -664,8 +667,8 @@ def test_an_inventory_run_for_a_server_without_ssh_starts_without_it_and_says_so
     s = sessions  # prod-1 has no SSH connection: a run cannot be given a server it cannot connect to
     monkeypatch.setattr(inventory, '_store', s.store)
     session, config = inventory_start(s, 'server', s.server['id'])
-    assert chosen_only(session) == {'server_ids': [s.server['id']]}
-    assert session['run_resources']['server_ids'] == []
+    assert built(session) == [['server', s.server['id']]]
+    assert ssh_servers(config) == []  # given without its connection
     # its own resource is in its access object, SSH or not: it reads the server, and cannot run commands on it
     assert read(config, 'server', s.server['id'])['name'] == 'prod-1'
     [server] = access_rules.listing(config['access'], 'server')
@@ -687,11 +690,10 @@ def test_an_inventory_run_for_an_environment_reads_it_and_what_it_brings(session
     monkeypatch.setattr(inventory, '_store', s.store)
     ready_prod(s)
     session, config = inventory_start(s, 'environment', s.environment)
-    assert chosen_only(session) == {'environment_ids': [s.environment]}
-    resources = session['run_resources']
-    assert resources['service_ids'] == [s.service]
-    assert resources['server_ids'] == [s.server['id']]
-    assert sorted(resources['code_project_ids']) == sorted([s.repo, s.worker])
+    assert built(session) == [['environment', s.environment]]
+    assert ids(config, 'service') == [s.service]
+    assert ids(config, 'server') == [s.server['id']]
+    assert sorted(ids(config, 'code_project')) == sorted([s.repo, s.worker])
     assert read(config, 'environment', s.environment)['name'] == 'Production'
     assert read(config, 'service', s.service)['name'] == 'Payments'
 
@@ -703,9 +705,8 @@ def test_a_new_document_run_without_inventory_reads_only_what_it_was_given(sessi
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s))
     assert response.status_code == 201, response.text
     session = response.json()
-    resources = session['run_resources']
-    assert resources['code_project_ids'] == [s.repo]
-    assert resources['service_ids'] == [] and resources['server_ids'] == []
     config = {**session['config'], 'session_id': session['id']}
+    assert ids(config, 'code_project') == [s.repo]
+    assert ids(config, 'service') == [] and ids(config, 'server') == []
     assert call(config, 'get_resource', resource_type='service', resource_id=s.service) == 'This run has no services.'
     assert 'start_notes' not in session['config']

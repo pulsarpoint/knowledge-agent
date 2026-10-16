@@ -11,7 +11,7 @@ import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities.document_tools import _run_links
-from knowledge_admin.sessions.run_access import built_for
+from knowledge_admin.sessions.run_access import built_for, given
 from knowledge_admin.servers.discovery import NOT_ALLOWED, NOT_CONFIGURED
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG
@@ -189,9 +189,8 @@ def test_a_document_of_a_server_run_links_its_server_and_not_the_services_on_it(
     ssh_ready(world)
     sid = start(world).json()['id']
     pinned = pinned_of(world, sid)
-    assert pinned['chosen_resources']['server_ids'] == [world.server['id']]
-    assert pinned['run_resources']['server_ids'] == [world.server['id']]
-    assert _run_links({'built_for': built_for(pinned)}) == {
+    assert [(item['type'], item['id']) for item in given(pinned['access'])] == [('server', world.server['id'])]
+    assert _run_links({'built_for': built_for(given(pinned['access']))}) == {
         'code_project_ids': [],
         'environment_ids': [],
         'service_ids': [],  # nginx runs on it: read by the run, not linked

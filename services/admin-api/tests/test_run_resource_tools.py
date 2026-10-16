@@ -68,12 +68,6 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         'instructions': '',
         'system_prompt': {'content': 'Analyse code.'},
         'grounded': False,
-        'run_resources': {
-            'code_project_ids': list(code),
-            'collection_ids': list(collections),
-            'server_ids': list(servers),
-            'service_ids': [],
-        },
     }
     return {'config': with_access(config, entries), 'credentials': {}, 'workspace': folders['workspace']}
 

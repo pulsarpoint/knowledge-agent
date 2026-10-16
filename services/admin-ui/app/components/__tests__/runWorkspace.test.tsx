@@ -36,7 +36,8 @@ const detail: SessionDetail = {
   draft_turn: null,
   model_id: "gpt",
   prompt_snapshot: { system_prompt: "Help." },
-  context_snapshot: { folders: [], code_project_ids: [] },
+  context_snapshot: {},
+  given_resources: [],
   inputs: [],
   tool_counts: [{ name: "search_documents", calls: 1 }],
 };

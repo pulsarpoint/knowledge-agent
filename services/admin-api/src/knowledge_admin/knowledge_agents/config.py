@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
-from typing import Any, NotRequired, TypedDict
+from typing import Any, TypedDict
 
 import psycopg
 from fastapi.encoders import jsonable_encoder
@@ -73,7 +73,6 @@ class AgentConfig(TypedDict):
     settings_revision: int | None
     grounded: bool  # answers only from its collections: the agent's "Answer only from documents" switch
     access: dict[str, Any]  # what the agent holds: its stored access with each entry loaded; a run pins its own
-    run_resources: NotRequired[dict[str, list[str]]]
 
 
 def model_fits(model: Mapping[str, Any]) -> bool:

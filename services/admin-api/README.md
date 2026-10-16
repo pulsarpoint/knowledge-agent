@@ -77,7 +77,9 @@ entry `{type, id, name, description_short}` with what the tools need (`resource_
 archived code projects and other references to resources that no longer exist are skipped, as are skills and MCP
 servers that are switched off. Agents are granted whole RAG collections; there are no subfolder grants. A pinned run
 configuration has no per-kind sections either: a run's access object is the agent's narrowed to what it was given,
-with the direct children of that (its code projects and servers, its deployed services, its services and servers).
+with the direct children of that (its code projects and servers, its deployed services, its services and servers). An
+ad-hoc run (no agents row) holds what it was picked, each checked and loaded, and is built the same way
+(`sessions/run_access.run_access`); a brought server it cannot connect to is left out.
 
 - A code project carries absolute `folder_paths` under `CODE_ROOT` and, when it has a generated graph, `graph_path`
   and `code_root`.
@@ -118,7 +120,7 @@ receives the full configuration with credential references only.
 
 This is the application configuration accepted by `agent()` in the same module.
 It is **not** a dictionary to unpack directly into the native Agents SDK:
-the function maps enabled sections to provider settings, instructions, MCP
+the function maps the configuration and its access entries to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
 `POST /api/sessions` with `agent_id` and `message` (it may only narrow the agent: experts, subagents, a
 subset of its resources, which bring their direct children), which pins this saved configuration (credential references only) in a Test session

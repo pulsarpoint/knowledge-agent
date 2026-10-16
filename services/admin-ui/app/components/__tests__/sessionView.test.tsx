@@ -50,13 +50,9 @@ const detail = {
   model_id: "claude",
   model_name: "Claude on Bedrock",
   document_title: null,
-  run_resources: null,
+  given_resources: [],
   prompt_snapshot: { system_prompt: "You are an expert technical writer." },
-  context_snapshot: {
-    folders: [{ path: "/work/data/code/app", kind: "code_project", name: "Payments API", code_project_id: "repo" }],
-    code_project_ids: ["repo"],
-    instructions: "",
-  },
+  context_snapshot: {},
   tool_counts: [
     { name: "Read", calls: 5 },
     { name: "Grep", calls: 2 },

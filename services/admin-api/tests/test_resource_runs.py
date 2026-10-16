@@ -2,7 +2,7 @@
 (servers/<id>, services/<id>, environments/<id>), listed by tag; each type's assistant prompt is a new chat's default;
 the proposal tools work only when the request asks for the content editor role (the Propose wizard)."""
 
-from access_helpers import of
+from access_helpers import ids, of
 from uuid import uuid4
 
 import pytest
@@ -46,16 +46,14 @@ def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_co
     assert created.json()['tags'] == [f'services/{world.nginx}']
     pinned = pinned_of(world, sid)
     assert pinned['started_from'] == {'type': 'service', 'id': str(world.nginx), 'name': 'nginx'}
-    assert pinned['chosen_resources']['service_ids'] == [str(world.nginx)]
-    assert pinned['chosen_resources']['server_ids'] == [] and pinned['chosen_resources']['environment_ids'] == []
-    assert pinned['run_resources']['code_project_ids'] == [str(world.shop)]
+    assert created.json()['given_resources'] == [{'type': 'service', 'id': str(world.nginx)}]
+    assert ids(pinned, 'code_project') == [str(world.shop)]
     assert of(pinned, 'server') == []  # nothing it brings is reachable
     assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the service
     assert pinned['access']['roles']['content_editor'] is False
     ssh_ready(world)
     pinned = pinned_of(world, start(world, {'service_id': str(world.nginx)}).json()['id'])
-    assert [server['id'] for server in of(pinned, 'server')] == [world.server['id']]
-    assert pinned['run_resources']['server_ids'] == [world.server['id']]
+    assert ids(pinned, 'server') == [world.server['id']]
 
 
 def test_a_chat_on_an_environment_brings_its_services_and_servers(world):
@@ -68,10 +66,8 @@ def test_a_chat_on_an_environment_brings_its_services_and_servers(world):
     assert row['server_id'] is None
     pinned = pinned_of(world, sid)
     assert pinned['started_from'] == {'type': 'environment', 'id': str(world.environment), 'name': 'Production'}
-    assert pinned['chosen_resources']['environment_ids'] == [str(world.environment)]
-    assert pinned['chosen_resources']['service_ids'] == [] and pinned['chosen_resources']['server_ids'] == []
-    assert pinned['run_resources']['service_ids'] == [str(world.nginx)]
-    assert pinned['run_resources']['server_ids'] == [world.server['id']]
+    assert created.json()['given_resources'] == [{'type': 'environment', 'id': str(world.environment)}]
+    assert ids(pinned, 'service') == [str(world.nginx)] and ids(pinned, 'server') == [world.server['id']]
     assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the environment
 
 
@@ -85,7 +81,7 @@ def test_a_chat_on_a_server_is_tagged_with_it_and_keeps_its_server(world):
     pinned = pinned_of(world, created.json()['id'])
     assert pinned['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
     assert 'started_from_server' not in pinned
-    assert pinned['chosen_resources']['server_ids'] == [world.server['id']]
+    assert created.json()['given_resources'] == [{'type': 'server', 'id': world.server['id']}]
 
 
 def test_a_server_chat_still_needs_ssh_and_unknown_resources_are_not_found(world):

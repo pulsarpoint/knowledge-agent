@@ -49,14 +49,14 @@ def tester(store, tmp_path, monkeypatch):
     )
 
 
-def test_start(client, agent_id: str, message: str = 'How many retries?', run_resources=None) -> dict:
+def test_start(client, agent_id: str, message: str = 'How many retries?', resources=None) -> dict:
     """The body a Test tab sends: the agent's experts, with the given resources (every run gets every tool)."""
     options = client.get(f'/api/sessions/options?agent_id={agent_id}', headers=HEADERS).json()
     return {
         'agent_id': agent_id,
         'message': message,
         'expert_ids': [e['id'] for e in options['experts']],
-        'resources': run_resources or {},
+        'resources': resources or {},
     }
 
 
@@ -64,19 +64,13 @@ test_start.__test__ = False  # a helper, not a test
 
 
 def start(t, message: str = 'How many retries?', **body) -> dict:
-    run_resources = body.pop('run_resources', None)
-    response = t.client.post(
-        '/api/sessions', headers=HEADERS, json={**test_start(t.client, t.agent, message, run_resources), **body}
-    )
+    response = t.client.post('/api/sessions', headers=HEADERS, json={**test_start(t.client, t.agent, message), **body})
     assert response.status_code == 201, response.text
     return response.json()
 
 
 def refused(t, status: int, **body) -> str:
-    run_resources = body.pop('run_resources', None)
-    response = t.client.post(
-        '/api/sessions', headers=HEADERS, json={**test_start(t.client, t.agent, 'Hi', run_resources), **body}
-    )
+    response = t.client.post('/api/sessions', headers=HEADERS, json={**test_start(t.client, t.agent, 'Hi'), **body})
     assert response.status_code == status, response.text
     return response.json()['error']['message']
 
@@ -96,11 +90,10 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
         session['draft'],
         session['model_calls'],
         session['reasoning_tokens'],
-        session['run_resources'],
-    ) == (None, None, None, 0, 0, None)
+    ) == (None, None, None, 0, 0)
     assert [(i['seq'], i['text'], i['status']) for i in session['inputs']] == [(1, 'How many retries?', 'queued')]
     assert session['reviews'] == [] and session['config']['id'] == t.agent
-    assert session['context_snapshot'] == {'folders': [], 'code_project_ids': []}
+    assert session['context_snapshot'] == {}
     assert session['prompt_snapshot']['system_prompt'].startswith('Instructions for Tester.')
     assert 'tester-model-secret' not in json.dumps(session) and 'history' not in session
     profile = t.client.get(f'/api/agents/{t.agent}', headers=HEADERS).json()
@@ -174,16 +167,16 @@ def analyst(tester):
 
 def test_a_saved_agent_pins_the_resources_picked_out_of_its_access(analyst):
     a = analyst
-    session = start(a, run_resources={'code_project_ids': [a.app]})
-    assert session['run_resources'] is None and session['config']['chosen_resources']['code_project_ids'] == [a.app]
+    session = start(a, resources={'code_project_ids': [a.app]})
+    assert session['given_resources'] == [{'type': 'code_project', 'id': a.app}]
     assert [p['id'] for p in of(session['config'], 'code_project')] == [a.app]
     everything = start(a)  # nothing picked: everything it has
     assert [p['id'] for p in of(everything['config'], 'code_project')] == [a.app, a.worker]
     server = str(uuid4())
-    assert refused(a, 400, run_resources={'server_ids': [server]}) == f"server {server} is not in the agent's access"
+    assert refused(a, 400, resources={'server_ids': [server]}) == f"server {server} is not in the agent's access"
     with a.store.connect() as conn:
         give(conn, a.agent, [('code_project', a.app)])
-    assert refused(a, 400, run_resources={'code_project_ids': [a.worker]}) == (
+    assert refused(a, 400, resources={'code_project_ids': [a.worker]}) == (
         f"code project {a.worker} is not in the agent's access"
     )
 

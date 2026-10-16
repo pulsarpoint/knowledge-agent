@@ -266,13 +266,7 @@ test("while a run is open, Settings shows the run's saved configuration, read-on
   live.sessions.r2 = {
     ...detail("r2", "waiting"),
     model_id: "m1",
-    run_resources: {
-      server_ids: [],
-      service_ids: [],
-      environment_ids: [],
-      code_project_ids: ["c1"],
-      collection_ids: [],
-    },
+    given_resources: [{ type: "code_project", id: "c1" }],
   };
   api({ [RUNS]: () => [200, { sessions: [run("r2", "waiting")] }] });
   const props = settingsOf();

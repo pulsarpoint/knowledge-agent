@@ -104,7 +104,6 @@ def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless)
         assert response.status_code in (200, 201), response.text
         config = response.json()['config']
         assert of(config, 'server') == []
-        assert keyless.server['id'] not in config['run_resources']['server_ids']
 
 
 def test_options_say_what_each_service_and_environment_brings(ask, keyless):

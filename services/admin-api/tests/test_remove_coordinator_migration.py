@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0077_remove_coordinator.up.sql', '0077_remove_coordinator.down.sql'
 LATER = (
+    '0116_drop_run_resources.down.sql',
     '0114_drop_agent_resource_tables.down.sql',
     '0084_remove_claude_code.down.sql',
     '0081_test_sessions.down.sql',

@@ -40,3 +40,8 @@ def give(conn, agent_id: str, resources: list, content_editor: bool = False) -> 
 def of(config: dict[str, Any], type_: str) -> list[dict[str, Any]]:
     """The entries of one type in a configuration's access object."""
     return [item for item in config['access']['resources'] if item['type'] == type_]
+
+
+def ids(config: dict[str, Any], type_: str, source: str | None = None) -> list[str]:
+    """The ids of one type in a configuration's access object (source 'given': only what the run was given)."""
+    return [item['id'] for item in of(config, type_) if source is None or item['source'] == source]

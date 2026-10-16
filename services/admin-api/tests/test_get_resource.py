@@ -49,10 +49,6 @@ def given(world, *, servers=True, services=True, code=True, environments=True, p
     ]
     return {
         'project_id': str(project or world.project),
-        'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}] if servers else []},
-        'services': {'enabled': True, 'items': [{'id': str(world.nginx)}] if services else []},
-        'code': {'enabled': True, 'projects': [{'id': str(world.shop)}] if code else []},
-        'chosen_resources': {'environment_ids': [str(world.environment)] if environments else []},
         'access': {
             'resources': [{'type': kind, 'id': str(key), 'source': 'given'} for kind, key, on in picks if on],
             'roles': {'content_editor': False},

@@ -124,14 +124,12 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
 export function settingsFromSession(options: AgentOptions, session: SessionDetail): AgentSettings {
   const config = (session.config ?? {}) as { experts?: { id: string }[] };
   const experts = new Set(options.experts.map((item) => item.id));
-  // what the run was started for (an environment, not what it brought); runs started before it was recorded: what they were given
-  const resources = (session.chosen_resources ?? session.run_resources ?? {}) as Partial<
-    Record<keyof AgentResources, unknown>
-  >;
+  // what the run was given (an environment, not what it brought)
+  const given = session.given_resources ?? [];
   const chosen = { ...EMPTY };
   for (const { key, field } of AGENT_KINDS) {
     const present = new Set(choosable(options, key).map((item) => item.id));
-    chosen[field] = strings(resources[field]).filter((id) => present.has(id));
+    chosen[field] = given.filter((item) => `${item.type}_ids` === field && present.has(item.id)).map((item) => item.id);
   }
   const promptId = session.prompt_snapshot?.prompt_id ?? null;
   const modelId = options.models.some((item) => item.id === session.model_id)
@@ -142,7 +140,7 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     promptKey: promptId && options.prompts.some((item) => item.id === promptId) ? promptId : OWN,
     systemPrompt: session.prompt_snapshot?.system_prompt ?? defaultSettings(options).systemPrompt,
     chosen,
-    // the documents a run was given are not recorded: a saved agent's run starts again with all of them
+    // a saved agent's run starts again with all of its documents
     ...(options.agent ? { documents: options.resources.documents.map((item) => item.id) } : {}),
     experts: (config.experts ?? []).map((entry) => String(entry.id)).filter((id) => experts.has(id)),
   };

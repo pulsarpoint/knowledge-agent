@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
-from knowledge_admin.knowledge_agents.run_resources import picks
+from knowledge_admin.sessions.run_access import picks
 from knowledge_admin.tools.registry import tool
 
 

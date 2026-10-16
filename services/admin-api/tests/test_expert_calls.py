@@ -124,7 +124,7 @@ def test_an_expert_runs_with_the_loaded_configuration_and_is_recorded_with_its_a
         loader,
     )
     answer = asyncio.run(ask(subagents, 'e1', 'Map payments', {'code_project_ids': ['worker', 'worker']}))
-    assert loader.calls == [(ENTRY, {**NO_RESOURCES, 'code_project_ids': ['worker']})]
+    assert loader.calls == [(ENTRY, {'code_project_ids': ['worker', 'worker']})]  # experts.load takes its picks
     [run] = fake.calls
     assert run['config'] == expert_config() and run['credentials'] == {'expert-model': 'expert-model-secret'}
     assert (run['workspace'], run['max_turns'], run['turn_timeout_seconds'], run['stream']) == (

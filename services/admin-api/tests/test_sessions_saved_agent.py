@@ -6,7 +6,7 @@ import pytest
 
 from access_helpers import give
 from knowledge_admin.capabilities.document_tools import _run_links
-from knowledge_admin.sessions.run_access import built_for
+from knowledge_admin.sessions.run_access import built_for, given
 from test_profiles import create, update
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_world import ask  # noqa: F401  (fixture)
@@ -90,7 +90,7 @@ def test_a_saved_agent_starts_with_its_own_configuration_narrowed(agent):
     given = [
         (item['type'], item['id']) for item in session['config']['access']['resources'] if item['source'] == 'given'
     ]
-    assert given == [('server', agent.web)] and session['run_resources'] is None
+    assert given == [('server', agent.web)] and session['given_resources'] == [{'type': 'server', 'id': agent.web}]
     preview = start(agent.client, '/preview', agent_id=agent.id, resources={'server_ids': [agent.web]}).json()
     assert preview['config']['system_prompt'] == session['config']['system_prompt']
 
@@ -212,14 +212,8 @@ def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_i
         ('code_project', ask.s.repo),
         ('code_project', ask.s.worker),
     }
-    assert session['chosen_resources'] == {
-        'code_project_ids': [],
-        'collection_ids': [],
-        'server_ids': [],
-        'service_ids': [ask.s.service],
-        'environment_ids': [],
-    }
-    assert _run_links({'built_for': built_for(session['config'])}) == {
+    assert session['given_resources'] == [{'type': 'service', 'id': ask.s.service}]
+    assert _run_links({'built_for': built_for(given(session['config']['access']))}) == {
         'code_project_ids': [],
         'environment_ids': [],
         'service_ids': [ask.s.service],

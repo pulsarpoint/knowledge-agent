@@ -19,21 +19,23 @@ from knowledge_admin.documents.store import INVENTORY_TAG, NAME_IN_USE
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import (
+    AD_HOC_AGENT,
+    AD_HOC_NAME,
     entry as access_entry,
     get_agent_config,
-    load_environments,
+    load_entries,
     load_model,
     model_fits,
-    resource_entries,
 )
-from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services, take_sections
 from knowledge_admin.knowledge_agents.experts import offered, pin
-from knowledge_admin.knowledge_agents.run_resources import (
-    DEPLOYED_SERVICES,
-    RunResourceError,
+from knowledge_admin.sessions.run_access import (
+    agent_access,
     bring,
+    built_for,
+    check_picks,
+    given,
+    run_access,
 )
-from knowledge_admin.sessions.run_access import agent_access, built_for, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 
@@ -380,8 +382,6 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     pinned = pin(conn, config, agent_id)
-    if picked:  # what a new document of the run is built for
-        pinned['chosen_resources'] = {key: [str(i) for i in getattr(resources, key)] for _, key in PICKS}
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     if value.context:
         content = pinned['system_prompt']['content'] + f'\n\n# Context\n\n{value.context}'
@@ -402,31 +402,35 @@ def chosen_experts(offered: list[dict], expert_ids: list[UUID] | None) -> list[d
     return [experts[str(expert_id)] for expert_id in expert_ids]
 
 
+def _with(selection: Resources, kind: str, resource_id) -> Resources:
+    """The selection with this server, service or environment picked too."""
+    key = f'{kind}_ids'
+    ids = getattr(selection, key)
+    return selection if resource_id in ids else selection.model_copy(update={key: [*ids, resource_id]})
+
+
 def build(
     conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
 ) -> tuple[dict, dict, dict | None]:
     """(pinned configuration, model, where it starts: the document or the resource; None for a saved agent or a new
     document): preview and start share it, so they pin the same configuration except the random `new:` id of a new
-    document. A run started from a resource records it as `started_from` ({type, id, name}) and is chosen for it
-    (`chosen_resources`). A server run has SSH to it (added to the chosen servers when missing) and reads the services
-    deployed on it (pinned without what they would bring); a service brings its code projects and the servers it is
-    deployed on, an environment its services and servers (what the run cannot reach is left out)."""
+    document. A saved agent's run narrows its agent's access (narrow); an ad-hoc run (the user's model and prompt, no
+    agents row) holds what it was picked, each checked (check_picks), and is built the same way (run_access): what it
+    was given brings its children. A run started from a resource records it as `started_from` ({type, id, name}) and
+    is given it (a server run only with SSH to it); the resource an inventory document is about is given to its run
+    too (a server only with SSH to it: else the run starts without it and says so)."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
-    server = origin = None
+    origin = None
     selection = value.resources
     resource = value.resource()
-    if resource is not None and resource[0] == 'server':
-        server = origin = start_server(conn, project, resource[1])
-        if server['id'] not in selection.server_ids:
-            selection = selection.model_copy(update={'server_ids': [*selection.server_ids, server['id']]})
-    elif resource is not None:
+    if resource is not None:
         kind, resource_id = resource
-        origin = start_resource(conn, project, kind, resource_id)
-        key = f'{kind}_ids'
-        if origin['id'] not in getattr(selection, key):
-            selection = selection.model_copy(update={key: [*getattr(selection, key), origin['id']]})
+        origin = (
+            start_server(conn, project, resource_id) if kind == 'server' else start_resource(conn, project, *resource)
+        )
+        selection = _with(selection, kind, origin['id'])
     started = value.started_from.new_document
     entries = list(value.resources.documents)
     new = next((entry.new for entry in entries if entry.new is not None), None)
@@ -439,16 +443,12 @@ def build(
     if owner is not None:  # the resource it writes about is read as a chat on it reads it
         inventory_owner(conn, project, *owner)
         kind, resource_id = owner
-        if kind == 'server':
-            found = server_row(conn, project, resource_id, lock=True)
-            reason = readiness(found)
-            if reason:  # a run is given a server only with SSH to it: it starts without it
-                notes.append(NO_SSH.format(name=found['name'], reason=reason))
-            else:
-                server = found
-        key = f'{kind}_ids'
-        if (kind != 'server' or server is not None) and resource_id not in getattr(selection, key):
-            selection = selection.model_copy(update={key: [*getattr(selection, key), resource_id]})
+        found = server_row(conn, project, resource_id, lock=True) if kind == 'server' else None
+        reason = readiness(found) if found is not None else None
+        if reason:  # a run is given a server only with SSH to it: it starts without it
+            notes.append(NO_SSH.format(name=found['name'], reason=reason))
+        else:
+            selection = _with(selection, kind, resource_id)
     target = None
     if value.started_from.document_id is not None:
         target = conn.execute(
@@ -466,66 +466,66 @@ def build(
         reason = server_reason(row)
         if reason:
             raise HTTPException(400, f'Server {row["name"]}: {reason}')
+    picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
+    try:
+        check_picks(conn, project, picked)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    # a new document is built for what the person chose; an inventory document for its resource alone
+    documents = document_access(
+        conn, project, entries, [[owner[0], str(owner[1])]] if owner is not None else built_for(picked)
+    )
     # a resource run's resource is named in the instructions (runner.get_prompt), not in its context
     system_prompt = value.system_prompt + (f'\n\n# Context\n\n{value.context}' if value.context else '')
-    try:
-        pinned = ad_hoc_config(conn, project, model=model, system_prompt=system_prompt, selection=selection)
-    except RunResourceError as exc:
-        raise HTTPException(400, str(exc)) from None
-    if server is not None:
-        deployed = conn.execute(DEPLOYED_SERVICES, (server['id'],)).fetchall()
-        pinned = pin_services(conn, project, pinned, [row['id'] for row in deployed])
-    if resource is not None:
-        pinned['started_from'] = {'type': resource[0], 'id': str(origin['id']), 'name': origin['name']}
-    keyed = [server for server in pinned['ssh']['servers'] if server.get('private_key_ref') is not None]
-    if len(keyed) != len(pinned['ssh']['servers']):  # a server a service or environment brought in, without an SSH key
-        pinned['ssh'] = {**pinned['ssh'], 'servers': keyed, 'enabled': pinned['ssh']['enabled'] and bool(keyed)}
-        if 'server_ids' in pinned.get('run_resources', {}):
-            kept = {str(server['id']) for server in keyed}
-            pinned['run_resources'] = {
-                **pinned['run_resources'],
-                'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept],
-            }
-    if owner is not None:  # built for the resource alone; what the person gave it is only read
-        chosen = {key: [] for key in (*pinned.get('chosen_resources', {}), 'environment_ids', f'{owner[0]}_ids')}
-        pinned['chosen_resources'] = {**chosen, f'{owner[0]}_ids': [str(owner[1])]}
-    documents = document_access(conn, project, entries, built_for(pinned))
     for entry in documents:
         if entry.get('new'):  # a document run names its document in its context; a new document's id is made here
             context = f'Document: {entry["name"]} (id {entry["id"]})'
-            content = pinned['system_prompt']['content']
-            content += f'\n\n{context}' if '\n# Context\n' in content else f'\n\n# Context\n\n{context}'
-            pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
+            system_prompt += f'\n\n{context}' if '\n# Context\n' in system_prompt else f'\n\n# Context\n\n{context}'
+    pinned = pin(
+        conn,
+        {
+            'id': AD_HOC_AGENT,
+            'name': AD_HOC_NAME,
+            'description': '',
+            'when_to_use': '',
+            'enabled': True,
+            'revision': 0,
+            'model': model,
+            'system_prompt': {'content': system_prompt},
+            'instructions': '',
+            'settings_revision': None,
+            'grounded': False,
+        },
+        None,
+    )
+    if resource is not None:
+        pinned['started_from'] = {'type': resource[0], 'id': str(origin['id']), 'name': origin['name']}
     if notes:
         pinned['start_notes'] = notes
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     pinned['project_id'] = str(project)
-    # what the run holds: what its sections list (they go: the access object is all the run pins), its documents
-    # and the environments it was given
-    items, graphs = take_sections(pinned)
-    environments = load_environments(conn, project, selection.environment_ids)
-    holds = resource_entries({**items, 'document': documents, 'environment': environments}, graphs)
-    pinned = jsonable_encoder(pinned)
-    # given: what was picked (the resource it starts from, its inventory document's resource) and its documents; the
-    # runs a person asked to write (a new document, a revision; content_editor: the Propose wizard) are content editors
-    picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
-    picked += [{'type': 'document', 'id': entry['id']} for entry in documents]
+    # what the run holds: what it was picked, loaded, and its documents; the runs a person asked to write (a new
+    # document, a revision; content_editor: the Propose wizard) are content editors
+    ids = {type_: [pick['id'] for pick in picked if pick['type'] == type_] for type_, _ in PICKS}
+    holds = load_entries(conn, project, ids, documents)
     writes = (
         value.started_from.new_document is not None or value.started_from.document_id is not None
         if value.content_editor is None
         else value.content_editor
     )
     try:
-        pinned['access'] = run_access(
+        access = run_access(
             conn,
             project,
-            jsonable_encoder(holds),
-            picked,
+            holds,
+            [*picked, *({'type': 'document', 'id': entry['id']} for entry in documents)],
             content_editor=writes,
             own=owner or resource,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+    pinned = jsonable_encoder(pinned)
+    pinned['access'] = jsonable_encoder(access)
     return pinned, model, origin if origin is not None else target
 
 
@@ -558,8 +558,8 @@ def start_run(
         snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources,event_id,handler_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s)""",
+            target_document_id,prompt_snapshot,context_snapshot,agent_config,event_id,handler_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,'{}',%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -570,9 +570,7 @@ def start_run(
                 purpose or 'test',
                 tags,
                 Jsonb(snapshot),
-                Jsonb({'folders': [], 'code_project_ids': []}),
                 Jsonb(pinned),
-                Jsonb(pinned['run_resources']) if 'run_resources' in pinned else None,
                 event_id,
                 handler_id,
             ),
@@ -582,7 +580,7 @@ def start_run(
             'model_id': model['id'],
             'expert_ids': [entry['id'] for entry in pinned['experts']],
             'content_editor': editor,
-            'resources': pinned.get('chosen_resources'),
+            'resources': [{'type': item['type'], 'id': item['id']} for item in given(pinned['access'])],
             'tags': tags,
         }
     elif resource is not None:
@@ -594,8 +592,8 @@ def start_run(
         }
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            server_id,target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
-            VALUES (%s,%s,NULL,%s,%s,%s,'resource',%s,%s,NULL,%s,%s,%s,%s)""",
+            server_id,target_document_id,prompt_snapshot,context_snapshot,agent_config)
+            VALUES (%s,%s,NULL,%s,%s,%s,'resource',%s,%s,NULL,%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -607,7 +605,6 @@ def start_run(
                 Jsonb(jsonable_encoder(snapshot)),
                 Jsonb({f'{kind}_id': str(resource_id)}),
                 Jsonb(pinned),
-                Jsonb(pinned['run_resources']),
             ),
         )
         details = {
@@ -623,8 +620,8 @@ def start_run(
         snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            target_document_id,folder,document_name,prompt_snapshot,context_snapshot,agent_config,run_resources)
-            VALUES (%s,%s,NULL,%s,%s,%s,'documents',%s,NULL,%s,%s,%s,%s,%s,%s)""",
+            target_document_id,folder,document_name,prompt_snapshot,context_snapshot,agent_config)
+            VALUES (%s,%s,NULL,%s,%s,%s,'documents',%s,NULL,%s,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -637,7 +634,6 @@ def start_run(
                 Jsonb(jsonable_encoder(snapshot)),
                 Jsonb({'new_document': new}),
                 Jsonb(pinned),
-                Jsonb(pinned['run_resources']),
             ),
         )
         details = {
@@ -654,8 +650,8 @@ def start_run(
         try:
             conn.execute(
                 """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-                target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
-                VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s,%s)""",
+                target_document_id,prompt_snapshot,context_snapshot,agent_config)
+                VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s)""",
                 (
                     session_id,
                     project,
@@ -667,7 +663,6 @@ def start_run(
                     Jsonb(jsonable_encoder(snapshot)),
                     Jsonb({'document_id': str(document_id)}),
                     Jsonb(pinned),
-                    Jsonb(pinned['run_resources']),
                 ),
             )
         except errors.ForeignKeyViolation as exc:  # the document was deleted after build() read it
@@ -809,7 +804,7 @@ def options(
 
     def brings(items: list[dict], environments: bool) -> list[dict]:
         """Whether each service or environment brings a code project, and a server the run can use (as
-        run_resources.resolve and build() narrow them), so the panel can say what each brings."""
+        build() brings them: run_access), so the panel can say what each brings."""
         for entry in items:
             found = bring(conn, project, [] if environments else [entry['id']], [entry['id']] if environments else [])
             entry['brings_code'] = bool(found['code_project_ids'])

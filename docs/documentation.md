@@ -194,11 +194,15 @@ Migration 0101 closed the open Generate documents runs with "Closed by an update
 stay readable.
 
 The session stores two snapshots. `prompt_snapshot` holds the system prompt, the context and `prompt_id` (the saved prompt it
-came from, or null); `agent_config` is the ad-hoc configuration narrowed to the chosen resources (`run_resources.resolve`;
-credential references only), and `history` holds the Agents SDK items of successful turns, redacted; listing and detail never
-return `agent_config` or `history`. These sessions have `agent_id` NULL (migration 0082), and their run records carry the
-agent `ad-hoc`. `context_snapshot` holds the chosen resources, plus `folders` (the working folders, read-only, the first being
-the working directory) and `code_project_ids`. Credentials are never included. Sessions also store `run_resources` (ids only).
+came from, or null); `agent_config` is the ad-hoc configuration (credential references only) with its access object (also
+`access`): what the run was picked, each checked and loaded, and what that brings, built as a saved agent's run is
+(`sessions/run_access.run_access`). `history` holds the Agents SDK items of successful turns, redacted; listing and detail
+never return `agent_config` or `history`. These sessions have `agent_id` NULL (migration 0082), and their run records carry
+the agent `ad-hoc`. `context_snapshot` holds where the run started (`new_document`, `document_id`, or the resource's id;
+`{}` for a saved agent's run). The session detail returns `given_resources`, the access entries the run was given
+(`[{type, id}]`: what the person chose, an environment rather than what it brings); Start new chat with these settings
+restores them. A new document is built for the same choice, an inventory document for its resource alone (its entry's
+`built_for`). Credentials are never included. Migration 0116 dropped the ids-only `run_resources` column.
 The agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft).
 
 **Turns.** `agent-session-worker` claims sessions (`session_worker.claim`), decrypts the pinned

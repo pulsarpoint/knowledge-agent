@@ -1,5 +1,4 @@
 import { request } from "~/lib/api";
-import type { ResourceIds, RunKey } from "~/lib/resources";
 /** The types of resource an agent's access may reference, with their labels, in the order the editor shows them. */
 export const ACCESS_TYPES = [
   { type: "server", label: "Servers", one: "server", many: "servers" },
@@ -35,7 +34,6 @@ export function countsSummary(counts: Partial<Record<AccessType, number>>): stri
   );
   return parts.length ? parts.join(" · ") : "No resources";
 }
-export type RunResourcesInput = ResourceIds<RunKey>;
 export interface AgentProfile {
   id: string;
   name: string;

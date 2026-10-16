@@ -28,7 +28,7 @@ from knowledge_admin.capabilities.subagents import check_run_subagent
 from knowledge_admin.knowledge_agents import experts, native_sessions
 from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
-from knowledge_admin.knowledge_agents.run_resources import picked_ids, picks
+from knowledge_admin.sessions.run_access import picks
 from knowledge_admin.knowledge_agents.session_worker import clean_text
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,6 @@ def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]
     sub = copy.deepcopy(dict(config))
     sub.pop('record', None)
     sub['experts'] = []  # a subagent never calls experts
-    if resources is not None:
-        sub['run_resources'] = picked_ids(resources)
     sub['access'] = subagent_access(config['access'], resources)
     sub['name'] = f'{config["name"]} · subagent'
     sub['system_prompt'] = {'content': PROMPT}
@@ -234,7 +232,6 @@ class Subagents:
         check_task(task)
         if resources is not None and (refusal := check_run_subagent(context['config']['access'], resources)):
             raise ValueError(refusal)
-        given = picked_ids(resources) if resources is not None else None
         if self.load_expert is None:
             raise ValueError(experts.UNAVAILABLE.format(name=entry['name']))
         if self.closed or self.parent.closed:
@@ -243,7 +240,7 @@ class Subagents:
             raise ValueError(LIMIT)
         self.root.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
         editor = access_rules.is_content_editor(context['config']['access'])  # the expert: only if its caller is too
-        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), given, editor))
+        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources, editor))
         try:
             config, credentials = await asyncio.shield(load)
         except asyncio.CancelledError:

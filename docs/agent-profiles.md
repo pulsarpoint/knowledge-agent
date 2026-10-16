@@ -118,7 +118,7 @@ Migration `0073_remove_documentation_generation` removes the one-shot generation
 
 Migration `0074_native_agent_sessions` adds `agent_sessions_cc.runtime`, `agent_config` and `history`; its down migration refuses while native sessions exist. Native agents' Generate documents sessions run in `agent-session-worker`.
 
-Migration `0075_agent_resources` adds `agents.resources` (`fixed` | `per_run`, default `fixed`; dropped in 0114); its down migration refuses while per-run agents or per-run configuration versions exist. Migration `0076_run_resources` adds `run_resources` to `agent_sessions_cc`, `agent_sessions` and `operations_runs`; its down migration drops only these records.
+Migration `0075_agent_resources` adds `agents.resources` (`fixed` | `per_run`, default `fixed`; dropped in 0114); its down migration refuses while per-run agents or per-run configuration versions exist. Migration `0076_run_resources` adds `run_resources` to `agent_sessions_cc`, `agent_sessions` and `operations_runs`; its down migration drops only these records. Migration `0116_drop_run_resources` drops the last of them, `agent_sessions.run_resources` (a run's access object describes what it was given); its down migration adds it back empty.
 
 Migration `0077_remove_coordinator` removes the multi-agent board and the coordinator: it deletes the board run
 records (`board:*`), drops `agent_board_tasks`, `agent_board_members` and `coordinator_settings`, deletes the
