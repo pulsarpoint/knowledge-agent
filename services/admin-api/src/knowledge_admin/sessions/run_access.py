@@ -111,6 +111,32 @@ def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[d
     return list({(item['type'], item['id']): item for item in found}.values())
 
 
+SECTIONS = (
+    ('ssh', 'servers', 'server'),
+    ('services', 'items', 'service'),
+    ('code', 'projects', 'code_project'),
+    ('documents', 'collections', 'collection'),
+    ('skills', 'items', 'skill'),
+    ('mcp', 'servers', 'mcp_server'),
+)
+
+
+def cut_to(config: dict[str, Any], access: dict[str, Any]) -> dict[str, Any]:
+    """The configuration with only what the run's access object holds in its sections, graphs and documents: the
+    tools and the credentials see exactly the run's resources (a section stays enabled when the agent has items of its
+    kind: its tools say what the run was not given)."""
+    keep = {(entry['type'], str(entry['id'])) for entry in access['resources']}
+    cut = dict(config)
+    for section, key, type_ in SECTIONS:
+        cut[section] = {
+            **config[section],
+            key: [item for item in config[section][key] if (type_, str(item['id'])) in keep],
+        }
+    cut['code']['graphs'] = [g for g in config['code'].get('graphs', []) if ('code_project', str(g['id'])) in keep]
+    cut['document_access'] = [d for d in config.get('document_access') or [] if ('document', str(d['id'])) in keep]
+    return cut
+
+
 def _ids(conn, query: str, parameters: tuple) -> list[str]:
     return [str(row['id']) for row in conn.execute(query, parameters)]
 

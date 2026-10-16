@@ -1,7 +1,6 @@
-"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved;
-a per-run agent never runs with its whole selection."""
+"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved (until
+0114); runs no longer read it: every run narrows the agent's access object (test_agent_access)."""
 
-import asyncio
 from pathlib import Path
 
 import psycopg
@@ -9,8 +8,7 @@ import pytest
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
-from knowledge_admin.agents.runner import create_agent
-from knowledge_admin.knowledge_agents.config import get_agent_config, require_run_resources
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_profiles import update, wizard_payload
 from test_repositories import HEADERS
@@ -101,22 +99,9 @@ def test_the_setting_is_saved_and_listed(store, saved_agent):
     )
 
 
-def test_a_per_run_agent_never_runs_with_its_whole_selection(store, saved_agent):
-    client = saved_agent[0]
+def test_the_llm_profile_of_a_per_run_agent_is_not_runnable(store, saved_agent):
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
-    config = get_agent_config('operations', conninfo=store.conninfo)
-    with pytest.raises(ValueError, match='per run'):
-        require_run_resources(config)
-    require_run_resources({**config, 'run_resources': {}})  # a run that passed its resources
-    require_run_resources({**config, 'resources': 'fixed'})
-
-    async def build():
-        async with create_agent(config, credentials={}, timeout_seconds=5):
-            pass
-
-    with pytest.raises(ValueError, match='per run'):
-        asyncio.run(build())
     with store.connect() as conn:
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)

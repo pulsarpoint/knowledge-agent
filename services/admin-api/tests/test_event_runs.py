@@ -84,10 +84,6 @@ def test_processing_the_event_again_starts_nothing_new(tester):
     'change, message',
     [
         ('UPDATE ka.agents SET enabled=false WHERE id=%s', 'Agent is disabled.'),
-        (
-            "UPDATE ka.agents SET resources='per_run' WHERE id=%s",
-            'This agent gets its resources per run; handlers can only send to agents with fixed resources.',
-        ),
         ('UPDATE ka.agents SET model_id=NULL WHERE id=%s', AGENT_NO_MODEL),
     ],
 )

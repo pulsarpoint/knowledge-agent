@@ -1,10 +1,10 @@
-"""Run resources: what one run of a per-run agent works on, and the configuration that run uses.
+"""Run resources: what one ad-hoc run works on, and the configuration that run uses (a saved agent's run narrows the
+agent's access object instead: sessions.start.narrow).
 
-A per-run agent's saved selections (code projects, collections, SSH servers, services) are what a caller may pass;
-each run passes its own. `resolve` checks the request and narrows each resource list of the agent's snapshot to it,
-so the existing tools, which only reach what the configuration lists, reach exactly what the run was given. Nothing
-passed for a kind leaves that list empty: never "all". Fixed agents keep their configuration and refuse run
-resources. Credentials stay references; nothing is decrypted here."""
+`resolve` checks the request and narrows each resource list of a configuration that allows everything (the ad-hoc
+base configuration) to it, so the tools, which only reach what the configuration lists, reach exactly what the run
+was given. Nothing passed for a kind leaves that list empty: never "all". Credentials stay references; nothing is
+decrypted here."""
 
 import copy
 import os
@@ -18,9 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.data_root import data_path
-from knowledge_admin.knowledge_agents.config import load_graphs, per_run
+from knowledge_admin.knowledge_agents.config import load_graphs
 
-FIXED = 'This agent uses fixed resources.'
 NOT_USED = 'This agent does not use {what}.'
 NOT_ALLOWED = '{label} {name} is not allowed for this agent.'
 NOT_AVAILABLE = '{label} {name} is not available: it was removed, archived or disabled.'
@@ -172,10 +171,7 @@ def bring(
 def resolve(
     conn, project_id, config: dict[str, Any], requested: RunResources | None, *, environment_ids: Iterable[UUID] = ()
 ) -> dict[str, Any]:
-    """The configuration one run uses.
-
-    Fixed agents: their own configuration, unchanged; passing run resources is refused (FIXED).
-    Per-run agents: a copy whose code projects, collections, SSH servers and services are exactly the run's resources,
+    """The configuration one run uses: a copy whose code projects, collections, SSH servers and services are exactly the run's resources,
     with `run_resources` recording them (what the tools may reach) and `chosen_resources` recording only what the
     caller chose, environments too, before anything is brought (what a new document links). A chosen service brings its code projects and the servers it is deployed on;
     an environment (Generate documents) brings its services and servers, and through them their code projects and
@@ -183,10 +179,6 @@ def resolve(
     allowed, a usable connection). Every resource must exist in this workspace, be usable, be of a kind the agent uses and be inside the
     agent's saved selection; otherwise RunResourceError names it.
     """
-    if not per_run(config):
-        if requested is not None:
-            raise RunResourceError(FIXED)
-        return config
     effective = copy.deepcopy(config)
     requested = requested or RunResources()
     wanted = {kind.key: [str(item) for item in getattr(requested, kind.key)] for kind in KINDS}

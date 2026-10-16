@@ -44,7 +44,7 @@ class PerRunExpertTask(ExpertTask):
 
 def expert_tool(entry: dict[str, Any]) -> FunctionTool:
     """One expert as its own tool (ask_<name>): the call goes to the turn's Subagents host (Subagents.ask)."""
-    arguments = PerRunExpertTask if entry['resources'] == 'per_run' else ExpertTask
+    arguments = PerRunExpertTask if entry.get('accepts') else ExpertTask
 
     async def run(context: dict[str, Any], value: BaseModel) -> str:
         host = context.get('subagents')

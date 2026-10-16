@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import asyncssh
 
+from access_helpers import from_tables
 from knowledge_admin.agents.clones import clone_name
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from knowledge_admin.agents.profiles_api import agent_history
@@ -76,16 +77,13 @@ def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
             "UPDATE ka.agents SET system_prompt='Answer from evidence.',resources='per_run' WHERE id='operations'"
         )
         credentials = conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n']
+    copy_id = clone(client)['id']
+    from_tables(store)
     original = get_agent_config('operations', conninfo=store.conninfo)
-    copied = get_agent_config(clone(client)['id'], conninfo=store.conninfo)
+    copied = get_agent_config(copy_id, conninfo=store.conninfo)
     assert comparable(copied) == comparable(original)
     assert sections(copied) == sections(original)
     assert copied['ssh']['servers'][0]['private_key_ref'] == original['ssh']['servers'][0]['private_key_ref']
-    assert (copied['ssh']['servers'][0]['skills_source'], copied['ssh']['servers'][0]['mcp_source']) == (
-        'server_override',
-        'server_override',
-    )
-    assert [item['id'] for item in copied['ssh']['servers'][0]['mcp_servers']] == [saved_agent[4]['id']]
     with store.connect() as conn:  # the saved key is referenced, not duplicated
         assert conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n'] == credentials
 
@@ -152,5 +150,6 @@ def test_history_stays_with_the_original_and_the_clone_outlives_it(store, saved_
     assert (detail['cloned_from'], detail['original']) == (None, None)
     with store.connect() as conn:  # the clone still uses the saved key
         assert conn.execute('SELECT 1 FROM ka.credentials WHERE id=%s', (credential,)).fetchone() is not None
+    from_tables(store)
     host = get_agent_config(created['id'], conninfo=store.conninfo)['ssh']['servers'][0]
-    assert host['private_key_ref']['id'] == str(credential)
+    assert host['private_key_ref']['id'] != str(credential)  # the server's own key (agent connections are not read)

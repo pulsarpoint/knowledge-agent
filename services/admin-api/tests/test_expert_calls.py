@@ -17,7 +17,6 @@ from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.experts import FAILED, UNAVAILABLE, load, offered, pin
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
-from knowledge_admin.knowledge_agents.run_resources import RunResourceError
 from knowledge_admin.knowledge_agents.subagents import (
     LIMIT,
     MAX_PER_TURN,
@@ -514,30 +513,35 @@ def test_the_expert_tool_passes_the_call_to_the_turns_host():
     assert len(asked) == 3
 
 
-def test_load_resolves_per_run_resources_against_the_expert_and_refuses_unavailable_experts(per_run):
+def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(per_run):
     s = per_run
     with s.store.connect() as conn:
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Payments code.' WHERE id=%s", (s.analyst,))
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
         [entry] = [found for found in offered(conn, None) if found['id'] == s.analyst]
-    given = {**NO_RESOURCES, 'code_project_ids': [s.worker]}  # the caller's, but outside the expert's selection
-    with pytest.raises(RunResourceError) as refused:
+    given = {**NO_RESOURCES, 'code_project_ids': [s.worker]}  # the caller's, but outside the expert's access
+    with pytest.raises(ValueError) as refused:
         load(s.store, project, entry, given)
-    assert str(refused.value) == 'Code project Payments worker is not allowed for this agent.'
+    assert str(refused.value) == f"code project {s.worker} is not in the agent's access"
     given = {**NO_RESOURCES, 'code_project_ids': [s.repo], 'server_ids': [s.host['id']]}
     config, credentials = load(s.store, project, entry, given)
-    assert config['run_resources'] == given and config['experts'] == [] and 'record' not in config
+    assert config['experts'] == [] and 'record' not in config
     assert [p['name'] for p in config['code']['projects']] == ['Payments API']
+    assert config['documents']['collections'] == []  # its sections hold only what its access object holds
     # its access object, built as a run start builds it: what it was given, no content editor
     given_access = [(e['type'], e['id'], e['source']) for e in config['access']['resources'] if e['source'] == 'given']
     assert given_access == [('code_project', s.repo, 'given'), ('server', s.host['id'], 'given')]
     assert config['access']['roles'] == {'content_editor': False}
     key_id = config['ssh']['servers'][0]['private_key_ref']['id']
     assert credentials[key_id] == s.key['private_key']  # its own SSH key, decrypted for this call
-    nothing, _ = load(s.store, project, entry, None)
-    assert nothing['run_resources'] == NO_RESOURCES
-    assert [e['type'] for e in nothing['access']['resources'] if e['type'] in ('server', 'code_project')] == []
+    whole, _ = load(s.store, project, entry, None)  # nothing given: everything it has
+    assert [(e['type'], e['source']) for e in whole['access']['resources']] == [
+        ('server', 'given'),
+        ('service', 'given'),
+        ('code_project', 'given'),
+        ('collection', 'given'),
+    ]
     for change in ('enabled=false', 'expert=false'):
         with s.store.connect() as conn:
             conn.execute(f'UPDATE ka.agents SET {change} WHERE id=%s', (s.analyst,))

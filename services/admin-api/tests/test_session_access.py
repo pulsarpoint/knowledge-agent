@@ -4,6 +4,7 @@ carries the resource block."""
 
 from pathlib import Path
 
+from access_helpers import give
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.runner import get_prompt
 from test_discovery_runs import call, ssh_ready
@@ -138,23 +139,16 @@ def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(an
         'roles': {'content_editor': False},
     }
     assert config['access'] == access
-    nothing, _ = stored(a.store, agent_start(a)['id'])
-    assert nothing == {'resources': [], 'roles': {'content_editor': False}}
+    everything, _ = stored(a.store, agent_start(a)['id'])  # nothing picked: everything it has
+    assert [item['id'] for item in everything['resources']] == [a.app, a.worker]
     with a.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET all_repositories=false WHERE id=%s', (a.agent,))
-        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (a.agent, a.app))
+        give(conn, a.agent, [('code_project', a.app)])
         before = conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n']
     assert refused(a, 400, run_resources={'code_project_ids': [a.worker]}) == (
-        'Code project Worker is not allowed for this agent.'
+        f"code project {a.worker} is not in the agent's access"
     )
     with a.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == before
-        conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
-    fixed, _ = stored(a.store, agent_start(a)['id'])  # a fixed agent: everything it has
-    assert fixed == {
-        'resources': [entry('code_project', a.app, 'App', '', folder_paths=[str(a.root / 'app')])],
-        'roles': {'content_editor': False},
-    }
 
 
 def test_a_widening_pick_is_refused_with_the_narrowing_text(analyst, monkeypatch):

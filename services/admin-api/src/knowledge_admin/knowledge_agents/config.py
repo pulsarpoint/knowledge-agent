@@ -16,7 +16,6 @@ from psycopg.rows import dict_row
 from knowledge_admin.data_root import data_path
 
 Resources = Literal['fixed', 'per_run']
-NO_RUN_RESOURCES = 'This agent receives its resources per run, and this run was started without them.'
 AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
 AD_HOC_NAME = 'Ad-hoc agent'
 MODEL = """SELECT id,name,provider,model,api_format,base_url,aws_region,enabled,revision,
@@ -78,6 +77,8 @@ class AgentConfig(TypedDict):
     ssh: dict[str, Any]
     services: dict[str, Any]
     tools: dict[str, list[dict[str, Any]]]
+    document_access: list[dict[str, Any]]
+    access: dict[str, Any]  # as stored on the agent; a run pins its own (sessions.run_access)
     run_resources: NotRequired[dict[str, list[str]]]
 
 
@@ -153,12 +154,6 @@ def load_graphs(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
 def per_run(config: Mapping[str, Any]) -> bool:
     """Per-run agents: the saved selections are what a run may be given (versions saved before 0075 are fixed)."""
     return config.get('resources', 'fixed') == 'per_run'
-
-
-def require_run_resources(config: Mapping[str, Any]) -> None:
-    """A per-run agent runs only with the resources its run was given, never with its whole selection."""
-    if per_run(config) and 'run_resources' not in config:
-        raise ValueError(NO_RUN_RESOURCES)
 
 
 def mcp_definitions(config: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -284,13 +279,46 @@ def changed_sections(source: Mapping[str, Any], target: Mapping[str, Any]) -> li
     return [label for key, label in SECTIONS.items() if ours[key] != theirs[key]]
 
 
+# The items an agent's access references, by type: only those that still exist (deleted or archived ones are skipped).
+COLLECTIONS = """SELECT c.id,c.name,c.description,
+    ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
+    FROM ka.rag_collections c WHERE c.project_id=%s AND c.id=ANY(%s::uuid[]) AND c.deleted_at IS NULL ORDER BY c.name"""
+CODE_PROJECTS = """SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
+    ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
+    FROM ka.repositories r WHERE r.project_id=%s AND r.id=ANY(%s::uuid[]) AND r.archived_at IS NULL
+    ORDER BY lower(r.name),r.id"""
+SERVICES = """SELECT s.id,s.name,s.description,s.owner,s.revision,s.repositories,s.deployments,s.dependencies,
+    s.dependents,s.links FROM ka.service_assets s WHERE s.project_id=%s AND s.id=ANY(%s::uuid[])
+    ORDER BY lower(s.name),s.id"""
+SKILLS = """SELECT id,name,description,instructions,enabled,revision FROM ka.agent_skills
+    WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY name,id"""
+MCP_SERVERS = """SELECT id,name,description,url,enabled,tools,revision,token_ciphertext IS NOT NULL AS has_token
+    FROM ka.mcp_servers WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY lower(name),id"""
+# A server with its own SSH settings (per-agent connections are not read).
+SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,s.revision AS server_revision,
+    NULL::integer AS connection_revision,'server' AS connection_source,s.username,s.port,s.allow_sudo,
+    coalesce(s.known_hosts,'') AS known_hosts,s.enabled,
+    c.id AS credential_id,c.project_id AS credential_project_id,c.key_version
+    FROM ka.servers s LEFT JOIN ka.credentials c ON c.id=s.credential_id
+    WHERE s.project_id=%s AND s.id=ANY(%s::uuid[]) ORDER BY lower(s.name),s.id"""
+DOCUMENTS = 'SELECT id,title FROM ka.live_documents WHERE project_id=%s AND id=ANY(%s::uuid[])'
+EMPTY_ACCESS = {'resources': [], 'roles': {'content_editor': False}}
+
+
+def access_ids(access: Mapping[str, Any], type_: str) -> list[str]:
+    """The ids the access object references of one type, in its order."""
+    return [str(entry['id']) for entry in access.get('resources', []) if entry['type'] == type_]
+
+
 def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
-    """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent of
-    either type. The agent's own configuration: what its tabs show is what runs (0080 removed configuration versions).
+    """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent: its access object (`access`, as
+    stored: references and roles), its instructions and the items its access references loaded into the sections
+    the tools read (code projects, collections, SSH servers, services, skills, MCP servers; documents as
+    document_access). A section is enabled when it has items; a reference to an item that no longer exists is
+    skipped. Servers use their own SSH settings.
 
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
-    Disabled capabilities retain their saved selections and explicit flags.
     CODE_ROOT and DATA_ROOT_DIR (where every collection folder lives) must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
 
     This is the application's input to agent(), not native Agents SDK constructor
@@ -300,8 +328,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
         agent = conn.execute(
             """SELECT id,name,description,when_to_use,enabled,revision,model_id,resources,system_prompt,
-            documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
-            all_collections,all_repositories FROM ka.agents WHERE id=%s""",
+            documents_grounded,access,instructions FROM ka.agents WHERE id=%s""",
             (agent_id,),
         ).fetchone()
         if agent is None:
@@ -313,86 +340,30 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
         code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
         if code_root.anchor != '/' or '..' in code_root.parts:
             raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
+        access = agent['access'] or EMPTY_ACCESS
+        instructions = agent['instructions']
 
-        configs = conn.execute(
-            """SELECT id,server_id,instructions,inherit_skills,inherit_mcp_servers,revision
-            FROM ka.agent_configs WHERE agent=%s AND project_id=%s""",
-            (agent_id, project_id),
-        ).fetchall()
-        config_by_server = {row['server_id']: row for row in configs}
-        agent_settings = config_by_server.get(None)
-        instructions = agent_settings['instructions'] if agent_settings is not None else ''
+        def load(query: str, type_: str) -> list[dict[str, Any]]:
+            ids = access_ids(access, type_)
+            return conn.execute(query, (project_id, ids)).fetchall() if ids and project_id else []
 
         model = load_model(conn, agent['model_id'])
 
-        collections = conn.execute(
-            """SELECT c.id,c.name,c.description,
-            ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
-            FROM ka.rag_collections c
-            LEFT JOIN ka.agent_collections a ON a.collection_id=c.id AND a.agent_id=%s
-            WHERE c.project_id=%s AND c.deleted_at IS NULL AND (%s OR a.collection_id IS NOT NULL)
-            ORDER BY c.name""",
-            (agent_id, project_id, agent['all_collections']),
-        ).fetchall()
+        collections = load(COLLECTIONS, 'collection')
         for item in collections:
             item['paths'] = [str(data_path(path)) for path in item.pop('source_paths')]
-        code_projects = conn.execute(
-            """SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
-            ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
-            FROM ka.repositories r LEFT JOIN ka.agent_repositories a ON a.repository_id=r.id AND a.agent_id=%s
-            WHERE r.project_id=%s AND r.archived_at IS NULL AND (%s OR a.repository_id IS NOT NULL)
-            ORDER BY lower(r.name),r.id""",
-            (agent_id, project_id, agent['all_repositories']),
-        ).fetchall()
+        code_projects = load(CODE_PROJECTS, 'code_project')
         for project in code_projects:
             project['folder_paths'] = [str(code_root / path) for path in project['folder_paths']]
             if project['remote_git_url'] is None:
                 del project['remote_git_url']
-        services = conn.execute(
-            """SELECT s.id,s.name,s.description,s.owner,
-            s.revision,s.repositories,s.deployments,s.dependencies,s.dependents,s.links FROM ka.service_assets s
-            JOIN ka.agent_services a ON a.service_id=s.id WHERE a.agent_id=%s AND s.project_id=%s
-            ORDER BY lower(s.name),s.id""",
-            (agent_id, project_id),
-        ).fetchall()
+        services = load(SERVICES, 'service')
         for service in services:
             for repository in service['repositories']:
                 if repository['checkout_path'] is not None:
                     repository['checkout_path'] = str(code_root / repository['checkout_path'])
-
-        skills = conn.execute(
-            """SELECT s.id,s.name,s.description,s.instructions,s.enabled,s.revision,
-            a.agent_id IS NOT NULL AS selected FROM ka.agent_skills s
-            LEFT JOIN ka.skills_agents a ON a.skill_id=s.id AND a.agent_id=%s
-            WHERE s.project_id=%s AND (a.agent_id IS NOT NULL OR EXISTS (
-                SELECT 1 FROM ka.agent_config_skills cs JOIN ka.agent_configs c ON c.id=cs.config_id
-                WHERE cs.skill_id=s.id AND c.agent=%s AND c.project_id=s.project_id))
-            ORDER BY s.name,s.id""",
-            (agent_id, project_id, agent_id),
-        ).fetchall()
-        agent_skills = []
-        for skill in skills:
-            if skill.pop('selected'):
-                agent_skills.append(skill)
-        skills_by_id = {skill['id']: skill for skill in skills}
-        skills_by_config = {config['id']: [] for config in configs}
-        for row in conn.execute(
-            """SELECT s.config_id,s.skill_id FROM ka.agent_config_skills s
-            JOIN ka.agent_configs c ON c.id=s.config_id WHERE c.agent=%s AND c.project_id=%s
-            ORDER BY s.skill_id""",
-            (agent_id, project_id),
-        ):
-            skills_by_config[row['config_id']].append(skills_by_id[row['skill_id']])
-
-        mcp_servers = conn.execute(
-            """SELECT m.id,m.name,m.description,m.url,m.enabled,m.tools,m.revision,
-            m.token_ciphertext IS NOT NULL AS has_token FROM ka.mcp_servers m
-            WHERE m.project_id=%s AND EXISTS (
-                SELECT 1 FROM ka.agent_config_mcp_servers s JOIN ka.agent_configs c ON c.id=s.config_id
-                WHERE s.mcp_server_id=m.id AND c.agent=%s AND c.project_id=m.project_id)
-            ORDER BY lower(m.name),m.id""",
-            (project_id, agent_id),
-        ).fetchall()
+        skills = load(SKILLS, 'skill')
+        mcp_servers = load(MCP_SERVERS, 'mcp_server')
         for server in mcp_servers:
             server['bearer_token_ref'] = (
                 {
@@ -405,50 +376,31 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 if server.pop('has_token')
                 else None
             )
-        mcp_by_id = {server['id']: server for server in mcp_servers}
-        mcp_by_config = {config['id']: [] for config in configs}
-        for row in conn.execute(
-            """SELECT s.config_id,s.mcp_server_id FROM ka.agent_config_mcp_servers s
-            JOIN ka.agent_configs c ON c.id=s.config_id WHERE c.agent=%s AND c.project_id=%s
-            ORDER BY s.mcp_server_id""",
-            (agent_id, project_id),
-        ):
-            mcp_by_config[row['config_id']].append(mcp_by_id[row['mcp_server_id']])
-        agent_mcp = mcp_by_config[agent_settings['id']] if agent_settings is not None else []
-
-        servers = conn.execute(
-            """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,
-            s.revision AS server_revision,a.revision AS connection_revision,
-            CASE WHEN a.server_id IS NULL THEN 'server' ELSE 'agent' END AS connection_source,
-            CASE WHEN a.server_id IS NULL THEN s.username ELSE a.username END AS username,
-            coalesce(a.port,s.port) AS port,coalesce(a.allow_sudo,s.allow_sudo) AS allow_sudo,
-            coalesce(a.known_hosts,s.known_hosts,'') AS known_hosts,
-            CASE WHEN a.server_id IS NULL THEN s.enabled
-                ELSE a.credential_id IS NOT NULL AND a.username IS NOT NULL END AS enabled,
-            c.id AS credential_id,c.project_id AS credential_project_id,c.key_version
-            FROM ka.operations_servers selected JOIN ka.servers s ON s.id=selected.server_id
-            LEFT JOIN ka.agent_server_connections a ON a.server_id=s.id AND a.agent_id=selected.agent
-            LEFT JOIN ka.credentials c ON c.id=CASE WHEN a.server_id IS NULL THEN s.credential_id ELSE a.credential_id END
-            WHERE selected.agent=%s AND selected.project_id=%s AND s.project_id=selected.project_id
-            ORDER BY lower(s.name),s.id""",
-            (agent_id, project_id),
-        ).fetchall()
+        servers = load(SERVERS, 'server')
         for server in servers:
-            credential_id = server.pop('credential_id')
-            credential_project_id = server.pop('credential_project_id')
-            key_version = server.pop('key_version')
-            server['private_key_ref'] = private_key_ref(credential_id, credential_project_id, key_version)
-            server_settings = config_by_server.get(server['id'])
-            server['config_revision'] = server_settings['revision'] if server_settings is not None else None
-            overrides_instructions = server_settings is not None and server_settings['instructions'] is not None
-            server['instructions'] = server_settings['instructions'] if overrides_instructions else instructions
-            server['instructions_source'] = 'server_override' if overrides_instructions else 'agent'
-            overrides_skills = server_settings is not None and not server_settings['inherit_skills']
-            server['skills'] = skills_by_config[server_settings['id']] if overrides_skills else agent_skills
-            server['skills_source'] = 'server_override' if overrides_skills else 'agent'
-            overrides_mcp = server_settings is not None and not server_settings['inherit_mcp_servers']
-            server['mcp_servers'] = mcp_by_config[server_settings['id']] if overrides_mcp else agent_mcp
-            server['mcp_source'] = 'server_override' if overrides_mcp else 'agent'
+            server['private_key_ref'] = private_key_ref(
+                server.pop('credential_id'), server.pop('credential_project_id'), server.pop('key_version')
+            )
+            server.update(
+                config_revision=None,
+                instructions=instructions,
+                instructions_source='agent',
+                skills=[],
+                skills_source='agent',
+                mcp_servers=[],
+                mcp_source='agent',
+            )
+        editable = {
+            str(entry['id']): bool(entry.get('editable'))
+            for entry in access.get('resources', [])
+            if entry['type'] == 'document'
+        }
+        documents = {str(row['id']): row for row in load(DOCUMENTS, 'document')}
+        document_access = [
+            {'id': key, 'title': documents[key]['title'], 'editable': editable[key]}
+            for key in access_ids(access, 'document')
+            if key in documents
+        ]
 
         return jsonable_encoder(
             {
@@ -462,25 +414,25 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'model': model,
                 'system_prompt': {'content': agent['system_prompt']},
                 'instructions': instructions,
-                'settings_revision': agent_settings['revision'] if agent_settings is not None else None,
+                'settings_revision': None,
                 'documents': {
-                    'enabled': agent['documents_enabled'],
+                    'enabled': bool(collections),
                     'grounded': agent['documents_grounded'],
-                    'all_collections': agent['all_collections'],
+                    'all_collections': False,
                     'collections': collections,
                 },
                 'code': {
-                    'enabled': agent['repositories_enabled'],
-                    'all_projects': agent['all_repositories'],
+                    'enabled': bool(code_projects),
+                    'all_projects': False,
                     'projects': code_projects,
-                    'graphs': load_graphs(conn, project_id, [p['id'] for p in code_projects])
-                    if agent['repositories_enabled']
-                    else [],
+                    'graphs': load_graphs(conn, project_id, [p['id'] for p in code_projects]),
                 },
-                'skills': {'enabled': agent['skills_enabled'], 'items': agent_skills},
-                'mcp': {'enabled': agent['mcp_enabled'], 'servers': agent_mcp},
-                'ssh': {'enabled': agent['ssh_enabled'], 'servers': servers},
-                'services': {'enabled': agent['services_enabled'], 'items': services},
+                'skills': {'enabled': bool(skills), 'items': skills},
+                'mcp': {'enabled': bool(mcp_servers), 'servers': mcp_servers},
+                'ssh': {'enabled': bool(servers), 'servers': servers},
+                'services': {'enabled': bool(services), 'items': services},
+                'document_access': document_access,
                 'tools': native_tools(conn, agent_id),
+                'access': access,
             }
         )

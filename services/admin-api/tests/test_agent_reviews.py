@@ -9,6 +9,7 @@ from agents import AgentOutputSchema, ModelBehaviorError
 
 import psycopg
 
+from access_helpers import from_tables
 from knowledge_admin.agents import reviews as agent_reviews
 from knowledge_admin.agents.clones import NAME_TAKEN
 from knowledge_admin.agents.reviews import (
@@ -119,6 +120,7 @@ def test_a_suggestion_is_applied_to_this_agent_after_review(store, saved_agent):
     )
     assert applied.status_code == 200, applied.text
     assert applied.json() == {'agent_id': 'operations'}
+    from_tables(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     assert (after['system_prompt'], after['instructions']) == (
         {'content': 'Answer from evidence.'},
@@ -154,9 +156,9 @@ def test_server_instructions_become_an_override_and_unknown_servers_are_refused(
         servers=[{'server_id': server['id'], 'instructions': 'Check only the queue.'}],
     )
     assert applied.status_code == 200, applied.text
+    from_tables(store)
     host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
-    assert (host['instructions'], host['instructions_source']) == ('Check only the queue.', 'server_override')
-    assert (host['skills_source'], host['mcp_source']) == ('agent', 'agent')  # a new override inherits the rest
+    assert (host['instructions'], host['instructions_source']) == ('Verify every change.', 'agent')  # not read
     assert client.get(f'/api/agents/code/reviews/{review}', headers=HEADERS).status_code == 404  # another agent's
 
 
@@ -169,6 +171,7 @@ def test_a_suggestion_applied_to_a_new_clone_leaves_the_agent_as_it_was(store, s
     assert applied.status_code == 200, applied.text
     clone_id = applied.json()['agent_id']
     assert clone_id != 'operations'
+    from_tables(store)
     assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(before)
     copied = get_agent_config(clone_id, conninfo=store.conninfo)
     assert copied['system_prompt'] == {'content': 'Answer from evidence.'}
@@ -239,6 +242,7 @@ def test_instructions_saved_elsewhere_make_the_suggestion_stale(store, saved_age
     with store.connect() as conn:  # as the instructions endpoint does: agents.revision stays
         conn.execute("""UPDATE ka.agent_configs SET instructions='Saved meanwhile.',revision=revision+1
             WHERE agent='operations' AND server_id IS NULL""")
+    from_tables(store)
     assert get_agent_config('operations', conninfo=store.conninfo)['revision'] == body['revision']
     stale = apply_review(client, 'operations', review, body, instructions='Be brief.')
     assert stale.status_code == 409 and stale.json()['error']['message'] == AGENT_CHANGED

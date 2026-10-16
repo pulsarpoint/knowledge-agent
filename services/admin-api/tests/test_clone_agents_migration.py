@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import asyncssh
+from access_helpers import from_tables
 from implied_tools import implied_tools
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from psycopg.types.json import Jsonb
@@ -81,6 +82,25 @@ def ran_before(saved: dict, agent: dict) -> dict:
     return config
 
 
+def held(found: dict) -> dict:
+    """sections() as an access object holds them (0113): a kind only with items and only when it was switched on, no
+    "all", no per-server overrides or per-agent connections."""
+    found = copy.deepcopy(found)
+    for key, items in (('skills', 'items'), ('mcp', 'servers'), ('services', 'items'), ('ssh', 'servers')):
+        if not found[key]['enabled']:
+            found[key][items] = []
+        found[key]['enabled'] = bool(found[key][items])
+    found['ssh']['servers'] = [
+        {'id': server['id'], 'instructions': None, 'skills': None, 'mcp_servers': None, 'connection': None}
+        for server in found['ssh']['servers']
+    ]
+    for key, items, every in (('documents', 'collections', 'all_collections'), ('code', 'projects', 'all_projects')):
+        if not found[key]['enabled']:
+            found[key][items] = []
+        found[key].update({'enabled': bool(found[key][items]), every: False})
+    return found
+
+
 def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     version = conn.execute(
         """INSERT INTO ka.agent_versions(agent,version,label,config,created_by,published_at)
@@ -141,21 +161,18 @@ def test_every_agent_runs_what_it_ran_before(store, saved_agent):
         conn.commit()
         run(conn, UP)
         conn.commit()
+    from_tables(store)  # what 0080 materialised, as 0113 converts it
     after = get_agent_config('operations', conninfo=store.conninfo)
-    assert sections(after) == sections(ran_before(saved, agent))
+    assert held(sections(after)) == held(sections(ran_before(saved, agent)))
     assert after['system_prompt'] == {'content': 'Answer from evidence only.'}
     host = after['ssh']['servers'][0]
-    assert (host['instructions'], host['instructions_source'], host['port']) == (
-        'Check only the queue.',
-        'server_override',
-        2222,
-    )
+    assert (host['instructions'], host['instructions_source']) == ('Gather evidence first.', 'agent')
     assert after['services']['enabled'] is False and after['when_to_use'] == 'When payments fail.'
     assert {item['tool'] for item in after['tools']['items'] if item['mode'] == 'on'} == {
         item['tool'] for item in implied_tools(saved)['items'] if item['mode'] == 'on'
     }
     for agent_id, before in working.items():  # agents without a version keep their own configuration
-        assert sections(get_agent_config(agent_id, conninfo=store.conninfo)) == before, agent_id
+        assert held(sections(get_agent_config(agent_id, conninfo=store.conninfo))) == held(before), agent_id
     assert after['name'] == own
 
 
@@ -194,8 +211,8 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         {'tool': f'mcp:{mcp["id"]}:lookup', 'group': 'mcp', 'mode': 'off', 'usage': 'never', 'subagent_allowed': True}
     )
     host = saved['ssh']['servers'][0]  # every per-server override, and the agent's own connection
-    assert host['connection_source'] == 'agent'
     host.update(
+        connection_source='agent',
         instructions='Check only the queue.',
         instructions_source='server_override',
         skills_source='server_override',
@@ -226,7 +243,8 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         conn.execute("""UPDATE ka.agents SET model_id=NULL,system_prompt='Working prompt',when_to_use='Later',
             documents_enabled=false,repositories_enabled=false,ssh_enabled=false,
             skills_enabled=false,mcp_enabled=false,services_enabled=false,resources='per_run' WHERE id='operations'""")
-    drifted = sections(get_agent_config('operations', conninfo=store.conninfo))
+    from_tables(store)
+    drifted = held(sections(get_agent_config('operations', conninfo=store.conninfo)))
     with store.connect() as conn:
         run(conn, DOWN)
         conn.commit()
@@ -246,9 +264,11 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     expected = sections(ran_before(saved, agent))
     expected['documents']['collections'].remove(runbooks)  # deleted and archived items are dropped
     expected['code']['projects'].remove(unselected)
+    expected = held(expected)
     assert [key for key in expected if drifted[key] == expected[key]] == []  # the working copy differed everywhere
+    from_tables(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
-    migrated = sections(after)
+    migrated = held(sections(after))
     migrated['tools'] = [entry for entry in migrated['tools'] if entry['tool'] != 'run_subagent']  # not in old versions
     assert migrated == expected
     assert (after['name'], after['description']) == ('Payments operator', 'Investigates payment failures.')

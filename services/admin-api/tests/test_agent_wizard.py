@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from access_helpers import from_tables
 from knowledge_admin.agents.wizard import AgentProposal
 from knowledge_admin.agents.runner import get_agent_config
 from test_agents import saved_agent, agent_mounts
@@ -88,11 +89,12 @@ def test_wizard_context_excludes_secret_material_and_is_admin_only(wizard):
     assert client.post('/api/agents/wizard', json=proposal).status_code == 403
 
 
-def test_wizard_roundtrip_every_resource_and_ssh_override(store, wizard):
+def test_wizard_roundtrip_every_resource(store, wizard):
     client, catalog, proposal, ssh = wizard
     response = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
     assert response.status_code == 201, response.text
     agent_id = response.json()['id']
+    from_tables(store)  # the wizard writes the per-type tables until it writes the access object
     config = get_agent_config(agent_id, conninfo=store.conninfo)
     assert config['system_prompt']['content'] == proposal['system_prompt']
     assert config['instructions'] == proposal['instructions']
@@ -102,10 +104,10 @@ def test_wizard_roundtrip_every_resource_and_ssh_override(store, wizard):
     assert [s['id'] for s in config['skills']['items']] == proposal['skill_ids']
     assert [s['id'] for s in config['mcp']['servers']] == proposal['mcp_server_ids']
     assert [s['id'] for s in config['services']['items']] == proposal['service_ids']
-    server = config['ssh']['servers'][0]
-    assert (server['username'], server['port'], server['allow_sudo']) == ('investigator', 2222, False)
-    assert server['instructions'] == 'Inspect the queue first.'
-    assert server['skills'] == [] and server['mcp_servers'] == config['mcp']['servers']
+    server = config['ssh']['servers'][0]  # the server's own SSH settings and the agent's instructions
+    assert (server['username'], server['connection_source']) == ('operator', 'server')
+    assert server['instructions'] == proposal['instructions']
+    assert server['skills'] == server['mcp_servers'] == []
     assert server['private_key_ref']['id'] == catalog['servers'][0]['credential_id']
     assert ssh['private_key'] not in json.dumps(config)
     assert client.post('/api/agents/wizard', headers=HEADERS, json=proposal).status_code == 409
@@ -136,12 +138,12 @@ def test_wizard_server_defaults_and_all_resources(store, wizard):
     proposal['servers'][0].update(instructions=None, skill_ids=None, mcp_server_ids=[], connection=None)
     response = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
     assert response.status_code == 201, response.text
+    from_tables(store)
     config = get_agent_config(response.json()['id'], conninfo=store.conninfo)
     assert len(config['code']['projects']) == 2 and len(config['documents']['collections']) == 4
     server = config['ssh']['servers'][0]
     assert server['connection_source'] == 'server' and server['username'] == 'operator'
-    assert server['instructions'] == proposal['instructions'] and server['skills'] == config['skills']['items']
-    assert server['mcp_servers'] == []
+    assert server['instructions'] == proposal['instructions'] and server['skills'] == server['mcp_servers'] == []
 
 
 @pytest.mark.parametrize(

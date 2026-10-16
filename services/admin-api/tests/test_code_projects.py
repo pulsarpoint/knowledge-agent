@@ -1,8 +1,8 @@
 from pathlib import Path
-from uuid import UUID
 
 import pytest
 
+from access_helpers import give
 from knowledge_admin.agents.runner import get_agent_config
 from test_api import _client
 from test_repositories import HEADERS
@@ -40,8 +40,7 @@ def test_local_project_maps_multiple_folders_and_is_available_to_agents_and_serv
     )
     assert service.status_code == 201, service.text
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET all_repositories=false WHERE id='code'")
-        conn.execute("INSERT INTO ka.agent_repositories VALUES ('code',%s)", (UUID(project_id),))
+        give(conn, 'code', [('code_project', project_id)])
     config = get_agent_config('code', conninfo=store.conninfo)
     assert config['code']['projects'][0]['folder_paths'] == [str(root / 'api'), str(root / 'shared')]
     assert config['code']['projects'][0]['id'] == project_id
@@ -238,8 +237,7 @@ def test_agent_code_config_contains_projects_folders_and_only_applicable_git_url
         },
     ).json()
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET all_repositories=false WHERE id='code'")
-        conn.execute("INSERT INTO ka.agent_repositories VALUES ('code',%s)", (UUID(local['id']),))
+        give(conn, 'code', [('code_project', local['id'])])
     response = client.get('/api/agents/code/config', headers=HEADERS)
     assert response.status_code == 200, response.text
     local_config = {
@@ -251,7 +249,7 @@ def test_agent_code_config_contains_projects_folders_and_only_applicable_git_url
     assert 'git' not in response.json()
     assert response.json()['code'] == {'enabled': True, 'all_projects': False, 'projects': [local_config], 'graphs': []}
     with store.connect() as conn:
-        conn.execute("INSERT INTO ka.agent_repositories VALUES ('code',%s)", (UUID(git['id']),))
+        give(conn, 'code', [('code_project', local['id']), ('code_project', git['id'])])
     config = client.get('/api/agents/code/config', headers=HEADERS).json()['code']
     assert config['projects'] == [
         {

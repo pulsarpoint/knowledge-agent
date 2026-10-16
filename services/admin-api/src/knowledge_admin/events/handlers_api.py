@@ -23,7 +23,6 @@ DUPLICATE = 'A handler with this name already exists.'
 NO_EVENT = 'Event not found.'
 NO_AGENT = 'Agent not found.'
 NOT_AGENT_JIRA = 'Only Send to agent handlers can post to Jira.'
-PER_RUN = 'This agent gets its resources per run; handlers can only send to agents with fixed resources.'
 SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,
     h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
         FROM ka.event_handler_runs r WHERE r.handler_id=h.id ORDER BY r.id DESC LIMIT 1) AS last_run
@@ -140,11 +139,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     database = partial(storage, store, 'Event storage', message='Event storage is not configured')
 
     def agent_usable(conn, agent_id: str) -> None:
-        agent = conn.execute('SELECT resources FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
-        if agent is None:
+        if conn.execute('SELECT 1 FROM ka.agents WHERE id=%s', (agent_id,)).fetchone() is None:
             raise bad(NO_AGENT)
-        if agent['resources'] != 'fixed':
-            raise bad(PER_RUN)
 
     def one(conn, project: UUID, handler_id: UUID) -> dict:
         row = conn.execute(SELECT + ' WHERE h.id=%s AND h.project_id=%s', (handler_id, project)).fetchone()
@@ -166,14 +162,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.get('/event-handlers/agents')
     def agents() -> dict:
-        """Agents a handler can send to: enabled, with fixed resources."""
+        """Agents a handler can send to: the enabled ones."""
         db = database()
         with db.connect() as conn:
-            return {
-                'agents': conn.execute(
-                    "SELECT id,name FROM ka.agents WHERE enabled AND resources='fixed' ORDER BY name,id"
-                ).fetchall()
-            }
+            return {'agents': conn.execute('SELECT id,name FROM ka.agents WHERE enabled ORDER BY name,id').fetchall()}
 
     @router.post('/event-handlers/preview')
     def preview(value: PreviewInput) -> dict:
@@ -252,8 +244,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
             values = stored(conn, value)
-            # Only a new agent or turning the handler on checks the agent: a handler whose agent was deleted or
-            # switched to per-run resources can still be turned off and edited.
+            # Only a new agent or turning the handler on checks the agent: a handler whose agent was deleted can
+            # still be turned off and edited.
             if values['agent_id'] and (
                 values['agent_id'] != current['agent_id'] or (values['enabled'] and not current['enabled'])
             ):

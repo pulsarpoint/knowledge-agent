@@ -51,7 +51,6 @@ from knowledge_admin.knowledge_agents.config import (
     credential_references,
     get_agent_config,
     mcp_definitions,
-    require_run_resources,
 )  # noqa: F401  (moved; imported from here too)
 
 logger = logging.getLogger(__name__)
@@ -240,7 +239,6 @@ async def create_agent(
     """
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
-    require_run_resources(config)
     model = get_model(config)
     reference = model['api_key_ref']
     if reference is not None and not credentials.get(reference['id']):

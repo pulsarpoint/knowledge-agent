@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import asyncssh
 
+from access_helpers import from_tables
 from knowledge_admin.agents.clones import APPLY_WORKING, NOT_A_CLONE, ORIGINAL_CHANGED
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from test_agent_clones import clone, own_connection, per_server
@@ -97,12 +98,14 @@ def test_apply_copies_everything_but_name_and_description(store, saved_agent):
         conn.execute("INSERT INTO ka.operations_settings(project_id,agent) VALUES (%s,'operations')", (other,))
         conn.execute('UPDATE ka.projects SET archived_at=now() WHERE id=%s', (other,))
         credentials = conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n']
+    from_tables(store)
     value = preview(client, copy_id)
     assert value['original'] == {'id': 'operations', 'name': original['name'], 'revision': original['revision']}
-    assert value['changes'] == ['Prompt', 'Instructions', 'When to use', 'Skills', 'SSH']
+    assert value['changes'] == ['Prompt', 'Instructions', 'When to use', 'Skills']  # per-server rows are not read
     applied = apply(client, copy_id, value)
     assert applied.status_code == 200, applied.text
     assert applied.json() == {'id': 'operations', 'revision': original['revision'] + 1}
+    from_tables(store)
     assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(
         get_agent_config(copy_id, conninfo=store.conninfo)
     )
@@ -145,6 +148,7 @@ def test_apply_is_refused_when_the_original_changed_or_is_working(store, saved_a
         conn.execute(
             "UPDATE ka.agent_configs SET instructions='Edited meanwhile.' WHERE agent='operations' AND server_id IS NULL"
         )
+    from_tables(store)
     stale = apply(client, copy_id, value)
     assert stale.status_code == 409 and stale.json()['error']['message'] == ORIGINAL_CHANGED
     value = preview(client, copy_id)

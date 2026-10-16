@@ -1,6 +1,7 @@
 """Experts as tools: which experts a caller is offered, their tool names and descriptions, pinning into Test and
 Generate documents sessions, and the Tools tab's Experts group."""
 
+from access_helpers import give
 from test_agent_tools_api import put, view
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_generations import sessions, start  # noqa: F401  (fixtures)
@@ -69,16 +70,10 @@ def test_only_enabled_experts_with_a_model_other_than_the_caller_and_not_switche
     update(client, create(client, 'Plain'), model_id=model)
     hidden = expert(client, 'Hidden', model_id=model)
     fixed = expert(client, 'Fixed one', 'Fixed question.', model_id=model)
-    per_run = expert(
-        client,
-        'Per run',
-        'Any project.',
-        model_id=model,
-        resources='per_run',
-        repositories_enabled=True,
-        services_enabled=True,
-    )
+    per_run = expert(client, 'Per run', 'Any project.', model_id=model)
     with store.connect() as conn:
+        service = conn.execute('SELECT id FROM ka.services ORDER BY id LIMIT 1').fetchone()['id']
+        give(conn, per_run['id'], [('code_project', saved_agent[5]['id']), ('service', service)])
         conn.execute(
             "INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,%s,'off',false)",
             (me['id'], f'expert:{hidden["id"]}'),
@@ -91,10 +86,10 @@ def test_only_enabled_experts_with_a_model_other_than_the_caller_and_not_switche
         found[fixed['id']]['description']
         == 'Ask Fixed one, an expert agent. Fixed question. It uses its own resources.'
     )
-    assert found[fixed['id']]['accepts'] == [] and found[fixed['id']]['resources'] == 'fixed'
+    assert found[fixed['id']]['accepts'] == [] and 'resources' not in found[fixed['id']]
     assert found[per_run['id']]['description'] == (
-        'Ask Per run, an expert agent. Any project. It works only on the resources you pass '
-        '(it accepts: code projects, services).'
+        'Ask Per run, an expert agent. Any project. It uses its own resources; pass some of them to narrow it to '
+        'those (it accepts: code projects, services).'
     )
     assert found[per_run['id']]['accepts'] == ['code_project_ids', 'service_ids']
     assert found[per_run['id']]['tool'] == 'ask_per_run'
@@ -193,10 +188,11 @@ def test_the_tools_tab_lists_other_experts_on_by_default_and_saves_off_rows(stor
         assert refused.status_code == 400 and refused.json()['error']['message'] == f'Unknown expert: {bad}.'
 
 
-def test_a_per_run_expert_that_accepts_no_resource_kind_has_no_empty_list():
+def test_an_expert_without_resources_lists_no_kinds():
     from knowledge_admin.knowledge_agents.experts import description
 
-    assert (
-        description('Solo', 'Thinks.', 'per_run', [])
-        == 'Ask Solo, an expert agent. Thinks. It works only on the resources you pass.'
+    assert description('Solo', 'Thinks.', []) == 'Ask Solo, an expert agent. Thinks. It uses its own resources.'
+    assert description('Ops', 'Runs.', ['server_ids']) == (
+        'Ask Ops, an expert agent. Runs. It uses its own resources; pass some of them to narrow it to those (it '
+        'accepts: servers).'
     )

@@ -19,7 +19,7 @@ from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_function_tools import context, invoke  # noqa: F401  (fixture)
-from access_helpers import with_access
+from access_helpers import give, with_access
 from tool_helpers import tool
 
 GRAPH = {
@@ -46,7 +46,7 @@ def test_projects_with_a_current_graph_are_listed(store, saved_agent, graphs):
     graphs[repo['id']] = None
     assert get_agent_config('operations', conninfo=store.conninfo)['code']['graphs'] == []
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET repositories_enabled=false WHERE id='operations'")
+        give(conn, 'operations', [])
     graphs[repo['id']] = {'id': repo['id'], **GRAPH}
     assert get_agent_config('operations', conninfo=store.conninfo)['code']['graphs'] == []
 
@@ -64,7 +64,7 @@ def test_a_per_run_run_gets_only_the_graphs_of_its_code_projects(store, saved_ag
             "INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'other')",
             (UUID(other), project),
         )
-        conn.execute("UPDATE ka.agents SET resources='per_run',all_repositories=true WHERE id='operations'")
+        give(conn, 'operations', [('code_project', repo['id']), ('code_project', other)])
     graphs[repo['id']] = {'id': repo['id'], **GRAPH}
     graphs[other] = {'id': other, **GRAPH, 'name': 'Other'}
     config = get_agent_config('operations', conninfo=store.conninfo)
@@ -191,8 +191,10 @@ def test_loading_a_config_reads_no_source_files(store, saved_agent, tmp_path, mo
     monkeypatch.setattr(code_graph, 'source_inventory', lambda project: pytest.fail('hashed sources'))
     with store.connect() as conn:
         project = store.project(conn, 'shop')
+        projects = [('code_project', repo['id'])]
         for index in range(20):
             other = uuid4()
+            projects.append(('code_project', other))
             conn.execute(
                 'INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,%s,%s)',
                 (other, project, f'p{index}', f'P{index}'),
@@ -202,35 +204,21 @@ def test_loading_a_config_reads_no_source_files(store, saved_agent, tmp_path, mo
                 (other, project, f'p{index}'),
             )
             write_graph(tmp_path / 'indexes', str(other), [f'p{index}'])
-        conn.execute("UPDATE ka.agents SET all_repositories=true WHERE id='operations'")
+        give(conn, 'operations', projects)
     write_graph(tmp_path / 'indexes', repo['id'], ['managed/payments'])
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert len(config['code']['graphs']) == 21
     assert repo['id'] in [graph['id'] for graph in config['code']['graphs']]
 
 
-def test_loader_reads_sync_time_and_takes_projects_added_after_the_snapshot(store, saved_agent, tmp_path, monkeypatch):
+def test_loader_reads_sync_time(store, saved_agent, tmp_path, monkeypatch):
     repo = saved_agent[5]
     monkeypatch.setenv('CODE_INDEX_ROOT', str(tmp_path / 'indexes'))
     write_graph(tmp_path / 'indexes', repo['id'], ['managed/payments'])
     with store.connect() as conn:
         conn.execute("UPDATE ka.repositories SET synced_at='2026-10-02T00:00:00Z' WHERE id=%s", (UUID(repo['id']),))
-        conn.execute("UPDATE ka.agents SET resources='per_run',all_repositories=true WHERE id='operations'")
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert [graph['note'] for graph in config['code']['graphs']] == [code_graph.SYNCED_AFTER]
-    added = uuid4()
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        conn.execute(
-            "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'added','Added')", (added, project)
-        )
-        conn.execute(
-            "INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'added')",
-            (added, project),
-        )
-        write_graph(tmp_path / 'indexes', str(added), ['added'])
-        run = resolve(conn, project, config, RunResources(code_project_ids=[added]))
-    assert [(graph['id'], graph['name']) for graph in run['code']['graphs']] == [(str(added), 'Added')]
 
 
 def test_a_generated_graph_answers_code_queries_end_to_end(context, tmp_path, monkeypatch):

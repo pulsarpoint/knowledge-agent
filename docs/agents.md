@@ -10,15 +10,19 @@ limit, no per-turn time limit, no 300-second limit).
   the message is queued as input 1 (201 with the session). A disabled agent and an agent without an enabled model
   (`Select an enabled model in this agent’s General tab.`) are refused. A saved credential that cannot be decrypted
   does not refuse the start: the first turn fails with the worker's message.
-- **A Test run can only narrow the saved agent.** The request can list the tools it keeps (`tools`; the others are
-  switched off), choose some of the agent's experts (`expert_ids`), turn subagents off (`subagents: false`) and, for a
-  per-run agent, choose from its saved resources (`resources`). Nothing can be added. The model and prompt are the
-  agent's own: change them in General, or clone the agent to try another prompt. Refused: "{tool} is not one of this
-  agent's tools.", "This agent does not allow subagents.", "A saved agent uses its own model and prompt.", "A saved
-  agent takes no environments; choose its servers or services.", "A saved agent takes no documents yet." and resources
-  outside the agent's selection. A fixed agent given resources is refused.
-- `GET /api/sessions/options?agent_id=…` says what may be narrowed (tools, experts, whether subagents are allowed, a
-  per-run agent's resources) and gives the agent's model and prompt as facts. `POST /api/sessions/preview` with the
+- **A run can only narrow the saved agent.** A saved agent stores what it may use as one access object
+  (`ka.agents.access`: resource references and the `content_editor` role) and its instructions
+  (`ka.agents.instructions`). A run gets the whole access object, or the resources the request picks out of it
+  (`resources`, environments and documents included); the run's `content_editor` is the agent's. The request can also
+  list the tools it keeps (`tools`; the others are switched off), choose some of the agent's experts (`expert_ids`) and
+  turn subagents off (`subagents: false`). Nothing can be added. The model and prompt are the agent's own: change them
+  in General, or clone the agent to try another prompt. Refused: "{tool} is not one of this agent's tools.", "This
+  agent does not allow subagents.", "A saved agent uses its own model and prompt." and a pick outside the agent's
+  access ("<type> <id> is not in the agent's access"). A reference to a deleted or archived resource is skipped.
+  Event handlers can send to any enabled agent; its run gets the whole access object. An expert narrows its own
+  agent's access object to the resources the caller passes.
+- `GET /api/sessions/options?agent_id=…` says what may be narrowed (tools, experts, whether subagents are allowed, the
+  resources its access object holds) and gives the agent's model and prompt as facts. `POST /api/sessions/preview` with the
   same body shows the pinned configuration without starting a run.
 - `GET /api/sessions?agent_id=…` lists the agent's Test sessions and its event sessions (with `purpose`), newest first.
 - Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
@@ -88,8 +92,8 @@ limit, no per-turn time limit, no 300-second limit).
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per
-  event and handler), the agent's current configuration, everything it has on that it can use (per-run agents are
-  refused), the rendered prompt as the first message and the handler's creator as the actor. It is titled
+  event and handler), the agent's current configuration with its whole access object, everything it has on that it can
+  use, the rendered prompt as the first message and the handler's creator as the actor. It is titled
   `<agent> · <event type> <subject>`, shows in the agent's Test tab under Earlier runs, and can be opened and continued.
   There are no automatic retries. When the first turn ends, agent-session-worker writes one notification
   (`ka.notifications.session_id` points at the run) with the answer or the failure; a run closed before its first
@@ -190,19 +194,19 @@ counts. **Stop** stops the agent and every subagent; a subagent of an ended turn
 is not the caller, and that the caller has not switched off. The name is `ask_` plus the expert's name lowercased with
 every run of characters other than `a-z0-9` replaced by `_`, trimmed of `_`, at most 50 characters (an empty slug gives
 `expert`; a slug taken by an earlier expert, ordered by name and id, gets `_2`, `_3`, ...). The description is `Ask <name>, an
-expert agent. <When to use>` plus, for a per-run expert, ` It works only on the resources you pass (it accepts: code
-projects, document collections, servers, services).` (only the kinds it uses) or, for a fixed one, ` It uses its own
-resources.` Parameters: `task` (non-empty, at most 20,000 characters) and, for per-run experts only, `resources`
-(`code_project_ids`, `collection_ids`, `server_ids`, `service_ids`). The experts a session may call are pinned with its
-configuration (`config['experts']`: id, name, tool, When to use, resources); later changes to the expert list apply to
+expert agent. <When to use>` plus ` It uses its own resources; pass some of them to narrow it to those (it accepts:
+code projects, document collections, servers, services).` (the kinds in its access object) or, with none of those,
+` It uses its own resources.` Parameters: `task` (non-empty, at most 20,000 characters) and, for an expert that accepts
+a kind, `resources` (`code_project_ids`, `collection_ids`, `server_ids`, `service_ids`; null: all of its own). The experts a session may call are pinned with its
+configuration (`config['experts']`: id, name, tool, When to use, accepts); later changes to the expert list apply to
 new sessions, and a new-document run pins every offered expert. The expert's own configuration is loaded when it is
 called. Refusals are tool errors: `Expert <name> is not available.` (deleted, no longer an expert, disabled or without
-a model), `<kind> <id> is not one of your resources.`, the expert's own resource message, the 16-helper limit, an empty
+a model), `<kind> <id> is not one of your resources.`, a resource outside the expert's access (`<type> <id> is not in the agent's access`), the 16-helper limit, an empty
 or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin. A failure returns `Expert <name>
 failed: <reason>` (redacted) and the caller goes on.
 
-A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with the resolved
-resources (per run) or its own (fixed), no conversation, and no expert tools (an expert cannot call experts). It keeps
+A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with its own
+access object narrowed to the given resources (never a content editor), no conversation, and no expert tools (an expert cannot call experts). It keeps
 `run_subagent` if it has it: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
 16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
 experts) helpers at once. The call loads its own credentials (the expert's model key and the keys of the resources it

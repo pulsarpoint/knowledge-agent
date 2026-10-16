@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from access_helpers import give
 from knowledge_admin.sessions.review import NO_MODEL
 from test_api import _client
 from test_profiles import create
@@ -154,7 +155,7 @@ def test_test_sessions_are_refused_with_todays_messages(tester):
 
 @pytest.fixture
 def analyst(tester):
-    """The tester as a per-run agent that may be given any code project: App and Worker."""
+    """The tester as a per-run agent whose access object holds both code projects: App and Worker."""
     t = tester
     app, worker = uuid4(), uuid4()
     with t.store.connect() as conn:
@@ -169,33 +170,26 @@ def analyst(tester):
                 'INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,%s)',
                 (project_id, project, slug),
             )
-        conn.execute(
-            "UPDATE ka.agents SET resources='per_run',repositories_enabled=true,all_repositories=true WHERE id=%s",
-            (t.agent,),
-        )
+        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (t.agent,))
+        give(conn, t.agent, [('code_project', app), ('code_project', worker)])
     t.app, t.worker = str(app), str(worker)
     return t
 
 
-def test_a_per_run_agent_pins_exactly_the_resources_of_its_first_message(analyst):
+def test_a_saved_agent_pins_the_resources_picked_out_of_its_access(analyst):
     a = analyst
     session = start(a, run_resources={'code_project_ids': [a.app]})
-    expected = {'code_project_ids': [a.app], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
-    assert session['run_resources'] == expected and session['config']['run_resources'] == expected
+    assert session['run_resources'] is None and session['config']['chosen_resources']['code_project_ids'] == [a.app]
     assert [p['id'] for p in session['config']['code']['projects']] == [a.app]
-    nothing = start(a)  # nothing passed: nothing, never all
-    assert nothing['config']['code']['projects'] == [] and nothing['run_resources']['code_project_ids'] == []
-    assert refused(a, 400, run_resources={'server_ids': [str(uuid4())]}) == 'This agent does not use servers.'
+    everything = start(a)  # nothing picked: everything it has
+    assert [p['id'] for p in everything['config']['code']['projects']] == [a.app, a.worker]
+    server = str(uuid4())
+    assert refused(a, 400, run_resources={'server_ids': [server]}) == f"server {server} is not in the agent's access"
     with a.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET all_repositories=false WHERE id=%s', (a.agent,))
-        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (a.agent, a.app))
-    assert (
-        refused(a, 400, run_resources={'code_project_ids': [a.worker]})
-        == 'Code project Worker is not allowed for this agent.'
+        give(conn, a.agent, [('code_project', a.app)])
+    assert refused(a, 400, run_resources={'code_project_ids': [a.worker]}) == (
+        f"code project {a.worker} is not in the agent's access"
     )
-    with a.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
-    assert start(a)['run_resources'] is None
 
 
 def test_the_session_endpoints_serve_test_sessions(tester):

@@ -14,7 +14,6 @@ from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from knowledge_admin.events import matching as event_matching, templates as event_templates
-from knowledge_admin.events.handlers_api import PER_RUN
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions import start
 
@@ -76,13 +75,11 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     everything it has on (a tool it could not use left off), the rendered prompt as its first message, the handler's
     creator as actor, titled by the event. One run per event and handler: processing the event again links the run it
     started before."""
-    agent = conn.execute('SELECT name,enabled,resources FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
+    agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
     if agent is None:
         raise HandlerFailed(NO_AGENT)
     if not agent['enabled']:
         raise HandlerFailed(DISABLED)
-    if agent['resources'] != 'fixed':
-        raise HandlerFailed(PER_RUN)
     prompt = event_templates.render_prompt(handler['prompt'], event)
     started = f'Started a run of {agent["name"]}.'
     row = conn.execute(

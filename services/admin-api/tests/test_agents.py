@@ -7,6 +7,7 @@ import asyncssh
 import pytest
 from knowledge_llm.prompts import DEFAULT_PROMPTS
 
+from access_helpers import from_tables
 from knowledge_admin.agents.runner import get_agent_config
 from knowledge_admin.servers.operations_store import OperationsStore
 from test_agent_ssh import save
@@ -113,6 +114,7 @@ def saved_agent(store, tmp_path):
             ssh_enabled=true,skills_enabled=true,mcp_enabled=true,services_enabled=true WHERE id='operations'""",
             (UUID(model['id']),),
         )
+    from_tables(store)
     return client, server, ssh, skill, mcp, repo, model
 
 
@@ -148,7 +150,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert host['id'] == server['id'] and host['connection_source'] == 'server'
     assert host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
     assert host['instructions'] == config['instructions'] and host['instructions_source'] == 'agent'
-    assert host['skills'] == config['skills']['items'] and host['mcp_servers'] == config['mcp']['servers']
+    assert host['skills'] == host['mcp_servers'] == []  # per-server skills and MCP servers are no longer read
     # The returned references locate and decrypt exactly the saved credentials.
     with store.connect() as conn:
         for reference, query, expected in [
@@ -201,49 +203,43 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
     assert client.get(path, headers=HEADERS).json()['enabled'] is False
 
 
-def test_complete_ssh_override_and_explicit_empty_server_instructions(store, saved_agent):
+def test_per_agent_connections_and_server_overrides_are_no_longer_read(store, saved_agent):
+    """A server uses its own SSH settings and the agent's instructions (phase 2: references only)."""
     client, server, ssh, *_ = saved_agent
-    path = f'/api/agents/operations/servers/{server["id"]}/ssh'
     own_key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
-    save(client, path, username='agent-user', port=2222, known_hosts='', allow_sudo=False, private_key=own_key)
+    save(
+        client,
+        f'/api/agents/operations/servers/{server["id"]}/ssh',
+        username='agent-user',
+        port=2222,
+        known_hosts='',
+        allow_sudo=False,
+        private_key=own_key,
+    )
     with store.connect() as conn:
-        conn.execute('UPDATE ka.servers SET allow_sudo=true WHERE id=%s', (UUID(server['id']),))
         conn.execute(
             """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
-            SELECT project_id,'operations',id,'',false,false FROM ka.servers WHERE id=%s""",
+            SELECT project_id,'operations',id,'Inspect this host only.',false,false FROM ka.servers WHERE id=%s""",
             (UUID(server['id']),),
         )
     host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
-    assert (host['connection_source'], host['username'], host['port']) == ('agent', 'agent-user', 2222)
-    assert not host['allow_sudo'] and host['known_hosts'] == ''
-    assert host['instructions'] == '' and host['instructions_source'] == 'server_override'
-    assert host['skills'] == host['mcp_servers'] == []
-    assert host['skills_source'] == host['mcp_source'] == 'server_override'
+    assert (host['connection_source'], host['username']) == ('server', 'operator')
+    assert host['known_hosts'] == ssh['known_hosts']
+    assert (host['instructions'], host['instructions_source']) == ('Verify every change.', 'agent')
+    assert host['skills'] == host['mcp_servers'] == [] and host['skills_source'] == host['mcp_source'] == 'agent'
     with store.connect() as conn:
         encrypted = bytes(
             conn.execute(
                 'SELECT ciphertext FROM ka.credentials WHERE id=%s', (UUID(host['private_key_ref']['id']),)
             ).fetchone()['ciphertext']
         )
-        assert (
-            store.cipher.decrypt(encrypted[:12], encrypted[12:], host['private_key_ref']['aad'].encode()).decode()
-            == own_key
-        )
-        assert own_key != ssh['private_key']
-    save(client, path, private_key=None)
-    host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
-    assert host['private_key_ref'] is None and not host['enabled']  # No fallback to the shared key.
-    with store.connect() as conn:
-        conn.execute(
-            """UPDATE ka.agent_configs SET instructions=NULL,inherit_skills=true,inherit_mcp_servers=true
-            WHERE agent='operations' AND server_id=%s""",
-            (UUID(server['id']),),
-        )
-    host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
-    assert host['instructions'] == 'Verify every change.' and len(host['skills']) == len(host['mcp_servers']) == 1
+    key = store.cipher.decrypt(encrypted[:12], encrypted[12:], host['private_key_ref']['aad'].encode()).decode()
+    assert key == ssh['private_key'] != own_key  # the server's own key
 
 
-def test_disabled_capabilities_preserve_selections_and_all_scope_is_current(store, saved_agent):
+def test_switches_and_all_scopes_are_no_longer_read_and_missing_items_are_skipped(store, saved_agent):
+    """The access object decides: a kind's switch and "all" are not read; an archived code project and a deleted
+    collection it references are skipped; a server, skill or MCP server switched off stays listed as it is."""
     _, server, _, skill, mcp, repo, _ = saved_agent
     with store.connect() as conn:
         conn.execute("""UPDATE ka.agents SET enabled=false,documents_enabled=false,repositories_enabled=false,
@@ -253,62 +249,22 @@ def test_disabled_capabilities_preserve_selections_and_all_scope_is_current(stor
         conn.execute('UPDATE ka.agent_skills SET enabled=false WHERE id=%s', (UUID(skill['id']),))
         conn.execute('UPDATE ka.mcp_servers SET enabled=false WHERE id=%s', (UUID(mcp['id']),))
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (UUID(repo['id']),))
-        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='private'")
+        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert not config['enabled']
-    assert config['code']['all_projects'] is True
-    assert all(not config[key]['enabled'] for key in ('documents', 'code', 'ssh', 'skills', 'mcp', 'services'))
-    assert {p for c in config['documents']['collections'] for p in c['paths']} == {
-        '/work/data/payments',
-        '/work/data/payments/runbooks',
-        '/work/data/payments-old',
-    }
-    assert len(config['code']['projects']) == 1 and config['code']['projects'][0]['id'] != repo['id']
-    assert not config['ssh']['servers'][0]['ssh_allowed']
+    assert config['code'] == {'enabled': False, 'all_projects': False, 'projects': [], 'graphs': []}
+    assert not config['documents']['enabled'] and config['documents']['collections'] == []
+    assert config['services']['enabled'] and len(config['services']['items']) == 1
+    assert config['ssh']['enabled'] and not config['ssh']['servers'][0]['ssh_allowed']
     assert not config['skills']['items'][0]['enabled'] and not config['mcp']['servers'][0]['enabled']
 
 
-def test_multiple_servers_have_independent_runbooks_skills_and_mcp(store, saved_agent):
-    client, first, *_ = saved_agent
-    second = client.post(
-        '/api/servers', headers=HEADERS, json={'name': 'Second', 'hostname': 'second.test', 'ssh_allowed': True}
-    ).json()
-    skill = client.post(
-        '/api/skills',
-        headers=HEADERS,
-        json={'name': 'server-only', 'description': 'Server procedures', 'instructions': 'Read the service log.'},
-    ).json()
-    mcp = client.post(
-        '/api/mcp/servers', headers=HEADERS, json={'name': 'Server docs', 'url': 'http://other.test/mcp'}
-    ).json()
+def test_an_agent_without_access_has_nothing(store, saved_agent):
+    client = saved_agent[0]
     other = create(client, 'Other agent')
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        conn.execute(
-            "INSERT INTO ka.operations_servers(project_id,agent,server_id) VALUES (%s,'operations',%s)",
-            (project, UUID(second['id'])),
-        )
-        config_id = conn.execute(
-            """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
-            VALUES (%s,'operations',%s,'Inspect this host only.',false,false) RETURNING id""",
-            (project, UUID(first['id'])),
-        ).fetchone()['id']
-        conn.execute('INSERT INTO ka.agent_config_skills VALUES (%s,%s,%s)', (config_id, project, UUID(skill['id'])))
-        conn.execute('INSERT INTO ka.agent_config_mcp_servers VALUES (%s,%s,%s)', (config_id, project, UUID(mcp['id'])))
-    config = get_agent_config('operations', conninfo=store.conninfo)
-    hosts = {host['id']: host for host in config['ssh']['servers']}
-    assert set(hosts) == {first['id'], second['id']}
-    assert hosts[first['id']]['instructions'] == 'Inspect this host only.'
-    assert hosts[first['id']]['skills'][0]['id'] == skill['id']
-    assert hosts[first['id']]['mcp_servers'][0]['id'] == mcp['id']
-    assert hosts[first['id']]['mcp_servers'][0]['bearer_token_ref'] is None
-    assert hosts[second['id']]['instructions'] == config['instructions']
-    assert hosts[second['id']]['skills'] == config['skills']['items']
-    assert hosts[second['id']]['mcp_servers'] == config['mcp']['servers']
-    assert hosts[second['id']]['private_key_ref'] is None
-    assert all(item['id'] != skill['id'] for item in config['skills']['items'])
     isolated = get_agent_config(other['id'], conninfo=store.conninfo)
     assert isolated['ssh']['servers'] == isolated['mcp']['servers'] == isolated['skills']['items'] == []
+    assert isolated['access'] == {'resources': [], 'roles': {'content_editor': False}}
 
 
 def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(

@@ -1,5 +1,6 @@
 import pytest
 
+from access_helpers import give
 from knowledge_admin.agents.runner import get_agent_config, get_paths
 from knowledge_admin.rag.collections import document_collections, slug
 from test_api import _client
@@ -33,10 +34,7 @@ def test_agent_config_lists_granted_collections_with_paths(store, monkeypatch):
     monkeypatch.setenv('CODE_ROOT', '/work/data/code')
     ids = seed(store, ('jira', 'jira'), ('payments', 'docs/payments', 'code/payments'))
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET all_collections=false,documents_enabled=true WHERE id='search'")
-        conn.execute(
-            "INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES ('search',%s)", (ids['payments'],)
-        )
+        give(conn, 'search', [('collection', ids['payments'])])
     config = get_agent_config('search', conninfo=store.conninfo)
     assert config['documents']['all_collections'] is False
     assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [
@@ -44,9 +42,9 @@ def test_agent_config_lists_granted_collections_with_paths(store, monkeypatch):
     ]
     assert set(config['documents']['collections'][0]) == {'id', 'name', 'description', 'paths'}
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET all_collections=true WHERE id='search'")
+        give(conn, 'search', [('collection', ids['payments']), ('collection', ids['jira'])])
         conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
-    config = get_agent_config('search', conninfo=store.conninfo)
+    config = get_agent_config('search', conninfo=store.conninfo)  # a deleted collection is skipped
     assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [('jira', ['/work/data/jira'])]
 
 
@@ -100,9 +98,9 @@ def test_ungrounded_document_agents_read_every_collection_path(monkeypatch):
 def test_agent_config_maps_any_folder_under_the_data_root(store, monkeypatch):
     monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
     monkeypatch.setenv('CODE_ROOT', '/work/data/code')
-    seed(store, ('jira', 'jira'), ('tools', 'exports/tools', 'code-index/abc'))
+    ids = seed(store, ('jira', 'jira'), ('tools', 'exports/tools', 'code-index/abc'))
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET all_collections=true,documents_enabled=true WHERE id='search'")
+        give(conn, 'search', [('collection', item) for item in ids.values()])
     config = get_agent_config('search', conninfo=store.conninfo)
     assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [
         ('jira', ['/work/data/jira']),

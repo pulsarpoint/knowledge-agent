@@ -17,24 +17,16 @@ from knowledge_admin.servers.discovery import readiness, server_row
 from knowledge_admin.documents.api import Tags, document_slug
 from knowledge_admin.documents.store import INVENTORY_TAG, NAME_IN_USE
 
-from knowledge_admin.knowledge_agents.config import (
-    get_agent_config,
-    load_model,
-    model_fits,
-    per_run,
-    require_run_resources,
-)
+from knowledge_admin import access as access_rules
+from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.knowledge_agents.run_resources import (
     DEPLOYED_SERVICES,
     RunResourceError,
-    RunResources,
     bring,
-    options as run_options,
-    resolve,
 )
-from knowledge_admin.sessions.run_access import run_access
+from knowledge_admin.sessions.run_access import cut_to, held, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import (
@@ -95,8 +87,6 @@ NOT_ALLOWED = 'SSH is not allowed for this server.'
 NOT_ITS_TOOL = "{tool} is not one of this agent's tools."
 NO_SUBAGENTS = 'This agent does not allow subagents.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
-NO_ENVIRONMENTS = 'A saved agent takes no environments; choose its servers or services.'
-NO_DOCUMENTS = 'A saved agent takes no documents yet.'
 NO_SSH = (
     'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
     'commands on it. {reason}'
@@ -377,9 +367,10 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
 
 
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
-    """A saved agent's configuration for one run, narrowed by the request and never widened: its tools that are on
-    (switch off only), a subset of its experts, subagents only if it allows them, and for a per-run agent a subset of
-    its saved resources. Its model and system prompt are its own."""
+    """A saved agent's configuration for one run, narrowed by the request and never widened: its access object or the
+    resources the request picked out of it (access.narrow: a pick outside it is refused), its tools that are on
+    (switch off only), a subset of its experts and subagents only if it allows them. Its model, system prompt and
+    content editor role are its own; its sections keep only what the run's access object holds."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -393,34 +384,27 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         or value.prompt_id is not None
     ):
         raise HTTPException(400, OWN_MODEL)
-    if value.resources.environment_ids:
-        raise HTTPException(400, NO_ENVIRONMENTS)
-    if value.resources.documents:
-        raise HTTPException(400, NO_DOCUMENTS)
+    if not config['enabled']:
+        raise HTTPException(409, 'Agent is disabled.')
+    if model is None or not model['enabled'] or not model_fits(model):
+        raise HTTPException(409, AGENT_NO_MODEL)
     resources = value.resources
-    requested = (
-        RunResources(
-            code_project_ids=resources.code_project_ids,
-            collection_ids=resources.collection_ids,
-            server_ids=resources.server_ids,
-            service_ids=resources.service_ids,
-        )
-        if any((resources.code_project_ids, resources.collection_ids, resources.server_ids, resources.service_ids))
-        or per_run(config)
-        else None
-    )
+    picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
+    picked += [{'type': 'document', 'id': str(entry.id or 'new')} for entry in resources.documents]
     try:
-        pinned = resolve(conn, project, config, requested)
-        require_run_resources(pinned)
-        if not pinned['enabled']:
-            raise ValueError('Agent is disabled.')
-        if model is None or not model['enabled'] or not model_fits(model):
-            raise ValueError(AGENT_NO_MODEL)
-    except RunResourceError as exc:
-        raise HTTPException(400, str(exc)) from None
+        access = run_access(
+            conn,
+            project,
+            config,
+            picked or None,  # nothing picked: everything it has
+            environment_ids=access_ids(config['access'], 'environment'),
+            content_editor=access_rules.is_content_editor(config['access']),
+        )
     except ValueError as exc:
-        raise HTTPException(409, str(exc)) from None
-    pinned = pin(conn, pinned, agent_id)
+        raise HTTPException(400, str(exc)) from None
+    pinned = pin(conn, cut_to(config, access), agent_id)
+    if picked:  # what a new document of the run is built for
+        pinned['chosen_resources'] = {key: [str(i) for i in getattr(resources, key)] for _, key in PICKS}
     items = {item['tool']: item for item in pinned['tools']['items']}
     on = {name for name, item in items.items() if item['mode'] == 'on'}
     added = [name for name in value.tools if name not in on]
@@ -434,11 +418,7 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
             item['mode'] = 'on' if value.subagents else 'off'
         elif name in controlled and name in on and name not in value.tools:
             item['mode'] = 'off'
-    usable = (
-        [server for server in pinned['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
-        if pinned['ssh']['enabled']
-        else []
-    )  # as get_ssh selects them at run time
+    usable = [server for server in pinned['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
     unmet = [
         NEEDS.format(tool=name, what=REQUIRES[CATALOG[name].needs])
         for name in value.tools
@@ -457,44 +437,27 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         content = pinned['system_prompt']['content'] + f'\n\n# Context\n\n{value.context}'
         pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
     pinned['project_id'] = str(project)
-    pinned = jsonable_encoder(pinned)
-    # a fixed agent is given everything it has; a per-run agent what the request picked (never more: access.narrow)
-    picked = (
-        [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
-        if per_run(pinned)
-        else None
-    )
-    try:
-        pinned['access'] = run_access(conn, project, pinned, picked)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
-    return pinned, model
+    pinned['access'] = access
+    return jsonable_encoder(pinned), model
 
 
 def usable_tools(conn, project: UUID, agent_id: str, conninfo: str) -> list[str]:
     """The agent's tools that are on (as agent_options lists them) whose need its saved configuration meets, judged as
-    narrow judges them (SSH: its enabled, SSH-allowed servers). What a start with everything the agent has on can
-    send: a tool it could not use is left off rather than refused."""
+    narrow judges them. What a start with everything the agent has on can send: a tool it could not use is left off
+    rather than refused."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
-        pinned = resolve(conn, project, config, None)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from None
-    except RunResourceError as exc:
-        raise HTTPException(400, str(exc)) from None
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from None
-    on = {item['tool'] for item in pinned['tools']['items'] if item['mode'] == 'on'}
-    usable = (
-        [server for server in pinned['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
-        if pinned['ssh']['enabled']
-        else []
-    )
+    on = {item['tool'] for item in config['tools']['items'] if item['mode'] == 'on'}
+    usable = [server for server in config['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
     return [
         spec.name
         for spec in choosable()
         if spec.name in on
-        and (spec.needs not in REQUIRES or needs_met(spec.needs, pinned, usable if spec.needs == 'ssh' else None))
+        and (spec.needs not in REQUIRES or needs_met(spec.needs, config, usable if spec.needs == 'ssh' else None))
     ]
 
 
@@ -700,7 +663,7 @@ def start_run(
                 Jsonb(snapshot),
                 Jsonb({'folders': [], 'code_project_ids': []}),
                 Jsonb(pinned),
-                Jsonb(pinned['run_resources']) if per_run(pinned) else None,
+                Jsonb(pinned['run_resources']) if 'run_resources' in pinned else None,
                 event_id,
                 handler_id,
             ),
@@ -711,7 +674,7 @@ def start_run(
             'tools_off': tools_off,
             'expert_ids': [entry['id'] for entry in pinned['experts']],
             'subagents': value.subagents,
-            'resources': pinned.get('run_resources'),
+            'resources': pinned.get('chosen_resources'),
             'tags': tags,
         }
     elif resource is not None:
@@ -1006,8 +969,7 @@ def options(
 
 def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
     """What a start panel offers for a saved agent: only what the request may narrow. Its own model and prompt (no
-    choice), its saved selection (a per-run agent's usable resources; none for a fixed agent), its tools that are on and
-    its offered experts."""
+    choice), what its access object holds (a run may pick a subset), its tools that are on and its offered experts."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -1016,37 +978,33 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
         raise HTTPException(409, str(exc)) from None
     model = config['model']
     fits = model is not None and model['enabled'] and model_fits(model)
-    fixed = not per_run(config)
-    saved = {} if fixed else run_options(conn, project, config)
-    listed = lambda kind: [] if saved.get(kind) is None else saved[kind]  # noqa: E731
+    holds = held(conn, project, config, access_ids(config['access'], 'environment'))
+    listed = lambda type_: [item for item in holds if item['type'] == type_]
     on = {item['tool'] for item in config['tools']['items'] if item['mode'] == 'on'}
-    servers = {str(item['id']) for item in listed('servers')}
-    projects = {str(item['id']) for item in listed('code_projects')}
+    servers = {item['id'] for item in listed('server')}
+    projects = {item['id'] for item in listed('code_project')}
 
     def brings(service_id) -> dict:
-        """What one service brings to a run of this agent, as resolve() gives it: code projects and usable servers
-        inside its selection."""
+        """What one service brings to a run of this agent: code projects and usable servers it holds."""
         found = bring(conn, project, [service_id])
         return {
             'brings_code': any(str(item) in projects for item in found['code_project_ids']),
             'brings_servers': any(str(item) in servers for item in found['server_ids']),
         }
 
+    def plain(type_: str) -> list[dict]:
+        return [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed(type_)]
+
     resources = {
-        'servers': [
-            {'id': item['id'], 'name': item['name'], 'linked': False, 'usable': True, 'reason': None}
-            for item in listed('servers')
+        'servers': [{**item, 'usable': True, 'reason': None} for item in plain('server')],
+        'services': [{**item, **brings(item['id'])} for item in plain('service')],
+        'environments': plain('environment'),
+        'code_projects': plain('code_project'),
+        'collections': plain('collection'),
+        'documents': [
+            {'id': item['id'], 'name': item['name'], 'linked': False, 'editable': bool(item.get('editable'))}
+            for item in listed('document')
         ],
-        'services': [
-            {'id': item['id'], 'name': item['name'], 'linked': False, **brings(item['id'])}
-            for item in listed('services')
-        ],
-        'environments': [],
-        'code_projects': [
-            {'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('code_projects')
-        ],
-        'collections': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('collections')],
-        'documents': [],
     }
     return jsonable_encoder(
         {
@@ -1056,7 +1014,7 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
                 'revision': config['revision'],
                 'model': {'id': model['id'], 'name': model['name']} if model else None,
                 'system_prompt': config['system_prompt']['content'],
-                'resources_fixed': fixed,
+                'resources_fixed': False,
                 'subagents_allowed': SUBAGENT in on,
             },
             'models': [{'id': model['id'], 'name': model['name']}] if fits else [],

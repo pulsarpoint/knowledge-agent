@@ -1,5 +1,6 @@
-"""Run resources: a per-run agent's run gets exactly the resources it was given, validated against the agent's saved
-selection; nothing passed means nothing, never "all". 0076 records them with each run."""
+"""Run resources: resolve gives a run exactly the resources it was given, validated against the configuration's
+selection (here a saved agent's, loaded from its access object; the ad-hoc runs use it); nothing passed means nothing,
+never "all". 0076 records them with each run."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,8 @@ import pytest
 
 from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.knowledge_agents.run_resources import FIXED, RunResourceError, RunResources, options, resolve
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, options, resolve
+from access_helpers import give
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 from test_repositories import HEADERS
@@ -67,7 +69,7 @@ def per_run(sessions):
         services_enabled=True,
         service_ids=[sessions.service],
     )
-    return SimpleNamespace(
+    found = SimpleNamespace(
         **vars(sessions),
         analyst=analyst,
         host=host,
@@ -75,6 +77,20 @@ def per_run(sessions):
         runbooks=collections['runbooks'],
         private=collections['private'],
     )
+    allow(found)
+    return found
+
+
+def allow(s, code=None, collections=None, servers=None, services=None) -> None:
+    """The analyst's access object: by default its selection (Payments API, runbooks, Test host, Payments)."""
+    given = {
+        'code_project': [s.repo] if code is None else code,
+        'collection': [s.runbooks] if collections is None else collections,
+        'server': [s.host['id']] if servers is None else servers,
+        'service': [s.service] if services is None else services,
+    }
+    with s.store.connect() as conn:
+        give(conn, s.analyst, [(type_, item) for type_, ids in given.items() for item in ids])
 
 
 def effective(s, requested: RunResources | None, **kwargs) -> dict:
@@ -136,7 +152,7 @@ def test_a_run_gets_exactly_its_resources_and_nothing_means_nothing(per_run):
     [server] = given['ssh']['servers']
     assert (server['id'], server['instructions'], bool(server['private_key_ref'])) == (
         s.host['id'],
-        'Read logs only.',
+        '',  # per-server instructions are no longer read: the agent's
         True,
     )
     assert given['services']['items'] == []
@@ -155,10 +171,7 @@ def test_a_run_gets_exactly_its_resources_and_nothing_means_nothing(per_run):
         nothing['run_resources'],
     ) == ([], [], [], [], NOTHING)
     assert nothing['code']['enabled'] and nothing['documents']['enabled']  # their tools say nothing was given
-    with s.store.connect() as conn:  # All code projects / all collections: any may be passed, still only those
-        conn.execute('UPDATE ka.agents SET all_repositories=true,all_collections=true WHERE id=%s', (s.analyst,))
-        conn.execute('DELETE FROM ka.agent_repositories WHERE agent_id=%s', (s.analyst,))
-        conn.execute('DELETE FROM ka.agent_collections WHERE agent_id=%s', (s.analyst,))
+    allow(s, code=[s.repo, s.worker], collections=[s.runbooks, s.private])  # any of them may be passed, only those
     given = effective(s, RunResources(code_project_ids=[s.worker], collection_ids=[s.private]))
     assert [(p['name'], p['folder_paths']) for p in given['code']['projects']] == [
         ('Payments worker', [f'{s.data}/code/worker'])
@@ -167,7 +180,6 @@ def test_a_run_gets_exactly_its_resources_and_nothing_means_nothing(per_run):
     assert given['documents']['all_collections'] is False and given['code']['all_projects'] is False
     nothing = effective(s, None)
     assert (nothing['code']['projects'], nothing['documents']['collections']) == ([], [])
-    assert get_agent_config(s.analyst, conninfo=s.store.conninfo)['code']['all_projects'] is True  # the agent's own
 
 
 def test_resources_outside_the_selection_the_workspace_or_the_agents_kinds_are_refused(per_run):
@@ -188,6 +200,7 @@ def test_resources_outside_the_selection_the_workspace_or_the_agents_kinds_are_r
     assert refusal(s, RunResources(server_ids=[s.server['id']])) == (
         'Server prod-1 is not available: it was removed, archived or disabled.'
     )  # SSH not allowed
+    allow(s, code=[s.repo, s.worker])  # the agent still uses code projects when one is archived
     with s.store.connect() as conn:
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (s.repo,))
     assert refusal(s, RunResources(code_project_ids=[s.repo])) == (
@@ -195,14 +208,8 @@ def test_resources_outside_the_selection_the_workspace_or_the_agents_kinds_are_r
     )
     with s.store.connect() as conn:
         conn.execute('UPDATE ka.repositories SET archived_at=NULL WHERE id=%s', (s.repo,))
-        conn.execute('UPDATE ka.agents SET documents_enabled=false WHERE id=%s', (s.analyst,))
+    allow(s, collections=[])
     assert refusal(s, RunResources(collection_ids=[s.runbooks])) == 'This agent does not use document collections.'
-    with s.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (s.analyst,))
-        conn.commit()  # get_agent_config reads on its own connection
-        config = get_agent_config(s.analyst, conninfo=s.store.conninfo)
-        assert resolve(conn, s.store.project(conn, 'shop'), config, None) is config  # fixed: its own configuration
-    assert refusal(s, RunResources()) == FIXED
 
 
 def test_services_and_environments_bring_their_code_projects_and_servers(per_run):
@@ -211,16 +218,14 @@ def test_services_and_environments_bring_their_code_projects_and_servers(per_run
         refusal(s, RunResources(service_ids=[s.service]))
         == 'Code project Payments worker is not allowed for this agent.'
     )
-    with s.store.connect() as conn:
-        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (s.analyst, s.worker))
+    allow(s, code=[s.repo, s.worker])
     assert effective(s, RunResources(service_ids=[s.service]))['run_resources'] == {
         'code_project_ids': [s.repo, s.worker],
         'collection_ids': [],
         'server_ids': [s.host['id']],
         'service_ids': [s.service],
     }  # prod-1 does not allow SSH: skipped
-    with s.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET services_enabled=false WHERE id=%s', (s.analyst,))
+    allow(s, code=[s.repo, s.worker], services=[])
     assert refusal(s, RunResources(service_ids=[s.service])) == 'This agent does not use services.'
     assert effective(s, None, environment_ids=[UUID(s.environment)])['run_resources'] == {
         'code_project_ids': [s.repo, s.worker],
@@ -252,9 +257,7 @@ def test_options_list_what_a_caller_may_pass(per_run):
         'servers': [{'id': s.host['id'], 'name': 'Test host'}],
         'services': [{'id': s.service, 'name': 'Payments'}],
     }
-    with s.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET all_repositories=true,documents_enabled=false WHERE id=%s', (s.analyst,))
-        conn.execute('DELETE FROM ka.agent_repositories WHERE agent_id=%s', (s.analyst,))
+    allow(s, code=[s.repo, s.worker], collections=[])
     assert offered()['code_projects'] == [
         {'id': s.repo, 'name': 'Payments API'},
         {'id': s.worker, 'name': 'Payments worker'},
@@ -270,11 +273,7 @@ def test_a_brought_server_without_a_usable_connection_is_left_out_but_a_chosen_o
     s = per_run  # prod-1 allows SSH here, but has no username: the agent's snapshot lists it as not enabled
     with s.store.connect() as conn:
         conn.execute('UPDATE ka.servers SET ssh_allowed=true WHERE id=%s', (s.server['id'],))
-        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (s.analyst, s.worker))
-        conn.execute(
-            'INSERT INTO ka.operations_servers(project_id,agent,server_id) VALUES (%s,%s,%s)',
-            (s.store.project(conn, 'shop'), s.analyst, s.server['id']),
-        )
+    allow(s, code=[s.repo, s.worker], servers=[s.host['id'], s.server['id']])
     brought = effective(s, None, environment_ids=[UUID(s.environment)])['run_resources']['server_ids']
     assert s.server['id'] not in brought
     assert 'Server prod-1 is not available' in refusal(s, RunResources(server_ids=[s.server['id']]))
@@ -282,8 +281,7 @@ def test_a_brought_server_without_a_usable_connection_is_left_out_but_a_chosen_o
 
 def test_a_run_records_what_was_chosen_apart_from_what_it_brings(per_run):
     s = per_run  # an environment brings Payments (and its code projects and Test host): chosen records only it
-    with s.store.connect() as conn:
-        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (s.analyst, s.worker))
+    allow(s, code=[s.repo, s.worker])
     environment = UUID(s.environment)
     given = effective(s, RunResources(code_project_ids=[s.repo]), environment_ids=[environment, environment])
     assert given['chosen_resources'] == {
@@ -301,6 +299,3 @@ def test_a_run_records_what_was_chosen_apart_from_what_it_brings(per_run):
     assert service['chosen_resources'] == {**NOTHING, 'service_ids': [s.service], 'environment_ids': []}
     assert service['run_resources']['server_ids'] == [s.host['id']]
     assert effective(s, None)['chosen_resources'] == {**NOTHING, 'environment_ids': []}
-    with s.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (s.analyst,))
-    assert 'chosen_resources' not in effective(s, None)  # a fixed agent: its own configuration, as before

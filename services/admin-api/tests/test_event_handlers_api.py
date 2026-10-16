@@ -118,10 +118,7 @@ def test_send_to_agent_handlers_and_the_agent_list(tester):
     listed = t.client.get('/api/event-handlers/agents', headers=HEADERS).json()['agents']
     assert {'id': t.agent, 'name': 'Tester'} in listed  # seeded agents (0020, 0031) may be listed too
     with t.store.connect() as conn:  # the database's own collation, as the picker shows them
-        expected = [
-            row['id']
-            for row in conn.execute("SELECT id FROM ka.agents WHERE enabled AND resources='fixed' ORDER BY name,id")
-        ]
+        expected = [row['id'] for row in conn.execute('SELECT id FROM ka.agents WHERE enabled ORDER BY name,id')]
     assert [agent['id'] for agent in listed] == expected
     body = {
         **EMIT,
@@ -143,14 +140,18 @@ def test_send_to_agent_handlers_and_the_agent_list(tester):
         error(t.client.post('/api/event-handlers', headers=HEADERS, json={**body, 'name': 'B', 'prompt': ' '}), 400)
         == 'Prompt: write what the agent should do.'
     )
-    with t.store.connect() as conn:
+    with t.store.connect() as conn:  # any enabled agent: a run narrows its access object
         conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (t.agent,))
+    assert t.agent in [
+        agent['id'] for agent in t.client.get('/api/event-handlers/agents', headers=HEADERS).json()['agents']
+    ]
+    created = t.client.post('/api/event-handlers', headers=HEADERS, json={**body, 'name': 'C'})
+    assert created.status_code == 201, created.text
+    with t.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (t.agent,))
     assert t.agent not in [
         agent['id'] for agent in t.client.get('/api/event-handlers/agents', headers=HEADERS).json()['agents']
     ]
-    assert 'resources per run' in error(
-        t.client.post('/api/event-handlers', headers=HEADERS, json={**body, 'name': 'C'}), 400
-    )
 
 
 def test_preview(client, store):
@@ -193,15 +194,10 @@ def test_a_handler_whose_agent_is_gone_can_still_be_turned_off_and_edited(tester
     t = tester
     body = {**EMIT, 'action': 'agent', 'emit': None, 'agent_id': t.agent, 'prompt': 'Triage {{ event.subject }}'}
     handler = t.client.post('/api/event-handlers', headers=HEADERS, json=body).json()['handler']
-    with t.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (t.agent,))
     url = f'/api/event-handlers/{handler["id"]}'
     saved = t.client.put(url, headers=HEADERS, json={**body, 'enabled': False, 'revision': 1})
     assert saved.status_code == 200, saved.text
     assert saved.json()['handler']['enabled'] is False
-    assert 'resources per run' in error(
-        t.client.put(url, headers=HEADERS, json={**body, 'revision': 2}), 400
-    )  # turning it on checks
     revision = t.client.get(f'/api/agents/{t.agent}', headers=HEADERS).json()['revision']
     deleted = t.client.request(
         'DELETE',

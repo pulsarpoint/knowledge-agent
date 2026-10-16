@@ -3,6 +3,7 @@ tools when a capability is switched on; the wizard's tools; the list summary."""
 
 from uuid import uuid4
 
+from access_helpers import from_tables
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.tools.catalog import ALWAYS_ON, CATALOG, effective_tools, run_only
 from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
@@ -294,10 +295,27 @@ def offered(store, agent_id, ssh_servers=()) -> set[str]:
 
 def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, saved_agent):
     """After 0078 tools come only from rows: the wizard and a profile save must leave rows the run actually offers."""
-    client = saved_agent[0]
+    client, server, repo = saved_agent[0], saved_agent[1], saved_agent[5]
     fresh = client.post(
-        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Fresh', repositories_enabled=True, ssh_enabled=True)
+        '/api/agents/wizard',
+        headers=HEADERS,
+        json=wizard_payload(
+            'Fresh',
+            repositories_enabled=True,
+            repository_ids=[repo['id']],
+            ssh_enabled=True,
+            servers=[
+                {
+                    'server_id': server['id'],
+                    'instructions': None,
+                    'skill_ids': None,
+                    'mcp_server_ids': None,
+                    'connection': None,
+                }
+            ],
+        ),
     ).json()
+    from_tables(store)  # the wizard writes the per-type tables until it writes the access object
     assert offered(store, fresh['id'], [{'id': 'server'}]) == {
         'list_files',
         'read_file',
@@ -306,10 +324,14 @@ def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, sav
         'code_search',
         'ast_grep',
         'ssh_run',
+        'get_resource',  # on in every run with resources
     }  # no graph yet
     blank = create(client, 'Blank')
     assert offered(store, blank['id']) == set()
-    documents = update(client, blank, documents_enabled=True).json()
+    with store.connect() as conn:
+        collection = str(conn.execute("SELECT id FROM ka.rag_collections WHERE name='payments'").fetchone()['id'])
+    documents = update(client, blank, documents_enabled=True, collection_ids=[collection]).json()
+    from_tables(store)
     assert offered(store, blank['id']) == {
         'list_files',
         'read_file',
@@ -319,6 +341,7 @@ def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, sav
         'read_document',
     }
     update(client, documents, documents_grounded=True)
+    from_tables(store)
     assert offered(store, blank['id']) == {'search_documents', 'read_document', 'report_not_covered'}
 
 
