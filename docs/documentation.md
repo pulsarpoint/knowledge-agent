@@ -164,11 +164,13 @@ The page asks for a **Title** and a **Folder** (the Folder field appears with th
 from a new document, not both (`GET /api/sessions/options` takes `new_document=1` without `agent_id` or `document_id`).
 
 `GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects, document
-collections, environments, services, servers), the tools, the experts, whether subagents are allowed, and the prompts tagged
+collections, environments, services, servers), the experts, and the prompts tagged
 `documentation`. The default prompt is **Write a document** (tags `documentation` and `new-document`, seeded by migration
 0101): read what you were given, write the document with `save_document`, change a passage with `edit_document`, and never
 say it is published. Custom prompts tagged `documentation` should tell the agent to write with `save_document`. No
-resource is chosen until it is ticked; experts and subagents are off; every tool that applies to what was chosen is on.
+resource is chosen until it is ticked; experts are offered only when ticked (`expert_ids`). The run gets every tool,
+including `run_subagent`; the run's access (what was chosen, and the new document as its one editable document) decides
+what each may do.
 
 The agent writes the document only with `save_document(document_id, markdown, title?, description?)` and
 `edit_document(document_id, old_text, new_text)`. Both write the run's draft. The agent's final answer is not turned into a

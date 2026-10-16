@@ -13,16 +13,17 @@ limit, no per-turn time limit, no 300-second limit).
 - **A run can only narrow the saved agent.** A saved agent stores what it may use as one access object
   (`ka.agents.access`: resource references and the `content_editor` role) and its instructions
   (`ka.agents.instructions`). A run gets the whole access object, or the resources the request picks out of it
-  (`resources`, environments and documents included); the run's `content_editor` is the agent's. The request can also
-  list the tools it keeps (`tools`; the others are switched off), choose some of the agent's experts (`expert_ids`) and
-  turn subagents off (`subagents: false`). Nothing can be added. The model and prompt are the agent's own: change them
-  in General, or clone the agent to try another prompt. Refused: "{tool} is not one of this agent's tools.", "This
-  agent does not allow subagents.", "A saved agent uses its own model and prompt." and a pick outside the agent's
+  (`resources`, environments and documents included); the run's `content_editor` is the agent's (the request may send
+  only `content_editor: false` to switch it off). Every run gets every tool, `run_subagent` and every offered expert;
+  the access object decides what a tool may do. The request may choose some of the experts (`expert_ids`). Nothing can
+  be added; `tools` and `subagents` are not request fields (sending them is a 400). The model and prompt are the
+  agent's own: change them in General, or clone the agent to try another prompt. Refused: "A run cannot make a saved
+  agent a content editor.", "A saved agent uses its own model and prompt." and a pick outside the agent's
   access ("<type> <id> is not in the agent's access"); a document picked with `editable: false` is read-only in the
   run. A reference to a deleted or archived resource is skipped; a server without usable SSH stays in the run.
   Event handlers can send to any enabled agent; its run gets the whole access object. An expert narrows its own
   agent's access object to the resources the caller passes.
-- `GET /api/sessions/options?agent_id=…` says what may be narrowed (tools, experts, whether subagents are allowed, the
+- `GET /api/sessions/options?agent_id=…` says what may be narrowed (the offered experts and the
   resources its access object holds) and gives the agent's model and prompt as facts. `POST /api/sessions/preview` with the
   same body shows the pinned configuration without starting a run.
 - `GET /api/sessions?agent_id=…` lists the agent's Test sessions and its event sessions (with `purpose`), newest first.
@@ -206,8 +207,8 @@ or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin.
 failed: <reason>` (redacted) and the caller goes on.
 
 A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with its own
-access object narrowed to the given resources (a content editor only when its agent and the calling run both are), no conversation, and no expert tools (an expert cannot call experts). It keeps
-`run_subagent` if it has it: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
+access object narrowed to the given resources (a content editor only when its agent and the calling run both are), no conversation, and no expert tools (an expert cannot call experts). It has
+`run_subagent` like every run: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
 16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
 experts) helpers at once. The call loads its own credentials (the expert's model key and the keys of the resources it
 runs with; `load_credentials` also refuses a disabled model, server or MCP server); they are added to the turn's

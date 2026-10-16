@@ -636,14 +636,14 @@ If the title and folder match an existing document, the agent's saves become a d
 you promote the draft. There is one conversation per page visit; **New chat** closes it.
 
 **Settings** in the chat opens what the agent may use: the model, the resources (code projects, document collections,
-environments, services and servers), the tools, subagents and experts, and under **Advanced** the prompt. A server whose SSH
+environments, services and servers), the experts, and under **Advanced** the prompt. A server whose SSH
 is not set up or not allowed cannot be chosen. The prompts offered are those tagged `documentation`; the default is **Write a
 document** (Administration → Prompts). It tells the agent to read what it was given, write with `save_document`, change a passage
 with `edit_document`, and never say the document is published. If you write your own prompt, tell the agent to write with
 `save_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
-JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) and subagents
-(`run_subagent`) are off; every tool that applies to what you chose is on. Its tools (`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and
-`ssh_run` when servers are chosen) work as in an agent's Test tab.
+JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) are offered only when you tick them. The run gets
+every tool, including `run_subagent`; what each may reach follows the resources you chose (for example `ssh_run` only
+on the chosen servers), as in an agent's Test tab.
 
 **The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Test tab: the
 main pane shows each turn (your message, a collapsed **Worked** block with thinking, tool calls and results, and the answer)
@@ -746,7 +746,7 @@ pick another prompt under Advanced.
 
 **Settings** in the chat opens what the agent may use: the model, the servers and other resources (the ones linked to
 the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the document (listed under
-Resources as editable) and the tools (the document tools are listed with the others), subagents and experts (off unless you turn them on), and under **Advanced** the
+Resources as editable) and the experts (none unless you tick them; the run gets every tool), and under **Advanced** the
 prompt (**Revise a document** by default, any other saved prompt, or **Own prompt**). **Preview** shows exactly what the
 next message will start with, as JSON. Your choices are remembered for the document in this browser. While a
 conversation is open its settings are fixed: Settings shows them, and **Start new chat with these settings** closes it
@@ -852,7 +852,7 @@ A handler does one thing:
   `| tojson`, e.g. `{"summary": {{ event.payload.summary | tojson }}}`; the payload must be a JSON object. The new
   event is processed like any other, so handlers can build chains — at most 5 levels deep.
 - **Send to agent** starts an ordinary agent run of the chosen agent for every matching event. The **Prompt** template
-  is the run's first message, the run uses all of the agent's resources and the tools switched on, and the handler's
+  is the run's first message, the run uses all of the agent's resources and every tool, and the handler's
   creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Test** tab
   under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
   notification is written with the answer, or why it failed (4.19). With **Also post the answer as a comment on the Jira
