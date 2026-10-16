@@ -19,7 +19,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as documents
 from knowledge_admin.documents.store import LINK_COLUMNS, Provenance

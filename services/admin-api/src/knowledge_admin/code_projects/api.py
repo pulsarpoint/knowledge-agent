@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.data_root import host_path
 from knowledge_admin.code_projects.paths import code_path, code_root
 from knowledge_admin.code_projects.processing import index_directory, CodeProcessingError

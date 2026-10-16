@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.concurrency import run_in_threadpool
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.agents.runner import agent
 from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import model_fits

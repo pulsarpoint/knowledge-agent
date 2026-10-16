@@ -10,7 +10,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.agents.clones import NAME_TAKEN, clone
 from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import fingerprint, get_agent_config

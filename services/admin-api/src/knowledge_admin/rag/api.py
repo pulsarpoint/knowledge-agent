@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import workspace
 
 

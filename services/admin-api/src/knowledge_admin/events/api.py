@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 

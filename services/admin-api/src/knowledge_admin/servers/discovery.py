@@ -12,7 +12,7 @@ from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.capabilities.discovery import RESOURCE_COLUMNS, RESOURCE_TABLES
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as lifecycle

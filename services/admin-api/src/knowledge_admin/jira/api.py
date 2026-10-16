@@ -10,7 +10,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Request
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.data_root import jira_folder
 from knowledge_admin.db import storage, workspace

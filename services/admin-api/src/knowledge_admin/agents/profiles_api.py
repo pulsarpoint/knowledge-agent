@@ -10,7 +10,7 @@ from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run, tool_items
 from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options

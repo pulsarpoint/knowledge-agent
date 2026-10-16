@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.data_root import documentation_folder, generated_docs_folder
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as lifecycle

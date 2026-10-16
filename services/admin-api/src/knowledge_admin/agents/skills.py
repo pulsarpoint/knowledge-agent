@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 

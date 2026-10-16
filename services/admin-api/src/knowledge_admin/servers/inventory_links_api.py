@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.documents import store as documents
 from knowledge_admin.documents.store import ENTRY_COLUMNS, Provenance

@@ -15,7 +15,7 @@ from knowledge_llm.bedrock_embeddings import embed_bedrock
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
-from knowledge_admin.access import request_actor
+from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.repositories import RepositoryStore
 
