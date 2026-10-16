@@ -1,6 +1,7 @@
 """Wizard proposals use the real config tables, without executing the proposed agent."""
 
 import json
+from access_helpers import of
 from agents import ModelBehaviorError
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -83,9 +84,11 @@ def test_wizard_roundtrip_every_resource(store, wizard):
     assert config['system_prompt']['content'] == proposal['system_prompt']
     assert config['instructions'] == proposal['instructions']
     assert config['model']['api_key_ref']['id'] == proposal['model_id']
-    assert config['access'] == proposal['access']
-    assert [c['name'] for c in config['documents']['collections']] == ['payments']
-    server = config['ssh']['servers'][0]
+    held = {(item['type'], item['id']) for item in config['access']['resources']}
+    assert held == {(item['type'], item['id']) for item in proposal['access']['resources']}
+    assert config['access']['roles'] == proposal['access']['roles']
+    assert [c['name'] for c in of(config, 'collection')] == ['payments']
+    server = of(config, 'server')[0]
     assert server['username'] == 'operator'  # the server's own SSH settings
     assert ssh['private_key'] not in json.dumps(config)
     assert client.post('/api/agents/wizard', headers=HEADERS, json=proposal).status_code == 409
@@ -161,10 +164,7 @@ def test_generation_uses_no_tools_and_does_not_save(store, wizard, monkeypatch):
     assert result.headers['cache-control'] == 'no-store'
     assert client.get('/api/agents', headers=HEADERS).json() == before
     config, task, kwargs = calls[0]
-    assert all(
-        config[capability]['enabled'] is False
-        for capability in ('code', 'documents', 'ssh', 'mcp', 'skills', 'services')
-    )
+    assert config['access']['resources'] == [] and not config['grounded']
     assert task['catalog'] == catalog
     assert task['role'] == 'Investigate payments without sudo.'
     assert kwargs['output_type'] is AgentProposal

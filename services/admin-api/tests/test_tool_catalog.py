@@ -5,31 +5,31 @@ import asyncio
 import dataclasses
 import json
 
-from access_helpers import with_access
+from access_helpers import entry, with_access
 from agents import FunctionTool
 from agents.tool_context import ToolContext
 from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool
 
-SERVER = {
-    'id': 'host',
-    'name': 'Host',
-    'hostname': 'host.test',
-    'port': 22,
-    'username': 'ops',
-    'description': '',
-    'tags': [],
-    'allow_sudo': False,
-    'instructions': '',
-    'enabled': True,
-    'ssh_allowed': True,
-    'skills': [],
-    'mcp_servers': [],
-}
+SERVER = entry(
+    'server',
+    'host',
+    'Host',
+    hostname='host.test',
+    port=22,
+    username='ops',
+    allow_sudo=False,
+    known_hosts='',
+    enabled=True,
+    ssh_allowed=True,
+    private_key_ref=None,
+)
+MCP = entry('mcp_server', 'm1', 'Docs', url='http://mcp.test', enabled=True, bearer_token_ref=None)
 
 
-def config(code=False, documents=False, grounded=False, ssh=False, graphs=()):
+def config(documents=False, grounded=False, ssh=False, entries=()):
+    """A run's configuration: its access holds the SSH server (ssh) and entries; grounded only with documents."""
     value = {
         'id': 'agent',
         'name': 'Agent',
@@ -37,15 +37,9 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=()):
         'instructions': '',
         'enabled': True,
         'system_prompt': {'content': 'Answer.'},
-        'code': {'enabled': code, 'projects': [], 'graphs': list(graphs)},
-        'documents': {'enabled': documents, 'grounded': grounded, 'all_collections': False, 'collections': []},
-        'ssh': {'enabled': ssh, 'servers': [SERVER] if ssh else []},
-        'skills': {'enabled': False, 'items': []},
-        'services': {'enabled': False, 'items': []},
-        'mcp': {'enabled': False, 'servers': []},
-        'access': {'resources': [], 'roles': {'content_editor': False}},
+        'grounded': documents and grounded,
     }
-    return value
+    return with_access(value, [*([SERVER] if ssh else []), *entries])
 
 
 def test_descriptions_are_the_usage_text_and_keep_todays_guidance():
@@ -72,9 +66,7 @@ def test_descriptions_are_the_usage_text_and_keep_todays_guidance():
 
 def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
     (tmp_path / 'a.txt').write_text('hello', encoding='utf-8')
-    c = config(code=True)
-    c['code']['projects'] = [{'id': 'p', 'name': 'P', 'folder_paths': [str(tmp_path.resolve())]}]
-    with_access(c)
+    c = config(entries=[entry('code_project', 'p', 'P', folder_paths=[str(tmp_path.resolve())])])
     workspace = tmp_path / 'workspace'
     workspace.mkdir()
     context = {
@@ -95,7 +87,7 @@ def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
 
 
 def test_the_prompt_no_longer_carries_tool_sentences():
-    prompt = get_prompt(config(code=True, documents=True, ssh=True))
+    prompt = get_prompt(config(documents=True, ssh=True))
     for sentence in (
         'Use shell_run for Bash pipelines',
         'Use code_search to find',
@@ -113,7 +105,7 @@ def test_the_prompt_no_longer_carries_tool_sentences():
 
 def test_a_refused_tool_answers_not_offered_even_with_invalid_arguments():
     context = {
-        'config': config(code=True),
+        'config': config(),
         'credentials': {},
         'workspace': None,
         'tools': frozenset(),
@@ -135,7 +127,7 @@ def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monke
 
     monkeypatch.setattr(sdk, 'get_current_span', lambda: Span())
     context = {
-        'config': config(code=True),
+        'config': config(),
         'credentials': {'key': 'TOP-SECRET'},
         'workspace': None,
         'tools': frozenset({'read_file'}),

@@ -30,7 +30,6 @@ from pydantic import BaseModel
 
 from knowledge_admin.sessions.activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.sessions.tracing import trace_secrets
-from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.sessions import grounding
 from knowledge_admin.llm.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
@@ -39,11 +38,8 @@ from knowledge_admin.capabilities import mcp, skills
 from knowledge_admin.capabilities.files import available_documents, mounted
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT
 from knowledge_admin.tools.sdk import expert_tool, function_tool
-from knowledge_admin.knowledge_agents.config import (
-    AD_HOC_AGENT,
-    credential_references,
-    mcp_definitions,
-)
+from knowledge_admin import access as access_rules
+from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references
 
 logger = logging.getLogger(__name__)
 
@@ -307,24 +303,32 @@ def get_model(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def code_paths(config: dict[str, Any]) -> list[Path]:
-    """The code project folders enabled for this agent."""
-    if not config['code']['enabled']:
-        return []
-    return [Path(path) for project in config['code']['projects'] for path in project['folder_paths']]
+    """The folders of the code projects in the run's access."""
+    return [
+        Path(path)
+        for project in access_rules.entries(config['access'], 'code_project')
+        for path in project.get('folder_paths', [])
+    ]
 
 
 def document_paths(config: dict[str, Any]) -> list[Path]:
-    """The document collection folders an ungrounded agent reads directly."""
-    if not config['documents']['enabled'] or documents_grounded(config):
+    """The folders of the collections in the run's access, which an ungrounded run reads directly."""
+    if documents_grounded(config):
         return []
-    return [Path(path) for item in document_collections(config)[1] for path in item['paths']]
+    return [
+        Path(path) for item in access_rules.entries(config['access'], 'collection') for path in item.get('paths', [])
+    ]
+
+
+def connected_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """The servers in the run's access with a pinned connection (a server added only as the run's own resource, as a
+    resource run's server without SSH, has none)."""
+    return [server for server in access_rules.entries(config['access'], 'server') if 'ssh_allowed' in server]
 
 
 def ssh_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
     """The SSH servers a run of this configuration may use (their keys are checked by get_ssh)."""
-    if not config['ssh']['enabled']:
-        return []
-    return [server for server in config['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
+    return [server for server in connected_servers(config) if server['enabled'] and server['ssh_allowed']]
 
 
 def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -338,7 +342,7 @@ def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict
 
 
 def documents_grounded(config: dict[str, Any]) -> bool:
-    return config['documents']['enabled'] and config['documents'].get('grounded', False)
+    return bool(config.get('grounded'))
 
 
 def get_prompt(config: dict[str, Any]) -> str:
@@ -366,7 +370,6 @@ def get_prompt(config: dict[str, Any]) -> str:
 def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str, str]:
     """Decrypt only the credentials referenced by the enabled saved configuration."""
     references = credential_references(config)
-    mcp = mcp_definitions(config)
     credentials = {}
     with store.connect() as conn:
         # The ad-hoc agent has no agents row: a saved agent that happens to be called 'ad-hoc' must never block its turns.
@@ -384,10 +387,10 @@ def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str
             ).fetchone()
         ):
             raise ValueError('The configured model is unavailable or disabled.')
-        for server in config['ssh']['servers'] if config['ssh']['enabled'] else []:
+        for server in connected_servers(config):
             if not conn.execute('SELECT 1 FROM ka.servers WHERE id=%s AND ssh_allowed', (server['id'],)).fetchone():
                 raise ValueError('A configured SSH server is unavailable or SSH is disabled.')
-        for server in mcp:
+        for server in mcp.selected_servers(config):
             if not conn.execute('SELECT 1 FROM ka.mcp_servers WHERE id=%s AND enabled', (server['id'],)).fetchone():
                 raise ValueError('A configured MCP server is unavailable or disabled.')
         for reference in references:

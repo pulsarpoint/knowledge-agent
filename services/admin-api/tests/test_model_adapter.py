@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 import threading
+from access_helpers import entry, of
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import litellm
@@ -31,7 +32,7 @@ def test_responses_reasoning_and_cached_usage_survive_tool_cycle(config, respons
     assert reasoning['content'] == [{'type': 'reasoning_text', 'text': 'Synthetic fixture reasoning.'}]
     tool_result = next(item for item in history if item.get('type') == 'function_call_output')
     assert tool_result['call_id'] == 'files-call'
-    assert config['code']['projects'][0]['folder_paths'][0] in tool_result['output']
+    assert of(config, 'code_project')[0]['folder_paths'][0] in tool_result['output']
     usage = result.context_wrapper.usage
     assert (
         usage.input_tokens,
@@ -190,19 +191,19 @@ def test_structured_decision(config, chat_api, stream):
 
 def test_sdk_executes_mcp_call_and_returns_matching_result(config, chat_api, responses_api):
     config['model'].update(api_format='chat_completions', base_url=chat_api[0])
-    config['mcp'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': 'fixture-mcp',
-                'name': 'Fixture',
-                'description': 'Lookup',
-                'enabled': True,
-                'url': responses_api[0].removesuffix('/v1') + '/mcp',
-                'bearer_token_ref': None,
-            }
-        ],
-    }
+    config['access']['resources'].append(
+        {
+            **entry(
+                'mcp_server',
+                'fixture-mcp',
+                'Fixture',
+                enabled=True,
+                url=responses_api[0].removesuffix('/v1') + '/mcp',
+                bearer_token_ref=None,
+            ),
+            'source': 'given',
+        }
+    )
     public = []
 
     async def capture(item):
@@ -224,7 +225,7 @@ def test_sdk_executes_mcp_call_and_returns_matching_result(config, chat_api, res
 
 def test_sdk_executes_file_tool_and_preserves_tool_history(config, chat_api, tmp_path):
     config['model'].update(api_format='chat_completions', base_url=chat_api[0])
-    folder = config['code']['projects'][0]['folder_paths'][0]  # the fixture model reads it from the message
+    folder = of(config, 'code_project')[0]['folder_paths'][0]  # the fixture model reads it from the message
     result = asyncio.run(
         agent(config, f'ADAPTER_FILE_CYCLE: read the README in {folder}', credentials={'model-key': 'key'})
     )
@@ -302,7 +303,7 @@ def test_concurrent_runs_keep_credentials_separate(config, chat_api):
 def test_bedrock_wire_caching_reasoning_replay_and_natural_completion(config, monkeypatch):
     """Exercise the SDK and LiteLLM converters, replacing only Bedrock's HTTP transport."""
     requests = []
-    source = config['code']['projects'][0]['folder_paths'][0]
+    source = of(config, 'code_project')[0]['folder_paths'][0]
     config['model'].update(
         provider='bedrock',
         api_format='native',

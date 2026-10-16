@@ -1,6 +1,7 @@
 """Starting a run from a document through /api/sessions: the panel's options, Preview equal to what Start pins,
 refusals, the audit, and the runs going with their document."""
 
+from access_helpers import entry, of
 from uuid import uuid4
 
 from test_sessions_world import ask, keyless, post  # noqa: F401  (fixtures)
@@ -34,7 +35,9 @@ def test_preview_is_exactly_what_start_pins(ask):
         'Add a section on log rotation.',
     )
     pinned = session['config']
-    assert pinned['document_access'] == [{'id': ask.document['id'], 'title': 'Payments runbook', 'editable': True}]
+    assert of(pinned, 'document') == [
+        {**entry('document', ask.document['id'], 'Payments runbook', editable=True), 'source': 'given'}
+    ]
     assert preview.json()['config'] == pinned
     assert preview.json()['first_message'] == ask.body['message']
     assert 'tools' not in pinned and pinned['experts'] == []  # every run gets every tool
@@ -100,7 +103,7 @@ def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless)
         response = post(ask, path, **change)
         assert response.status_code in (200, 201), response.text
         config = response.json()['config']
-        assert config['ssh']['servers'] == [] and not config['ssh']['enabled']
+        assert of(config, 'server') == []
         assert keyless.server['id'] not in config['run_resources']['server_ids']
 
 
@@ -171,7 +174,9 @@ def test_the_editable_document_must_exist_and_twice_listed_documents_are_one_edi
     assert gone.status_code == 404 and gone.json()['error']['message'] == 'Document not found'
     twice = [{'id': ask.document['id'], 'editable': False}, {'id': ask.document['id'], 'editable': True}]
     pinned = post(ask, '/preview', resources={**ask.body['resources'], 'documents': twice}).json()['config']
-    assert pinned['document_access'] == [{'id': ask.document['id'], 'title': 'Payments runbook', 'editable': True}]
+    assert of(pinned, 'document') == [
+        {**entry('document', ask.document['id'], 'Payments runbook', editable=True), 'source': 'given'}
+    ]
 
 
 def test_nothing_but_the_context_is_appended_to_the_prompt(ask):

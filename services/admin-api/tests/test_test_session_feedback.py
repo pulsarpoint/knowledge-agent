@@ -100,7 +100,7 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
     assert saved['changes']['instructions'] == 'Cite sources.'
     config, context, kwargs = calls[0]
     assert config['id'] == 'agent-tuning'
-    assert all(not config[part]['enabled'] for part in ('code', 'documents', 'ssh', 'skills', 'mcp', 'services'))
+    assert config['access']['resources'] == [] and not config['grounded']
     assert kwargs['timeout_seconds'] == 240 and kwargs['credentials'] == {}  # cleared when the review ends
     assert kwargs['tools'] is False  # an internal LLM call: no tools
     assert (context['conversation'], context['turn'], context['comment']) == (TURNS, 1, 'Cite your sources.')

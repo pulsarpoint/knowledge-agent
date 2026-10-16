@@ -11,7 +11,7 @@ import pytest
 from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
-from access_helpers import give
+from access_helpers import access_of, give, of
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 from test_repositories import HEADERS
@@ -76,12 +76,28 @@ def allow(s, code=None, collections=None, servers=None, services=None) -> None:
         give(conn, s.analyst, [(type_, item) for type_, ids in given.items() for item in ids])
 
 
+def sections_of(config: dict) -> dict:
+    """The agent's held entries as the per-kind sections resolve narrows (the ad-hoc builder's input shape)."""
+
+    def section(type_: str, key: str) -> dict:
+        items = of(config, type_)
+        return {'enabled': bool(items), key: items}
+
+    return {
+        **config,
+        'code': {**section('code_project', 'projects'), 'all_projects': False, 'graphs': []},
+        'documents': {**section('collection', 'collections'), 'all_collections': False},
+        'ssh': section('server', 'servers'),
+        'services': section('service', 'items'),
+    }
+
+
 def effective(s, requested: RunResources | None, **kwargs) -> dict:
     with s.store.connect() as conn:
         return resolve(
             conn,
             s.store.project(conn, 'shop'),
-            get_agent_config(s.analyst, conninfo=s.store.conninfo),
+            sections_of(get_agent_config(s.analyst, conninfo=s.store.conninfo)),
             requested,
             **kwargs,
         )
@@ -219,6 +235,8 @@ def test_credentials_are_decrypted_only_for_the_servers_a_run_was_given(per_run)
     without = effective(s, RunResources(code_project_ids=[s.repo]))
     with_host = effective(s, RunResources(server_ids=[s.host['id']]))
     key_id = with_host['ssh']['servers'][0]['private_key_ref']['id']
+    without['access'] = access_of(without['ssh']['servers'])  # a run's access holds what it was given
+    with_host['access'] = access_of(with_host['ssh']['servers'])
     assert key_id not in load_credentials(s.store, without)
     assert load_credentials(s.store, with_host)[key_id] == s.key['private_key']
 

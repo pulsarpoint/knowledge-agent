@@ -4,7 +4,7 @@ edit tools' schema or description; an edit tool given another id names the edita
 import asyncio
 
 import pytest
-from access_helpers import with_access
+from access_helpers import entry, with_access
 
 from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.capabilities import document_tools
@@ -12,8 +12,12 @@ from live_documents import write_live_document
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_world import ask, post  # noqa: F401  (fixture)
 
-ACCESS = [{'id': 'd1', 'title': 'Runbook', 'editable': True}, {'id': 'd2', 'title': 'Overview', 'editable': False}]
+ACCESS = [entry('document', 'd1', 'Runbook', editable=True), entry('document', 'd2', 'Overview', editable=False)]
 REFUSED = 'This document is not available in this run. Documents you may change: Runbook (d1).'
+
+
+def documents(config) -> list[dict]:
+    return [item for item in config['access']['resources'] if item['type'] == 'document']
 
 
 def schemas(config) -> list[tuple]:
@@ -33,7 +37,7 @@ def test_two_runs_with_different_editable_documents_get_identical_tool_schemas(a
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     one, two = first.json()['config'], second.json()['config']
-    assert one['document_access'] != two['document_access']
+    assert documents(one) != documents(two)
     assert {'save_document', 'edit_document'} <= {name for name, _, _ in schemas(one)}
     assert schemas(one) == schemas(two)
     edit = [entry for entry in schemas(one) if entry[0] in ('save_document', 'edit_document')]
@@ -43,6 +47,6 @@ def test_two_runs_with_different_editable_documents_get_identical_tool_schemas(a
 
 @pytest.mark.parametrize('document_id', ['d2', 'd3', 'not-an-id'])
 def test_an_edit_tool_given_another_id_names_the_editable_documents(document_id):
-    config = with_access({'document_access': ACCESS}, content_editor=True)
+    config = with_access({}, ACCESS, content_editor=True)
     assert asyncio.run(document_tools.save_document({'config': config}, document_id, '# Text')) == REFUSED
     assert asyncio.run(document_tools.edit_document({'config': config}, document_id, 'a', 'b')) == REFUSED

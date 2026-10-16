@@ -113,7 +113,7 @@ def test_a_server_that_cannot_be_used_is_refused_by_name(sessions):
 
 def test_a_saved_agent_called_ad_hoc_never_blocks_ad_hoc_turns(sessions):
     s = sessions
-    config = build(s, chosen(code_project_ids=[s.repo]))
+    config = {**build(s, chosen(code_project_ids=[s.repo])), 'access': {'resources': [], 'roles': {}}}
     with s.store.connect() as conn:
         conn.execute(
             "INSERT INTO ka.agents(id,name,system_prompt,enabled) VALUES ('ad-hoc','Saved lookalike','x',false),('saved-off','Saved off','x',false)"

@@ -6,9 +6,11 @@ import asyncio
 import copy
 
 import pytest
-from access_helpers import with_access
+from access_helpers import entry, with_access
 
+from knowledge_admin.access import entries
 from knowledge_admin.agents.runner import agent, instructions_and_tools
+from knowledge_admin.capabilities.mcp import selected_servers
 from knowledge_admin.capabilities.subagents import check_run_subagent
 from knowledge_admin.knowledge_agents.subagents import (
     EMPTY_TASK,
@@ -35,9 +37,46 @@ CREDENTIALS = {'model-key': 'model-secret', 'ssh-key': 'ssh-secret', 'mcp-token'
 NO_RESOURCES = {'code_project_ids': [], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
 
 
-def parent(**change) -> dict:
-    """A fixed lead agent's pinned configuration: two code projects with graphs, all collections, an SSH server, an MCP
-    server with two tools, a service, a skill and instructions."""
+ENTRIES = [
+    entry(
+        'server',
+        'prod',
+        'prod-1',
+        hostname='prod.test',
+        port=22,
+        username='ops',
+        allow_sudo=False,
+        known_hosts='',
+        enabled=True,
+        ssh_allowed=True,
+        private_key_ref={'id': 'ssh-key'},
+    ),
+    entry('service', 'payments', 'Payments'),
+    entry(
+        'code_project',
+        'app',
+        'App',
+        folder_paths=['/code/app'],
+        graph_path='/index/app/graph.sqlite',
+        code_root='/code',
+    ),
+    entry(
+        'code_project',
+        'worker',
+        'Worker',
+        folder_paths=['/code/worker'],
+        graph_path='/index/worker/graph.sqlite',
+        code_root='/code',
+    ),
+    entry('collection', 'runbooks', 'runbooks', paths=['/data/runbooks']),
+    entry('skill', 'inspect', 'Inspect', description='Inspect first.'),
+    entry('mcp_server', 'docs', 'Docs', url='http://docs.test/mcp', enabled=True, bearer_token_ref={'id': 'mcp-token'}),
+]
+
+
+def parent(without=(), content_editor=False, **change) -> dict:
+    """A fixed lead agent's pinned configuration: its access holds an SSH server, a service, two code projects with
+    graphs, a collection, a skill and an MCP server (but the ids in without); instructions."""
     value = {
         'id': 'lead',
         'name': 'Lead',
@@ -48,59 +87,11 @@ def parent(**change) -> dict:
         'model': MODEL,
         'system_prompt': {'content': 'Lead the work.'},
         'instructions': 'Use the runbook.',
-        'code': {
-            'enabled': True,
-            'all_projects': False,
-            'graphs': [
-                {'id': 'app', 'name': 'App', 'graph_path': '/index/app/graph.sqlite', 'code_root': '/code'},
-                {'id': 'worker', 'name': 'Worker', 'graph_path': '/index/worker/graph.sqlite', 'code_root': '/code'},
-            ],
-            'projects': [
-                {'id': 'app', 'name': 'App', 'folder_paths': ['/code/app']},
-                {'id': 'worker', 'name': 'Worker', 'folder_paths': ['/code/worker']},
-            ],
-        },
-        'documents': {
-            'enabled': True,
-            'grounded': False,
-            'all_collections': True,
-            'collections': [{'id': 'runbooks', 'name': 'runbooks', 'paths': ['/data/runbooks']}],
-        },
-        'ssh': {
-            'enabled': True,
-            'servers': [
-                {
-                    'id': 'prod',
-                    'name': 'prod-1',
-                    'enabled': True,
-                    'ssh_allowed': True,
-                    'private_key_ref': {'id': 'ssh-key'},
-                    'skills': [],
-                    'mcp_servers': [],
-                }
-            ],
-        },
-        'skills': {
-            'enabled': True,
-            'items': [{'id': 'inspect', 'name': 'Inspect', 'description': 'Inspect first.', 'enabled': True}],
-        },
-        'mcp': {
-            'enabled': True,
-            'servers': [
-                {
-                    'id': 'docs',
-                    'name': 'Docs',
-                    'enabled': True,
-                    'bearer_token_ref': {'id': 'mcp-token'},
-                    'tools': [{'name': 'lookup'}, {'name': 'search'}],
-                }
-            ],
-        },
-        'services': {'enabled': True, 'items': [{'id': 'payments', 'name': 'Payments'}]},
+        'grounded': False,
         'record': {'run_key': 'run:x'},
     }
     value.update(change)
-    return with_access(value)
+    return with_access(value, [item for item in ENTRIES if item['id'] not in without], content_editor)
 
 
 def test_a_subagent_gets_every_tool_but_run_subagent_the_given_resources_and_its_own_prompt():
@@ -111,17 +102,15 @@ def test_a_subagent_gets_every_tool_but_run_subagent_the_given_resources_and_its
     assert lead == before  # the parent's configuration is untouched
     _, tools, experts, _ = instructions_and_tools(sub, subagents=False)
     assert [tool.name for tool in tools] == [name for name in CATALOG if name != 'run_subagent'] and experts == []
-    assert [s['id'] for s in sub['mcp']['servers']] == ['docs'] and 'tools' not in sub
-    assert [p['id'] for p in sub['code']['projects']] == ['worker'] and [g['id'] for g in sub['code']['graphs']] == [
-        'worker'
-    ]
-    assert (sub['documents']['all_collections'], sub['documents']['collections']) == (False, [])
-    assert sub['ssh']['servers'] == [] and sub['services']['items'] == []
+    assert [s['id'] for s in selected_servers(sub)] == ['docs'] and 'tools' not in sub
+    assert [p['id'] for p in entries(sub['access'], 'code_project')] == ['worker']
+    assert entries(sub['access'], 'code_project')[0]['graph_path'] == '/index/worker/graph.sqlite'
+    assert entries(sub['access'], 'collection') == [] and entries(sub['access'], 'server') == []
     assert sub['run_resources'] == {**NO_RESOURCES, 'code_project_ids': ['worker']}
     assert sub['system_prompt'] == {'content': PROMPT} and PROMPT.startswith(
         'You are a helper started by another agent'
     )
-    assert (sub['instructions'], sub['skills'], sub['name']) == ('', {'enabled': False, 'items': []}, 'Lead · subagent')
+    assert (sub['instructions'], sub['name']) == ('', 'Lead · subagent') and entries(sub['access'], 'skill') == []
     assert sub['model'] == MODEL and 'record' not in sub and sub['experts'] == []
     # its access: the parent's narrowed to the given code project, and the parent's MCP servers
     assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
@@ -133,10 +122,9 @@ def test_a_subagent_gets_every_tool_but_run_subagent_the_given_resources_and_its
 
 def test_without_resources_a_subagent_keeps_the_parents_lists():
     sub = subagent_config(parent(), None)
-    assert [p['id'] for p in sub['code']['projects']] == ['app', 'worker']
-    assert sub['documents']['all_collections'] is True and [s['id'] for s in sub['ssh']['servers']] == ['prod']
     assert 'run_resources' not in sub
-    assert sub['mcp']['enabled'] and [s['id'] for s in sub['mcp']['servers']] == ['docs']
+    assert [s['id'] for s in selected_servers(sub)] == ['docs']
+    assert entries(sub['access'], 'server')[0]['hostname'] == 'prod.test'  # the connection comes with its entry
     # all of the parent's resources but its skills
     assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
         ('server', 'prod'),
@@ -149,8 +137,7 @@ def test_without_resources_a_subagent_keeps_the_parents_lists():
 
 
 def test_a_subagent_never_gets_more_than_its_parent_and_never_changes_content():
-    lead = with_access(parent(), content_editor=True)
-    lead['access']['resources'] = [e for e in lead['access']['resources'] if e['id'] != 'worker']
+    lead = parent(without=['worker'], content_editor=True)
     with pytest.raises(ValueError, match="code project worker is not in the agent's access"):
         subagent_config(lead, {**NO_RESOURCES, 'code_project_ids': ['worker']})
     sub = subagent_config(lead, None)
@@ -163,7 +150,7 @@ WIDER = "{kind} {id} is not in the agent's access"  # access.narrow: a subagent 
 def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
     """The access object alone decides: a service held via its server has no entry of its own in the parent's
     service list, and is given all the same."""
-    lead = parent(services={'enabled': False, 'items': []})
+    lead = parent(without=['payments'])
     via = {'type': 'service', 'id': 'deployed', 'name': 'Deployed', 'source': 'via server prod'}
     lead['access']['resources'].append(via)
     resources = {**NO_RESOURCES, 'service_ids': ['deployed']}
@@ -173,7 +160,7 @@ def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
         ('service', 'deployed', 'via server prod'),
         ('mcp_server', 'docs', 'given'),
     ]
-    assert sub['services']['items'] == [] and sub['run_resources']['service_ids'] == ['deployed']
+    assert sub['run_resources']['service_ids'] == ['deployed']
 
 
 @pytest.mark.parametrize(
@@ -183,20 +170,12 @@ def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
         ({'service_ids': ['ledger']}, {}, WIDER.format(kind='service', id='ledger')),
         (
             {'collection_ids': ['runbooks']},
-            {'documents': {'enabled': False, 'collections': []}},
+            {'without': ['runbooks']},
             WIDER.format(kind='collection', id='runbooks'),
         ),  # a kind the parent does not use
         (
-            {'code_project_ids': ['app']},  # a per-run parent's lists are its run's resources
-            {
-                'run_resources': {**NO_RESOURCES, 'code_project_ids': ['worker']},
-                'code': {
-                    'enabled': True,
-                    'all_projects': False,
-                    'graphs': [],
-                    'projects': [{'id': 'worker', 'name': 'Worker', 'folder_paths': ['/code/worker']}],
-                },
-            },
+            {'code_project_ids': ['app']},  # a per-run parent's access is its run's
+            {'without': ['app']},
             WIDER.format(kind='code project', id='app'),
         ),
     ],
@@ -222,27 +201,18 @@ def test_a_subagent_gets_only_the_credentials_its_configuration_references():
     wide = subagent_config(lead, None)
     assert referenced_credentials(wide, CREDENTIALS) == CREDENTIALS
     per_run = subagent_config(lead, {**NO_RESOURCES, 'server_ids': ['prod']})
-    assert [server['id'] for server in per_run['ssh']['servers']] == ['prod']
+    assert [server['id'] for server in entries(per_run['access'], 'server')] == ['prod']
     assert referenced_credentials(per_run, CREDENTIALS) == CREDENTIALS
 
 
 def test_a_subagents_mcp_servers_offer_every_tool(config, responses_api):
     url, requests = responses_api
-    config['mcp'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': 'docs-one',
-                'name': 'Docs',
-                'description': 'Fixture',
-                'url': url.removesuffix('/v1') + '/mcp',
-                'enabled': True,
-                'bearer_token_ref': None,
-                'tools': [],
-            }
-        ],
-    }
-    sub = subagent_config(with_access(config), None)
+    config['access']['resources'].append(
+        entry(
+            'mcp_server', 'docs-one', 'Docs', url=url.removesuffix('/v1') + '/mcp', enabled=True, bearer_token_ref=None
+        )
+    )
+    sub = subagent_config(config, None)
     asyncio.run(agent(sub, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}, stream=False))
     request = next(r for r in requests if r['path'] == '/v1/responses')
     names = [tool['name'] for tool in request['body'].get('tools', [])]

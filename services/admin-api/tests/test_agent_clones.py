@@ -4,6 +4,7 @@ copied, and the clone outlives its original."""
 import copy
 
 
+from access_helpers import of
 from knowledge_admin.agents.clones import clone_name
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from knowledge_admin.agents.profiles_api import agent_history
@@ -41,7 +42,7 @@ def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
     copied = get_agent_config(copy_id, conninfo=store.conninfo)
     assert comparable(copied) == comparable(original)
     assert sections(copied) == sections(original) and copied['access']['roles'] == {'content_editor': True}
-    assert copied['ssh']['servers'][0]['private_key_ref'] == original['ssh']['servers'][0]['private_key_ref']
+    assert of(copied, 'server')[0]['private_key_ref'] == of(original, 'server')[0]['private_key_ref']
     with store.connect() as conn:  # the saved key is referenced, not duplicated
         assert conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n'] == credentials
 
@@ -102,5 +103,5 @@ def test_history_stays_with_the_original_and_the_clone_outlives_it(store, saved_
     assert deleted.status_code == 204, deleted.text
     detail = client.get(f'/api/agents/{created["id"]}', headers=HEADERS).json()
     assert (detail['cloned_from'], detail['original']) == (None, None)
-    host = get_agent_config(created['id'], conninfo=store.conninfo)['ssh']['servers'][0]
+    host = of(get_agent_config(created['id'], conninfo=store.conninfo), 'server')[0]
     assert host['private_key_ref'] is not None  # the server's own key

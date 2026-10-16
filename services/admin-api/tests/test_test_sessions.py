@@ -3,12 +3,12 @@ configuration pinned, narrowed to a per-run agent's run resources; the session A
 session, except that it has no document."""
 
 import json
+from access_helpers import give, of
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
-from access_helpers import give
 from knowledge_admin.sessions.review import NO_MODEL
 from test_api import _client
 from test_profiles import create
@@ -176,9 +176,9 @@ def test_a_saved_agent_pins_the_resources_picked_out_of_its_access(analyst):
     a = analyst
     session = start(a, run_resources={'code_project_ids': [a.app]})
     assert session['run_resources'] is None and session['config']['chosen_resources']['code_project_ids'] == [a.app]
-    assert [p['id'] for p in session['config']['code']['projects']] == [a.app]
+    assert [p['id'] for p in of(session['config'], 'code_project')] == [a.app]
     everything = start(a)  # nothing picked: everything it has
-    assert [p['id'] for p in everything['config']['code']['projects']] == [a.app, a.worker]
+    assert [p['id'] for p in of(everything['config'], 'code_project')] == [a.app, a.worker]
     server = str(uuid4())
     assert refused(a, 400, run_resources={'server_ids': [server]}) == f"server {server} is not in the agent's access"
     with a.store.connect() as conn:

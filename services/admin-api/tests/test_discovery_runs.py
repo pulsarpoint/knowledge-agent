@@ -3,6 +3,7 @@ what the run pins, the list of a server's runs and the start panel's options."""
 
 import asyncio
 import json
+from access_helpers import of
 from uuid import UUID, uuid4
 
 import asyncssh
@@ -109,7 +110,7 @@ def test_a_run_pins_its_server_and_the_context_facts(world):
     assert created.status_code == 201, created.text
     sid = created.json()['id']
     config = pinned_of(world, sid)
-    assert [server['id'] for server in config['ssh']['servers']] == [world.server['id']]
+    assert [server['id'] for server in of(config, 'server')] == [world.server['id']]
     assert config['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
     assert config['access']['roles']['content_editor'] is True
     assert 'discovery' not in config and 'session_id' not in config
@@ -149,7 +150,7 @@ def test_the_server_is_added_to_the_runs_servers_and_other_chosen_servers_stay(w
     ).json()
     ssh_ready(world, other)
     sid = start(world, resources={'server_ids': [other['id']]}).json()['id']
-    assert sorted(server['id'] for server in pinned_of(world, sid)['ssh']['servers']) == sorted(
+    assert sorted(server['id'] for server in of(pinned_of(world, sid), 'server')) == sorted(
         [world.server['id'], other['id']]
     )
 
@@ -175,9 +176,9 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
         )
     sid = start(world).json()['id']
     pinned = pinned_of(world, sid)
-    assert [server['id'] for server in pinned['ssh']['servers']] == [world.server['id']]
-    assert pinned['services']['enabled'] and [item['id'] for item in pinned['services']['items']] == [str(world.nginx)]
-    assert pinned['code']['projects'] == []
+    assert [server['id'] for server in of(pinned, 'server')] == [world.server['id']]
+    assert [item['id'] for item in of(pinned, 'service')] == [str(world.nginx)]
+    assert of(pinned, 'code_project') == []
     config = config_of(world, sid)
     assert call(config, 'get_resource', resource_type='service', resource_id=str(world.nginx))['name'] == 'nginx'
     refused = 'This service is not available in this run.'

@@ -7,7 +7,7 @@ import json
 import pytest
 from agents.tool_context import ToolContext
 from knowledge_admin.agents.runner import get_prompt
-from access_helpers import with_access
+from access_helpers import entry, with_access
 from knowledge_admin import access as access_rules
 from test_document_tools import rag  # noqa: F401  (fixture)
 from tool_helpers import tool, tools
@@ -43,19 +43,23 @@ def folders(tmp_path):
 
 
 def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
-    """A per-run agent's tool context with the configuration resolve() builds: the lists are the run's resources."""
-    host = {
-        'id': 'host',
-        'name': 'Host',
-        'hostname': 'host.test',
-        'port': 22,
-        'username': 'operator',
-        'enabled': True,
-        'ssh_allowed': True,
-        'allow_sudo': False,
-        'known_hosts': '',
-        'private_key_ref': {'id': 'key'},
-    }
+    """A per-run agent's tool context: its access object holds exactly the run's resources."""
+    host = entry(
+        'server',
+        'host',
+        'Host',
+        hostname='host.test',
+        port=22,
+        username='operator',
+        enabled=True,
+        ssh_allowed=True,
+        allow_sudo=False,
+        known_hosts='',
+        private_key_ref={'id': 'key'},
+    )
+    entries = [entry('code_project', 'given', 'Given', folder_paths=[str(folders['given'])])] if 'given' in code else []
+    entries += [entry('collection', '1', 'payments', paths=[])] if 'payments' in collections else []
+    entries += [host] if 'host' in servers else []
     config = {
         'id': 'analyst',
         'name': 'Code analyst',
@@ -63,25 +67,7 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         'enabled': True,
         'instructions': '',
         'system_prompt': {'content': 'Analyse code.'},
-        'code': {
-            'enabled': True,
-            'all_projects': False,
-            'projects': [{'id': 'given', 'name': 'Given', 'folder_paths': [str(folders['given'])]}]
-            if 'given' in code
-            else [],
-        },
-        'documents': {
-            'enabled': True,
-            'grounded': False,
-            'all_collections': False,
-            'collections': [{'id': '1', 'name': 'payments', 'description': '', 'paths': []}]
-            if 'payments' in collections
-            else [],
-        },
-        'ssh': {'enabled': True, 'servers': [host] if 'host' in servers else []},
-        'skills': {'enabled': False, 'items': []},
-        'mcp': {'enabled': False, 'servers': []},
-        'services': {'enabled': False, 'items': []},
+        'grounded': False,
         'run_resources': {
             'code_project_ids': list(code),
             'collection_ids': list(collections),
@@ -89,8 +75,7 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
             'service_ids': [],
         },
     }
-    with_access(config)
-    return {'config': config, 'credentials': {}, 'workspace': folders['workspace']}
+    return {'config': with_access(config, entries), 'credentials': {}, 'workspace': folders['workspace']}
 
 
 def test_file_and_code_tools_reach_only_the_given_code_projects(folders):
@@ -122,7 +107,6 @@ def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeyp
 def test_document_search_uses_only_the_given_collections(rag, folders):
     calls, _ = rag
     context = run_context(folders, collections=['payments'])
-    context['config']['documents']['all_collections'] = True  # even a stray "all" stays what the run was given
     assert '[1] payments/retries.md' in invoke(search_documents, context, query='retries')
     search = next(json.loads(call.content) for call in calls if call.url.path == '/search')
     assert search['collections'] == ['payments']

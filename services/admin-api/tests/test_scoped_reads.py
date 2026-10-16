@@ -3,6 +3,7 @@ documents a run was given; a refused read reads exactly like a missing entry."""
 
 import asyncio
 import json
+from access_helpers import of
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -155,7 +156,7 @@ def test_a_saved_agents_pinned_config_reads_only_its_servers(agent, ask, monkeyp
     response = start(agent.client, '/preview', agent_id=agent.id, resources={'server_ids': [agent.web]})
     assert response.status_code == 200, response.text
     config = response.json()['config']
-    assert [str(server['id']) for server in config['ssh']['servers']] == [agent.web]
+    assert [str(server['id']) for server in of(config, 'server')] == [agent.web]
     project = code_project_id(s.store, 'Payments API')
     assert_scoped(
         config, web=agent.web, web_document=agent.document, db=db, project=project, none=('service', 'code_project')

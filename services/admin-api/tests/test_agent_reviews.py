@@ -4,6 +4,7 @@ is tested with the Test session review in test_test_session_feedback.py."""
 import json
 
 import pytest
+from access_helpers import of
 from agents import AgentOutputSchema, ModelBehaviorError
 
 import psycopg
@@ -162,7 +163,7 @@ def test_a_suggestion_from_a_narrowed_chat_never_narrows_the_agent(store, saved_
     assert apply_review(client, 'operations', review, body, instructions='Be brief.').status_code == 200
     after = get_agent_config('operations', conninfo=store.conninfo)
     assert without(after, 'instructions') == without(before, 'instructions')
-    assert after['code']['projects'] == before['code']['projects']
+    assert of(after, 'code_project') == of(before, 'code_project')
 
 
 def test_a_clone_name_taken_concurrently_is_a_conflict(store, saved_agent, monkeypatch):

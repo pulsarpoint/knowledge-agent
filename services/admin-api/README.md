@@ -60,54 +60,50 @@ and real Git checkouts against a local fixture. Existing development data is not
 ## Loading an agent configuration
 
 ```python
-from knowledge_admin.agents.runner import get_agent_config
+from knowledge_admin.knowledge_agents.config import get_agent_config
 
 config = get_agent_config('operations')  # Saved ID; custom agents use their UUID text ID.
 # PostgreSQL connection settings come from PG* variables.
 # An explicit connection string can be supplied with conninfo=... .
 ```
 
-`agents/runner.py` reads a consistent database snapshot and returns a JSON-compatible
-dictionary. Its sections are `model`, `system_prompt` (the active version and its
-content), `instructions`, `documents`, `code`, `ssh`, `skills`, `mcp`, and `services`.
-Identity, description, when-to-use text, availability and revisions are included.
-No records are created or updated by loading. A missing agent raises `LookupError`.
+`knowledge_agents/config.py` reads a consistent database snapshot and returns a JSON-compatible
+dictionary: `model`, `system_prompt`, `instructions`, `grounded` (the agent answers only from its collections; only
+when it holds one) and `access`, the access object. Identity, description, when-to-use text, availability and
+revisions are included. No records are created or updated by loading. A missing agent raises `LookupError`.
 
-It also returns the agent's `access` object as stored (resource references and roles).
-Each section holds the items the access object references and is enabled when it has
-items; deleted collections, archived code projects and other references to resources
-that no longer exist are skipped. Agents are granted whole RAG collections; there are
-no subfolder grants.
+`access` is the only description of what the agent may use: its stored references (and roles), each loaded into an
+entry `{type, id, name, description_short}` with what the tools need (`resource_entries`); deleted collections,
+archived code projects and other references to resources that no longer exist are skipped, as are skills and MCP
+servers that are switched off. Agents are granted whole RAG collections; there are no subfolder grants. A pinned run
+configuration has no per-kind sections either: a run's access object is the agent's narrowed to what it was given,
+with the direct children of that (its code projects and servers, its deployed services, its services and servers).
 
-`code` contains `enabled`, `all_projects`, and `projects`. Each code project has
-`id`, `name`, `description`, and absolute `folder_paths` under `CODE_ROOT`. Git-backed
-projects additionally include `remote_git_url`; local projects omit that key.
-Clone paths, sync state, commits and selection markers are administration metadata
-and are not included in these project entries.
-`documents.collections` lists each granted collection as `{id, name, description}`.
-The document tools search and read by collection name and collection-relative path
-(`search_documents`, `read_document(collection, path)`), confined to granted
-collections. Agents that are not grounded get the collection folders as read roots.
+- A code project carries absolute `folder_paths` under `CODE_ROOT` and, when it has a generated graph, `graph_path`
+  and `code_root`.
+- A collection carries its `paths` (folders under `DATA_ROOT_DIR`). The document tools search and read by collection
+  name and collection-relative path (`search_documents`, `read_document(collection, path)`), confined to the run's
+  collections. Agents that are not grounded get the collection folders as read roots.
+- A skill carries its `description` (`load_skill` reads its instructions).
+- A server carries its connection: `hostname`, `port`, `username`, `allow_sudo`, `known_hosts`, `enabled`,
+  `ssh_allowed` and `private_key_ref`, always the server's own (there are no per-agent overrides).
+- An MCP server carries `url`, `enabled` and `bearer_token_ref`.
+
+`get_available_resources` and the Debug tab show entries through `access.listing`, which keeps only the `PUBLIC`
+fields: never a connection.
+
 Both root environment variables must be absolute paths in the agent container.
 Compose mounts `DATA_ROOT` read-only at `/work/data` in `admin-api`, with the code,
 code-index and generated-documents folders writable. The config joins the stored
 relative paths to these roots without resolving paths on the host. `DATA_ROOT` and the
 `*_FOLDER` variables are host-side mount sources and never enter the generated paths.
-Service repository checkout paths use the same code root; remote deployment log
-paths remain paths on their SSH servers. Database paths remain relative.
-The configuration holds what the access object references; a run given a service, server or environment also gets
-its direct children (its code projects and servers, its deployed services, its services and servers).
-
-Each selected SSH server contains its hostname, port, login user, sudo permission,
-trusted host keys and connection settings: always the server's own (there are
-no per-agent overrides). Server
-availability and its SSH-enabled flag still apply.
+Database paths remain relative.
 
 Credentials are references, never plaintext or ciphertext in the returned object:
 
-- SSH: `ssh.servers[].private_key_ref` identifies `ka.credentials.ciphertext`.
+- SSH: a server entry's `private_key_ref` identifies `ka.credentials.ciphertext`.
 - Model: `model.api_key_ref` identifies `ka.llm_models.api_key_ciphertext`.
-- MCP: `mcp.servers[].bearer_token_ref` identifies `ka.mcp_servers.token_ciphertext`.
+- MCP: an MCP server entry's `bearer_token_ref` identifies `ka.mcp_servers.token_ciphertext`.
 
 Each reference provides the record ID, column, encryption-key environment variable
 and exact AAD. There is no stored private-key file. All three use AES-256-GCM:
@@ -149,7 +145,8 @@ Test conversations and native Generate documents sessions call the same function
 it never queries PostgreSQL.
 
 ```python
-from knowledge_admin.agents.runner import agent, get_agent_config
+from knowledge_admin.agents.runner import agent
+from knowledge_admin.knowledge_agents.config import get_agent_config
 
 config = get_agent_config('code')
 result = await agent(config, 'Explain how this project starts.', credentials=decrypted_credentials)

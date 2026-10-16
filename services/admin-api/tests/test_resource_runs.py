@@ -2,6 +2,7 @@
 (servers/<id>, services/<id>, environments/<id>), listed by tag; each type's assistant prompt is a new chat's default;
 the proposal tools work only when the request asks for the content editor role (the Propose wizard)."""
 
+from access_helpers import of
 from uuid import uuid4
 
 import pytest
@@ -48,12 +49,12 @@ def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_co
     assert pinned['chosen_resources']['service_ids'] == [str(world.nginx)]
     assert pinned['chosen_resources']['server_ids'] == [] and pinned['chosen_resources']['environment_ids'] == []
     assert pinned['run_resources']['code_project_ids'] == [str(world.shop)]
-    assert pinned['ssh']['servers'] == [] and not pinned['ssh']['enabled']  # nothing it brings is reachable
+    assert of(pinned, 'server') == []  # nothing it brings is reachable
     assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the service
     assert pinned['access']['roles']['content_editor'] is False
     ssh_ready(world)
     pinned = pinned_of(world, start(world, {'service_id': str(world.nginx)}).json()['id'])
-    assert [server['id'] for server in pinned['ssh']['servers']] == [world.server['id']]
+    assert [server['id'] for server in of(pinned, 'server')] == [world.server['id']]
     assert pinned['run_resources']['server_ids'] == [world.server['id']]
 
 

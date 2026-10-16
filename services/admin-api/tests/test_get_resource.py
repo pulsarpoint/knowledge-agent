@@ -4,6 +4,7 @@ A run's prompt names its resource in one line and lists servers and services as 
 
 import asyncio
 import json
+from access_helpers import of
 from uuid import uuid4
 
 import pytest
@@ -258,7 +259,7 @@ def test_a_saved_agent_with_ssh_run_reads_its_servers_sudo(agent, ask, monkeypat
     _, tools, _, _ = instructions_and_tools(config, subagents=False)
     names = [tool.name for tool in tools]
     assert 'ssh_run' in names and 'get_resource' in names
-    server = config['ssh']['servers'][0]
+    server = of(config, 'server')[0]
     server.update(allow_sudo=True)
     found = get(config, 'server', agent.web)
     assert found['allow_sudo'] is True and 'instructions' not in found  # the agent's instructions are in its prompt
@@ -289,7 +290,7 @@ def test_a_server_runs_prompt_names_it_in_one_line_and_lists_no_resources(world)
     assert '"username"' not in instructions and '"allow_sudo"' not in instructions
     assert 'servers/' not in instructions  # tags stay internal
     config = config_of(world, sid)
-    config['ssh']['servers'][0]['instructions'] = 'Never reboot web-1 during business hours.'
+    of(config, 'server')[0]['instructions'] = 'Never reboot web-1 during business hours.'
     prompt = get_prompt(config)
     assert 'Never reboot' not in prompt and '"instructions"' not in prompt
 

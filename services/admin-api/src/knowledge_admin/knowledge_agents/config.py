@@ -13,6 +13,9 @@ from fastapi.encoders import jsonable_encoder
 from knowledge_llm import code_compatible
 from psycopg.rows import dict_row
 
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities import mcp
+from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.data_root import data_path
 
 AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
@@ -68,14 +71,8 @@ class AgentConfig(TypedDict):
     system_prompt: dict[str, Any]
     instructions: str
     settings_revision: int | None
-    documents: dict[str, Any]
-    code: dict[str, Any]
-    skills: dict[str, Any]
-    mcp: dict[str, Any]
-    ssh: dict[str, Any]
-    services: dict[str, Any]
-    document_access: list[dict[str, Any]]
-    access: dict[str, Any]  # as stored on the agent; a run pins its own (sessions.run_access)
+    grounded: bool  # answers only from its collections (the agent's switch, when it holds a collection)
+    access: dict[str, Any]  # what the agent holds: its stored access with each entry loaded; a run pins its own
     run_resources: NotRequired[dict[str, list[str]]]
 
 
@@ -117,22 +114,16 @@ def load_graphs(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
     ]
 
 
-def mcp_definitions(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The MCP servers a configuration may connect to."""
-    return list(config['mcp']['servers']) if config['mcp']['enabled'] else []
-
-
 def credential_references(config: Mapping[str, Any]) -> list[dict[str, Any] | None]:
-    """The credential references of the enabled parts of a configuration (None: a part without one): the model key,
-    the SSH keys of usable servers and the tokens of enabled MCP servers. Nothing is decrypted here."""
+    """The credential references of a configuration (None: a part without one): the model key, the SSH keys of the
+    usable servers and the tokens of the MCP servers its access holds. Nothing is decrypted here."""
     references = [config['model']['api_key_ref']] if config['model'] is not None else []
-    if config['ssh']['enabled']:
-        references += [
-            server['private_key_ref']
-            for server in config['ssh']['servers']
-            if server['enabled'] and server['ssh_allowed']
-        ]
-    references += [server['bearer_token_ref'] for server in mcp_definitions(config) if server['enabled']]
+    references += [
+        server['private_key_ref']
+        for server in access_rules.entries(config['access'], 'server')
+        if server.get('enabled') and server.get('ssh_allowed')
+    ]
+    references += [server['bearer_token_ref'] for server in mcp.selected_servers(config)]
     return references
 
 
@@ -172,7 +163,7 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'instructions': config['instructions'],
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
-        'grounded': bool(config['documents'].get('grounded', False)),
+        'grounded': bool(config['grounded']),
         'resources': _access(config['access']),
     }
 
@@ -297,34 +288,87 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
 
 
 LOADED = ('collection', 'code_project', 'service', 'skill', 'mcp_server', 'server')
-# The sections that hold resources a given resource brings (its children), by type.
-CHILD_SECTIONS = {'code_project': ('code', 'projects'), 'server': ('ssh', 'servers'), 'service': ('services', 'items')}
+ENVIRONMENTS = 'SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=ANY(%s::uuid[])'
+# What an entry carries of its item, besides its type, id, name and short description (access.py).
+SERVER_FIELDS = (
+    'hostname',
+    'port',
+    'username',
+    'allow_sudo',
+    'known_hosts',
+    'enabled',
+    'ssh_allowed',
+    'private_key_ref',
+)
+MCP_FIELDS = ('url', 'enabled', 'bearer_token_ref')
 
 
-def add_children(conn, project_id, config: dict[str, Any], ids: Mapping[str, list[str]]) -> dict[str, Any]:
-    """The configuration with these code projects, servers and services added to its sections (those it lists
-    already stay as they are; a section with items is enabled) and the graphs of the added code projects."""
-    config = dict(config)
-    wanted = {}
-    for type_, (section, key) in CHILD_SECTIONS.items():
-        listed = {str(item['id']) for item in config[section][key]}
-        wanted[type_] = [str(item) for item in dict.fromkeys(ids.get(type_) or []) if str(item) not in listed]
-    loaded = jsonable_encoder(load_items(conn, project_id, wanted))
-    for type_, (section, key) in CHILD_SECTIONS.items():
-        items = [*config[section][key], *loaded[type_]]
-        config[section] = {**config[section], 'enabled': bool(items), key: items}
-    if loaded['code_project']:
-        added = load_graphs(conn, project_id, [item['id'] for item in loaded['code_project']])
-        config['code'] = {**config['code'], 'graphs': [*config['code'].get('graphs', []), *jsonable_encoder(added)]}
-    return config
+def entry(type_: str, item: Mapping[str, Any], **extra) -> dict[str, Any]:
+    """An access entry of one item: {type, id, name, description_short, **extra}."""
+    return {
+        'type': type_,
+        'id': str(item['id']),
+        'name': item['name'],
+        'description_short': short(item.get('description')),
+        **extra,
+    }
+
+
+def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
+    """The access entries of loaded items by type (load_items' shape; 'document': entries already; 'environment':
+    rows), each once: servers, services, code projects, collections, skills (enabled ones, listed in the instructions),
+    MCP servers (enabled ones), documents, environments. A code project carries its folders and its graph (graphs:
+    load_graphs), a collection its paths, a server and an MCP server their connection."""
+    graph_of = {str(graph['id']): graph for graph in graphs}
+
+    def code_project(item: Mapping[str, Any]) -> dict[str, Any]:
+        graph = graph_of.get(str(item['id']))
+        found = {'graph_path': graph['graph_path'], 'code_root': graph['code_root']} if graph else {}
+        return entry('code_project', item, folder_paths=list(item.get('folder_paths', [])), **found)
+
+    found = [entry('server', item, **{k: item[k] for k in SERVER_FIELDS}) for item in items.get('server', [])]
+    found += [entry('service', item) for item in items.get('service', [])]
+    found += [code_project(item) for item in items.get('code_project', [])]
+    found += [entry('collection', item, paths=list(item.get('paths', []))) for item in items.get('collection', [])]
+    found += [
+        entry('skill', item, description=item['description']) for item in items.get('skill', []) if item['enabled']
+    ]
+    found += [
+        entry('mcp_server', item, **{k: item[k] for k in MCP_FIELDS})
+        for item in items.get('mcp_server', [])
+        if item['enabled']
+    ]
+    found += [dict(item) for item in items.get('document', [])]
+    found += [entry('environment', item) for item in items.get('environment', [])]
+    return list({(item['type'], item['id']): item for item in found}.values())
+
+
+def load_environments(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
+    """The environments of these ids that exist, in their order."""
+    ids = [str(item) for item in ids]
+    if not ids or project_id is None:
+        return []
+    rows = {str(row['id']): row for row in conn.execute(ENVIRONMENTS, (project_id, ids))}
+    return [rows[item] for item in ids if item in rows]
+
+
+def load_entries(
+    conn, project_id, ids: Mapping[str, list[str]], documents: Iterable[dict[str, Any]] = ()
+) -> list[dict[str, Any]]:
+    """The access entries of these ids by type (LOADED and environment), of those that still exist, and these document
+    entries (resource_entries)."""
+    items = jsonable_encoder(load_items(conn, project_id, ids))
+    graphs = jsonable_encoder(load_graphs(conn, project_id, [item['id'] for item in items['code_project']]))
+    environments = jsonable_encoder(load_environments(conn, project_id, ids.get('environment') or []))
+    return resource_entries({**items, 'document': list(documents), 'environment': environments}, graphs)
 
 
 def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
-    """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent: its access object (`access`, as
-    stored: references and roles), its instructions and the items its access references loaded into the sections
-    the tools read (code projects, collections, SSH servers, services, skills, MCP servers; documents as
-    document_access). A section is enabled when it has items; a reference to an item that no longer exists is
-    skipped. Servers use their own SSH settings. A run adds the children of what it was given (add_children).
+    """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent: its instructions, model and
+    grounding, and its access object as it holds it: the stored references with each item loaded into its entry
+    (resource_entries: a server with its connection, a code project with its folders and graph, ...); a reference to
+    an item that no longer exists is skipped. Servers use their own SSH settings. A run is given what it picks of it
+    and the children of that (sessions.run_access.agent_access).
 
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
@@ -347,26 +391,24 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
             raise ValueError('Agent configuration requires a single application database')
         project_id = projects[0]['id'] if projects else None
         access = agent['access']
-        items = load_items(conn, project_id, {type_: access_ids(access, type_) for type_ in LOADED})
         editable = {
-            str(entry['id']): bool(entry.get('editable'))
-            for entry in access.get('resources', [])
-            if entry['type'] == 'document'
+            str(item['id']): bool(item.get('editable'))
+            for item in access.get('resources', [])
+            if item['type'] == 'document'
         }
         found = access_ids(access, 'document')
-        documents = (
+        rows = (
             {str(row['id']): row for row in conn.execute(DOCUMENTS, (project_id, found))}
             if found and project_id
             else {}
         )
-        document_access = [
-            {'id': key, 'title': documents[key]['title'], 'editable': editable[key]}
+        documents = [
+            entry('document', {'id': key, 'name': rows[key]['title']}, editable=editable[key])
             for key in found
-            if key in documents
+            if key in rows
         ]
-        collections, code_projects = items['collection'], items['code_project']
-        skills, mcp_servers, servers, services = items['skill'], items['mcp_server'], items['server'], items['service']
-
+        ids = {type_: access_ids(access, type_) for type_ in (*LOADED, 'environment')}
+        resources = load_entries(conn, project_id, ids, documents)
         return jsonable_encoder(
             {
                 'id': agent['id'],
@@ -379,23 +421,10 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'system_prompt': {'content': agent['system_prompt']},
                 'instructions': agent['instructions'],
                 'settings_revision': None,
-                'documents': {
-                    'enabled': bool(collections),
-                    'grounded': agent['documents_grounded'],
-                    'all_collections': False,
-                    'collections': collections,
-                },
-                'code': {
-                    'enabled': bool(code_projects),
-                    'all_projects': False,
-                    'projects': code_projects,
-                    'graphs': load_graphs(conn, project_id, [p['id'] for p in code_projects]),
-                },
-                'skills': {'enabled': bool(skills), 'items': skills},
-                'mcp': {'enabled': bool(mcp_servers), 'servers': mcp_servers},
-                'ssh': {'enabled': bool(servers), 'servers': servers},
-                'services': {'enabled': bool(services), 'items': services},
-                'document_access': document_access,
-                'access': access,
+                # grounded only with a collection to answer from (as when its documents switch was on)
+                'grounded': bool(
+                    agent['documents_grounded'] and access_rules.has_any({'resources': resources}, 'collection')
+                ),
+                'access': {'resources': resources, 'roles': access.get('roles', {})},
             }
         )

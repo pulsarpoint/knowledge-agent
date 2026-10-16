@@ -197,12 +197,7 @@ def build_api(app_name, store):
                 'enabled': True,
                 'api_key_ref': {'id': model_id} if model.api_key else None,
             },
-            'code': {'enabled': False, 'projects': []},
-            'documents': {'enabled': False, 'all_collections': False, 'collections': []},
-            'ssh': {'enabled': False, 'servers': []},
-            'skills': {'enabled': False, 'items': []},
-            'mcp': {'enabled': False, 'servers': []},
-            'services': {'enabled': False, 'items': []},
+            'grounded': False,
             'access': {'resources': [], 'roles': {'content_editor': False}},  # every config that runs tools has one
         }
         schema = AgentProposal.model_json_schema()

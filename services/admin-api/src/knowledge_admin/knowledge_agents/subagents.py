@@ -2,8 +2,8 @@
 the tools and resources it is given and without the conversation. Subagents run only in native agent sessions (Test
 and Generate documents), whose runner puts the turn's Subagents into the run context.
 
-The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with the
-resource lists narrowed, the built-in prompt, no instructions, no skills and no experts. A subagent gets every tool but
+The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with its
+access object narrowed, the built-in prompt, no instructions, no skills and no experts. A subagent gets every tool but
 run_subagent (its run has no Subagents host) and every tool of the MCP servers in its access; what a tool may do is
 decided by its check against the subagent's access (the parent's, narrowed, content editor off).
 
@@ -28,7 +28,7 @@ from knowledge_admin.capabilities.subagents import check_run_subagent
 from knowledge_admin.knowledge_agents import experts, native_sessions
 from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
-from knowledge_admin.knowledge_agents.run_resources import KINDS, picked_ids, picks
+from knowledge_admin.knowledge_agents.run_resources import picked_ids, picks
 from knowledge_admin.knowledge_agents.session_worker import clean_text
 
 logger = logging.getLogger(__name__)
@@ -50,54 +50,18 @@ def check_task(task: str) -> None:
         raise ValueError(LONG_TASK)
 
 
-def _listed(config: Mapping[str, Any], capability: str) -> dict[str, dict[str, Any]]:
-    """The parent's current resources of one kind, by id; none for a kind it does not use."""
-    if not config[capability]['enabled']:
-        return {}
-    items = {
-        'code': lambda: config['code']['projects'],
-        'documents': lambda: config['documents'].get('collections', []),
-        'ssh': lambda: config['ssh']['servers'],
-        'services': lambda: config['services']['items'],
-    }[capability]()
-    return {str(entry['id']): entry for entry in items if 'id' in entry}
-
-
-def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
-    """Narrow each resource list to `resources`: the parent's entries of the given ids (an empty list gives nothing of
-    that kind, never everything). Whether they may be given at all is decided on the access object only
-    (check_run_subagent, access.narrow in subagent_access); a resource the parent holds through another (a service
-    via its server) has no entry of its own here and is reached through its access entry."""
-    given = picked_ids(resources)
-    listed = {kind.key: _listed(sub, kind.capability) for kind in KINDS}
-    chosen = {key: [listed[key][item] for item in ids if item in listed[key]] for key, ids in given.items()}
-    code_ids = set(given['code_project_ids'])
-    sub['code'] = {
-        **sub['code'],
-        'all_projects': False,
-        'projects': chosen['code_project_ids'],
-        'graphs': [graph for graph in sub['code'].get('graphs', []) if str(graph.get('id')) in code_ids],
-    }
-    documents = {key: value for key, value in sub['documents'].items() if key not in ('folders', 'all_folders')}
-    sub['documents'] = {**documents, 'all_collections': False, 'collections': chosen['collection_ids']}
-    sub['ssh'] = {**sub['ssh'], 'servers': chosen['server_ids']}
-    sub['services'] = {**sub['services'], 'items': chosen['service_ids']}
-    sub['run_resources'] = given
-
-
 def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
-    """The configuration a subagent runs with. resources None: the parent's lists; otherwise a run of exactly those."""
+    """The configuration a subagent runs with: the parent's with its access narrowed (subagent_access: what the
+    access entries carry is all the tools reach). resources None: the parent's resources; otherwise exactly those."""
     sub = copy.deepcopy(dict(config))
     sub.pop('record', None)
-    sub.pop('document_access', None)  # a subagent never gets the run's documents
     sub['experts'] = []  # a subagent never calls experts
     if resources is not None:
-        _narrow(sub, resources)
+        sub['run_resources'] = picked_ids(resources)
     sub['access'] = subagent_access(config['access'], resources)
     sub['name'] = f'{config["name"]} · subagent'
     sub['system_prompt'] = {'content': PROMPT}
     sub['instructions'] = ''
-    sub['skills'] = {'enabled': False, 'items': []}
     return sub
 
 

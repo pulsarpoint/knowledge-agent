@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
-from access_helpers import with_access
+from access_helpers import entry, with_access
 from knowledge_admin import access as access_rules
 from knowledge_admin.access import refuse_use
 from knowledge_admin.tools.catalog import CATALOG
@@ -228,8 +228,9 @@ def test_a_closed_run_or_a_deleted_document_cannot_save(rev):
 
 def test_a_turn_refreshes_the_sources_of_every_draft_the_run_wrote(rev):
     overview, third = make_document(rev.docs, 'overview', 'Overview'), make_document(rev.docs, 'notes', 'Notes')
-    rev.config['document_access'].append({'id': overview, 'title': 'Overview', 'editable': True})
-    with_access(rev.config, content_editor=True)
+    rev.config['access']['resources'].append(
+        {**entry('document', overview, 'Overview', editable=True), 'source': 'given'}
+    )
     call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Saved by the tool')
     call(rev, 'save_document', document_id=overview, markdown='# Overview saved')
     with rev.docs.store.connect() as conn:
@@ -296,11 +297,9 @@ def test_edits_and_saves_are_refused_outside_the_runs_documents_even_without_the
         ('edit_document', {'old_text': 'Intro.', 'new_text': 'x'}),
     ):
         assert call(rev, tool, document_id=other, **arguments).startswith(refused)
-    read_only = {
-        **rev.config,
-        'document_access': [{'id': str(rev.docs.runbook), 'title': 'Runbook', 'editable': False}],
-    }
-    with_access(read_only, content_editor=True)
+    read_only = with_access(
+        dict(rev.config), [entry('document', rev.docs.runbook, 'Runbook', editable=False)], content_editor=True
+    )
     assert (
         asyncio.run(
             CATALOG['save_document'].run(
@@ -350,9 +349,9 @@ def test_a_subagent_gets_no_document_access_so_the_edit_tools_refuse():
     from test_subagent_config import parent
     from knowledge_admin.knowledge_agents.subagents import subagent_config
 
-    lead = parent(document_access=[{'id': 'd', 'title': 'T', 'editable': True}])
-    sub = subagent_config(with_access(lead, True), None)
-    assert 'document_access' not in sub
+    lead = parent(content_editor=True)
+    lead['access']['resources'].append({**entry('document', 'd', 'T', editable=True), 'source': 'given'})
+    sub = subagent_config(lead, None)
     assert access_rules.listing(sub['access'], 'document') == [] and not access_rules.is_content_editor(sub['access'])
 
 
@@ -380,7 +379,12 @@ def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev)
     for draft_id in (str(mine['id']), by_person['id']):
         assert call(rev, 'get_document', document_id=draft_id) == refuse_use('document')
         given = with_access(
-            dict(rev.config, document_access=[*rev.config['document_access'], {'id': draft_id, 'title': 'D'}]), True
+            dict(rev.config),
+            [
+                entry('document', rev.docs.runbook, 'Runbook', editable=True),
+                entry('document', draft_id, 'D', editable=False),
+            ],
+            True,
         )
         refused = call(rev.__class__(**{**vars(rev), 'config': given}), 'get_document', document_id=draft_id)
         assert refused == 'Document not found'  # pinned or not, a draft id is never read as a document

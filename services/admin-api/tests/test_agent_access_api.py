@@ -1,9 +1,9 @@
 """Phase 2: the agent API, the wizard, clones and reviews read and write the access object (ka.agents.access) and the
 agent's instructions (ka.agents.instructions). The per-type id lists, switches and per-agent server settings are gone."""
 
+from access_helpers import give, of
 from uuid import uuid4
 
-from access_helpers import give
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.profiles_api import AccessInput, counts, references, resolve
 from knowledge_admin.knowledge_agents.config import get_agent_config
@@ -155,7 +155,7 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
     }
     assert [r['type'] for r in saved.json()['access']['resources']] == ['server', 'service', 'document']
     config = get_agent_config(agent['id'], conninfo=w.store.conninfo)
-    assert [s['id'] for s in config['ssh']['servers']] == [w.server['id']]
+    assert [s['id'] for s in of(config, 'server')] == [w.server['id']]
     assert config['instructions'] == 'Be brief.'
     again = saved.json()  # GET's resolved shape can be sent back
     assert w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(again)).status_code == 200

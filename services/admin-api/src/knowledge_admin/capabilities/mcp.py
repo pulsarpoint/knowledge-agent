@@ -3,12 +3,13 @@
 from collections.abc import Mapping
 from typing import Any
 
+from knowledge_admin import access as access_rules
 
-def selected_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
-    """The agent's enabled MCP definitions, each once."""
-    if not config['mcp']['enabled']:
-        return []
-    return list({server['id']: server for server in config['mcp']['servers'] if server['enabled']}.values())
+
+def selected_servers(config: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The enabled MCP servers in the run's access (entries with url and bearer_token_ref), each once."""
+    servers = access_rules.entries(config['access'], 'mcp_server')
+    return list({server['id']: server for server in servers if server.get('enabled')}.values())
 
 
 def auth_headers(server: dict[str, Any], credentials: Mapping[str, str]) -> dict[str, str]:

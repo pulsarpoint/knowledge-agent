@@ -4,7 +4,8 @@ carries the resource block."""
 
 from pathlib import Path
 
-from access_helpers import give
+from access_helpers import give, of
+from knowledge_admin.access import listing
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.runner import get_prompt
 from test_discovery_runs import call, ssh_ready
@@ -28,6 +29,11 @@ def start(world, started_from: dict, **change) -> str:
     return created.json()['id']
 
 
+def public(access: dict) -> dict:
+    """The access object as get_available_resources and the Debug tab show it: no connections (access.listing)."""
+    return {**access, 'resources': listing(access)}
+
+
 def stored(store, session_id) -> tuple[dict, dict]:
     """(the access column, the pinned configuration)."""
     with store.connect() as conn:
@@ -44,6 +50,8 @@ def test_a_server_run_is_given_its_server_and_the_services_deployed_on_it(world)
     sid = start(world, {'server_id': world.server['id']})
     access, config = stored(world.store, sid)
     server = world.server['id']
+    assert config['access'] == access
+    access = public(access)
     assert access == {
         'resources': [
             entry('server', server, 'web-1', 'Shop front end'),
@@ -51,12 +59,11 @@ def test_a_server_run_is_given_its_server_and_the_services_deployed_on_it(world)
         ],
         'roles': {'content_editor': False},
     }
-    assert config['access'] == access
 
 
 def test_a_service_run_is_given_its_service_its_code_and_its_servers(world):
     ssh_ready(world)
-    access, _ = stored(world.store, start(world, {'service_id': str(world.nginx)}))
+    access = public(stored(world.store, start(world, {'service_id': str(world.nginx)}))[0])
     via = f'via service {world.nginx}'
     assert access['resources'] == [
         entry('service', world.nginx, 'nginx', 'Front proxy for the shop'),
@@ -69,7 +76,7 @@ def test_a_service_run_is_given_its_service_its_code_and_its_servers(world):
 def test_an_environment_run_is_given_the_environment_and_what_it_contains(world):
     """Each child names its direct parent: the environment's service brings its code project."""
     ssh_ready(world)
-    access, _ = stored(world.store, start(world, {'environment_id': str(world.environment)}))
+    access = public(stored(world.store, start(world, {'environment_id': str(world.environment)}))[0])
     via = f'via environment {world.environment}'
     assert access['resources'] == [
         entry('environment', world.environment, 'Production', 'Live'),
@@ -96,7 +103,7 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
             resources={'documents': [{'new': NEW, 'editable': True}]},
         ),
     )
-    document = config['document_access'][0]
+    [document] = of(config, 'document')
     assert new == {
         'resources': [
             {
@@ -154,12 +161,12 @@ def test_a_widening_pick_is_refused_with_the_narrowing_text(analyst, monkeypatch
     from knowledge_admin.sessions import run_access
 
     a = analyst
-    real = run_access.held
+    real = run_access.run_access
 
-    def without_worker(conn, project, config, environment_ids):
-        return [item for item in real(conn, project, config, environment_ids) if item['id'] != a.worker]
+    def without_worker(conn, project, holds, *rest, **change):
+        return real(conn, project, [item for item in holds if item['id'] != a.worker], *rest, **change)
 
-    monkeypatch.setattr(run_access, 'held', without_worker)
+    monkeypatch.setattr(run_access, 'run_access', without_worker)
     message = refused(a, 400, run_resources={'code_project_ids': [a.worker]})
     assert message == f"code project {a.worker} is not in the agent's access"
 
@@ -168,6 +175,7 @@ def test_get_available_resources_lists_the_run_and_filters_by_type(world):
     ssh_ready(world)
     sid = start(world, {'server_id': world.server['id']})
     access, config = stored(world.store, sid)
+    access = public(access)
     assert call(config, 'get_available_resources') == access['resources']
     assert call(config, 'get_available_resources', resource_type='service') == [access['resources'][1]]
     assert call(config, 'get_available_resources', resource_type='document') == []
@@ -196,8 +204,8 @@ def test_debug_and_preview_return_the_access_object(world):
     sid = start(world, {'server_id': world.server['id']})
     access, _ = stored(world.store, sid)
     shown = world.client.get(f'/api/sessions/{sid}/debug', headers=HEADERS).json()
-    assert shown['access'] == access and preview.json()['access'] == access
-    assert preview.json()['config']['access'] == access
+    assert shown['access'] == public(access) and preview.json()['access'] == public(access)
+    assert preview.json()['config']['access'] == access  # the pinned configuration: the tools read the connections
 
 
 def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
@@ -214,28 +222,15 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     assert access['roles'] == {'content_editor': False} and config['access'] == access
 
 
-def test_code_projects_carry_their_folders_and_graph_and_collections_their_paths(world):
-    from knowledge_admin.sessions.run_access import held
+def test_code_projects_carry_their_folders_and_graph_and_collections_their_paths():
+    from knowledge_admin.knowledge_agents.config import resource_entries
 
-    config = {
-        'ssh': {'enabled': False, 'servers': []},
-        'services': {'enabled': False, 'items': []},
-        'code': {
-            'enabled': True,
-            'projects': [{'id': 'p1', 'name': 'API', 'description': '', 'folder_paths': ['/code/api']}],
-            'graphs': [{'id': 'p1', 'name': 'API', 'graph_path': '/graphs/p1', 'code_root': '/code/api'}],
-        },
-        'documents': {
-            'enabled': True,
-            'all_collections': False,
-            'collections': [{'id': 'c1', 'name': 'docs', 'description': '', 'paths': ['/data/docs']}],
-        },
-        'skills': {'enabled': False, 'items': []},
-        'mcp': {'enabled': False, 'servers': []},
+    items = {
+        'code_project': [{'id': 'p1', 'name': 'API', 'description': '', 'folder_paths': ['/code/api']}],
+        'collection': [{'id': 'c1', 'name': 'docs', 'description': '', 'paths': ['/data/docs']}],
     }
-    with world.store.connect() as conn:
-        found = held(conn, world.project, config, [])
-    assert found == [
+    graphs = [{'id': 'p1', 'name': 'API', 'graph_path': '/graphs/p1', 'code_root': '/code/api'}]
+    assert resource_entries(items, graphs) == [
         {
             'type': 'code_project',
             'id': 'p1',

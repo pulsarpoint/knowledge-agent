@@ -16,7 +16,6 @@ from uuid import UUID
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.data_root import data_path
 from knowledge_admin.knowledge_agents.config import load_graphs
 
@@ -117,8 +116,10 @@ def _selection(config: dict[str, Any], kind: Kind) -> dict[str, dict[str, Any]] 
             else {str(item['id']): item for item in config['code']['projects']}
         )
     if kind.capability == 'documents':
-        everything, items = document_collections(config)
-        return None if everything else {str(item['id']): item for item in items if 'id' in item}
+        documents = config['documents']
+        return (
+            None if documents.get('all_collections') else {str(item['id']): item for item in documents['collections']}
+        )
     if kind.capability == 'ssh':
         return {str(item['id']): item for item in config['ssh']['servers']}
     return {str(item['id']): item for item in config['services']['items']}
@@ -210,8 +211,11 @@ def resolve(
     if missing and effective['code']['enabled']:
         graphs += load_graphs(conn, project_id, missing)  # "All code projects": projects added after the snapshot
     effective['code']['graphs'] = graphs
-    documents = {key: value for key, value in effective['documents'].items() if key not in ('folders', 'all_folders')}
-    effective['documents'] = {**documents, 'all_collections': False, 'collections': given['collection_ids']}
+    effective['documents'] = {
+        **effective['documents'],
+        'all_collections': False,
+        'collections': given['collection_ids'],
+    }
     effective['ssh'] = {**effective['ssh'], 'servers': given['server_ids']}
     effective['services'] = {**effective['services'], 'items': given['service_ids']}
     effective['run_resources'] = wanted

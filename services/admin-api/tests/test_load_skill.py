@@ -32,20 +32,19 @@ def bare_config(*skills: dict) -> dict:
     return {
         'system_prompt': {'content': 'You answer.'},
         'instructions': 'Be brief.',
-        'documents': {'enabled': False},
         'access': {'resources': list(skills), 'roles': {'content_editor': False}},
     }
 
 
 @pytest.fixture
 def run(store, saved_agent, monkeypatch):  # noqa: F811
-    """A run of the saved agent: its configuration cut to its access, as run start pins it."""
+    """A run of the saved agent: its configuration with the run's access object, as run start pins it."""
     monkeypatch.setattr(inventory, '_store', store)
     config = get_agent_config('operations', conninfo=store.conninfo)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        cut, access = agent_access(conn, project, config, None, content_editor=False)
-    return {**cut, 'access': access, 'project_id': str(project)}, saved_agent[3]
+        access = agent_access(conn, project, config, None, content_editor=False)
+    return {**config, 'access': access, 'project_id': str(project)}, saved_agent[3]
 
 
 def load(config: dict, name: str) -> str:

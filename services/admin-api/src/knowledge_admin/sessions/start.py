@@ -18,15 +18,22 @@ from knowledge_admin.documents.api import Tags, document_slug
 from knowledge_admin.documents.store import INVENTORY_TAG, NAME_IN_USE
 
 from knowledge_admin import access as access_rules
-from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, load_model, model_fits
-from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services
+from knowledge_admin.knowledge_agents.config import (
+    entry as access_entry,
+    get_agent_config,
+    load_environments,
+    load_model,
+    model_fits,
+    resource_entries,
+)
+from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services, take_sections
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.knowledge_agents.run_resources import (
     DEPLOYED_SERVICES,
     RunResourceError,
     bring,
 )
-from knowledge_admin.sessions.run_access import agent_access, held, run_access
+from knowledge_admin.sessions.run_access import agent_access, built_for, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 
@@ -290,9 +297,10 @@ def target_document(conn, project: UUID, document_id: UUID) -> dict:
     return row
 
 
-def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[dict]:
-    """The documents the run may read (and edit, when editable), with their current titles, and the new document it
-    may write (an id of its own, 'new:<uuid>', its name, folder, slug and tags). A brand-new draft already holding the new
+def document_access(conn, project: UUID, entries: list[DocumentAccess], built: list[list[str]]) -> list[dict]:
+    """The access entries of the documents the run may read (and edit, when editable), with their current titles, and
+    of the new document it may write (an id of its own, 'new:<uuid>', its name, folder, slug, tags and what it is
+    built for: built). A brand-new draft already holding the new
     document's folder and slug refuses the run (409): every save would fail. A live document of that name does not:
     the run drafts that document (an inventory document's run is refused: it never drafts another document)."""
     access = []
@@ -309,15 +317,16 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
             ).fetchone():
                 raise HTTPException(409, NAME_IN_USE.format(slug=slug))
             access.append(
-                {
-                    'id': f'new:{uuid4()}',
-                    'title': entry.new.name,
-                    'folder': entry.new.folder,
-                    'slug': slug,
-                    'editable': True,
-                    'new': True,
-                    'tags': entry.new.tags,
-                }
+                access_entry(
+                    'document',
+                    {'id': f'new:{uuid4()}', 'name': entry.new.name},
+                    editable=True,
+                    new=True,
+                    folder=entry.new.folder,
+                    slug=slug,
+                    tags=entry.new.tags,
+                    built_for=built,
+                )
             )
             continue
         row = conn.execute(
@@ -326,15 +335,15 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
         ).fetchone()
         if row is None:
             raise HTTPException(404, DOCUMENT_NOT_FOUND)
-        access.append({'id': str(row['id']), 'title': row['title'], 'editable': entry.editable})
+        access.append(access_entry('document', {'id': row['id'], 'name': row['title']}, editable=entry.editable))
     return access
 
 
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
     """A saved agent's configuration for one run, narrowed by the request and never widened: its access object or the
     resources the request picked out of it (access.narrow: a pick outside it is refused), a subset of its experts. Its
-    model and system prompt are its own, and its content editor role (a request may only switch it off); its sections
-    keep only what the run's access object holds."""
+    model and system prompt are its own, and its content editor role (a request may only switch it off); its access
+    object is the run's (agent_access)."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -361,7 +370,7 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         {'type': 'document', 'id': str(entry.id or 'new'), 'editable': entry.editable} for entry in resources.documents
     ]
     try:
-        cut, access = agent_access(
+        access = agent_access(
             conn,
             project,
             config,
@@ -370,7 +379,7 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    pinned = pin(conn, cut, agent_id)
+    pinned = pin(conn, config, agent_id)
     if picked:  # what a new document of the run is built for
         pinned['chosen_resources'] = {key: [str(i) for i in getattr(resources, key)] for _, key in PICKS}
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
@@ -477,25 +486,30 @@ def build(
                 **pinned['run_resources'],
                 'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept],
             }
-    pinned['document_access'] = document_access(conn, project, entries)
-    for entry in pinned['document_access']:
+    if owner is not None:  # built for the resource alone; what the person gave it is only read
+        chosen = {key: [] for key in (*pinned.get('chosen_resources', {}), 'environment_ids', f'{owner[0]}_ids')}
+        pinned['chosen_resources'] = {**chosen, f'{owner[0]}_ids': [str(owner[1])]}
+    documents = document_access(conn, project, entries, built_for(pinned))
+    for entry in documents:
         if entry.get('new'):  # a document run names its document in its context; a new document's id is made here
-            context = f'Document: {entry["title"]} (id {entry["id"]})'
+            context = f'Document: {entry["name"]} (id {entry["id"]})'
             content = pinned['system_prompt']['content']
             content += f'\n\n{context}' if '\n# Context\n' in content else f'\n\n# Context\n\n{context}'
             pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
     if notes:
         pinned['start_notes'] = notes
-    if owner is not None:  # built for the resource alone; what the person gave it is only read
-        chosen = {key: [] for key in (*pinned.get('chosen_resources', {}), 'environment_ids', f'{owner[0]}_ids')}
-        pinned['chosen_resources'] = {**chosen, f'{owner[0]}_ids': [str(owner[1])]}
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     pinned['project_id'] = str(project)
+    # what the run holds: what its sections list (they go: the access object is all the run pins), its documents
+    # and the environments it was given
+    items, graphs = take_sections(pinned)
+    environments = load_environments(conn, project, selection.environment_ids)
+    holds = resource_entries({**items, 'document': documents, 'environment': environments}, graphs)
     pinned = jsonable_encoder(pinned)
     # given: what was picked (the resource it starts from, its inventory document's resource) and its documents; the
     # runs a person asked to write (a new document, a revision; content_editor: the Propose wizard) are content editors
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
-    picked += [{'type': 'document', 'id': entry['id']} for entry in pinned['document_access']]
+    picked += [{'type': 'document', 'id': entry['id']} for entry in documents]
     writes = (
         value.started_from.new_document is not None or value.started_from.document_id is not None
         if value.content_editor is None
@@ -505,9 +519,8 @@ def build(
         pinned['access'] = run_access(
             conn,
             project,
-            pinned,
+            jsonable_encoder(holds),
             picked,
-            environment_ids=selection.environment_ids,
             content_editor=writes,
             own=owner or resource,
         )
@@ -856,7 +869,7 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
         raise HTTPException(409, str(exc)) from None
     model = config['model']
     fits = model is not None and model['enabled'] and model_fits(model)
-    holds = held(conn, project, config, access_ids(config['access'], 'environment'))
+    holds = config['access']['resources']
     listed = lambda type_: [item for item in holds if item['type'] == type_]
     servers = {item['id'] for item in listed('server')}
     projects = {item['id'] for item in listed('code_project')}
@@ -871,7 +884,7 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
 
     def server_state(server_id: str) -> dict:
         """Whether a run can use the server over SSH now (a server without it is still given)."""
-        server = next(item for item in config['ssh']['servers'] if str(item['id']) == server_id)
+        server = next(item for item in holds if item['type'] == 'server' and item['id'] == server_id)
         usable = bool(server['enabled'] and server['ssh_allowed'])
         return {'usable': usable, 'reason': None if usable else NOT_SET_UP if server['ssh_allowed'] else NOT_ALLOWED}
 

@@ -4,7 +4,6 @@ do. A request carries no tool switches; an ad-hoc run asks for the content edito
 
 import asyncio
 
-from access_helpers import with_access
 from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.capabilities.documents import check_report_not_covered, report_not_covered
 from knowledge_admin.knowledge_agents.subagents import subagent_config
@@ -13,7 +12,8 @@ from test_discovery_runs import config_of, ssh_ready
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_saved_agent import agent, start  # noqa: F401  (fixture)
 from test_sessions_world import ask  # noqa: F401  (fixture)
-from test_tool_catalog import config
+from test_tool_catalog import MCP, config
+from knowledge_admin.capabilities.mcp import selected_servers
 from discovery_world import world  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
@@ -35,13 +35,13 @@ def names(c, subagents=True) -> list[str]:
 
 
 def test_a_saved_agent_an_ad_hoc_run_and_a_grounded_agent_get_every_tool():
-    saved = with_access(config(code=True))
+    saved = config()
     saved['experts'] = [EXPERT]
     assert names(saved) == [*EVERY, 'ask_payments_expert']
-    ad_hoc = with_access(config())  # nothing in its access
+    ad_hoc = config()  # nothing in its access
     ad_hoc['id'] = 'ad-hoc'
     assert names(ad_hoc) == EVERY
-    grounded = with_access(config(documents=True, grounded=True))
+    grounded = config(documents=True, grounded=True)
     assert names(grounded) == EVERY
     # every tool has its built-in description
     _, tools, _, _ = instructions_and_tools(saved, subagents=True)
@@ -49,7 +49,7 @@ def test_a_saved_agent_an_ad_hoc_run_and_a_grounded_agent_get_every_tool():
 
 
 def test_a_subagent_gets_every_tool_but_run_subagent_and_no_experts():
-    parent = with_access(config(code=True, ssh=True))
+    parent = config(ssh=True)
     parent['experts'] = [EXPERT]
     sub = subagent_config(parent, None)
     assert names(sub, subagents=False) == [name for name in EVERY if name != 'run_subagent']
@@ -57,21 +57,18 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_no_experts():
 
 
 def test_a_subagent_keeps_the_mcp_servers_of_its_parents_access():
-    parent = with_access(config(code=True))
-    parent['mcp'] = {'enabled': True, 'servers': [{'id': 'm1', 'name': 'Docs', 'enabled': True, 'tools': []}]}
-    with_access(parent)
+    parent = config(entries=[MCP])
     assert [entry['id'] for entry in parent['access']['resources'] if entry['type'] == 'mcp_server'] == ['m1']
     for resources in (None, {'code_project_ids': []}):
         sub = subagent_config(parent, resources)
         assert [entry['id'] for entry in sub['access']['resources'] if entry['type'] == 'mcp_server'] == ['m1']
-        assert [server['id'] for server in sub['mcp']['servers']] == ['m1'] and 'allowlist' not in sub['mcp']
+        assert [server['id'] for server in selected_servers(sub)] == ['m1']
 
 
 def test_an_internal_llm_call_gets_no_tools():
     """The agent designer and the tuning reviewer (tools=False): no catalog tools, experts or MCP servers."""
-    c = with_access(config(code=True))
+    c = config(entries=[MCP])
     c['experts'] = [EXPERT]
-    c['mcp'] = {'enabled': True, 'servers': [{'id': 'm1', 'name': 'Docs', 'enabled': True, 'tools': []}]}
     _, tools, experts, servers = instructions_and_tools(c, subagents=True, tools=False)
     assert (tools, experts, servers) == ([], [], [])
 
@@ -81,8 +78,7 @@ def test_run_subagent_has_no_tools_argument():
 
 
 def test_the_prompt_has_no_tool_notes():
-    c = with_access(config(code=True))
-    c['mcp'] = {'enabled': True, 'servers': [{'id': 'm1', 'name': 'Docs', 'enabled': True, 'tools': []}]}
+    c = config(entries=[MCP])
     prompt, _, _, _ = instructions_and_tools(c, subagents=True)
     assert 'Tool notes' not in prompt
 
@@ -91,9 +87,9 @@ def test_report_not_covered_refuses_outside_a_grounded_run():
     access = {'resources': [], 'roles': {'content_editor': False}}
     assert check_report_not_covered(access, reason='missing') == NOT_GROUNDED
     assert check_report_not_covered(access, grounded=True, reason='missing') is None
-    plain = with_access(config(documents=True))
+    plain = config(documents=True)
     assert asyncio.run(report_not_covered({'config': plain}, 'gap')) == NOT_GROUNDED
-    grounded = with_access(config(documents=True, grounded=True))
+    grounded = config(documents=True, grounded=True)
     context = {'config': grounded}
     assert asyncio.run(report_not_covered(context, 'gap')).startswith('Recorded.')
     assert context['grounding']['reported'] == 'gap'
@@ -195,7 +191,7 @@ def test_a_search_counts_as_grounding_only_in_a_grounded_run():
     def turn(c):
         return SimpleNamespace(context_wrapper=SimpleNamespace(context={'config': c, 'grounding': dict(state)}))
 
-    assert grounding_of(turn(with_access(config())), 'An answer.') is None
-    assert grounding_of(turn(with_access(config(documents=True))), 'An answer.') is None
-    grounded = grounding_of(turn(with_access(config(documents=True, grounded=True))), 'An answer.')
+    assert grounding_of(turn(config()), 'An answer.') is None
+    assert grounding_of(turn(config(documents=True)), 'An answer.') is None
+    grounded = grounding_of(turn(config(documents=True, grounded=True)), 'An answer.')
     assert grounded is not None and grounded['not_covered'] is True

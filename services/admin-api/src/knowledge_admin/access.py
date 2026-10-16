@@ -1,6 +1,11 @@
 """Access rules: pure functions over a run's access object.
 
-access = {"resources": [{type, id, name, description_short, source, editable?}], "roles": {"content_editor": bool}}
+access = {"resources": [{type, id, name, description_short, source, editable?, ...}], "roles": {"content_editor": bool}}
+An entry also carries what the tools need to reach its resource: a code project its folder_paths (and graph_path,
+code_root), a collection its paths, a skill its description, a new document where it goes; a server its connection
+(hostname, port, username, allow_sudo, known_hosts, enabled, ssh_allowed, private_key_ref) and an MCP server its (url,
+enabled, bearer_token_ref): references only, never secrets. listing shows only the PUBLIC fields: the model and the
+Debug tab never see a connection.
 No I/O. Every tool decides access through these functions.
 """
 
@@ -15,6 +20,25 @@ TYPE_WORDS = {
     'skill': 'skill',
     'mcp_server': 'MCP server',
 }
+# What listing shows of an entry (get_available_resources, the Debug tab): never a connection.
+PUBLIC = (
+    'type',
+    'id',
+    'name',
+    'description_short',
+    'source',
+    'editable',
+    'description',
+    'folder_paths',
+    'paths',
+    'graph_path',
+    'code_root',
+    'new',
+    'folder',
+    'slug',
+    'tags',
+    'built_for',
+)
 NOT_AVAILABLE = 'This {type} is not available in this run.'
 NOT_EDITOR = 'This agent may not change content (content editor is off).'
 NONE_OF = 'This run has no {type}s.'
@@ -98,5 +122,11 @@ def expand(access: dict, children: dict[tuple[str, str], list[dict]]) -> dict:
     return {**access, 'resources': resources}
 
 
-def listing(access: dict, type: str | None = None) -> list[dict]:
+def entries(access: dict, type: str | None = None) -> list[dict]:
+    """The entries of one type (None: all), whole: with their connections (for the tools, never for the model)."""
     return [r for r in access.get('resources', []) if type is None or r['type'] == type]
+
+
+def listing(access: dict, type: str | None = None) -> list[dict]:
+    """The entries of one type (None: all) with only their PUBLIC fields."""
+    return [{key: r[key] for key in PUBLIC if key in r} for r in entries(access, type)]

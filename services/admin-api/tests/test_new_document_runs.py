@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from access_helpers import of
+from knowledge_admin.agents.runner import ssh_servers
 from knowledge_admin.capabilities import inventory
 from knowledge_admin import access as access_rules
 from knowledge_admin.access import refuse_use
@@ -46,7 +48,7 @@ def started(s) -> tuple[dict, dict, str]:
     assert response.status_code == 201, response.text
     session = response.json()
     config = {**session['config'], 'session_id': session['id']}
-    return session, config, session['config']['document_access'][0]['id']
+    return session, config, of(session['config'], 'document')[0]['id']
 
 
 def drafts(s, session_id) -> list[dict]:
@@ -72,7 +74,7 @@ def test_a_new_document_start_pins_a_new_entry_and_records_purpose_documents(ses
         'Payments – API reference',
         None,
     )
-    [entry] = session['config']['document_access']
+    [entry] = of(session['config'], 'document')
     assert (
         entry['id'].startswith('new:')
         and entry['editable']
@@ -281,7 +283,7 @@ def test_a_promoted_new_document_links_the_resources_chosen_for_the_run(sessions
     assert response.status_code == 201, response.text
     session = response.json()
     config = {**session['config'], 'session_id': session['id']}
-    new_id = session['config']['document_access'][0]['id']
+    new_id = of(session['config'], 'document')[0]['id']
     assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
     [draft] = draft_ids(s, session['id'])
     created = s.client.get(f'/api/documentation/documents/{promote(s, draft)["document_id"]}', headers=HEADERS).json()
@@ -318,7 +320,7 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
     assert session['run_resources']['service_ids'] == [s.service]  # the tools still reach what it brought
     assert sorted(session['run_resources']['code_project_ids']) == sorted([s.repo, s.worker])
     config = {**session['config'], 'session_id': session['id']}
-    new_id = session['config']['document_access'][0]['id']
+    new_id = of(session['config'], 'document')[0]['id']
     assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
     [draft] = draft_ids(s, session['id'])
     assert resource_ids(s, draft) == {
@@ -365,7 +367,7 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
         refused = call(config, 'save_document', document_id=document_id, markdown='# Mine')
         # the refusal names the documents the run may change: its own new document
         assert refused.startswith(refuse_use('document') + ' Documents you may change: ')
-        assert config['document_access'][0]['id'] in refused
+        assert of(config, 'document')[0]['id'] in refused
         assert call(config, 'get_document', document_id=document_id) == refuse_use('document')
     assert drafts(s, session['id']) == [] and all_drafts(s) == 0
 
@@ -526,7 +528,7 @@ def test_an_inventory_run_saves_the_inventory_draft_built_for_exactly_its_resour
     assert s.service in session['run_resources']['service_ids']  # it still reads what the person gave it
     assert s.repo in session['run_resources']['code_project_ids']
     config = {**session['config'], 'session_id': session['id']}
-    new_id = session['config']['document_access'][0]['id']
+    new_id = of(session['config'], 'document')[0]['id']
     assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
     [draft] = draft_ids(s, session['id'])
     assert resource_ids(s, draft) == {
@@ -553,7 +555,7 @@ def test_an_inventory_run_writes_another_document_tagged_inventory_when_its_reso
     assert response.status_code == 201, response.text
     session = response.json()
     config = {**session['config'], 'session_id': session['id']}
-    new_id = session['config']['document_access'][0]['id']
+    new_id = of(session['config'], 'document')[0]['id']
     assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
     [draft] = draft_ids(s, session['id'])
     with s.store.connect() as conn:
@@ -654,7 +656,7 @@ def test_an_inventory_run_for_a_server_with_ssh_reads_it_runs_commands_on_it_and
     assert session['run_resources']['server_ids'] == [s.server['id']]
     assert read(config, 'server', s.server['id'])['name'] == 'prod-1'
     assert read(config, 'service', s.service)['name'] == 'Payments'  # deployed on it, pinned as a server chat pins it
-    assert [server['id'] for server in config['ssh']['servers']] == [s.server['id']]
+    assert [server['id'] for server in ssh_servers(config)] == [s.server['id']]
     assert config.get('start_notes', []) == []
 
 

@@ -4,6 +4,7 @@ comments delivered inside a running turn, failures and credentials."""
 import asyncio
 import json
 import tomllib
+from access_helpers import of
 from pathlib import Path
 from uuid import UUID
 
@@ -113,8 +114,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert (first['turn_timeout_seconds'], first['max_turns'], first['stream']) == (None, None, False)
     assert first['credentials'] == {sessions.claude: KEY}  # decrypted in the worker, for this turn
     assert 'record' not in first['config']
-    code = first['config']['code']
-    assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/app']]
+    assert [p['folder_paths'] for p in of(first['config'], 'code_project')] == [[f'{data}/code/app']]
     row = session_row(store, sid)
     assert (
         row['status'],

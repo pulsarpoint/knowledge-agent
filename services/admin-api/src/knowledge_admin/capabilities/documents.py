@@ -160,8 +160,7 @@ async def report_not_covered(
     reason: Annotated[str, Field(description='What information is missing from the documentation.')],
 ) -> str:
     """Record that the retrieved documents do not answer the question."""
-    documents = context['config']['documents']
-    grounded = bool(documents['enabled'] and documents.get('grounded', False))
+    grounded = bool(context['config'].get('grounded'))
     if refusal := check_report_not_covered(context['config']['access'], grounded=grounded, reason=reason):
         return refusal
     _state(context)['reported'] = reason.strip()[:1000] or 'Not covered by the documentation.'

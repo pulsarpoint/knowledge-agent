@@ -33,8 +33,9 @@ for reliable import resolution. The pipeline version change invalidates old
 processing fingerprints: generate the graph again after upgrading.
 Existing graph snapshots and documents are retained.
 
-The agent's `code.graphs` comes from the generated graph (`current_graph` in `capabilities/code_graph.py`), read live
-from the project's manifest and snapshot when a run starts, never from a saved version. It lists the graph's folders
+A code project's graph comes from the generated graph (`current_graph` in `capabilities/code_graph.py`), read live
+from the project's manifest and snapshot (its access entry carries `graph_path` and `code_root` from when the run
+started; `code_graph` loads the graph again when it runs), never from a saved version. It lists the graph's folders
 and `generated_at`; it is empty when the project was never generated, its snapshot is gone or its folder selection
 changed. If the project was synced after the graph was generated, a note says so. `code_graph` is offered in every run and
 answers only for a code project of the run that has such a graph.

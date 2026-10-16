@@ -192,7 +192,7 @@ def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_
     )
     assert kept.json()['documents_grounded'] is True
     config = client.get(f'/api/agents/{agent["id"]}/config', headers=HEADERS).json()
-    assert config['documents']['grounded'] is True
+    assert config['grounded'] is True
 
 
 def test_plain_create_endpoint_is_removed(store, tmp_path):

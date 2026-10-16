@@ -137,8 +137,7 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
         )
         reviewer.pop('record', None)
         reviewer['access'] = {'resources': [], 'roles': {'content_editor': False}}
-        for capability in ('code', 'documents', 'ssh', 'skills', 'mcp', 'services'):
-            reviewer[capability]['enabled'] = False
+        reviewer['grounded'] = False
         credentials = await asyncio.to_thread(load_credentials, db, reviewer)
         context = {
             'agent_config': pinned,

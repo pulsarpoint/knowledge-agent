@@ -13,8 +13,10 @@ from pydantic import Field
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
+from knowledge_admin.capabilities.inventory import connect
 from knowledge_admin.code_projects.paths import code_root, rebase_code_path
 from knowledge_admin.code_projects.processing import CodeProcessingError, index_directory, source_inventory
+from knowledge_admin.knowledge_agents.config import load_graphs
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
@@ -177,7 +179,8 @@ async def code_graph(
     config = context['config']
     if refusal := check_code_graph(config['access'], project_id=project_id):
         return refusal
-    graph = next((g for g in config['code'].get('graphs', []) if g['id'] == project_id), None)
+    with connect() as conn:  # the code project's current graph (live, like file contents)
+        graph = next(iter(load_graphs(conn, config.get('project_id'), [project_id])), None)
     if graph is None:
         raise ValueError('Choose a configured code graph project.')
     if offset < 0 or not 1 <= limit <= 100 or len(query) > 300:

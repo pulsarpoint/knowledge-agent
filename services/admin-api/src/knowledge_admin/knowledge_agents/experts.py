@@ -98,14 +98,14 @@ def load(
         ):
             raise unavailable
         # its access object, built as a run start builds one for its agent
-        cut, access = agent_access(
+        access = agent_access(
             conn,
             project_id,
             config,
             picks(resources) or None,
             content_editor=caller_content_editor and access_rules.is_content_editor(config['access']),
         )
-        config = {**cut, 'access': access}
+        config = {**config, 'access': access, 'project_id': str(project_id)}
     config.pop('record', None)
     config['experts'] = []  # an expert never calls experts
     return config, load_credentials(store, config)

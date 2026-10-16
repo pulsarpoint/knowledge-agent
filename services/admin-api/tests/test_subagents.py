@@ -8,6 +8,7 @@ import gc
 import json
 import logging
 import threading
+from access_helpers import of
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -90,7 +91,7 @@ def test_a_subagent_runs_its_task_with_its_configuration_and_is_recorded_in_the_
     assert answer == 'The worker starts in main.py ([redacted]).'
     [run] = fake.calls
     assert run['config']['system_prompt'] == {'content': PROMPT}
-    assert [p['id'] for p in run['config']['code']['projects']] == ['worker']
+    assert [p['id'] for p in of(run['config'], 'code_project')] == ['worker']
     # only what its configuration references: the model and the parent's MCP server (no SSH server was given)
     assert run['credentials'] == {'model-key': SECRET, 'mcp-token': CREDENTIALS['mcp-token']}
     assert (run['workspace'], run['max_turns'], run['turn_timeout_seconds'], run['stream']) == (

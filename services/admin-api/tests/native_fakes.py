@@ -141,7 +141,7 @@ class FakeAgent:
             await session.add_items([{'role': 'assistant', 'content': script['answer']}])
             # A grounded turn's run context holds its grounded configuration and the documents tools' state
             # (capabilities.documents).
-            grounded = {'documents': {'enabled': True, 'grounded': True}}
+            grounded = {'grounded': True}
             context = {'config': grounded, 'grounding': script['grounding']} if 'grounding' in script else {}
             return SimpleNamespace(final_output=script['answer'], context_wrapper=SimpleNamespace(context=context))
         finally:

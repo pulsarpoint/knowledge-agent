@@ -10,7 +10,10 @@ import subprocess
 
 import pytest
 
-from access_helpers import with_access
+from contextlib import nullcontext
+
+from access_helpers import of
+from knowledge_admin.capabilities import code_graph as code_graph_module
 from tool_helpers import tool
 from test_function_tools import context, invoke
 
@@ -18,7 +21,7 @@ code_graph = tool('code_graph')
 
 
 @pytest.fixture
-def indexed_graph(context, tmp_path):
+def indexed_graph(context, tmp_path, monkeypatch):
     root = tmp_path / 'code'
     (root / 'source.go').write_text(
         """package example
@@ -53,9 +56,11 @@ func unrelated() {}
         'folder_paths': [str(root)],
         'graph_path': str(database),
     }
-    context['config']['code']['graphs'] = [graph]
-    context['config']['code']['projects'][0]['id'] = 'project'  # the graph's code project, in the run's access
-    with_access(context['config'])
+    of(context['config'], 'code_project')[0]['id'] = 'project'  # the graph's code project, in the run's access
+    monkeypatch.setattr(
+        code_graph_module, 'load_graphs', lambda conn, project, ids: [graph] if 'project' in ids else []
+    )
+    monkeypatch.setattr(code_graph_module, 'connect', nullcontext)
     return graph
 
 
@@ -140,7 +145,6 @@ def test_invalid_graph_node_and_disabled_access(context, indexed_graph):
     assert 'node ID' in asyncio.run(
         invoke(code_graph, context, project_id='project', action='code', node_id='not-found')
     )
-    context['config']['code']['enabled'] = False
-    with_access(context['config'])  # code off at start: no code project in the run's access object
+    context['config']['access']['resources'] = []  # no code project in the run's access object
     off = asyncio.run(invoke(code_graph, context, project_id='project', action='search', query='Handle'))
     assert off == 'This run has no code projects.'

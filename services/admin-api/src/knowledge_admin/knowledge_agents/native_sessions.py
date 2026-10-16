@@ -213,8 +213,7 @@ def grounding_of(result: Any, answer: str) -> dict[str, Any] | None:
     context = getattr(getattr(result, 'context_wrapper', None), 'context', None)
     if not isinstance(context, dict):
         return None
-    documents = (context.get('config') or {}).get('documents') or {}
-    if not (documents.get('enabled') and documents.get('grounded')):
+    if not (context.get('config') or {}).get('grounded'):
         return None
     return grounding.result(answer, context.get('grounding'))
 

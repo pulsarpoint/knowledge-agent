@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 import asyncssh
 import pytest
-from access_helpers import with_access
+from access_helpers import entry, with_access
 from agents import Runner
 from knowledge_admin.agents.runner import agent
 from test_ssh import ssh_server
@@ -201,46 +201,28 @@ def config(responses_api, tmp_path):
             'enabled': True,
             'api_key_ref': {'id': 'model-key'},
         },
-        'code': {
-            'enabled': True,
-            'projects': [
-                {'id': 'source', 'name': 'Source', 'description': 'Local source', 'folder_paths': [str(source)]}
-            ],
-        },
-        'documents': {
-            'enabled': True,
-            'all_collections': False,
-            'collections': [
-                {'id': 'runbooks', 'name': 'runbooks', 'path': str(docs), 'description': 'Operations docs'}
-            ],
-        },
-        'skills': {
-            'enabled': True,
-            'items': [
-                {
-                    'id': 'inspection',
-                    'name': 'Inspection',
-                    'description': 'Inspect before changing.',
-                    'instructions': 'Read before suggesting changes.',
-                    'enabled': True,
-                },
-                {
-                    'id': 'disabled',
-                    'name': 'Disabled skill',
-                    'description': 'MUST_NOT_APPEAR',
-                    'instructions': 'MUST_NOT_APPEAR',
-                    'enabled': False,
-                },
-            ],
-        },
-        'mcp': {'enabled': False, 'servers': [{'url': 'http://must-not-contact.test/mcp'}]},
-        'ssh': {'enabled': False, 'servers': [{'hostname': 'must-not-connect.test'}]},
-        'services': {
-            'enabled': True,
-            'items': [{'id': 'payments', 'name': 'Payments', 'owner': 'Inspect the queue.'}],
-        },
+        'grounded': False,
     }
-    return with_access(value)
+    # its access: a code project, a collection, an enabled skill and a service (no MCP server, no SSH server)
+    return with_access(
+        value,
+        [
+            entry('code_project', 'source', 'Source', description_short='Local source', folder_paths=[str(source)]),
+            entry('collection', 'runbooks', 'runbooks', description_short='Operations docs', paths=[str(docs)]),
+            entry('skill', 'inspection', 'Inspection', description='Inspect before changing.'),
+            entry('service', 'payments', 'Payments'),
+        ],
+    )
+
+
+def of(config, type_):
+    """The first entry of one type in the configuration's access."""
+    return next(item for item in config['access']['resources'] if item['type'] == type_)
+
+
+def add(config, *entries):
+    """Add these entries to the configuration's access, given."""
+    config['access']['resources'] += [{**item, 'source': 'given'} for item in entries]
 
 
 @pytest.mark.parametrize('stream', [False, True])
@@ -307,7 +289,7 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
         assert listed not in serialized
     for excluded in ('fixture-api-secret', 'MUST_NOT_APPEAR', 'must-not-connect.test', 'must-not-contact.test'):
         assert excluded not in serialized
-    assert config['code']['projects'][0]['folder_paths'][0] not in serialized
+    assert of(config, 'code_project')['folder_paths'][0] not in serialized
     structural = next(tool for tool in request['body']['tools'] if tool.get('name') == 'ast_grep')
     assert 'SetPersonalLimits' in structural['description']
     assert 'native rule' in structural['description']
@@ -334,10 +316,7 @@ def test_document_output_budget_reaches_the_provider(config, responses_api):
 
 def test_disabled_resources_are_not_used_or_validated(config, responses_api):
     _, requests = responses_api
-    for section in ('code', 'documents', 'skills', 'services'):
-        config[section]['enabled'] = False
-    with_access(config)
-    config['code']['projects'][0]['folder_paths'] = ['/missing/disabled-source']
+    with_access(config)  # nothing in its access
     result = asyncio.run(
         agent(config, 'Answer without resources.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45)
     )
@@ -355,37 +334,30 @@ def test_disabled_resources_are_not_used_or_validated(config, responses_api):
 @pytest.mark.parametrize('final_newline', [True, False])
 def test_sdk_connects_selected_mcp_and_keeps_ssh_keys_out_of_prompt(config, responses_api, monkeypatch, final_newline):
     url, requests = responses_api
-    mcp = {
-        'id': 'fixture-mcp',
-        'name': 'Fixture MCP',
-        'description': 'Shared documentation.',
-        'enabled': True,
-        'url': url.removesuffix('/v1') + '/mcp',
-        'bearer_token_ref': {'id': 'mcp-key'},
-    }
-    config['mcp'] = {'enabled': True, 'servers': [mcp]}
-    config['ssh'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': 'host',
-                'name': 'Fixture server',
-                'hostname': 'never-connect.test',
-                'port': 2222,
-                'username': 'operator',
-                'description': 'Fixture machine.',
-                'tags': ['test'],
-                'enabled': True,
-                'ssh_allowed': True,
-                'known_hosts': '',
-                'allow_sudo': False,
-                'instructions': 'Inspect fixture logs only.',
-                'private_key_ref': {'id': 'ssh-key'},
-                'skills': [],
-                'mcp_servers': [mcp],
-            }
-        ],
-    }
+    mcp = entry(
+        'mcp_server',
+        'fixture-mcp',
+        'Fixture MCP',
+        description_short='Shared documentation.',
+        enabled=True,
+        url=url.removesuffix('/v1') + '/mcp',
+        bearer_token_ref={'id': 'mcp-key'},
+    )
+    server = entry(
+        'server',
+        'host',
+        'Fixture server',
+        description_short='Fixture machine.',
+        hostname='never-connect.test',
+        port=2222,
+        username='operator',
+        enabled=True,
+        ssh_allowed=True,
+        known_hosts='',
+        allow_sudo=False,
+        private_key_ref={'id': 'ssh-key'},
+    )
+    add(config, mcp, server)
     directories = []
     ssh_key = asyncssh.generate_private_key('ssh-ed25519')
     private_key = ssh_key.export_private_key('openssh').decode()
@@ -423,19 +395,17 @@ def test_sdk_connects_selected_mcp_and_keeps_ssh_keys_out_of_prompt(config, resp
 
 
 def test_missing_mcp_credential_cleans_temporary_runtime(config, monkeypatch, tmp_path):
-    config['mcp'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': 'fixture-mcp',
-                'name': 'Fixture MCP',
-                'description': '',
-                'enabled': True,
-                'url': 'http://unused.test',
-                'bearer_token_ref': {'id': 'missing'},
-            }
-        ],
-    }
+    add(
+        config,
+        entry(
+            'mcp_server',
+            'fixture-mcp',
+            'Fixture MCP',
+            enabled=True,
+            url='http://unused.test',
+            bearer_token_ref={'id': 'missing'},
+        ),
+    )
     directory = TemporaryDirectory(dir=tmp_path)
     monkeypatch.setattr('knowledge_admin.agents.runner.TemporaryDirectory', lambda **kwargs: directory)
     with pytest.raises(ValueError, match='MCP token'):
@@ -465,7 +435,7 @@ def test_invalid_config_fails_before_starting_sdk(config, responses_api, monkeyp
     if problem == 'unsupported':
         config['model']['provider'] = 'unknown'
     if problem == 'path':
-        config['code']['projects'][0]['folder_paths'] = ['/missing/source']
+        of(config, 'code_project')['folder_paths'] = ['/missing/source']
     monkeypatch.setattr(
         'knowledge_admin.agents.runner.Runner.run_streamed',
         lambda *a, **kw: pytest.fail('Invalid settings must not start the SDK'),
@@ -502,29 +472,23 @@ def test_resume_uses_history_supplied_by_caller(config, responses_api):
 
 
 def test_sdk_ssh_tool_uses_configured_key_and_returns_output(config, responses_api, ssh_server):
-    config['ssh'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': 'host',
-                'name': 'Linux fixture',
-                'hostname': ssh_server.hostname,
-                'port': ssh_server.port,
-                'username': ssh_server.username,
-                'known_hosts': ssh_server.known_hosts,
-                'enabled': True,
-                'ssh_allowed': True,
-                'description': 'Test server',
-                'tags': [],
-                'allow_sudo': False,
-                'instructions': 'Inspect as operator only.',
-                'private_key_ref': {'id': 'ssh-key'},
-                'skills': [],
-                'mcp_servers': [],
-            }
-        ],
-    }
-    with_access(config)
+    add(
+        config,
+        entry(
+            'server',
+            'host',
+            'Linux fixture',
+            description_short='Test server',
+            hostname=ssh_server.hostname,
+            port=ssh_server.port,
+            username=ssh_server.username,
+            known_hosts=ssh_server.known_hosts,
+            enabled=True,
+            ssh_allowed=True,
+            allow_sudo=False,
+            private_key_ref={'id': 'ssh-key'},
+        ),
+    )
     result = asyncio.run(
         agent(
             config,
@@ -542,20 +506,20 @@ def test_sdk_ssh_tool_uses_configured_key_and_returns_output(config, responses_a
 
 
 def test_mcp_tools_with_same_local_name_remain_distinct(config, responses_api):
-    config['mcp'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': name,
-                'name': name,
-                'description': 'Fixture',
-                'url': responses_api[0].removesuffix('/v1') + '/mcp',
-                'enabled': True,
-                'bearer_token_ref': None,
-            }
+    add(
+        config,
+        *(
+            entry(
+                'mcp_server',
+                name,
+                name,
+                url=responses_api[0].removesuffix('/v1') + '/mcp',
+                enabled=True,
+                bearer_token_ref=None,
+            )
             for name in ('docs-one', 'docs-two')
-        ],
-    }
+        ),
+    )
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
     request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
     names = [t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]
@@ -563,14 +527,8 @@ def test_mcp_tools_with_same_local_name_remain_distinct(config, responses_api):
 
 
 def test_a_missing_document_collection_path_is_skipped_not_fatal(config, responses_api, caplog):
-    config['documents']['collections'] = [
-        {
-            'id': 'jira',
-            'name': 'jira',
-            'description': 'Tickets',
-            'paths': [config['documents']['collections'][0]['path'], '/missing/rag-data/jira'],
-        }
-    ]
+    collection = of(config, 'collection')
+    collection['paths'] = [*collection['paths'], '/missing/rag-data/jira']
     with caplog.at_level('WARNING', logger='knowledge_admin.capabilities.files'):
         result = asyncio.run(
             agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45)
@@ -580,20 +538,17 @@ def test_a_missing_document_collection_path_is_skipped_not_fatal(config, respons
 
 
 def test_every_tool_of_an_mcp_server_in_access_is_offered(config, responses_api):
-    config['mcp'] = {
-        'enabled': True,
-        'servers': [
-            {
-                'id': 'docs',
-                'name': 'docs',
-                'description': 'Fixture',
-                'url': responses_api[0].removesuffix('/v1') + '/mcp',
-                'enabled': True,
-                'bearer_token_ref': None,
-            }
-        ],
-    }
-    with_access(config)
+    add(
+        config,
+        entry(
+            'mcp_server',
+            'docs',
+            'docs',
+            url=responses_api[0].removesuffix('/v1') + '/mcp',
+            enabled=True,
+            bearer_token_ref=None,
+        ),
+    )
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
     request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
     assert len([t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]) == 1

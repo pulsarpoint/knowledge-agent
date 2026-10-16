@@ -66,9 +66,53 @@ def schema(conn) -> dict:
     }
 
 
+SERVER = ('hostname', 'port', 'username', 'allow_sudo', 'known_hosts', 'enabled', 'ssh_allowed', 'private_key_ref')
+
+
+def legacy(config: dict) -> dict:
+    """A configuration loaded today (its access object holds the loaded items) in the shape versions and
+    configurations had before the access object (per-kind sections), to compare and to store as an old version."""
+    config = copy.deepcopy(config)
+
+    def items(type_: str, *fields: str) -> list[dict]:
+        return [
+            {
+                'id': item['id'],
+                'name': item['name'],
+                'description': item['description_short'],
+                **{key: item[key] for key in fields if key in item},
+            }
+            for item in config['access']['resources']
+            if item['type'] == type_
+        ]
+
+    collections, projects = items('collection', 'paths'), items('code_project', 'folder_paths')
+    skills = [{**item, 'enabled': True} for item in items('skill')]
+    mcp, servers, services = (
+        items('mcp_server', 'url', 'enabled', 'bearer_token_ref'),
+        items('server', *SERVER),
+        items('service'),
+    )
+    return {
+        **config,
+        'documents': {
+            'enabled': bool(collections),
+            'grounded': config.pop('grounded'),
+            'all_collections': False,
+            'collections': collections,
+        },
+        'code': {'enabled': bool(projects), 'all_projects': False, 'projects': projects, 'graphs': []},
+        'skills': {'enabled': bool(skills), 'items': skills},
+        'mcp': {'enabled': bool(mcp), 'servers': mcp},
+        'ssh': {'enabled': bool(servers), 'servers': servers},
+        'services': {'enabled': bool(services), 'items': services},
+        'document_access': [],
+    }
+
+
 def as_saved(config: dict) -> dict:
     """The configuration as a version stored it (0034…0079): no live graphs, the prompt version's fields."""
-    saved = copy.deepcopy(config)
+    saved = legacy(config)
     saved['code'].pop('graphs', None)
     saved['tools'] = {  # the tools section versions had (configurations lost it in 0115); run_subagent: not yet a tool
         'items': [entry for entry in implied_tools(saved)['items'] if entry['tool'] != 'run_subagent']
@@ -111,8 +155,9 @@ def sections(config: dict) -> dict:
     """config.sections and what the agent runs with by kind: the items of each section (a version saved before 0113
     and a configuration loaded from an access object compare alike)."""
     documents, code = config['documents'], config['code']
+    grounded = bool(documents['enabled'] and documents.get('grounded', False))
     return {
-        **agent_config.sections(config),
+        **agent_config.sections({**config, 'grounded': grounded}),
         'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
         'documents': {
             'enabled': documents['enabled'],
@@ -227,7 +272,7 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
             documents_enabled=false,repositories_enabled=false,ssh_enabled=false,
             skills_enabled=false,mcp_enabled=false,services_enabled=false,resources='per_run' WHERE id='operations'""")
     convert(store)
-    drifted = held(sections(get_agent_config('operations', conninfo=store.conninfo)))
+    drifted = held(sections(legacy(get_agent_config('operations', conninfo=store.conninfo))))
     with store.connect() as conn:
         run(conn, DOWN)
         conn.commit()
@@ -252,14 +297,14 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     assert [key for key in expected if drifted[key] == expected[key]] == ['grounded']
     convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
-    migrated = held(sections(after))
+    migrated = held(sections(legacy(after)))
     assert migrated == expected
     assert tool_rows(store, 'operations') == {
         entry['tool']: (entry['mode'], entry['usage'], entry['subagent_allowed']) for entry in saved['tools']['items']
     }
     assert (after['name'], after['description']) == ('Payments operator', 'Investigates payment failures.')
-    assert runbooks not in [c['id'] for c in after['documents']['collections']]
-    assert unselected not in [p['id'] for p in after['code']['projects']]
+    assert runbooks not in [item['id'] for item in after['access']['resources']]
+    assert unselected not in [item['id'] for item in after['access']['resources']]
     assert [(d['agent_id'], d['label'], d['config']['name']) for d in (row['details'] for row in audit)] == [
         ('operations', 'Active', 'Payments operator')
     ]

@@ -7,7 +7,6 @@ import json
 import pytest
 
 from tool_helpers import tool
-from access_helpers import with_access
 from test_function_tools import context, invoke
 
 code_search = tool('code_search')
@@ -97,11 +96,11 @@ def test_literal_names_stable_pagination_and_scope(context, tmp_path):
     assert json.loads(asyncio.run(invoke(code_search, context, **args))) == first
     for selected in [outside, root / 'escape.go', tmp_path / 'documents', tmp_path / 'workspace']:
         assert 'error' in asyncio.run(invoke(code_search, context, **(args | {'path': str(selected)}))).lower()
-    context['config']['code']['enabled'] = False
-    with_access(context['config'])  # code off at start: no code project in the run's access object
+    resources = context['config']['access']['resources']
+    kept = list(resources)
+    resources[:] = [item for item in kept if item['type'] != 'code_project']  # no code project in its access
     assert asyncio.run(invoke(code_search, context, **args)) == 'This run has no code projects.'
-    context['config']['code']['enabled'] = True
-    with_access(context['config'])
+    resources[:] = kept
 
 
 @pytest.mark.parametrize(

@@ -241,9 +241,9 @@ async def ssh_run(
     config = context['config']
     if refusal := check_ssh_run(config['access'], server_id=server_id):
         return refusal
-    # the server's connection as the run's configuration pins it
-    server = next((item for item in config['ssh']['servers'] if str(item['id']) == str(server_id)), None)
-    if server is None or not server['enabled'] or not server['ssh_allowed']:
+    # the server's connection as the run's access entry pins it
+    server = access_rules.entry(config['access'], 'server', server_id)
+    if server is None or not server.get('enabled') or not server.get('ssh_allowed'):
         return access_rules.refuse_use('server')
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')

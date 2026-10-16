@@ -6,7 +6,6 @@ import json
 import pytest
 
 from tool_helpers import tool
-from access_helpers import with_access
 from test_function_tools import context, invoke
 
 ast_grep = tool('ast_grep')
@@ -93,11 +92,11 @@ def test_folder_scope_symlinks_disabled_access_and_project_config(context, tmp_p
     for path in (outside, code / 'escape.py'):
         assert 'outside' in asyncio.run(invoke(ast_grep, context, path=str(path), **args))
     assert 'absolute' in asyncio.run(invoke(ast_grep, context, path='ok.py', **args))
-    context['config']['code']['enabled'] = False
-    with_access(context['config'])  # code off at start: no code project in the run's access object
+    resources = context['config']['access']['resources']
+    kept = list(resources)
+    resources[:] = [item for item in kept if item['type'] != 'code_project']  # no code project in its access
     assert asyncio.run(invoke(ast_grep, context, path=str(code), **args)) == 'This run has no code projects.'
-    context['config']['code']['enabled'] = True
-    with_access(context['config'])
+    resources[:] = kept
 
 
 @pytest.mark.parametrize(

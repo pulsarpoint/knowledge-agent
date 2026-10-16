@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from access_helpers import give
-from knowledge_admin.knowledge_agents.config import get_agent_config
+from access_helpers import give, of
+from knowledge_admin.knowledge_agents.config import get_agent_config, load_items
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -42,8 +42,8 @@ def test_local_project_maps_multiple_folders_and_is_available_to_agents_and_serv
     with store.connect() as conn:
         give(conn, 'code', [('code_project', project_id)])
     config = get_agent_config('code', conninfo=store.conninfo)
-    assert config['code']['projects'][0]['folder_paths'] == [str(root / 'api'), str(root / 'shared')]
-    assert config['code']['projects'][0]['id'] == project_id
+    assert of(config, 'code_project')[0]['folder_paths'] == [str(root / 'api'), str(root / 'shared')]
+    assert of(config, 'code_project')[0]['id'] == project_id
     changed = client.put(
         f'/api/code-projects/{project_id}',
         headers=HEADERS,
@@ -66,7 +66,7 @@ def test_local_project_maps_multiple_folders_and_is_available_to_agents_and_serv
         json={**value, 'revision': row['revision'], 'folder_paths': ['api', 'shared/billing']},
     )
     assert changed.status_code == 200, changed.text
-    assert get_agent_config('code', conninfo=store.conninfo)['code']['projects'][0]['folder_paths'] == [
+    assert of(get_agent_config('code', conninfo=store.conninfo), 'code_project')[0]['folder_paths'] == [
         str(root / 'api'),
         str(root / 'shared/billing'),
     ]
@@ -247,12 +247,21 @@ def test_agent_code_config_contains_projects_folders_and_only_applicable_git_url
         'description': 'Shared source',
         'folder_paths': [str(root / 'api'), str(root / 'shared')],
     }
-    assert 'git' not in response.json()
-    assert response.json()['code'] == {'enabled': True, 'all_projects': False, 'projects': [local_config], 'graphs': []}
+    assert 'git' not in response.json() and 'code' not in response.json()
+    assert of(response.json(), 'code_project') == [
+        {
+            'type': 'code_project',
+            'id': local['id'],
+            'name': 'Local code',
+            'description_short': 'Shared source',
+            'folder_paths': [str(root / 'api'), str(root / 'shared')],
+        }
+    ]
     with store.connect() as conn:
         give(conn, 'code', [('code_project', local['id']), ('code_project', git['id'])])
-    config = client.get('/api/agents/code/config', headers=HEADERS).json()['code']
-    assert config['projects'] == [
+        project = store.project(conn, 'shop')
+        loaded = load_items(conn, project, {'code_project': [local['id'], git['id']]})['code_project']
+    assert [{**item, 'id': str(item['id'])} for item in loaded] == [
         {
             'id': git['id'],
             'name': 'Git code',
@@ -262,3 +271,5 @@ def test_agent_code_config_contains_projects_folders_and_only_applicable_git_url
         },
         local_config,
     ]
+    config = client.get('/api/agents/code/config', headers=HEADERS).json()
+    assert [item['id'] for item in of(config, 'code_project')] == [git['id'], local['id']]

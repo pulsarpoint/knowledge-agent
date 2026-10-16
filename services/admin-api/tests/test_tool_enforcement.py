@@ -3,6 +3,7 @@ Subagents host) and every tool of the run's MCP servers, whatever the agent's ol
 
 import asyncio
 
+from access_helpers import entry
 from agents import Runner
 from knowledge_admin.agents.runner import agent, get_prompt
 from knowledge_admin.tools.catalog import CATALOG
@@ -59,18 +60,15 @@ def test_every_run_offers_every_tool(config, responses_api, monkeypatch):
 
 def test_every_mcp_tool_reaches_the_model_and_the_prompt_has_no_tool_notes(config, responses_api):
     url, requests = responses_api
-    servers = [
+    config['access']['resources'] += [
         {
-            'id': name,
-            'name': name,
-            'description': 'Fixture',
-            'url': url.removesuffix('/v1') + '/mcp',
-            'enabled': True,
-            'bearer_token_ref': None,
+            **entry(
+                'mcp_server', name, name, url=url.removesuffix('/v1') + '/mcp', enabled=True, bearer_token_ref=None
+            ),
+            'source': 'given',
         }
         for name in ('docs-one', 'docs-two')
     ]
-    config['mcp'] = {'enabled': True, 'servers': servers}
     rows(config, {}, {'mcp:docs-one:lookup': ('off', None), 'mcp:docs-two:lookup': ('on', 'Ask for one page only.')})
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
     body = first_request(requests)

@@ -132,9 +132,9 @@ def _readable_documents(conn, config: dict[str, Any], documents: list[dict]) -> 
 
 
 def _server_extras(config: dict[str, Any], server_id: str) -> dict[str, Any]:
-    """What the run's configuration says about the server: its connection as pinned (the server's own username, port
+    """What the run's access entry says about the server: its connection as pinned (the server's own username, port
     and sudo)."""
-    entry = next((item for item in (config.get('ssh') or {}).get('servers', []) if str(item['id']) == server_id), {})
+    entry = access_rules.entry(config['access'], 'server', server_id) or {}
     return {key: entry[key] for key in ('port', 'username', 'allow_sudo') if key in entry}
 
 

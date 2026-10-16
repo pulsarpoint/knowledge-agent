@@ -8,7 +8,9 @@ from knowledge_llm.prompts import DEFAULT_PROMPTS
 
 from access_helpers import give
 
-from knowledge_admin.knowledge_agents.config import get_agent_config
+from fastapi.encoders import jsonable_encoder
+
+from knowledge_admin.knowledge_agents.config import get_agent_config, load_items
 from knowledge_admin.servers.operations_store import OperationsStore
 from test_api import _client
 from test_operations import configured
@@ -115,6 +117,16 @@ def saved_agent(store, tmp_path):
     return client, server, ssh, skill, mcp, repo, model
 
 
+def of(config, type_):
+    return [item for item in config['access']['resources'] if item['type'] == type_]
+
+
+def service_item(store, service_id):
+    """The service as the loader loads it (load_items: its repositories, deployments and dependencies)."""
+    with store.connect() as conn:
+        return jsonable_encoder(load_items(conn, store.project(conn, 'shop'), {'service': [service_id]}))['service'][0]
+
+
 def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     _, server, ssh, skill, mcp, repo, model = saved_agent
     config = get_agent_config('operations', conninfo=store.conninfo)
@@ -122,31 +134,51 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert config['system_prompt'] == {'content': DEFAULT_PROMPTS['operations']}
     assert config['instructions'] == 'Verify every change.'
     assert config['model']['provider'] == 'bedrock' and config['model']['aws_region'] == 'eu-west-1'
-    assert config['documents']['all_collections'] is False and 'folders' not in config['documents']
-    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [
-        ('payments', ['/work/data/payments'])
+    assert not {'code', 'documents', 'ssh', 'services', 'skills', 'mcp', 'document_access'} & set(config)
+    assert [(c['name'], c['paths'], c['description_short']) for c in of(config, 'collection')] == [
+        ('payments', ['/work/data/payments'], 'Description of payments')
     ]
-    assert config['documents']['collections'][0]['description'] == 'Description of payments'
-    assert [r['id'] for r in config['code']['projects']] == [repo['id']]
-    assert config['code']['projects'][0] == {
-        'id': repo['id'],
-        'name': 'Payments',
-        'description': '',
-        'folder_paths': ['/work/code/managed/payments'],
-        'remote_git_url': 'https://github.com/example/payments.git',
+    assert of(config, 'code_project') == [
+        {
+            'type': 'code_project',
+            'id': repo['id'],
+            'name': 'Payments',
+            'description_short': '',
+            'folder_paths': ['/work/code/managed/payments'],
+        }
+    ]
+    [found] = of(config, 'skill')
+    assert (found['id'], found['description']) == (skill['id'], 'Inspect service health')
+    assert 'instructions' not in found  # load_skill reads them
+    [tools] = of(config, 'mcp_server')
+    assert set(tools) == {'type', 'id', 'name', 'description_short', 'url', 'enabled', 'bearer_token_ref'}
+    [service] = of(config, 'service')
+    assert service['description_short'] == 'Check the queue.' and set(service) == {
+        'type',
+        'id',
+        'name',
+        'description_short',
     }
-    assert config['skills']['items'][0]['id'] == skill['id']
-    assert config['skills']['items'][0]['description'] == 'Inspect service health'
-    assert 'instructions' not in config['skills']['items'][0]  # load_skill reads them
-    assert config['mcp']['servers'][0]['tools'] == [{'name': 'lookup'}]
-    assert config['services']['items'][0]['description'] == 'Check the queue.'
-    assert 'operations_notes' not in config['services']['items'][0]
-    assert config['services']['items'][0]['repositories'][0]['id'] != repo['id']
-    assert config['services']['items'][0]['repositories'][0]['checkout_path'] == '/work/code/managed/unselected'
-    assert config['services']['items'][0]['deployments'][0]['log_location'] == '/var/log/payments/app.log'
-    host = config['ssh']['servers'][0]
+    loaded = service_item(store, service['id'])  # the loader's service, for get_resource-like readers
+    assert 'operations_notes' not in loaded and loaded['repositories'][0]['id'] != repo['id']
+    assert loaded['repositories'][0]['checkout_path'] == '/work/code/managed/unselected'
+    assert loaded['deployments'][0]['log_location'] == '/var/log/payments/app.log'
+    [host] = of(config, 'server')
     assert host['id'] == server['id'] and host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
-    assert not {'instructions', 'skills', 'mcp_servers', 'connection_source'} & set(host)  # no per-server settings
+    assert set(host) == {
+        'type',
+        'id',
+        'name',
+        'description_short',
+        'hostname',
+        'port',
+        'username',
+        'allow_sudo',
+        'known_hosts',
+        'enabled',
+        'ssh_allowed',
+        'private_key_ref',
+    }  # no per-server settings
     # The returned references locate and decrypt exactly the saved credentials.
     with store.connect() as conn:
         for reference, query, expected in [
@@ -161,7 +193,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
                 'test-model-secret',
             ),
             (
-                config['mcp']['servers'][0]['bearer_token_ref'],
+                tools['bearer_token_ref'],
                 'SELECT token_ciphertext AS secret FROM ka.mcp_servers WHERE id=%s',
                 'test-mcp-secret',
             ),
@@ -174,7 +206,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     for excluded in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret'):
         assert excluded not in serialized
     assert config['model']['api_key_ref']['id'] == model['id']
-    assert config['mcp']['servers'][0]['bearer_token_ref']['id'] == mcp['id']
+    assert tools['bearer_token_ref']['id'] == mcp['id']
 
 
 def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_agent, monkeypatch):
@@ -202,7 +234,7 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
 def test_a_server_uses_its_own_ssh_settings(store, saved_agent):
     """Phase 2: references only; there are no per-agent connections or per-server overrides."""
     _, _, ssh, *_ = saved_agent
-    host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
+    [host] = of(get_agent_config('operations', conninfo=store.conninfo), 'server')
     assert host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
     with store.connect() as conn:
         encrypted = bytes(
@@ -216,7 +248,8 @@ def test_a_server_uses_its_own_ssh_settings(store, saved_agent):
 
 def test_missing_items_are_skipped_and_switched_off_ones_stay_listed(store, saved_agent):
     """The access object decides: an archived code project and a deleted collection it references are skipped; a
-    server, skill or MCP server switched off stays listed as it is."""
+    server switched off stays listed as it is; a skill or an MCP server switched off is not held (a run never gets
+    it)."""
     _, server, _, skill, mcp, repo, _ = saved_agent
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET enabled=false WHERE id='operations'")
@@ -227,18 +260,16 @@ def test_missing_items_are_skipped_and_switched_off_ones_stay_listed(store, save
         conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert not config['enabled']
-    assert config['code'] == {'enabled': False, 'all_projects': False, 'projects': [], 'graphs': []}
-    assert not config['documents']['enabled'] and config['documents']['collections'] == []
-    assert config['services']['enabled'] and len(config['services']['items']) == 1
-    assert config['ssh']['enabled'] and not config['ssh']['servers'][0]['ssh_allowed']
-    assert not config['skills']['items'][0]['enabled'] and not config['mcp']['servers'][0]['enabled']
+    assert of(config, 'code_project') == of(config, 'collection') == []
+    assert len(of(config, 'service')) == 1
+    assert [item['ssh_allowed'] for item in of(config, 'server')] == [False]
+    assert of(config, 'skill') == of(config, 'mcp_server') == []
 
 
 def test_an_agent_without_access_has_nothing(store, saved_agent):
     client = saved_agent[0]
     other = create(client, 'Other agent')
     isolated = get_agent_config(other['id'], conninfo=store.conninfo)
-    assert isolated['ssh']['servers'] == isolated['mcp']['servers'] == isolated['skills']['items'] == []
     assert isolated['access'] == {'resources': [], 'roles': {'content_editor': False}}
 
 
@@ -251,9 +282,8 @@ def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(
     config = get_agent_config('operations', conninfo=store.conninfo)
     monkeypatch.chdir(tmp_path)
     assert get_agent_config('operations', conninfo=store.conninfo) == config
-    assert config['code']['projects'][0]['folder_paths'] == ['/agent/source/managed/payments']
-    assert config['documents']['collections'][0]['paths'] == ['/agent/documents/payments']
-    assert config['services']['items'][0]['repositories'][0]['checkout_path'] == '/agent/source/managed/unselected'
+    assert of(config, 'code_project')[0]['folder_paths'] == ['/agent/source/managed/payments']
+    assert of(config, 'collection')[0]['paths'] == ['/agent/documents/payments']
     with store.connect() as conn:
         assert conn.execute('SELECT path FROM ka.code_project_folders').fetchone()['path'] == 'managed/payments'
         assert (
@@ -285,7 +315,7 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
     assert config['name'] == 'Independent agent' and config['model'] is None
     assert config['system_prompt']['content'] == 'Instructions for Independent agent.'
     assert config['settings_revision'] is None and config['instructions'] == ''
-    assert config['ssh']['servers'] == config['code']['projects'] == config['skills']['items'] == []
+    assert config['access']['resources'] == []
     for missing in (agent['name'], "' OR true --"):
         with pytest.raises(LookupError):
             get_agent_config(missing)
@@ -293,7 +323,8 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
 
 def test_agent_service_context_includes_dependency_directions(store, saved_agent):
     client = saved_agent[0]
-    service = get_agent_config('operations', conninfo=store.conninfo)['services']['items'][0]
+    [entry] = of(get_agent_config('operations', conninfo=store.conninfo), 'service')
+    service = service_item(store, entry['id'])
     dependency = client.post('/api/services', headers=HEADERS, json={'name': 'PostgreSQL'}).json()
     response = client.put(
         '/api/services/' + service['id'],
@@ -305,7 +336,7 @@ def test_agent_service_context_includes_dependency_directions(store, saved_agent
         },
     )
     assert response.status_code == 200, response.text
-    current = get_agent_config('operations', conninfo=store.conninfo)['services']['items'][0]
+    current = service_item(store, entry['id'])
     assert current['dependencies'] == [
         {'service_id': dependency['id'], 'name': 'PostgreSQL', 'description': 'Stores payment history'}
     ]

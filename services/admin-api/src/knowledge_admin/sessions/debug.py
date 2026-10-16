@@ -63,7 +63,8 @@ def view(
         'prompt_source': 'wizard' if wizard else 'library',
         'agent_instructions': redact(config['instructions'], secrets),
         'skills': [{'name': item['name']} for item in access_rules.listing(config['access'], 'skill')],
-        'access': config['access'],  # what the run may use: resources with their source, and roles
+        # what the run may use: resources with their source (never their connections: access.listing), and roles
+        'access': {**config['access'], 'resources': access_rules.listing(config['access'])},
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,
         'notes': config.get('start_notes', []),  # what the start left out, and why
     }

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import threading
+from access_helpers import of
 from types import SimpleNamespace
 
 import pytest
@@ -510,13 +511,13 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(per
     given = {**NO_RESOURCES, 'code_project_ids': [s.repo], 'server_ids': [s.host['id']]}
     config, credentials = load(s.store, project, entry, given)
     assert config['experts'] == [] and 'record' not in config
-    assert [p['name'] for p in config['code']['projects']] == ['Payments API']
-    assert config['documents']['collections'] == []  # its sections hold only what its access object holds
+    assert [p['name'] for p in of(config, 'code_project')] == ['Payments API']
+    assert of(config, 'collection') == []  # its access object holds only what it was given
     # its access object, built as a run start builds it: what it was given, no content editor
     given_access = [(e['type'], e['id'], e['source']) for e in config['access']['resources'] if e['source'] == 'given']
     assert given_access == [('code_project', s.repo, 'given'), ('server', s.host['id'], 'given')]
     assert config['access']['roles'] == {'content_editor': False}
-    key_id = config['ssh']['servers'][0]['private_key_ref']['id']
+    key_id = of(config, 'server')[0]['private_key_ref']['id']
     assert credentials[key_id] == s.key['private_key']  # its own SSH key, decrypted for this call
     whole, _ = load(s.store, project, entry, None)  # nothing given: everything it has
     assert [(e['type'], e['source'].split()[0]) for e in whole['access']['resources']] == [

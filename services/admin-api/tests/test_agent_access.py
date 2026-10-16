@@ -5,7 +5,8 @@ more); handlers and experts use it."""
 from pathlib import Path
 from uuid import uuid4
 
-from access_helpers import give
+from access_helpers import give, of
+from knowledge_admin.access import listing
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.events import processor as event_processor
 from knowledge_admin.knowledge_agents import experts
@@ -39,8 +40,10 @@ def start(world, agent_id: str, **body):
 
 
 def stored_access(world, session_id) -> dict:
+    """The run's access object as get_available_resources and the Debug tab show it (no connections)."""
     with world.store.connect() as conn:
-        return conn.execute('SELECT access FROM ka.agent_sessions WHERE id=%s', (session_id,)).fetchone()['access']
+        access = conn.execute('SELECT access FROM ka.agent_sessions WHERE id=%s', (session_id,)).fetchone()['access']
+    return {**access, 'resources': listing(access)}
 
 
 def entry(type_: str, id_, name: str, description: str, source: str = 'given', **extra) -> dict:
@@ -171,8 +174,14 @@ def test_a_saved_agent_run_is_given_its_whole_access_with_children(world):
         conn.execute("UPDATE ka.agents SET instructions='Look at nginx.' WHERE id=%s", (agent,))
     config = get_agent_config(agent, conninfo=w.store.conninfo)
     assert config['instructions'] == 'Look at nginx.'
-    assert [item['id'] for item in config['services']['items']] == [str(w.nginx)] and config['services']['enabled']
-    assert config['access']['resources'][0] == {'type': 'service', 'id': str(w.nginx)}
+    assert of(config, 'service') == [
+        {
+            'type': 'service',
+            'id': str(w.nginx),
+            'name': 'nginx',
+            'description_short': 'Front proxy for the shop',
+        }
+    ]
     response = start(w, agent)
     assert response.status_code == 201, response.text
     assert stored_access(w, response.json()['id']) == {
@@ -192,7 +201,7 @@ def test_a_saved_agent_run_is_given_its_whole_access_with_children(world):
         entry('code_project', w.shop, 'Shop', '', via, folder_paths=[]),
         entry('server', w.server['id'], 'web-1', 'Shop front end', via),
     ]
-    assert [item['id'] for item in session['config']['services']['items']] == [str(w.nginx)]
+    assert [item['id'] for item in of(session['config'], 'service')] == [str(w.nginx)]
 
 
 def test_a_pick_outside_the_agents_access_is_refused_with_the_narrowing_text(world):
@@ -270,9 +279,9 @@ def test_an_environment_brings_its_services_and_servers_although_the_agent_holds
         entry('server', w.server['id'], 'web-1', 'Shop front end', via),
         entry('code_project', w.shop, 'Shop', '', f'via service {w.nginx}', folder_paths=[]),
     ]
-    assert [item['id'] for item in config['services']['items']] == [str(w.nginx)]  # loaded for the tools
-    assert [item['id'] for item in config['ssh']['servers']] == [w.server['id']]
-    assert config['access'] == stored_access(w, response.json()['id'])
+    [server] = of(config, 'server')  # loaded for the tools: its connection
+    assert server['id'] == w.server['id'] and server['hostname'] == '10.0.0.7'
+    assert {**config['access'], 'resources': listing(config['access'])} == stored_access(w, response.json()['id'])
     picked = start(w, agent, resources={'service_ids': [str(w.nginx)]})  # a child is not the agent's to pick
     assert picked.status_code == 400
     assert picked.json()['error']['message'] == f"service {w.nginx} is not in the agent's access"
@@ -301,8 +310,7 @@ def test_a_deleted_resource_in_the_access_is_skipped(world):
         [offered] = [item for item in experts.offered(conn, None) if item['id'] == agent]
     assert offered['accepts'] == ['service_ids']  # a missing reference is not counted
     config = get_agent_config(agent, conninfo=w.store.conninfo)
-    assert config['code'] == {'enabled': False, 'all_projects': False, 'projects': [], 'graphs': []}
-    assert not config['ssh']['enabled'] and not config['documents']['enabled']
+    assert [item['id'] for item in config['access']['resources']] == [str(w.nginx)]
     response = start(w, agent)
     assert response.status_code == 201, response.text
     given = [item['id'] for item in stored_access(w, response.json()['id'])['resources'] if item['source'] == 'given']

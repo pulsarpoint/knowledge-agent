@@ -1,30 +1,27 @@
-"""Tests that build a run configuration by hand give it the access object run start would: every resource its
-sections list (sessions.run_access.config_resources), all given; a partial configuration (document tests) its
-documents."""
+"""Tests that build a run configuration by hand give it an access object of explicit entries (as run start builds
+them: knowledge_agents.config.resource_entries), all given."""
 
 from typing import Any
 
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.sessions.run_access import config_resources, document_entry
 
-SECTIONS = ('ssh', 'services', 'code', 'documents', 'skills', 'mcp')
+def entry(type_: str, id_, name: str = '', **extra) -> dict[str, Any]:
+    """One access entry: {type, id, name, description_short: '', **extra} (a server its connection, a code project
+    its folder_paths, ...)."""
+    return {'type': type_, 'id': str(id_), 'name': name, 'description_short': '', **extra}
 
 
-def access_of(config: dict[str, Any], content_editor: bool = False) -> dict[str, Any]:
-    if all(key in config for key in SECTIONS):
-        entries = config_resources(config)
-    else:
-        entries = [document_entry(config, item) for item in config.get('document_access') or []]
+def access_of(entries=(), content_editor: bool = False) -> dict[str, Any]:
     return {
-        'resources': [{**entry, 'source': 'given'} for entry in entries],
+        'resources': [{**item, 'source': 'given'} for item in entries],
         'roles': {'content_editor': content_editor},
     }
 
 
-def with_access(config: dict[str, Any], content_editor: bool = False) -> dict[str, Any]:
-    """The configuration with its access object (set in place, and returned)."""
-    config['access'] = access_of(config, content_editor)
+def with_access(config: dict[str, Any], entries=(), content_editor: bool = False) -> dict[str, Any]:
+    """The configuration with an access object of these entries (set in place, and returned)."""
+    config['access'] = access_of(entries, content_editor)
     return config
 
 
@@ -38,3 +35,8 @@ def give(conn, agent_id: str, resources: list, content_editor: bool = False) -> 
         'UPDATE ka.agents SET access=%s WHERE id=%s',
         (Jsonb({'resources': entries, 'roles': {'content_editor': content_editor}}), agent_id),
     )
+
+
+def of(config: dict[str, Any], type_: str) -> list[dict[str, Any]]:
+    """The entries of one type in a configuration's access object."""
+    return [item for item in config['access']['resources'] if item['type'] == type_]

@@ -5,7 +5,7 @@ import json
 
 import httpx
 import pytest
-from access_helpers import with_access
+from access_helpers import entry, with_access
 from agents.tool_context import ToolContext
 from knowledge_admin.agents.runner import document_paths, get_prompt
 from knowledge_admin.capabilities import documents
@@ -43,28 +43,26 @@ def rag(monkeypatch):
     return calls, state
 
 
-def config(**documents_settings):
-    base = {
-        'enabled': True,
-        'grounded': True,
-        'all_collections': False,
-        'collections': [{'id': '1', 'name': 'payments', 'description': '', 'path': '/work/rag-data/payments'}],
-    }
+PAYMENTS = [{'id': '1', 'name': 'payments', 'description': '', 'path': '/work/rag-data/payments'}]
+
+
+def config(grounded=True, collections=PAYMENTS):
+    """A documents agent's run: its access holds these collections ({id, name, path or paths})."""
     value = {
         'enabled': True,
         'name': 'Docs',
         'description': '',
         'instructions': '',
         'system_prompt': {'content': 'Answer questions.'},
-        'documents': {**base, **documents_settings},
-        'code': {'enabled': False, 'projects': []},
-        'skills': {'enabled': False, 'items': []},
-        'services': {'enabled': False, 'items': []},
-        'ssh': {'enabled': False, 'servers': []},
-        'mcp': {'enabled': False, 'servers': []},
-        'access': {'resources': [], 'roles': {'content_editor': False}},
+        'grounded': grounded,
     }
-    return value
+    entries = [
+        entry(
+            'collection', item['id'], item['name'], paths=item.get('paths', [item['path']] if item.get('path') else [])
+        )
+        for item in collections
+    ]
+    return with_access(value, entries)
 
 
 def invoke(tool, context, **arguments):
@@ -74,7 +72,7 @@ def invoke(tool, context, **arguments):
 
 
 def run_context(cfg):
-    return {'config': with_access(cfg), 'credentials': {}, 'workspace': None}
+    return {'config': cfg, 'credentials': {}, 'workspace': None}
 
 
 def test_search_numbers_excerpts_and_limits_collections(rag):
@@ -129,29 +127,6 @@ def test_collection_argument_narrows_to_one_granted_collection(rag):
     )
     invoke(search_documents, context, query='x', collection='jira')
     assert json.loads(calls[-1].content)['collections'] == ['jira']
-
-
-def test_all_collections_searches_the_collections_the_run_lists(rag):
-    """ "All collections" is resolved into the list when the configuration loads; the run searches that list."""
-    calls, _ = rag
-    invoke(search_documents, run_context(config(all_collections=True)), query='x')
-    assert json.loads(calls[-1].content)['collections'] == ['payments']
-    refused = invoke(search_documents, run_context(config(all_collections=True)), query='x', collection='any')
-    assert refused == 'This collection is not available in this run.' and len(calls) == 2
-
-
-def test_a_legacy_folder_config_has_no_collections(rag):
-    calls, _ = rag
-    legacy = config()
-    legacy['documents'] = {
-        'enabled': True,
-        'grounded': True,
-        'all_folders': False,
-        'folders': [{'path': '/work/rag-data/demo/payments', 'search_folder': 'demo.payments'}],
-    }
-    # folder-era collections carry no id: they are not in the run's access object
-    assert invoke(search_documents, run_context(legacy), query='x') == 'This run has no collections.'
-    assert calls == []
 
 
 def test_rag_failure_is_reported_to_model_and_not_counted(rag):
@@ -260,10 +235,10 @@ def test_document_paths_skips_document_collections_for_grounded_agents():
     ]
 
 
-def test_document_paths_treats_legacy_config_without_grounded_as_ungrounded():
-    legacy = config()
-    del legacy['documents']['grounded']
-    assert [str(path) for path in document_paths(legacy)] == ['/work/rag-data/payments']
+def test_document_paths_treats_a_config_without_grounded_as_ungrounded():
+    plain = config()
+    del plain['grounded']
+    assert [str(path) for path in document_paths(plain)] == ['/work/rag-data/payments']
 
 
 def test_read_document_passes_full_path(rag):

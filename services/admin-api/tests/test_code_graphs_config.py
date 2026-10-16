@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -15,11 +16,11 @@ import pytest
 
 from knowledge_admin.code_projects import processing as code_processing
 from knowledge_admin.capabilities import code_graph
-from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve
+from knowledge_admin.knowledge_agents.config import get_agent_config, load_graphs
+from knowledge_admin.sessions.run_access import agent_access
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_function_tools import context, invoke  # noqa: F401  (fixture)
-from access_helpers import give, with_access
+from access_helpers import give, of
 from tool_helpers import tool
 
 GRAPH = {
@@ -42,13 +43,16 @@ def test_projects_with_a_current_graph_are_listed(store, saved_agent, graphs):
     repo = saved_agent[5]
     graphs[repo['id']] = {'id': repo['id'], **GRAPH}
     config = get_agent_config('operations', conninfo=store.conninfo)
-    assert config['code']['graphs'] == [{'id': repo['id'], **GRAPH}]
+    assert [(p['id'], p['graph_path'], p['code_root']) for p in of(config, 'code_project')] == [
+        (repo['id'], GRAPH['graph_path'], GRAPH['code_root'])
+    ]
     graphs[repo['id']] = None
-    assert get_agent_config('operations', conninfo=store.conninfo)['code']['graphs'] == []
+    [project] = of(get_agent_config('operations', conninfo=store.conninfo), 'code_project')
+    assert 'graph_path' not in project
     with store.connect() as conn:
         give(conn, 'operations', [])
     graphs[repo['id']] = {'id': repo['id'], **GRAPH}
-    assert get_agent_config('operations', conninfo=store.conninfo)['code']['graphs'] == []
+    assert of(get_agent_config('operations', conninfo=store.conninfo), 'code_project') == []
 
 
 def test_a_run_gets_only_the_graphs_of_its_code_projects(store, saved_agent, graphs):
@@ -70,10 +74,12 @@ def test_a_run_gets_only_the_graphs_of_its_code_projects(store, saved_agent, gra
     config = get_agent_config('operations', conninfo=store.conninfo)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        only_other = resolve(conn, project, config, RunResources(code_project_ids=[UUID(other)]))
-        nothing = resolve(conn, project, config, RunResources())
-    assert [graph['id'] for graph in only_other['code']['graphs']] == [other]
-    assert nothing['code']['graphs'] == []
+        only_other = agent_access(conn, project, config, [{'type': 'code_project', 'id': other}], content_editor=False)
+        nothing = agent_access(conn, project, config, [], content_editor=False)
+    assert [(p['id'], p['graph_path']) for p in of({'access': only_other}, 'code_project')] == [
+        (other, GRAPH['graph_path'])
+    ]
+    assert of({'access': nothing}, 'code_project') == []
 
 
 HASH = 'a' * 64
@@ -207,8 +213,8 @@ def test_loading_a_config_reads_no_source_files(store, saved_agent, tmp_path, mo
         give(conn, 'operations', projects)
     write_graph(tmp_path / 'indexes', repo['id'], ['managed/payments'])
     config = get_agent_config('operations', conninfo=store.conninfo)
-    assert len(config['code']['graphs']) == 21
-    assert repo['id'] in [graph['id'] for graph in config['code']['graphs']]
+    with_graph = [project['id'] for project in of(config, 'code_project') if 'graph_path' in project]
+    assert len(with_graph) == 21 and repo['id'] in with_graph
 
 
 def test_loader_reads_sync_time(store, saved_agent, tmp_path, monkeypatch):
@@ -217,8 +223,9 @@ def test_loader_reads_sync_time(store, saved_agent, tmp_path, monkeypatch):
     write_graph(tmp_path / 'indexes', repo['id'], ['managed/payments'])
     with store.connect() as conn:
         conn.execute("UPDATE ka.repositories SET synced_at='2026-10-02T00:00:00Z' WHERE id=%s", (UUID(repo['id']),))
-    config = get_agent_config('operations', conninfo=store.conninfo)
-    assert [graph['note'] for graph in config['code']['graphs']] == [code_graph.SYNCED_AFTER]
+    with store.connect() as conn:  # the code_graph tool loads the graph when it runs
+        graphs = load_graphs(conn, store.project(conn, 'shop'), [repo['id']])
+    assert [graph['note'] for graph in graphs] == [code_graph.SYNCED_AFTER]
 
 
 def test_a_generated_graph_answers_code_queries_end_to_end(context, tmp_path, monkeypatch):
@@ -253,9 +260,9 @@ def test_a_generated_graph_answers_code_queries_end_to_end(context, tmp_path, mo
     shutil.copyfile(root / '.codegraph/codegraph.db', directory / HASH / 'graph.sqlite')
     shutil.rmtree(root / '.codegraph')
     graph = code_graph.current_graph(project)
-    context['config']['code']['graphs'] = [graph]
-    context['config']['code']['projects'][0]['id'] = project['id']  # the graph's code project, in the run's access
-    with_access(context['config'])
+    of(context['config'], 'code_project')[0]['id'] = project['id']  # the graph's code project, in the run's access
+    monkeypatch.setattr(code_graph, 'load_graphs', lambda conn, _, ids: [graph] if project['id'] in ids else [])
+    monkeypatch.setattr(code_graph, 'connect', nullcontext)
     query = tool('code_graph')
     search = json.loads(asyncio.run(invoke(query, context, project_id=project['id'], action='search', query='Handle')))
     node_id = search['entries'][0]['id']

@@ -62,6 +62,24 @@ def pin_services(conn, project_id, config: dict[str, Any], service_ids: list[str
     }
 
 
+def take_sections(config: dict[str, Any]) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    """Remove the resource sections the ad-hoc configuration is narrowed in (no pinned configuration keeps them: its
+    access object describes what the run may use) and return their items by access type (servers, services, code
+    projects and collections of the enabled sections) and the code projects' graphs."""
+    sections = {key: config.pop(key) for key in ('code', 'documents', 'ssh', 'services', 'skills', 'mcp')}
+
+    def listed(section: str, key: str) -> list[dict[str, Any]]:
+        return list(sections[section][key]) if sections[section]['enabled'] else []
+
+    items = {
+        'server': listed('ssh', 'servers'),
+        'service': listed('services', 'items'),
+        'code_project': listed('code', 'projects'),
+        'collection': listed('documents', 'collections'),
+    }
+    return items, list(sections['code'].get('graphs', []))
+
+
 def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) -> dict[str, Any]:
     """Everything allowed, before the run's selection narrows it."""
     return jsonable_encoder(
@@ -76,7 +94,8 @@ def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) 
             'system_prompt': {'content': system_prompt},
             'instructions': '',
             'settings_revision': None,
-            'documents': {'enabled': True, 'grounded': False, 'all_collections': True, 'collections': []},
+            'grounded': False,
+            'documents': {'enabled': True, 'all_collections': True, 'collections': []},
             'code': {'enabled': True, 'all_projects': True, 'projects': [], 'graphs': []},
             'skills': {'enabled': False, 'items': []},
             'mcp': {'enabled': False, 'servers': []},
