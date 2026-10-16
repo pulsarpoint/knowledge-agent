@@ -16,6 +16,14 @@ from test_repositories import HEADERS
 code_graph = tool('code_graph')
 
 
+def project_access(project: dict) -> dict:
+    """The run's access object holding the code project, as run start would give it."""
+    return {
+        'resources': [{'type': 'code_project', 'id': project['id'], 'source': 'given'}],
+        'roles': {'content_editor': False},
+    }
+
+
 def test_go_module_root_resolves_package_function_instead_of_same_named_method(tmp_path, monkeypatch):
     root = tmp_path / 'code'
     app = root / 'app'
@@ -40,7 +48,14 @@ func (c *Ctrl) Read() {}
     assert process_code(project)['reused']
     assert load_code_graph_hashing(project, graph['source_hash'])['code_root'] == str(app)
     context = ToolContext(
-        {'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [graph]}}, 'credentials': {}},
+        {
+            'config': {
+                'enabled': True,
+                'code': {'enabled': True, 'graphs': [graph]},
+                'access': project_access(project),
+            },
+            'credentials': {},
+        },
         tool_name='code_graph',
         tool_call_id='test',
         tool_arguments='{}',
@@ -119,7 +134,14 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     assert process_code(project)['reused'] is True
     assert (mirror / 'app/main.py').stat().st_mtime_ns == before
     context = ToolContext(
-        {'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [first]}}, 'credentials': {}},
+        {
+            'config': {
+                'enabled': True,
+                'code': {'enabled': True, 'graphs': [first]},
+                'access': project_access(project),
+            },
+            'credentials': {},
+        },
         tool_name='code_graph',
         tool_call_id='test',
         tool_arguments='{}',
@@ -136,7 +158,7 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     assert page['next_offset'] == 1
     assert not asyncio.run(query(action='search', offset=1000))['entries']
     denied = asyncio.run(code_graph.on_invoke_tool(context, json.dumps({'project_id': str(uuid4())})))
-    assert 'Choose a configured' in denied
+    assert denied == 'This code project is not available in this run.'
     # Detect actual content changes even when the source size and mtime are preserved.
     original_stat = (app / 'main.py').stat()
     (app / 'main.py').write_text('def store_value():\n    return 2\n\ndef handle():\n    return store_value()\n')
