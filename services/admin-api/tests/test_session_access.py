@@ -4,6 +4,7 @@ carries the resource block."""
 
 from pathlib import Path
 
+import pytest
 from psycopg.types.json import Jsonb
 
 from access_helpers import give, of
@@ -259,28 +260,31 @@ def shape(access: dict) -> list[tuple[str, str, str]]:
     return [(item['type'], item['id'], item['source']) for item in access['resources']]
 
 
-def test_an_ad_hoc_run_and_a_saved_agent_run_are_built_alike(world):
-    """One way to build a run: an environment given to a saved agent's run brings what an environment chat's does,
-    with the same sources; a brought server without a usable SSH connection is left out of both."""
+@pytest.mark.parametrize('kind', ['environment', 'service', 'server'])
+def test_an_ad_hoc_run_and_a_saved_agent_run_are_built_alike(world, kind):
+    """One way to build a run: an environment, a service or a server given to a saved agent's run brings what a chat
+    on it brings, with the same sources; a brought server is held by both, with or without a usable SSH connection
+    (a server chat needs SSH to its server)."""
     from access_helpers import give
     from test_generations import native_agent
 
-    agent = native_agent(world.client, 'Environment agent', model_id=world.model)
+    resource = {'environment': world.environment, 'service': world.nginx, 'server': world.server['id']}[kind]
+    agent = native_agent(world.client, 'Resource agent', model_id=world.model)
     with world.store.connect() as conn:
-        give(conn, agent, [('environment', world.environment)])
+        give(conn, agent, [(kind, resource)])
 
     def saved() -> dict:
-        body = {'agent_id': agent, 'message': 'Hi', 'resources': {'environment_ids': [str(world.environment)]}}
+        body = {'agent_id': agent, 'message': 'Hi', 'resources': {f'{kind}_ids': [str(resource)]}}
         response = world.client.post('/api/sessions', headers=HEADERS, json=body)
         assert response.status_code == 201, response.text
         return response.json()['config']['access']
 
-    for ready in (False, True):
+    for ready in (False, True) if kind != 'server' else (True,):
         if ready:
             ssh_ready(world)
-        ad_hoc, _ = stored(world.store, start(world, {'environment_id': str(world.environment)}))
+        ad_hoc, _ = stored(world.store, start(world, {f'{kind}_id': str(resource)}))
         assert shape(saved()) == shape(ad_hoc)
-        assert (('server', world.server['id'], f'via environment {world.environment}') in shape(ad_hoc)) is ready
+        assert ('server', world.server['id']) in [(type_, id_) for type_, id_, _ in shape(ad_hoc)]
 
 
 def test_the_session_detail_returns_what_the_run_was_given(world):

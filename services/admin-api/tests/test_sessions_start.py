@@ -2,6 +2,9 @@
 refusals, the audit, and the runs going with their document."""
 
 from access_helpers import entry, of
+from knowledge_admin.agents.runner import get_ssh, load_credentials, ssh_servers
+from knowledge_admin.knowledge_agents.config import credential_references
+from test_discovery_runs import call
 from uuid import uuid4
 
 from test_sessions_world import ask, keyless, post  # noqa: F401  (fixtures)
@@ -97,13 +100,20 @@ def test_deleting_the_document_deletes_its_runs(ask):
     assert ask.s.client.get(f'/api/sessions/{session["id"]}', headers=HEADERS).status_code == 404
 
 
-def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless):
+def test_a_server_without_a_key_brought_by_a_service_is_listed_and_never_fails_a_turn(ask, keyless):
+    """bare-1 is enabled and allows SSH but has no key: the run holds it (listed, read) and SSH skips it."""
     change = {'resources': {'service_ids': [keyless.service]}}
     for path in ('/preview', ''):
         response = post(ask, path, **change)
         assert response.status_code in (200, 201), response.text
         config = response.json()['config']
-        assert of(config, 'server') == []
+        [server] = of(config, 'server')
+        assert (server['id'], server['source']) == (keyless.server['id'], f'via service {keyless.service}')
+    assert ssh_servers(config) == [] and credential_references(config) == [config['model']['api_key_ref']]
+    credentials = load_credentials(ask.s.store, config)  # the turn's setup does not fail
+    assert get_ssh(config, credentials) == []
+    refused = call(config, 'ssh_run', server_id=keyless.server['id'], command='uptime')
+    assert refused == 'SSH is not set up for this server.'
 
 
 def test_options_say_what_each_service_and_environment_brings(ask, keyless):

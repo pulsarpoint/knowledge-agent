@@ -51,6 +51,20 @@ def entry(access: dict, type: str, id: str) -> dict | None:
     return None
 
 
+SSH_NOT_SET_UP = 'SSH is not set up for this server.'
+SSH_NOT_ALLOWED = 'SSH is not allowed for this server.'
+
+
+def ssh_reason(server: dict) -> str | None:
+    """Why the run cannot use this server entry over SSH, as a run start says it; None when it is connected (enabled,
+    SSH allowed and a key). A server stays in the run's access either way: it is listed and read."""
+    if not server.get('enabled') or not server.get('private_key_ref'):
+        return SSH_NOT_SET_UP
+    if not server.get('ssh_allowed'):
+        return SSH_NOT_ALLOWED
+    return None
+
+
 def is_content_editor(access: dict) -> bool:
     return bool(access.get('roles', {}).get('content_editor'))
 

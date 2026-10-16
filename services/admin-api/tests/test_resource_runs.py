@@ -3,6 +3,7 @@
 the proposal tools work only when the request asks for the content editor role (the Propose wizard)."""
 
 from access_helpers import ids, of
+from knowledge_admin.agents.runner import ssh_servers
 from uuid import uuid4
 
 import pytest
@@ -48,7 +49,8 @@ def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_co
     assert pinned['started_from'] == {'type': 'service', 'id': str(world.nginx), 'name': 'nginx'}
     assert created.json()['given_resources'] == [{'type': 'service', 'id': str(world.nginx)}]
     assert ids(pinned, 'code_project') == [str(world.shop)]
-    assert of(pinned, 'server') == []  # nothing it brings is reachable
+    assert ids(pinned, 'server') == [world.server['id']]  # held and read, SSH skips it until it has a key
+    assert ssh_servers(pinned) == []
     assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the service
     assert pinned['access']['roles']['content_editor'] is False
     ssh_ready(world)

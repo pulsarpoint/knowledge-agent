@@ -79,7 +79,9 @@ servers that are switched off. Agents are granted whole RAG collections; there a
 configuration has no per-kind sections either: a run's access object is the agent's narrowed to what it was given,
 with the direct children of that (its code projects and servers, its deployed services, its services and servers). An
 ad-hoc run (no agents row) holds what it was picked, each checked and loaded, and is built the same way
-(`sessions/run_access.run_access`); a brought server it cannot connect to is left out.
+(`sessions/run_access.run_access`). A server in a run's access, given or brought, stays there even when the run
+cannot connect to it (listed by `get_available_resources`, read by `get_resource`); only a connected one (enabled, SSH
+allowed, a key: `access.ssh_reason`) gets its SSH credential, and `ssh_run` refuses the others with the server's reason.
 
 - A code project carries absolute `folder_paths` under `CODE_ROOT` and, when it has a generated graph, `graph_path`
   and `code_root`.

@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 
 from access_helpers import of
-from knowledge_admin.agents.runner import load_credentials
+from knowledge_admin.agents.runner import load_credentials, ssh_servers
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
 from test_discovery_runs import ssh_ready
 from test_generations import sessions  # noqa: F401  (fixture)
@@ -76,12 +76,13 @@ def test_an_environment_brings_its_services_code_and_servers(sessions):
     }
 
 
-def test_a_brought_server_without_a_connection_is_left_out_but_a_chosen_one_is_refused(sessions):
+def test_a_brought_server_without_a_connection_is_held_but_a_chosen_one_is_refused(sessions):
     s = sessions  # prod-1 allows SSH but has no username or key: not enabled
     with s.store.connect() as conn:
         conn.execute('UPDATE ka.servers SET ssh_allowed=true WHERE id=%s', (s.server['id'],))
     config = build(s, environment_ids=[s.environment])
-    assert reached(config, 'server') == [] and reached(config, 'service') == [s.service]
+    assert reached(config, 'server') == [s.server['id']] and reached(config, 'service') == [s.service]
+    assert ssh_servers(config) == []  # held and read; SSH skips it
     assert 'prod-1' in refusal(s, server_ids=[s.server['id']])
 
 
@@ -114,6 +115,18 @@ def test_what_cannot_be_given_is_refused_by_name(sessions):
     )
     assert (
         refusal(s, server_ids=[unknown]) == f'Server {unknown} is not available: it was removed, archived or disabled.'
+    )
+    with s.store.connect() as conn:
+        project = s.store.project(conn, 'shop')
+        conn.execute(
+            "INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}') ON CONFLICT DO NOTHING", (project,)
+        )
+        deleted = conn.execute(
+            "INSERT INTO ka.rag_collections(project_id,name,deleted_at) VALUES (%s,'old-runbooks',now()) RETURNING id",
+            (project,),
+        ).fetchone()['id']
+    assert refusal(s, collection_ids=[str(deleted)]) == (
+        'Collection old-runbooks is not available: it was removed, archived or disabled.'
     )
     with s.store.connect() as conn:
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (s.worker,))

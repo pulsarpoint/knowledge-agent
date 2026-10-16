@@ -327,16 +327,16 @@ def connected_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def ssh_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
-    """The SSH servers a run of this configuration may use (their keys are checked by get_ssh)."""
-    return [server for server in connected_servers(config) if server['enabled'] and server['ssh_allowed']]
+    """The SSH servers a run of this configuration may use: the connected ones (access.ssh_reason); a server it cannot
+    connect to stays in its access, listed and read, and is skipped here (their keys are checked by get_ssh)."""
+    return [server for server in connected_servers(config) if access_rules.ssh_reason(server) is None]
 
 
 def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict[str, Any]]:
     """Select available SSH servers and require their resolved backend keys."""
     servers = ssh_servers(config)
     for server in servers:
-        reference = server['private_key_ref']
-        if reference is None or not credentials.get(reference['id']):
+        if not credentials.get(server['private_key_ref']['id']):
             raise ValueError(f'The SSH key for {server["name"]} was not supplied.')
     return servers
 
@@ -387,7 +387,7 @@ def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str
             ).fetchone()
         ):
             raise ValueError('The configured model is unavailable or disabled.')
-        for server in connected_servers(config):
+        for server in ssh_servers(config):
             if not conn.execute('SELECT 1 FROM ka.servers WHERE id=%s AND ssh_allowed', (server['id'],)).fetchone():
                 raise ValueError('A configured SSH server is unavailable or SSH is disabled.')
         for server in mcp.selected_servers(config):

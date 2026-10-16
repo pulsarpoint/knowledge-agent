@@ -61,7 +61,8 @@ def _select(extra: str = '') -> str:
 SUMMARY = _select()
 DETAIL = _select(
     ',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.server_id,s.target_document_id'
-    # what the run was given ([{type, id}]: what the person chose, an environment rather than what it brings)
+    # what the run was given ([{type, id}]: what the person chose, an environment rather than what it brings);
+    # the same entries as sessions/run_access.given
     ",(SELECT coalesce(jsonb_agg(jsonb_build_object('type',r->>'type','id',r->>'id')),'[]') FROM"
     " jsonb_array_elements(s.access->'resources') r WHERE r->>'source'='given') AS given_resources"
 )

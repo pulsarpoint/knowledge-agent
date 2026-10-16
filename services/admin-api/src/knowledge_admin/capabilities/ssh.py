@@ -243,8 +243,10 @@ async def ssh_run(
         return refusal
     # the server's connection as the run's access entry pins it
     server = access_rules.entry(config['access'], 'server', server_id)
-    if server is None or not server.get('enabled') or not server.get('ssh_allowed'):
+    if server is None or 'ssh_allowed' not in server:  # no connection pinned: the run's own server without SSH
         return access_rules.refuse_use('server')
+    if reason := access_rules.ssh_reason(server):  # in the run's access, but it cannot connect
+        return reason
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
     reference = server['private_key_ref']

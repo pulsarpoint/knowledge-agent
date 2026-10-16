@@ -228,7 +228,6 @@ def test_a_pick_outside_the_agents_access_is_refused_with_the_narrowing_text(wor
 
 def test_environments_and_documents_may_be_picked_when_the_agent_has_them(world):
     w = world
-    ssh_ready(w)  # a brought server the run cannot connect to is left out (run_access)
     agent = a_saved_agent(w)
     with w.store.connect() as conn:
         document = conn.execute("SELECT id FROM ka.live_documents WHERE title='nginx runbook'").fetchone()['id']
@@ -264,7 +263,6 @@ def test_environments_and_documents_may_be_picked_when_the_agent_has_them(world)
 
 def test_an_environment_brings_its_services_and_servers_although_the_agent_holds_only_it(world):
     w = world  # the children come from what was given, as in an ad-hoc run
-    ssh_ready(w)  # a brought server the run cannot connect to is left out (run_access)
     agent = a_saved_agent(w)
     with w.store.connect() as conn:
         give(conn, agent, [('environment', w.environment)])

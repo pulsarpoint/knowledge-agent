@@ -70,8 +70,8 @@ BAD_TAG = 'A tag is lowercase letters, digits, _ and -, in parts separated by /,
 TOO_MANY_TAGS = 'A run takes at most 10 tags.'
 RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
-NOT_SET_UP = 'SSH is not set up for this server.'
-NOT_ALLOWED = 'SSH is not allowed for this server.'
+NOT_SET_UP = access_rules.SSH_NOT_SET_UP
+NOT_ALLOWED = access_rules.SSH_NOT_ALLOWED
 NOT_AN_EDITOR = 'A run cannot make a saved agent a content editor.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
 NO_SSH = (
@@ -261,8 +261,8 @@ def start_server(conn, project: UUID, server_id: UUID) -> dict:
 
 
 def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
-    """The service or environment a run starts from: it exists in this workspace. No SSH is needed: what it brings
-    that the run cannot reach is left out (inventory and documents still work)."""
+    """The service or environment a run starts from: it exists in this workspace. No SSH is needed: a server it brings
+    that the run cannot connect to is listed and read, and SSH skips it (inventory and documents still work)."""
     table = 'ka.services' if kind == 'service' else 'ka.environments'
     row = conn.execute(
         f'SELECT id,name FROM {table} WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
@@ -406,7 +406,9 @@ def _with(selection: Resources, kind: str, resource_id) -> Resources:
     """The selection with this server, service or environment picked too."""
     key = f'{kind}_ids'
     ids = getattr(selection, key)
-    return selection if resource_id in ids else selection.model_copy(update={key: [*ids, resource_id]})
+    if str(resource_id) in {str(item) for item in ids}:
+        return selection
+    return selection.model_copy(update={key: [*ids, resource_id]})
 
 
 def build(
@@ -803,8 +805,9 @@ def options(
     usable = {str(server['id']) for server in servers if server['usable']}
 
     def brings(items: list[dict], environments: bool) -> list[dict]:
-        """Whether each service or environment brings a code project, and a server the run can use (as
-        build() brings them: run_access), so the panel can say what each brings."""
+        """Whether each service or environment brings a code project, and a server the run can connect to, so the
+        panel can say what each brings. The run holds every server it brings (run_access); one it cannot connect to
+        is listed and read, and SSH skips it (access.ssh_reason)."""
         for entry in items:
             found = bring(conn, project, [] if environments else [entry['id']], [entry['id']] if environments else [])
             entry['brings_code'] = bool(found['code_project_ids'])

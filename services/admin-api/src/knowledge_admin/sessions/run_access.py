@@ -79,7 +79,8 @@ def built_for(given: Iterable[Mapping[str, Any]]) -> list[list[str]]:
 
 
 def given(access: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The access entries the run was given (not brought by them): what the person chose."""
+    """The access entries the run was given (not brought by them): what the person chose. The session detail's
+    given_resources (sessions/rows.py DETAIL) selects the same entries in SQL."""
     return [item for item in access.get('resources', []) if item.get('source') == 'given']
 
 
@@ -119,11 +120,6 @@ def check_picks(conn, project, picked: Iterable[Mapping[str, Any]]) -> None:
                 raise ValueError(NOT_AVAILABLE.format(label=label, name=row['name'] if row else item))
 
 
-def _usable(item: Mapping[str, Any]) -> bool:
-    """A brought server the run can connect to (a brought server it cannot is left out, as archived projects are)."""
-    return item['type'] != 'server' or bool(item['enabled'] and item['ssh_allowed'] and item['private_key_ref'])
-
-
 def _children(conn, project, holds: dict[tuple[str, str], dict]) -> dict:
     """The direct children the run holds of each server, service and environment it holds, by (type, id)."""
     found = {}
@@ -144,7 +140,8 @@ def _children(conn, project, holds: dict[tuple[str, str], dict]) -> dict:
 
 def _brought(conn, project, holds: list[dict[str, Any]], given: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The loaded entries of what the given resources bring that the run does not hold yet (bring; a server the
-    services deployed on it); a brought server only when the run can connect to it."""
+    services deployed on it). A brought server stays even when the run cannot connect to it: it is listed and read,
+    and SSH skips it (access.ssh_reason)."""
 
     def ids(type_: str) -> list[str]:
         return [str(item['id']) for item in given if item['type'] == type_]
@@ -161,7 +158,7 @@ def _brought(conn, project, holds: list[dict[str, Any]], given: list[dict[str, A
         type_: [item for item in dict.fromkeys(str(found) for found in found_ids) if (type_, item) not in listed]
         for type_, found_ids in children.items()
     }
-    return [item for item in load_entries(conn, project, wanted) if _usable(item)]
+    return load_entries(conn, project, wanted)
 
 
 def run_access(
@@ -199,11 +196,9 @@ def agent_access(
     conn, project, config: dict[str, Any], picked: list[dict[str, Any]] | None, *, content_editor: bool
 ) -> dict[str, Any]:
     """A saved agent's run's access object: the agent's access (as get_agent_config holds it) narrowed to picked
-    (None: all of it; ValueError: a pick outside it, access.narrow), what was given bringing its children (run_access:
-    the agent's access need not hold them)."""
+    (None: all of it; ValueError: a pick outside it, access.narrow; its skills and MCP servers are added by
+    run_access), what was given bringing its children (run_access: the agent's access need not hold them)."""
     holds = config['access']['resources']
-    if picked is not None:
-        picked = [*picked, *(item for item in holds if item['type'] in ALWAYS_GIVEN)]
     given_entries = access_rules.narrow({'resources': holds}, picked)['resources']
     picks_given = [
         {'type': item['type'], 'id': item['id'], **({'editable': item['editable']} if 'editable' in item else {})}

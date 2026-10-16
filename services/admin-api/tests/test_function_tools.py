@@ -8,6 +8,7 @@ import pytest
 from access_helpers import entry, of, with_access
 from agents import Agent, FunctionTool
 from agents.tool_context import ToolContext
+from knowledge_admin.access import SSH_NOT_ALLOWED
 
 from tool_helpers import tools
 from test_ssh import ssh_server
@@ -151,8 +152,8 @@ def test_ssh_uses_selected_connection_and_secret_with_real_server(context, ssh_s
     server['known_hosts'] = ''
     optional = json.loads(asyncio.run(invoke(ssh_run, context, server_id=server['id'], command='id -un')))
     assert optional['stdout'].strip() == 'operator'
-    server['ssh_allowed'] = False
-    assert 'not available' in asyncio.run(invoke(ssh_run, context, server_id=server['id'], command='id'))
+    server['ssh_allowed'] = False  # still in the run's access: refused with the server's reason
+    assert asyncio.run(invoke(ssh_run, context, server_id=server['id'], command='id')) == SSH_NOT_ALLOWED
     server['ssh_allowed'] = True
     context['credentials'].pop('ssh-key')
     assert 'credential' in asyncio.run(invoke(ssh_run, context, server_id=server['id'], command='id'))

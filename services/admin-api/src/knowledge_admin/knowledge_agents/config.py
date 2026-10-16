@@ -120,7 +120,7 @@ def credential_references(config: Mapping[str, Any]) -> list[dict[str, Any] | No
     references += [
         server['private_key_ref']
         for server in access_rules.entries(config['access'], 'server')
-        if server.get('enabled') and server.get('ssh_allowed')
+        if access_rules.ssh_reason(server) is None  # connected: a server it cannot connect to has no key to load
     ]
     references += [server['bearer_token_ref'] for server in mcp.selected_servers(config)]
     return references
