@@ -23,7 +23,7 @@ from knowledge_admin.capabilities import (  # noqa: F401
     ssh,
     subagents,
 )
-from knowledge_admin.capabilities.context import ACCESS, RunContext
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.shell import client as shell  # noqa: F401
 from knowledge_admin.tools.fixture import load_fixture
 from knowledge_admin.tools.registry import REGISTRY, Tool
@@ -174,9 +174,20 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)
 
 
+def _section(config: Mapping[str, Any], section: str, key: str) -> list[dict[str, Any]]:
+    value = config.get(section) or {}
+    return value.get(key, []) if value.get('enabled') else []
+
+
 def has_resources(config: Mapping[str, Any]) -> bool:
-    """Whether the run has a server, service, environment or code project (get_resource's allowlist kinds)."""
-    return any(ACCESS[kind](config) for kind in ('server', 'service', 'environment', 'code_project'))
+    """Whether the configuration has a server, service, environment or code project (get_resource's kinds): tool
+    selection only, judged from the configuration's sections (until Phase 3 offers every tool)."""
+    return bool(
+        _section(config, 'ssh', 'servers')
+        or _section(config, 'services', 'items')
+        or _section(config, 'code', 'projects')
+        or (config.get('chosen_resources') or {}).get('environment_ids')
+    )
 
 
 def item(

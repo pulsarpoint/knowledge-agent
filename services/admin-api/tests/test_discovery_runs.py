@@ -9,6 +9,7 @@ import asyncssh
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities.document_tools import _run_links
+from knowledge_admin.sessions.run_access import built_for
 from knowledge_admin.servers.discovery import NOT_ALLOWED, NOT_CONFIGURED
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG, effective_tools
@@ -189,7 +190,7 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
     assert pinned['code']['projects'] == []
     config = config_of(world, sid)
     assert call(config, 'get_resource', resource_type='service', resource_id=str(world.nginx))['name'] == 'nginx'
-    refused = f'The service {postgres} is not available in this run.'
+    refused = 'This service is not available in this run.'
     assert call(config, 'get_resource', resource_type='service', resource_id=str(postgres)) == refused
 
 
@@ -199,7 +200,7 @@ def test_a_document_of_a_server_run_links_its_server_and_not_the_services_on_it(
     pinned = pinned_of(world, sid)
     assert pinned['chosen_resources']['server_ids'] == [world.server['id']]
     assert pinned['run_resources']['server_ids'] == [world.server['id']]
-    assert _run_links(pinned) == {
+    assert _run_links({'links': built_for(pinned)}) == {
         'code_project_ids': [],
         'environment_ids': [],
         'service_ids': [],  # nginx runs on it: read by the run, not linked

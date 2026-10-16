@@ -139,7 +139,7 @@ def test_a_clone_copies_the_switch_and_what_subagents_may_use(store, saved_agent
 def test_run_subagent_outside_a_session_is_a_tool_error():
     tool = function_tool(CATALOG[SUBAGENT], CATALOG[SUBAGENT].usage)
     context = {
-        'config': {},
+        'config': {'access': {'resources': [], 'roles': {'content_editor': False}}},
         'credentials': {},
         'workspace': None,
         'shell_enabled': False,

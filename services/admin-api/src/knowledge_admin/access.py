@@ -27,7 +27,7 @@ def entry(access: dict, type: str, id: str) -> dict | None:
     return None
 
 
-def _editor(access: dict) -> bool:
+def is_content_editor(access: dict) -> bool:
     return bool(access.get('roles', {}).get('content_editor'))
 
 
@@ -37,15 +37,15 @@ def can_use(access: dict, type: str, id: str) -> bool:
 
 def can_write_document(access: dict, document_id: str) -> bool:
     e = entry(access, 'document', document_id)
-    return _editor(access) and e is not None and bool(e.get('editable', False))
+    return is_content_editor(access) and e is not None and bool(e.get('editable', False))
 
 
 def can_propose(access: dict, type: str, id: str) -> bool:
-    return _editor(access) and can_use(access, type, id)
+    return is_content_editor(access) and can_use(access, type, id)
 
 
 def can_create_document(access: dict, built_for: list[tuple[str, str]]) -> bool:
-    return _editor(access) and all(can_use(access, t, i) for t, i in built_for)
+    return is_content_editor(access) and all(can_use(access, t, i) for t, i in built_for)
 
 
 def has_any(access: dict, type: str) -> bool:
@@ -56,8 +56,9 @@ def refuse_use(type: str) -> str:
     return NOT_AVAILABLE.format(type=TYPE_WORDS[type])
 
 
-def refuse_none(type: str) -> str:
-    return NONE_OF.format(type=TYPE_WORDS[type])
+def refuse_none(*types: str) -> str:
+    """NONE_OF for one type, or several joined with 'or' (the file tools: code projects or collections)."""
+    return NONE_OF.format(type='s or '.join(TYPE_WORDS[type] for type in types))
 
 
 def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] | None = None) -> dict:

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from knowledge_admin import access as access_rules
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities import inventory
 from live_documents import link_document, live_document
@@ -20,8 +21,13 @@ from test_repositories import HEADERS
 NO_DOCUMENT = 'This document is not available in this run.'
 
 
-def refused(resource_type, resource_id) -> str:
-    return f'The {resource_type} {resource_id} is not available in this run.'
+def refused(resource_type) -> tuple[str, str]:
+    """Either refusal: not in the run's list, or none of its kind in it (a missing entry reads the same)."""
+    return access_rules.refuse_use(resource_type), access_rules.refuse_none(resource_type)
+
+
+def access(*given: tuple[str, object]) -> dict:
+    return {'resources': [{'type': kind, 'id': str(key), 'source': 'given'} for kind, key in given], 'roles': {}}
 
 
 def get(config, resource_type, resource_id):
@@ -75,12 +81,12 @@ def assert_scoped(config, *, web, web_document, db, service=None, project=None):
         ('code_project', uuid4()),
         ('server', 'db-1'),
     ):
-        assert get(config, resource_type, resource_id) == refused(resource_type, resource_id)
+        assert get(config, resource_type, resource_id) in refused(resource_type)
     assert web_document in [doc['id'] for doc in get(config, 'server', web)['documents']]
     if service:
         assert get(config, 'service', service)['id'] == service
     if project:
-        assert get(config, 'code_project', project) == refused('code_project', project)
+        assert get(config, 'code_project', project) in refused('code_project')
     assert call(config, 'get_document', document_id=web_document)['id'] == web_document
     assert call(config, 'get_document', document_id=db.document) == NO_DOCUMENT
 
@@ -93,6 +99,7 @@ def scoped(world):
         'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}]},
         'services': {'enabled': True, 'items': [{'id': str(world.nginx)}]},
         'code': {'enabled': True, 'projects': []},
+        'access': access(('server', world.server['id']), ('service', world.nginx)),
     }
     return world, db, config
 
@@ -115,23 +122,21 @@ def test_a_document_attached_to_a_given_service_or_code_project_is_readable(scop
         conn.execute('DELETE FROM ka.document_resources WHERE document_id=%s', (runbook,))
         link_document(conn, world.project, runbook, 'code_project_id', world.shop)
     assert call(config, 'get_document', document_id=runbook) == NO_DOCUMENT
-    given = {**config, 'code': {'enabled': True, 'projects': [{'id': str(world.shop)}]}}
+    given = {
+        **config,
+        'access': access(('server', world.server['id']), ('service', world.nginx), ('code_project', world.shop)),
+    }
     assert call(given, 'get_document', document_id=runbook)['title'] == 'nginx runbook'
     assert get(given, 'code_project', world.shop)['name'] == 'Shop'
-    off = {**given, 'code': {'enabled': False, 'projects': [{'id': str(world.shop)}]}}
-    assert call(off, 'get_document', document_id=runbook) == NO_DOCUMENT
-    assert get(off, 'code_project', world.shop) == refused('code_project', world.shop)
+    assert call(config, 'get_document', document_id=runbook) == NO_DOCUMENT
+    assert get(config, 'code_project', world.shop) in refused('code_project')
 
 
 def test_turned_off_kinds_read_nothing(scoped):
     world, db, config = scoped
-    off = {
-        **config,
-        'ssh': {'enabled': False, 'servers': [{'id': world.server['id']}]},
-        'services': {'enabled': False, 'items': [{'id': str(world.nginx)}]},
-    }
-    assert get(off, 'server', world.server['id']) == refused('server', world.server['id'])
-    assert get(off, 'service', world.nginx) == refused('service', world.nginx)
+    off = {**config, 'access': access()}  # kinds turned off at start are not in the run's access object
+    assert get(off, 'server', world.server['id']) == access_rules.refuse_none('server')
+    assert get(off, 'service', world.nginx) == access_rules.refuse_none('service')
 
 
 def test_a_saved_agents_pinned_config_reads_only_its_servers(agent, ask, monkeypatch):

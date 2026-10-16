@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from discovery_world import world  # noqa: F401  (fixture)
+from knowledge_admin import access as access_rules
 from knowledge_admin.agents.runner import get_prompt, instructions_and_tools, load_credentials, ssh_servers
 from knowledge_admin.capabilities import document_tools, inventory, ssh
 from live_documents import link_document, live_document
@@ -35,17 +36,27 @@ TYPES = ['server', 'service', 'environment', 'code_project']
 
 
 def refused(resource_type, resource_id) -> str:
-    return f'The {resource_type} {resource_id} is not available in this run.'
+    return access_rules.refuse_use(resource_type)  # a refused resource and a missing one answer alike
 
 
 def given(world, *, servers=True, services=True, code=True, environments=True, project=None) -> dict:
-    """A run given web-1, nginx, Shop and Production (each unless switched off)."""
+    """A run given web-1, nginx, Shop and Production (each unless switched off), with its access object."""
+    picks = [
+        ('server', world.server['id'], servers),
+        ('service', world.nginx, services),
+        ('code_project', world.shop, code),
+        ('environment', world.environment, environments),
+    ]
     return {
         'project_id': str(project or world.project),
         'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}] if servers else []},
         'services': {'enabled': True, 'items': [{'id': str(world.nginx)}] if services else []},
         'code': {'enabled': True, 'projects': [{'id': str(world.shop)}] if code else []},
         'chosen_resources': {'environment_ids': [str(world.environment)] if environments else []},
+        'access': {
+            'resources': [{'type': kind, 'id': str(key), 'source': 'given'} for kind, key, on in picks if on],
+            'roles': {'content_editor': False},
+        },
     }
 
 
@@ -149,14 +160,16 @@ def test_what_the_run_was_not_given_is_refused_alike(world):
     config = given(world, services=False, environments=False)
     found = get(config, 'server', world.server['id'])
     service, environment = link(found, 'service'), link(found, 'environment')
-    assert get(config, 'service', service['id']) == refused('service', service['id'])  # linked, not given
-    assert get(config, 'environment', environment['id']) == refused('environment', environment['id'])
+    # linked, not given: the run has none of their kind
+    assert get(config, 'service', service['id']) == access_rules.refuse_none('service')
+    assert get(config, 'environment', environment['id']) == access_rules.refuse_none('environment')
+    assert get(given(world, environments=False), 'service', uuid4()) == refused('service', None)
     missing = uuid4()
     assert get(config, 'server', missing) == refused('server', missing)
     assert get(config, 'code_project', world.environment) == refused('code_project', world.environment)
     assert get(config, 'server', 'not-a-uuid') == refused('server', 'not-a-uuid')
-    off = {**given(world), 'ssh': {'enabled': False, 'servers': [{'id': world.server['id']}]}}
-    assert get(off, 'server', world.server['id']) == refused('server', world.server['id'])
+    off = given(world, servers=False)  # SSH off at start: the server is not in the run's access object
+    assert get(off, 'server', world.server['id']) == access_rules.refuse_none('server')
 
 
 def read(config, document_id, **options):

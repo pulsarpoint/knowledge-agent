@@ -19,6 +19,7 @@ from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_function_tools import context, invoke  # noqa: F401  (fixture)
+from access_helpers import with_access
 from tool_helpers import tool
 
 GRAPH = {
@@ -265,6 +266,8 @@ def test_a_generated_graph_answers_code_queries_end_to_end(context, tmp_path, mo
     shutil.rmtree(root / '.codegraph')
     graph = code_graph.current_graph(project)
     context['config']['code']['graphs'] = [graph]
+    context['config']['code']['projects'][0]['id'] = project['id']  # the graph's code project, in the run's access
+    with_access(context['config'])
     query = tool('code_graph')
     search = json.loads(asyncio.run(invoke(query, context, project_id=project['id'], action='search', query='Handle')))
     node_id = search['entries'][0]['id']

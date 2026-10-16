@@ -2,7 +2,8 @@
 environment or code project, with links to related resources the model follows by their type and id. Read-only.
 The tool runs where agents run (agent-session-worker, admin-api); configure() gives it that process's database.
 The workspace is the run's (a resource run pins config['project_id']) or the single application's. It answers only
-about a resource the run was given (its allowlist); anything else, a linked resource too, reads as missing."""
+about a resource in the run's access object (check_get_resource); anything else, a linked resource too, reads as
+missing."""
 
 import asyncio
 import json
@@ -12,7 +13,7 @@ from uuid import UUID
 from pydantic import Field
 
 from knowledge_admin import access as access_rules
-from knowledge_admin.capabilities.context import RunContext, allowed
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.documents.store import inventory_document, resource_document_list
 from knowledge_admin.tools import texts
 from knowledge_admin.tools.registry import tool
@@ -20,10 +21,8 @@ from knowledge_admin.tools.registry import tool
 MAX_ITEMS = 100
 SHORT = 300
 UNAVAILABLE = 'The inventory is not available in this run.'
-NOT_GIVEN = 'The {type} {id} is not available in this run.'
 ResourceType = Literal['server', 'service', 'environment', 'code_project']
 AccessType = Literal[access_rules.TYPES]
-EMPTY_ACCESS = {'resources': [], 'roles': {'content_editor': False}}
 _store = None
 
 
@@ -109,15 +108,6 @@ READS = {
 }
 
 
-def _given(config: dict[str, Any], kind: str, resource_id: str) -> dict | None:
-    """The run's pinned entry of this resource, or None when it was not given. A refused resource and a missing one
-    answer alike, so a run cannot learn what exists outside its allowlist."""
-    try:
-        return allowed(config, kind, resource_id)
-    except ValueError:
-        return None
-
-
 def _rows(conn, query: str, resource_id: UUID) -> list[dict]:
     """One link or document query, MAX_ITEMS + 1 rows at most (the extra one says the list was cut)."""
     limited = query.replace('{limit}', str(MAX_ITEMS + 1))
@@ -135,14 +125,16 @@ def _readable_documents(conn, config: dict[str, Any], documents: list[dict]) -> 
         if len(found) > MAX_ITEMS:
             break
         resource = document['resource']
-        if _given(config, resource['type'], str(resource['id'])) is not None or readable(conn, config, document['id']):
+        given = access_rules.can_use(config['access'], resource['type'], str(resource['id']))
+        if given or readable(conn, config['access'], document['id']):
             found.append(document)
     return found
 
 
-def _server_extras(config: dict[str, Any], entry: dict) -> dict[str, Any]:
+def _server_extras(config: dict[str, Any], server_id: str) -> dict[str, Any]:
     """What the run's configuration says about the server: its connection as pinned (a saved agent may connect with
     its own username, port and sudo), its instructions, and its skills and MCP servers when the run uses them."""
+    entry = next((item for item in (config.get('ssh') or {}).get('servers', []) if str(item['id']) == server_id), {})
     extras = {key: entry[key] for key in ('port', 'username', 'allow_sudo') if key in entry}
     extras['instructions'] = entry.get('instructions') or ''
     if (config.get('skills') or {}).get('enabled'):
@@ -152,14 +144,26 @@ def _server_extras(config: dict[str, Any], entry: dict) -> dict[str, Any]:
     return extras
 
 
+def check_get_resource(access: dict, resource_type: str, resource_id: str, **_) -> str | None:
+    """None when allowed, else the refusal text. A refused resource and a missing one answer alike (_resource), so a
+    run cannot learn what exists outside its list."""
+    if not access_rules.has_any(access, resource_type):
+        return access_rules.refuse_none(resource_type)
+    if not access_rules.can_use(access, resource_type, resource_id):
+        return access_rules.refuse_use(resource_type)
+    return None
+
+
+def check_get_available_resources(access: dict, **_) -> str | None:
+    """Always allowed: it lists the run's own access object."""
+    return None
+
+
 def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> str:
-    refused = NOT_GIVEN.format(type=resource_type, id=resource_id)
+    refused = access_rules.refuse_use(resource_type)
     try:
         key = UUID(str(resource_id))
     except ValueError:
-        return refused
-    entry = _given(config, resource_type, str(key))
-    if entry is None:
         return refused
     fields, link_queries = READS[resource_type]
     with connect() as conn:
@@ -174,7 +178,7 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
         documents = _readable_documents(conn, config, resource_document_list(conn, project, resource_type, key))
     found = {'type': resource_type, **row}
     if resource_type == 'server':
-        found.update(_server_extras(config, entry))
+        found.update(_server_extras(config, str(key)))
     return dumps(
         {
             **found,
@@ -199,6 +203,8 @@ async def get_resource(
         ),
     ],
 ) -> str:
+    if refusal := check_get_resource(context['config']['access'], resource_type, resource_id):
+        return refusal
     return await asyncio.to_thread(_resource, context['config'], resource_type, resource_id)
 
 
@@ -210,4 +216,6 @@ async def get_available_resources(
     """The resources this run may use, as JSON: each with its type, id, name, short description and source (given to
     the run, or via the resource it belongs to). Pass a type to list only those. Use get_resource for one resource's
     details."""
-    return dumps(access_rules.listing(context['config'].get('access', EMPTY_ACCESS), resource_type))
+    if refusal := check_get_available_resources(context['config']['access'], resource_type=resource_type):
+        return refusal
+    return dumps(access_rules.listing(context['config']['access'], resource_type))

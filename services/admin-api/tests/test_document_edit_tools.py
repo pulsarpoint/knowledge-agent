@@ -9,7 +9,9 @@ from uuid import uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.capabilities.context import NOT_AVAILABLE
+from access_helpers import with_access
+from knowledge_admin import access as access_rules
+from knowledge_admin.access import refuse_use
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, RUN_ONLY_NEEDS, needs_met
 from drafts_world import API, docs, make_document, promote, version_of  # noqa: F401  (docs: fixture rev builds on)
 from knowledge_admin.capabilities.document_tools import outline
@@ -219,7 +221,7 @@ def test_a_closed_run_or_a_deleted_document_cannot_save(rev):
     )
     assert deleted.status_code in (200, 204), deleted.text
     assert call(rev, 'get_document', document_id=str(rev.docs.runbook)) == 'Document not found'
-    assert call(rev, 'get_document', document_id=str(uuid4())) == NOT_AVAILABLE.format(kind='document')
+    assert call(rev, 'get_document', document_id=str(uuid4())) == refuse_use('document')
     with pytest.raises(ValueError, match='This document no longer exists.'):
         call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Gone')
 
@@ -227,6 +229,7 @@ def test_a_closed_run_or_a_deleted_document_cannot_save(rev):
 def test_a_turn_refreshes_the_sources_of_every_draft_the_run_wrote(rev):
     overview, third = make_document(rev.docs, 'overview', 'Overview'), make_document(rev.docs, 'notes', 'Notes')
     rev.config['document_access'].append({'id': overview, 'title': 'Overview', 'editable': True})
+    with_access(rev.config, content_editor=True)
     call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Saved by the tool')
     call(rev, 'save_document', document_id=overview, markdown='# Overview saved')
     with rev.docs.store.connect() as conn:
@@ -287,18 +290,18 @@ def test_a_deadlock_with_a_document_delete_is_retried_once(rev, monkeypatch):
 
 def test_edits_and_saves_are_refused_outside_the_runs_documents_even_without_the_enum(rev):
     other = str(uuid4())
-    refused = NOT_AVAILABLE.format(kind='document')
+    refused = refuse_use('document')
     for tool, arguments in (
         ('save_document', {'markdown': '# x'}),
         ('edit_document', {'old_text': 'Intro.', 'new_text': 'x'}),
     ):
-        with pytest.raises(ValueError, match=refused):
-            call(rev, tool, document_id=other, **arguments)
+        assert call(rev, tool, document_id=other, **arguments).startswith(refused)
     read_only = {
         **rev.config,
         'document_access': [{'id': str(rev.docs.runbook), 'title': 'Runbook', 'editable': False}],
     }
-    with pytest.raises(ValueError, match=refused):
+    with_access(read_only, content_editor=True)
+    assert (
         asyncio.run(
             CATALOG['save_document'].run(
                 {'config': read_only},
@@ -307,6 +310,8 @@ def test_edits_and_saves_are_refused_outside_the_runs_documents_even_without_the
                 ),
             )
         )
+        == refused
+    )
     assert run_drafts(rev) == []
 
 
@@ -319,8 +324,8 @@ def test_get_document_reads_the_runs_draft_once_there_is_one(rev):
 
 
 def test_a_document_neither_in_the_run_nor_in_the_inventory_cannot_be_read(rev):
-    assert call(rev, 'get_document', document_id=str(uuid4())) == NOT_AVAILABLE.format(kind='document')
-    assert call(rev, 'get_document', document_id='not-an-id') == NOT_AVAILABLE.format(kind='document')
+    assert call(rev, 'get_document', document_id=str(uuid4())) == refuse_use('document')
+    assert call(rev, 'get_document', document_id='not-an-id') == refuse_use('document')
 
 
 def test_the_edit_tools_need_an_editable_document_and_are_never_chosen_for_saved_agents():
@@ -351,8 +356,9 @@ def test_a_subagent_gets_no_document_access_so_the_edit_tools_are_unmet():
 
     lead = parent(document_access=[{'id': 'd', 'title': 'T', 'editable': True}])
     assert needs_met('editable_document', lead, None)
-    sub = subagent_config(lead, ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
+    sub = subagent_config(with_access(lead, True), ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
     assert 'document_access' not in sub and not needs_met('editable_document', sub, None)
+    assert access_rules.listing(sub['access'], 'document') == [] and not access_rules.is_content_editor(sub['access'])
 
 
 def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev):
@@ -377,11 +383,13 @@ def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev)
     [mine] = run_drafts(rev)
     assert json.loads(call(rev, 'get_document', document_id=str(rev.docs.runbook)))['markdown'] == '# Mine'
     for draft_id in (str(mine['id']), by_person['id']):
-        assert call(rev, 'get_document', document_id=draft_id) == NOT_AVAILABLE.format(kind='document')
-        given = dict(rev.config, document_access=[*rev.config['document_access'], {'id': draft_id, 'title': 'D'}])
+        assert call(rev, 'get_document', document_id=draft_id) == refuse_use('document')
+        given = with_access(
+            dict(rev.config, document_access=[*rev.config['document_access'], {'id': draft_id, 'title': 'D'}]), True
+        )
         refused = call(rev.__class__(**{**vars(rev), 'config': given}), 'get_document', document_id=draft_id)
         assert refused == 'Document not found'  # pinned or not, a draft id is never read as a document
-    assert NOT_AVAILABLE.format(kind='document') == 'This document is not available in this run.'
+    assert refuse_use('document') == 'This document is not available in this run.'
 
 
 def test_a_save_after_another_draft_was_promoted_starts_a_new_draft_and_says_so(rev):

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from knowledge_admin.capabilities.document_tools import _run_links
+from knowledge_admin.sessions.run_access import built_for
 from test_profiles import create, update
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_world import ask  # noqa: F401  (fixture)
@@ -256,7 +257,7 @@ def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_i
         'service_ids': [ask.s.service],
         'environment_ids': [],
     }
-    assert _run_links(session['config']) == {
+    assert _run_links({'links': built_for(session['config'])}) == {
         'code_project_ids': [],
         'environment_ids': [],
         'service_ids': [ask.s.service],

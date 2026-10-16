@@ -6,6 +6,7 @@ import json
 import pytest
 
 from tool_helpers import tool
+from access_helpers import with_access
 from test_function_tools import context, invoke
 
 ast_grep = tool('ast_grep')
@@ -93,8 +94,10 @@ def test_folder_scope_symlinks_disabled_access_and_project_config(context, tmp_p
         assert 'outside' in asyncio.run(invoke(ast_grep, context, path=str(path), **args))
     assert 'absolute' in asyncio.run(invoke(ast_grep, context, path='ok.py', **args))
     context['config']['code']['enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(ast_grep, context, path=str(code), **args))
+    with_access(context['config'])  # code off at start: no code project in the run's access object
+    assert asyncio.run(invoke(ast_grep, context, path=str(code), **args)) == 'This run has no code projects.'
     context['config']['code']['enabled'] = True
+    with_access(context['config'])
     context['config']['enabled'] = False
     assert 'disabled' in asyncio.run(invoke(ast_grep, context, path=str(code), **args))
 

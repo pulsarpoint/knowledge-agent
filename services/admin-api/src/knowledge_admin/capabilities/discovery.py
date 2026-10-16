@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 from psycopg.types.json import Jsonb
 from pydantic import Field
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.document_tools import Proposal
 from knowledge_admin.capabilities.inventory import connect
@@ -288,13 +289,34 @@ class ProposeDocument(Proposal):
     )
 
 
+def check_propose_service(access: dict, started_from: dict | None = None, **_) -> str | None:
+    """None when allowed, else the refusal text: a content editor, and the resource the run started from (what it
+    proposes for) in its list. A run not started from a resource is refused by the tool (NOT_DISCOVERY)."""
+    if not access_rules.is_content_editor(access):
+        return access_rules.NOT_EDITOR
+    if started_from and not access_rules.can_propose(access, started_from['type'], started_from['id']):
+        return access_rules.refuse_use(started_from['type'])
+    return None
+
+
+def check_propose_document(access: dict, started_from: dict | None = None, **_) -> str | None:
+    """None when allowed, else the refusal text (as check_propose_service)."""
+    return check_propose_service(access, started_from)
+
+
 @tool(arguments=ProposeService)
 async def propose_service(context: RunContext, **value: Any) -> str:
     """Propose a service running on this server, with its deployment here, for an administrator to accept or reject. A service already recorded under this name is proposed as an update; proposing the same service again replaces your earlier proposal. If the call is refused, correct what it says and call again."""
-    return await asyncio.to_thread(_propose_service, context['config'], value)
+    config = context['config']
+    if refusal := check_propose_service(config['access'], started_from=config.get('started_from')):
+        return refusal
+    return await asyncio.to_thread(_propose_service, config, value)
 
 
 @tool(arguments=ProposeDocument)
 async def propose_document(context: RunContext, **value: Any) -> str:
     """Propose a document about the server, service or environment this run started from, or about a service (about_service), for an administrator to accept or reject. Never include passwords, keys or tokens. Proposing the same title about the same resource again replaces your earlier proposal."""
-    return await asyncio.to_thread(_propose_document, context['config'], value)
+    config = context['config']
+    if refusal := check_propose_document(config['access'], started_from=config.get('started_from')):
+        return refusal
+    return await asyncio.to_thread(_propose_document, config, value)

@@ -77,7 +77,8 @@ def test_drafts_are_never_documents(docs, monkeypatch):
         ).fetchone()['id']
         link_document(conn, docs.project, docs.runbook, 'server_id', server)
     spec = CATALOG['get_document']
-    config = {'project_id': str(docs.project), 'ssh': {'enabled': True, 'servers': [{'id': str(server)}]}}
+    access = {'resources': [{'type': 'server', 'id': str(server), 'name': 'web-1', 'source': 'given'}], 'roles': {}}
+    config = {'project_id': str(docs.project), 'access': access}  # a run on the server reads its linked document
     text = asyncio.run(spec.run({'config': config}, spec.arguments.model_validate({'document_id': docs.runbook})))
     assert json.loads(text)['markdown'] == '# Runbook v1'
 

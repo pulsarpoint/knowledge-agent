@@ -4,6 +4,7 @@ edit tools' schema or description; an edit tool given another id names the edita
 import asyncio
 
 import pytest
+from access_helpers import with_access
 
 from knowledge_admin.agents.runner import instructions_and_tools, ssh_servers
 from knowledge_admin.capabilities import document_tools
@@ -42,10 +43,6 @@ def test_two_runs_with_different_editable_documents_get_identical_tool_schemas(a
 
 @pytest.mark.parametrize('document_id', ['d2', 'd3', 'not-an-id'])
 def test_an_edit_tool_given_another_id_names_the_editable_documents(document_id):
-    config = {'document_access': ACCESS}
-    with pytest.raises(ValueError) as refused:
-        asyncio.run(document_tools.save_document({'config': config}, document_id, '# Text'))
-    assert str(refused.value) == REFUSED
-    with pytest.raises(ValueError) as refused:
-        asyncio.run(document_tools.edit_document({'config': config}, document_id, 'a', 'b'))
-    assert str(refused.value) == REFUSED
+    config = with_access({'document_access': ACCESS}, content_editor=True)
+    assert asyncio.run(document_tools.save_document({'config': config}, document_id, '# Text')) == REFUSED
+    assert asyncio.run(document_tools.edit_document({'config': config}, document_id, 'a', 'b')) == REFUSED

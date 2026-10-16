@@ -8,8 +8,8 @@ import pytest
 from agents.tool_context import ToolContext
 from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_prompt
-from knowledge_admin.capabilities.context import NOTHING_GIVEN
-from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES
+from access_helpers import with_access
+from knowledge_admin import access as access_rules
 from test_document_tools import rag  # noqa: F401  (fixture)
 from tool_helpers import tool, tools
 
@@ -92,6 +92,7 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         },
     }
     config['tools'] = implied_tools(config)  # every saved configuration has its tools
+    with_access(config)
     return {'config': config, 'credentials': {}, 'workspace': folders['workspace'], 'shell_enabled': True}
 
 
@@ -109,21 +110,16 @@ def test_file_and_code_tools_reach_only_the_given_code_projects(folders):
 def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeypatch):
     monkeypatch.setenv('AGENT_SHELL_URL', 'http://shell.invalid')  # refused before any request
     context = run_context(folders)
-    assert NOTHING_GIVEN['files'] in invoke(list_files, context)
-    assert NOTHING_GIVEN['files'] in invoke(shell_run, context, command='ls /')
-    assert NOTHING_GIVEN['code'] in invoke(
-        code_search, context, path=str(folders['given']), language='Python', name='given'
-    )
-    assert NOTHING_GIVEN['code'] in invoke(
-        ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN
-    )
-    assert NOTHING_GIVEN['code'] in invoke(code_graph, context, project_id='given')
-    assert NOTHING_GIVEN['ssh'] in invoke(ssh_run, context, server_id='host', command='uptime')
-    assert NOTHING_GIVEN['documents'] in invoke(search_documents, context, query='limits')
-    assert NOTHING_GIVEN['documents'] in invoke(read_document, context, collection='payments', path='limits.md')
-    unstarted = run_context(folders, code=['given'])
-    del unstarted['config']['run_resources']
-    assert NO_RUN_RESOURCES in invoke(list_files, unstarted)
+    files, code = access_rules.refuse_none('code_project', 'collection'), access_rules.refuse_none('code_project')
+    assert invoke(list_files, context) == files
+    assert invoke(shell_run, context, command='ls /') == files
+    assert invoke(code_search, context, path=str(folders['given']), language='Python', name='given') == code
+    assert invoke(ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN) == code
+    assert invoke(code_graph, context, project_id='given') == code
+    assert invoke(ssh_run, context, server_id='host', command='uptime') == access_rules.refuse_none('server')
+    documents = access_rules.refuse_none('collection')
+    assert invoke(search_documents, context, query='limits') == documents
+    assert invoke(read_document, context, collection='payments', path='limits.md') == documents
 
 
 def test_document_search_uses_only_the_given_collections(rag, folders):
@@ -133,9 +129,7 @@ def test_document_search_uses_only_the_given_collections(rag, folders):
     assert '[1] payments/retries.md' in invoke(search_documents, context, query='retries')
     search = next(json.loads(call.content) for call in calls if call.url.path == '/search')
     assert search['collections'] == ['payments']
-    assert 'outside the agent’s document collections' in invoke(
-        search_documents, context, query='x', collection='private'
-    )
+    assert invoke(search_documents, context, query='x', collection='private') == access_rules.refuse_use('collection')
 
 
 def test_ssh_reaches_only_the_given_servers(folders):

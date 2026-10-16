@@ -6,9 +6,8 @@ from typing import Annotated, Any
 import httpx
 from pydantic import Field
 
-from knowledge_admin.capabilities.context import RunContext, require_given
-from knowledge_admin.knowledge_agents.config import per_run
-from knowledge_admin.rag.collections import document_collections
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.sessions.grounding import empty_state
 from knowledge_admin.tools.registry import tool
@@ -21,13 +20,36 @@ def _state(context: RunContext) -> dict[str, Any]:
     return context.setdefault('grounding', empty_state())
 
 
-def _allowed(config: dict[str, Any]) -> list[str] | None:
-    """Collection names the agent may use; None means every collection (never for a per-run run)."""
-    if not config['enabled'] or not config['documents']['enabled']:
+def _collections(config: dict[str, Any]) -> list[str]:
+    """The names of the run's collections (its access entries)."""
+    if not config['enabled']:
         raise ValueError('Document search is not enabled for this agent.')
-    require_given(config, 'documents')
-    everything, items = document_collections(config)
-    return None if everything and not per_run(config) else sorted({item['name'] for item in items})
+    return sorted({item['name'] for item in access_rules.listing(config['access'], 'collection')})
+
+
+def _named(access: dict, collection: str | None) -> bool:
+    return collection is None or any(
+        item['name'] == collection.strip() for item in access_rules.listing(access, 'collection')
+    )
+
+
+def check_search_documents(access: dict, collection: str | None = None, **_) -> str | None:
+    """None when allowed, else the refusal text. A collection is named by its name."""
+    if not access_rules.has_any(access, 'collection'):
+        return access_rules.refuse_none('collection')
+    if not _named(access, collection):
+        return access_rules.refuse_use('collection')
+    return None
+
+
+def check_read_document(access: dict, collection: str, **_) -> str | None:
+    """None when allowed, else the refusal text."""
+    return check_search_documents(access, collection)
+
+
+def check_report_not_covered(access: dict, **_) -> str | None:
+    """Always allowed: it records that the documents do not answer, and reads nothing."""
+    return None
 
 
 def _client() -> httpx.AsyncClient:
@@ -60,26 +82,18 @@ async def search_documents(
     """Search the knowledge base and return numbered excerpts to cite as [n].
 
     Use search_documents to find knowledge-base excerpts and read_document for a whole document."""
-    allowed = _allowed(context['config'])
+    if refusal := check_search_documents(context['config']['access'], collection=collection):
+        return refusal
+    names = _collections(context['config'])
     if collection is not None:
-        collection = collection.strip()
-        if allowed is not None and collection not in allowed:
-            return 'This collection is outside the agent’s document collections.'
-        names = [collection]
-    else:
-        names = allowed
+        names = [collection.strip()]
     state = _state(context)
-    if names == []:
-        state['searches'] += 1
-        state['empty_searches'] += 1
-        return 'No matches in the documentation.'
     try:
         async with _client() as client:
             body = {'project_id': await _project(client), 'query': query[:4000], 'top': 8}
-            if names is not None:
-                # A renamed or deleted granted collection drops out instead of failing the whole search.
-                body['collections'] = names[:200]
-                body['ignore_unknown'] = True
+            # A renamed or deleted granted collection drops out instead of failing the whole search.
+            body['collections'] = names[:200]
+            body['ignore_unknown'] = True
             response = await client.post('/search', json=body)
             response.raise_for_status()
             hits = response.json()['results']
@@ -107,13 +121,13 @@ async def read_document(
     ],
 ) -> str:
     """Read one knowledge-base document returned by search_documents; cite it with its [n]."""
-    allowed = _allowed(context['config'])
+    if refusal := check_read_document(context['config']['access'], collection=collection):
+        return refusal
+    _collections(context['config'])
     collection, path = collection.strip(), path.strip()
     parts = path.split('/')
     if not path or path.startswith('/') or '\\' in path or any(part in ('', '.', '..') for part in parts):
         return 'Use a document path returned by search_documents.'
-    if allowed is not None and collection not in allowed:
-        return 'This document is outside the agent’s document collections.'
     if any(part.startswith('.') or part == 'node_modules' for part in parts):
         return 'Document not found.'  # never indexed (.env*, .git, hidden files); RAG refuses them too
     try:
@@ -140,5 +154,7 @@ async def report_not_covered(
     reason: Annotated[str, Field(description='What information is missing from the documentation.')],
 ) -> str:
     """Record that the retrieved documents do not answer the question."""
+    if refusal := check_report_not_covered(context['config']['access'], reason=reason):
+        return refusal
     _state(context)['reported'] = reason.strip()[:1000] or 'Not covered by the documentation.'
     return 'Recorded. Tell the user the documentation does not cover this and what is missing.'

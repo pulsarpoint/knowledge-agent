@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from knowledge_admin.capabilities.subagents import RESOURCE_TYPES
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run
 from knowledge_admin.knowledge_agents.run_resources import KINDS, RunResources, resolve
 
@@ -82,9 +83,10 @@ def load(
     store, project_id, entry: Mapping[str, Any], resources: Mapping[str, list[str]] | None
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """The expert's configuration for one call (its current settings; per run: resolved with the given resources,
-    which the caller already checked are its own) and its decrypted credentials. ValueError: a message for the model.
+    which the caller already checked are its own), with its access object, and its decrypted credentials. ValueError: a message for the model.
     Synchronous: the caller runs it in a thread."""
     from knowledge_admin.agents.runner import load_credentials  # agents imports this package
+    from knowledge_admin.sessions.run_access import run_access  # sessions imports this package
 
     unavailable = ValueError(UNAVAILABLE.format(name=entry['name']))
     try:
@@ -103,8 +105,16 @@ def load(
             or not model_fits(model)
         ):
             raise unavailable
+        picked = None  # a fixed expert: everything it has
         if per_run(config):
             config = resolve(conn, project_id, config, RunResources(**(resources or {})))
+            picked = [
+                {'type': type_, 'id': str(item)}
+                for key, type_ in RESOURCE_TYPES.items()
+                for item in (resources or {}).get(key) or []
+            ]
+        # its access object, built as a run start builds one for its agent (never a content editor)
+        config['access'] = run_access(conn, project_id, config, picked)
     config.pop('record', None)
     config['experts'] = []  # an expert never calls experts
     return config, load_credentials(store, config)

@@ -9,8 +9,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from knowledge_admin.capabilities.context import RunContext, require_given
-from knowledge_admin.rag.collections import document_collections
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
@@ -35,21 +35,39 @@ def available_documents(paths: Iterable[Path]) -> list[Path]:
 
 
 def _roots(context: RunContext) -> list[Path]:
+    """The workspace and the folders of the run's code projects and collections (their access entries)."""
     config = context['config']
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
-    require_given(config, 'files')
+    access = config['access']
     paths = [context['workspace']]  # the workspace and code folders must be mounted
-    if config['code']['enabled']:
-        paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
+    paths.extend(
+        Path(path) for project in access_rules.listing(access, 'code_project') for path in project['folder_paths']
+    )
     for path in paths:
         if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
-    if config['documents']['enabled']:
-        paths.extend(
-            available_documents(Path(path) for item in document_collections(config)[1] for path in item['paths'])
-        )
+    paths.extend(
+        available_documents(Path(path) for item in access_rules.listing(access, 'collection') for path in item['paths'])
+    )
     return list(dict.fromkeys(paths))
+
+
+def check_list_files(access: dict, **_) -> str | None:
+    """None when allowed, else the refusal text. Which paths: _path, inside the folders of these entries."""
+    if not access_rules.has_any(access, 'code_project') and not access_rules.has_any(access, 'collection'):
+        return access_rules.refuse_none('code_project', 'collection')
+    return None
+
+
+def check_read_file(access: dict, **_) -> str | None:
+    """None when allowed, else the refusal text."""
+    return check_list_files(access)
+
+
+def check_search_files(access: dict, **_) -> str | None:
+    """None when allowed, else the refusal text."""
+    return check_list_files(access)
 
 
 def _path(context: RunContext, path: str) -> Path:
@@ -74,6 +92,8 @@ async def list_files(
     limit: Annotated[int, Field(description='Maximum entries to return, from 1 to 1000.')] = 200,
 ) -> str:
     """List accessible roots or the immediate children of one selected folder."""
+    if refusal := check_list_files(context['config']['access'], path=path):
+        return refusal
     if offset < 0 or not 1 <= limit <= 1000:
         raise ValueError('Use a nonnegative offset and a limit from 1 to 1000.')
     if path is None:
@@ -111,6 +131,8 @@ async def read_file(
     """Read a source line range or a paginated UTF-8 byte excerpt from a selected file.
 
     Use read_file for surrounding comments, imports and targeted ranges."""
+    if refusal := check_read_file(context['config']['access'], path=path):
+        return refusal
     if offset < 0 or not 1 <= max_bytes <= 65536:
         raise ValueError('Use a nonnegative offset and max_bytes from 1 to 65536.')
     selected = _path(context, path)
@@ -167,6 +189,8 @@ async def search_files(
     A truncated result can be narrowed by searching a subfolder or a longer query.
 
     Use search_files for text discovery."""
+    if refusal := check_search_files(context['config']['access'], path=path):
+        return refusal
     if not query or '\n' in query or '\0' in query or len(query) > 4000 or not 1 <= max_matches <= 500:
         raise ValueError('Provide a single-line query up to 4000 characters and max_matches from 1 to 500.')
     selected = _path(context, path)

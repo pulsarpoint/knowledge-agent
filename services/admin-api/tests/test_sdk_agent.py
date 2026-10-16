@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 import asyncssh
 import pytest
+from access_helpers import with_access
 from agents import Runner
 from implied_tools import implied_tools
 from knowledge_admin.agents.runner import agent
@@ -217,8 +218,13 @@ def config(responses_api, tmp_path):
         'skills': {
             'enabled': True,
             'items': [
-                {'name': 'Inspection', 'instructions': 'Read before suggesting changes.', 'enabled': True},
-                {'name': 'Disabled skill', 'instructions': 'MUST_NOT_APPEAR', 'enabled': False},
+                {
+                    'id': 'inspection',
+                    'name': 'Inspection',
+                    'instructions': 'Read before suggesting changes.',
+                    'enabled': True,
+                },
+                {'id': 'disabled', 'name': 'Disabled skill', 'instructions': 'MUST_NOT_APPEAR', 'enabled': False},
             ],
         },
         'mcp': {'enabled': False, 'servers': [{'url': 'http://must-not-contact.test/mcp'}]},
@@ -229,7 +235,7 @@ def config(responses_api, tmp_path):
         },
     }
     value['tools'] = implied_tools(value)  # every saved configuration has its tools
-    return value
+    return with_access(value)
 
 
 @pytest.mark.parametrize('stream', [False, True])
@@ -514,6 +520,7 @@ def test_sdk_ssh_tool_uses_configured_key_and_returns_output(config, responses_a
         ],
     }
     config['tools'] = implied_tools(config)
+    with_access(config)
     result = asyncio.run(
         agent(
             config,

@@ -28,7 +28,7 @@ def run(store, monkeypatch):
             context_snapshot,purpose,agent_config,turns) VALUES (%s,%s,%s,%s,%s,'Memory','{}','{}','test',%s,1)""",
             (session, pid, agent, actor, a_model(conn, actor), Jsonb({})),
         )
-    config = {'project_id': str(pid), 'session_id': str(session)}
+    config = {'project_id': str(pid), 'session_id': str(session), 'access': {'resources': [], 'roles': {}}}
     return {'config': config, 'agent': agent, 'session': session, 'store': store}
 
 

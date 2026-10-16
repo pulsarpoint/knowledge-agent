@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from access_helpers import with_access
 from agents import Agent, FunctionTool
 from agents.tool_context import ToolContext
 
@@ -27,16 +28,21 @@ def context(tmp_path):
         'workspace': workspace,
         'shell_enabled': False,
         'credentials': {'secret': 'test-tool-secret'},
-        'config': {
-            'enabled': True,
-            'code': {'enabled': True, 'projects': [{'folder_paths': [str(code)]}]},
-            'documents': {
+        'config': with_access(
+            {
                 'enabled': True,
-                'all_collections': False,
-                'collections': [{'id': 'docs', 'name': 'docs', 'description': '', 'path': str(docs)}],
-            },
-            'ssh': {'enabled': False, 'servers': []},
-        },
+                'code': {'enabled': True, 'projects': [{'id': 'code', 'name': 'Code', 'folder_paths': [str(code)]}]},
+                'documents': {
+                    'enabled': True,
+                    'all_collections': False,
+                    'collections': [{'id': 'docs', 'name': 'docs', 'description': '', 'path': str(docs)}],
+                },
+                'ssh': {'enabled': False, 'servers': []},
+                'services': {'enabled': False, 'items': []},
+                'skills': {'enabled': False, 'items': []},
+                'mcp': {'enabled': False, 'servers': []},
+            }
+        ),
     }
 
 
@@ -85,6 +91,7 @@ def test_browse_read_pagination_redaction_and_folder_boundaries(context, tmp_pat
     for path in (outside, code / 'escape.txt', code / '..' / 'private.txt'):
         assert 'outside' in asyncio.run(invoke(read_file, context, path=str(path)))
     context['config']['code']['enabled'] = False
+    with_access(context['config'])  # its access: no code project now
     assert 'outside' in asyncio.run(invoke(read_file, context, path=str(code / 'a.txt')))
     context['config']['enabled'] = False
     assert 'disabled' in asyncio.run(invoke(list_files, context))
@@ -130,6 +137,7 @@ def test_read_graph_line_ranges_without_loading_unrelated_source(context, tmp_pa
 def test_ssh_uses_selected_connection_and_secret_with_real_server(context, ssh_server):
     server = {
         'id': 'test-server',
+        'name': 'Test server',
         'hostname': ssh_server.hostname,
         'port': ssh_server.port,
         'username': ssh_server.username,
@@ -141,6 +149,7 @@ def test_ssh_uses_selected_connection_and_secret_with_real_server(context, ssh_s
     }
     context['credentials']['ssh-key'] = ssh_server.private_key
     context['config']['ssh'] = {'enabled': True, 'servers': [server]}
+    with_access(context['config'])
     result = json.loads(
         asyncio.run(invoke(ssh_run, context, server_id=server['id'], command='id -un; printf diagnostic >&2; exit 3'))
     )
@@ -165,6 +174,7 @@ def test_missing_document_paths_are_skipped_but_code_folders_stay_required(conte
     context['config']['documents']['collections'] = [
         {'id': 'docs', 'name': 'docs', 'description': '', 'paths': [docs, '/missing/rag-data/jira']}
     ]
+    with_access(context['config'])
     with caplog.at_level('WARNING', logger='knowledge_admin.capabilities.files'):
         roots = json.loads(asyncio.run(invoke(list_files, context)))
     assert {entry['path'] for entry in roots['entries']} == {
@@ -174,4 +184,5 @@ def test_missing_document_paths_are_skipped_but_code_folders_stay_required(conte
     }
     assert '/missing/rag-data/jira' in caplog.text
     context['config']['code']['projects'][0]['folder_paths'].append('/missing/code')
+    with_access(context['config'])
     assert 'Configured folder is unavailable: /missing/code' in asyncio.run(invoke(list_files, context))

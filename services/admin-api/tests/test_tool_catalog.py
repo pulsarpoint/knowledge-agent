@@ -6,6 +6,7 @@ import itertools
 import json
 
 import pytest
+from access_helpers import with_access
 from agents import FunctionTool
 from agents.tool_context import ToolContext
 from implied_tools import implied_tools
@@ -145,6 +146,7 @@ def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
     (tmp_path / 'a.txt').write_text('hello', encoding='utf-8')
     c = config(code=True)
     c['code']['projects'] = [{'id': 'p', 'name': 'P', 'folder_paths': [str(tmp_path.resolve())]}]
+    with_access(c)
     workspace = tmp_path / 'workspace'
     workspace.mkdir()
     context = {

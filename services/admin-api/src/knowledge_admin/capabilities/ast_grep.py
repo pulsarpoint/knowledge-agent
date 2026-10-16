@@ -8,7 +8,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import _path
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
@@ -54,6 +55,13 @@ async def scan_source(context: RunContext, paths: list[Path], rules: list[dict])
     return matches, error
 
 
+def check_ast_grep(access: dict, **_) -> str | None:
+    """None when allowed, else the refusal text. Which paths: inside the run's code projects (the work checks)."""
+    if not access_rules.has_any(access, 'code_project'):
+        return access_rules.refuse_none('code_project')
+    return None
+
+
 @tool
 async def ast_grep(
     context: RunContext,
@@ -96,9 +104,8 @@ async def ast_grep(
     do not prove a symbol is absent: check language, pattern shape, and ignores.
 
     Use ast_grep for custom structural patterns, classes and other declaration forms."""
-    if not context['config']['code']['enabled']:
-        raise ValueError('Code access is disabled.')
-    require_given(context['config'], 'code')
+    if refusal := check_ast_grep(context['config']['access'], path=path):
+        return refusal
     if (pattern is None) == (rule is None):
         raise ValueError('Supply exactly one pattern or rule.')
     query = pattern if pattern is not None else rule

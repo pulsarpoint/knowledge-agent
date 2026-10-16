@@ -6,6 +6,7 @@ import asyncio
 import copy
 
 import pytest
+from access_helpers import with_access
 from agents import RunHooks
 
 from knowledge_admin.agents.runner import agent
@@ -68,7 +69,10 @@ def parent(**change) -> dict:
         'code': {
             'enabled': True,
             'all_projects': False,
-            'graphs': [{'id': 'app', 'name': 'App'}, {'id': 'worker', 'name': 'Worker'}],
+            'graphs': [
+                {'id': 'app', 'name': 'App', 'graph_path': '/index/app/graph.sqlite', 'code_root': '/code'},
+                {'id': 'worker', 'name': 'Worker', 'graph_path': '/index/worker/graph.sqlite', 'code_root': '/code'},
+            ],
             'projects': [
                 {'id': 'app', 'name': 'App', 'folder_paths': ['/code/app']},
                 {'id': 'worker', 'name': 'Worker', 'folder_paths': ['/code/worker']},
@@ -112,7 +116,7 @@ def parent(**change) -> dict:
         'record': {'run_key': 'run:x'},
     }
     value.update(change)
-    return value
+    return with_access(value)
 
 
 def modes(sub) -> dict[str, str]:
@@ -155,6 +159,12 @@ def test_a_subagent_gets_only_the_given_tools_and_resources_and_its_own_prompt()
     )
     assert (sub['instructions'], sub['skills'], sub['name']) == ('', {'enabled': False, 'items': []}, 'Lead · subagent')
     assert sub['model'] == MODEL and 'record' not in sub
+    # its access: the parent's narrowed to the given code project and the MCP server of its given MCP tool
+    assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
+        ('code_project', 'worker'),
+        ('mcp_server', 'docs'),
+    ]
+    assert sub['access']['roles'] == {'content_editor': False}
 
 
 def test_without_resources_a_subagent_keeps_the_parents_lists_and_mode():
@@ -163,6 +173,25 @@ def test_without_resources_a_subagent_keeps_the_parents_lists_and_mode():
     assert sub['documents']['all_collections'] is True and [s['id'] for s in sub['ssh']['servers']] == ['prod']
     assert sub['resources'] == 'fixed' and 'run_resources' not in sub
     assert (sub['mcp']['enabled'], sub['mcp']['servers']) == (False, [])  # no MCP tool given: no MCP server
+    # all of the parent's resources but its skills (and MCP servers without a given MCP tool)
+    assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
+        ('server', 'prod'),
+        ('service', 'payments'),
+        ('code_project', 'app'),
+        ('code_project', 'worker'),
+        ('collection', 'runbooks'),
+    ]
+
+
+def test_a_subagent_never_gets_more_than_its_parent_and_never_changes_content():
+    lead = with_access(parent(), content_editor=True)
+    lead['access']['resources'] = [e for e in lead['access']['resources'] if e['id'] != 'worker']
+    with pytest.raises(ValueError, match="code project worker is not in the agent's access"):
+        subagent_config(
+            lead, ['read_file'], {**NO_RESOURCES, 'code_project_ids': ['worker']}, offered=OFFERED, mcp_tools=MCP
+        )
+    sub = subagent_config(lead, ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
+    assert sub['access']['roles'] == {'content_editor': False}
 
 
 @pytest.mark.parametrize(

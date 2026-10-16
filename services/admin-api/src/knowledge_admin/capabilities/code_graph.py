@@ -11,7 +11,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.code_projects.paths import code_root, rebase_code_path
 from knowledge_admin.code_projects.processing import CodeProcessingError, index_directory, source_inventory
 from knowledge_admin.sessions.activity import redact
@@ -120,6 +121,15 @@ def current_graph(project: dict) -> dict | None:
     return graph
 
 
+def check_code_graph(access: dict, project_id: str, **_) -> str | None:
+    """None when allowed, else the refusal text."""
+    if not access_rules.has_any(access, 'code_project'):
+        return access_rules.refuse_none('code_project')
+    if not access_rules.can_use(access, 'code_project', project_id):
+        return access_rules.refuse_use('code_project')
+    return None
+
+
 @tool
 async def code_graph(
     context: RunContext,
@@ -165,9 +175,10 @@ async def code_graph(
     references. Then verify business rules, state changes, SQL and external effects with source-file tools. Graph paths
     are relative to CODE_ROOT, as returned by the tool. Static edges are evidence, not proof of runtime execution."""
     config = context['config']
-    if not config['enabled'] or not config['code']['enabled']:
+    if refusal := check_code_graph(config['access'], project_id=project_id):
+        return refusal
+    if not config['enabled']:
         raise ValueError('Code access is disabled.')
-    require_given(config, 'code')
     graph = next((g for g in config['code'].get('graphs', []) if g['id'] == project_id), None)
     if graph is None:
         raise ValueError('Choose a configured code graph project.')

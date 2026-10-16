@@ -7,10 +7,18 @@ from typing import Annotated
 import httpx
 from pydantic import Field
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import _roots
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
+
+
+def check_shell_run(access: dict, **_) -> str | None:
+    """None when allowed, else the refusal text: the shell reads the run's code projects and collections."""
+    if not access_rules.has_any(access, 'code_project') and not access_rules.has_any(access, 'collection'):
+        return access_rules.refuse_none('code_project', 'collection')
+    return None
 
 
 @tool
@@ -44,6 +52,8 @@ async def shell_run(
     the same absolute paths; pwd shows writable scratch space. Inspect focused source ranges; use code_graph for indexed
     relationships when available. Scratch files persist between tool calls within this run. Network access is disabled
     in the shell; use ssh_run for configured servers."""
+    if refusal := check_shell_run(context['config']['access'], command=command):
+        return refusal
     if not context['config']['enabled'] or not context['shell_enabled']:
         raise ValueError('Local command execution is disabled for this agent run.')
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
@@ -53,8 +63,11 @@ async def shell_run(
         raise ValueError('The shell worker is not configured. Set AGENT_SHELL_URL.')
     workspace = context['workspace']
     paths = [str(path) for path in _roots(context) if path != workspace]
-    if context['config']['code']['enabled']:
-        paths.extend(graph['graph_path'] for graph in context['config']['code'].get('graphs', []))
+    paths.extend(
+        project['graph_path']
+        for project in access_rules.listing(context['config']['access'], 'code_project')
+        if project.get('graph_path')
+    )
     async with httpx.AsyncClient(timeout=timeout_seconds + 10, trust_env=False) as client:
         response = await client.post(
             endpoint.rstrip('/') + '/run',

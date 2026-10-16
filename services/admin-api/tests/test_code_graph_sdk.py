@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+from access_helpers import with_access
 from tool_helpers import tool
 from test_function_tools import context, invoke
 
@@ -53,6 +54,8 @@ func unrelated() {}
         'graph_path': str(database),
     }
     context['config']['code']['graphs'] = [graph]
+    context['config']['code']['projects'][0]['id'] = 'project'  # the graph's code project, in the run's access
+    with_access(context['config'])
     return graph
 
 
@@ -132,9 +135,12 @@ def test_changed_missing_and_escaped_source_are_not_returned(context, indexed_gr
 
 
 def test_invalid_graph_node_and_disabled_access(context, indexed_graph):
-    assert 'configured' in asyncio.run(invoke(code_graph, context, project_id='other'))
+    other = asyncio.run(invoke(code_graph, context, project_id='other'))
+    assert other == 'This code project is not available in this run.'
     assert 'node ID' in asyncio.run(
         invoke(code_graph, context, project_id='project', action='code', node_id='not-found')
     )
     context['config']['code']['enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(code_graph, context, project_id='project', action='search', query='Handle'))
+    with_access(context['config'])  # code off at start: no code project in the run's access object
+    off = asyncio.run(invoke(code_graph, context, project_id='project', action='search', query='Handle'))
+    assert off == 'This run has no code projects.'

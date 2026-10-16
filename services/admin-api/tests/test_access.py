@@ -64,6 +64,7 @@ def test_refusal_texts_are_exact():
     assert access.refuse_use('code_project') == 'This code project is not available in this run.'
     assert access.refuse_use('mcp_server') == 'This MCP server is not available in this run.'
     assert access.refuse_none('collection') == 'This run has no collections.'
+    assert access.refuse_none('code_project', 'collection') == 'This run has no code projects or collections.'
     assert access.NOT_EDITOR == 'This agent may not change content (content editor is off).'
     assert set(access.TYPES) == set(access.TYPE_WORDS)
 
@@ -131,3 +132,9 @@ def test_expand_marks_a_grandchild_via_its_direct_parent():
 def test_narrow_refusal_names_the_type_in_words():
     with pytest.raises(ValueError, match="^code project x is not in the agent's access$"):
         access.narrow(run_access(True), [{'type': 'code_project', 'id': 'x'}])
+
+
+def test_is_content_editor():
+    assert access.is_content_editor(run_access(True))
+    assert not access.is_content_editor(run_access(False))
+    assert not access.is_content_editor({'resources': []})

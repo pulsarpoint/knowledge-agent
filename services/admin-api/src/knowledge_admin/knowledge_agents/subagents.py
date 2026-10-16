@@ -20,7 +20,9 @@ from typing import Any
 
 from agents.run_config import CallModelData, ModelInputData
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
+from knowledge_admin.capabilities.subagents import RESOURCE_TYPES, check_run_subagent
 from knowledge_admin.knowledge_agents import experts, native_sessions
 from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
@@ -99,8 +101,9 @@ def _given_tools(
 
 def check_given(config: Mapping[str, Any], resources: Mapping[str, list[str]]) -> dict[str, list[str]]:
     """The given resource ids of every kind (each once, in the caller's order), each one of the caller's current
-    resources; otherwise a ValueError naming it (NOT_GIVEN). Checked before a subagent narrows to them and before an
-    expert is given them."""
+    resources in the configuration's lists; otherwise a ValueError naming it (NOT_GIVEN). The configuration's lists
+    narrowed for a subagent (_narrow); whether it may be given them at all is check_run_subagent's, on the access
+    object (run_subagent and expert calls)."""
     given: dict[str, list[str]] = {}
     for kind in KINDS:
         listed = _listed(config, kind.capability)
@@ -191,11 +194,30 @@ def subagent_config(
     if resources is not None:
         _narrow(sub, resources)
     _only(sub, catalog, mcp, mcp_tools)
+    sub['access'] = subagent_access(config['access'], resources, mcp)
     sub['name'] = f'{config["name"]} · subagent'
     sub['system_prompt'] = {'content': PROMPT}
     sub['instructions'] = ''
     sub['skills'] = {'enabled': False, 'items': []}
     return sub
+
+
+def subagent_access(
+    parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None, mcp: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The parent's access narrowed (access.narrow, never widened) to what the subagent is given: the given resources
+    (None: all of the parent's but its documents and skills, which a subagent never gets), the MCP servers of its
+    given MCP tools; content editor off (a subagent never changes content)."""
+    if resources is None:
+        picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
+    else:
+        picked = [
+            {'type': type_, 'id': str(item)}
+            for key, type_ in RESOURCE_TYPES.items()
+            for item in dict.fromkeys(resources.get(key) or [])
+        ]
+    picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server' and str(entry['id']) in mcp]
+    return access_rules.narrow(dict(parent), picked, ['content_editor'])
 
 
 def referenced_credentials(config: Mapping[str, Any], credentials: Mapping[str, str]) -> dict[str, str]:
@@ -354,7 +376,13 @@ class Subagents:
         the caller's own; the expert runs its own saved configuration (resolved with them when it is per run) and
         its own credentials. Shares the slots and the per-turn limit with run_subagent."""
         check_task(task)
-        given = check_given(context['config'], resources) if resources is not None else None
+        if resources is not None and (refusal := check_run_subagent(context['config']['access'], resources)):
+            raise ValueError(refusal)
+        given = (
+            {key: list(dict.fromkeys(str(item) for item in resources.get(key) or [])) for key in RESOURCE_TYPES}
+            if resources is not None
+            else None
+        )
         if self.load_expert is None:
             raise ValueError(experts.UNAVAILABLE.format(name=entry['name']))
         if self.closed or self.parent.closed:

@@ -174,7 +174,8 @@ def test_get_resource_lists_only_documents_the_run_could_read(world):
     titles = [item['title'] for item in get(no_services, 'server', world.server['id'])['documents']]
     assert titles == ['Zeta inventory', 'Alpha shared', 'web-1 overview']
     # A document the run was given directly is readable, so it is listed.
-    direct = {**alone, 'document_access': [{'id': str(found['runbook'])}]}
+    runbook = {'type': 'document', 'id': str(found['runbook']), 'source': 'given'}
+    direct = {**alone, 'access': {**alone['access'], 'resources': [*alone['access']['resources'], runbook]}}
     titles = [item['title'] for item in get(direct, 'environment', world.environment)['documents']]
     assert titles == ['Production notes', 'nginx runbook']
 

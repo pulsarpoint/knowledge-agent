@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from access_helpers import with_access
 from psycopg.types.json import Jsonb
 
 from drafts_world import docs, save_live  # noqa: F401  (fixture)
@@ -50,6 +51,7 @@ def rev(docs, monkeypatch):
         'session_id': str(sid),
         'document_access': [{'id': str(docs.runbook), 'title': 'Runbook', 'editable': True}],
     }
+    with_access(config, content_editor=True)  # a revision run writes its document
     return SimpleNamespace(docs=docs, sid=sid, config=config)
 
 

@@ -13,7 +13,8 @@ from typing import Annotated
 import asyncssh
 from pydantic import Field
 
-from knowledge_admin.capabilities.context import NOT_AVAILABLE, RunContext, allowed, require_given
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
@@ -212,6 +213,15 @@ async def inspect_connection(connection: SSHConnection) -> dict:
         return {'ok': True, 'message': message, 'host_key': host_key}
 
 
+def check_ssh_run(access: dict, server_id: str, **_) -> str | None:
+    """None when allowed, else the refusal text."""
+    if not access_rules.has_any(access, 'server'):
+        return access_rules.refuse_none('server')
+    if not access_rules.can_use(access, 'server', server_id):
+        return access_rules.refuse_use('server')
+    return None
+
+
 # Run one command on a server selected for this agent; the backend supplies the key and host verification.
 @tool
 async def ssh_run(
@@ -229,12 +239,14 @@ async def ssh_run(
 
     Use ssh_run with the server ID from get_available_resources."""
     config = context['config']
-    if not config['enabled'] or not config['ssh']['enabled']:
+    if refusal := check_ssh_run(config['access'], server_id=server_id):
+        return refusal
+    if not config['enabled']:
         raise ValueError('SSH is disabled for this agent.')
-    require_given(config, 'ssh')
-    server = allowed(config, 'server', server_id)
-    if not server['enabled'] or not server['ssh_allowed']:
-        raise ValueError(NOT_AVAILABLE.format(kind='server'))
+    # the server's connection as the run's configuration pins it
+    server = next((item for item in config['ssh']['servers'] if str(item['id']) == str(server_id)), None)
+    if server is None or not server['enabled'] or not server['ssh_allowed']:
+        return access_rules.refuse_use('server')
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
     reference = server['private_key_ref']

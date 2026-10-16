@@ -99,7 +99,18 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
     )
     document = config['document_access'][0]
     assert new == {
-        'resources': [{**entry('document', document['id'], 'Shop overview', ''), 'editable': True}],
+        'resources': [
+            {
+                **entry('document', document['id'], 'Shop overview', ''),
+                'editable': True,
+                'new': True,  # the new document carries where it goes and what it is built for
+                'folder': document['folder'],
+                'slug': document['slug'],
+                'tags': document['tags'],
+                'links': [],
+                'built_for': [],
+            }
+        ],
         'roles': {'content_editor': True},
     }
     with world.store.connect() as conn:

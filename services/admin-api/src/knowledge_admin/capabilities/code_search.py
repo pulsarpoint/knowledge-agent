@@ -9,10 +9,18 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from knowledge_admin.capabilities.ast_grep import scan_source
-from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin import access as access_rules
+from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import _path
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
+
+
+def check_code_search(access: dict, **_) -> str | None:
+    """None when allowed, else the refusal text. Which paths: inside the run's code projects (the work checks)."""
+    if not access_rules.has_any(access, 'code_project'):
+        return access_rules.refuse_none('code_project')
+    return None
 
 
 @tool
@@ -47,9 +55,8 @@ async def code_search(
     Use code_search to find a function or method by name and read its complete body, imports and call sites. Calls
     returned by code_search are syntax, including nested closures; resolve package/receiver targets before following
     them."""
-    if not context['config']['code']['enabled']:
-        raise ValueError('Code access is disabled.')
-    require_given(context['config'], 'code')
+    if refusal := check_code_search(context['config']['access'], path=path):
+        return refusal
     if not name.strip() or len(name) > 300 or offset < 0 or not 1 <= limit <= 20:
         raise ValueError('Use a name up to 300 characters, nonnegative offset and limit from 1 to 20.')
     if match not in ('exact', 'contains'):
@@ -61,7 +68,7 @@ async def code_search(
     selected = _path(context, path)
     roots = [
         Path(folder).resolve()
-        for project in context['config']['code']['projects']
+        for project in access_rules.listing(context['config']['access'], 'code_project')
         for folder in project['folder_paths']
     ]
     if not any(selected.is_relative_to(root) for root in roots):

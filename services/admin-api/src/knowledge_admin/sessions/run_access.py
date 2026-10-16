@@ -43,8 +43,39 @@ def _code_project(item: dict[str, Any], graphs: dict[str, dict]) -> dict[str, An
     return _entry('code_project', item, folder_paths=list(item.get('folder_paths', [])), **found)
 
 
-def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[dict[str, Any]]:
-    """Every resource the pinned configuration lists, once, and the given environments (they are not in it)."""
+BUILT_FOR = (
+    ('code_project', 'code_project_ids'),
+    ('environment', 'environment_ids'),
+    ('service', 'service_ids'),
+    ('server', 'server_ids'),
+)
+NEW_DOCUMENT = ('folder', 'slug', 'tags')
+
+
+def built_for(config: dict[str, Any]) -> list[list[str]]:
+    """The resources the run was started for, [type, id]: what a new document links on promote (what the person
+    chose, an environment rather than what it brings). A run started before chosen_resources was recorded: its
+    run_resources."""
+    chosen = config.get('chosen_resources') or config.get('run_resources') or {}
+    return [[type_, str(item)] for type_, key in BUILT_FOR for item in chosen.get(key, [])]
+
+
+def document_entry(config: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    found = {
+        'type': 'document',
+        'id': str(item['id']),
+        'name': item['title'],
+        'description_short': '',
+        'editable': bool(item.get('editable')),
+    }
+    if item.get('new'):  # the new document the run writes: its name, where it goes and what it links on promote
+        links = built_for(config)
+        found.update({key: item.get(key) for key in NEW_DOCUMENT}, new=True, links=links, built_for=links)
+    return found
+
+
+def config_resources(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every resource the pinned configuration lists, once (pure: no environments, they are not in it)."""
     servers = ssh_servers(config)
     found = [_entry('server', server) for server in servers]
     if config['services']['enabled']:
@@ -58,24 +89,21 @@ def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[d
             for item in document_collections(config)[1]
             if 'id' in item
         ]
-    if environment_ids:
-        rows = conn.execute(ENVIRONMENTS, (project, [str(item) for item in environment_ids])).fetchall()
-        by_id = {str(row['id']): row for row in rows}
-        found += [_entry('environment', by_id[str(item)]) for item in environment_ids if str(item) in by_id]
     if config['skills']['enabled']:
         skills = [*config['skills']['items'], *(skill for server in servers for skill in server.get('skills', []))]
         found += [_entry('skill', skill) for skill in skills if skill['enabled']]
     found += [_entry('mcp_server', server) for server in mcp.selected_servers(config, servers)]
-    found += [
-        {
-            'type': 'document',
-            'id': str(item['id']),
-            'name': item['title'],
-            'description_short': '',
-            'editable': bool(item['editable']),
-        }
-        for item in config.get('document_access') or []
-    ]
+    found += [document_entry(config, item) for item in config.get('document_access') or []]
+    return list({(item['type'], item['id']): item for item in found}.values())
+
+
+def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[dict[str, Any]]:
+    """Every resource the pinned configuration lists, once, and the given environments (they are not in it)."""
+    found = config_resources(config)
+    if environment_ids:
+        rows = conn.execute(ENVIRONMENTS, (project, [str(item) for item in environment_ids])).fetchall()
+        by_id = {str(row['id']): row for row in rows}
+        found += [_entry('environment', by_id[str(item)]) for item in environment_ids if str(item) in by_id]
     return list({(item['type'], item['id']): item for item in found}.values())
 
 
@@ -115,6 +143,10 @@ def run_access(
     holds = held(conn, project, config, list(environment_ids))
     if picked is not None:
         picked = [*picked, *(item for item in holds if item['type'] in ALWAYS_GIVEN)]
+    keys = {(item['type'], item['id']) for item in holds}
+    for item in holds:  # built for (checked when it is created): what it links that the run holds (a server without
+        if item.get('new'):  # SSH is linked but not held)
+            item['built_for'] = [link for link in item['links'] if (link[0], link[1]) in keys]
     narrowed = access_rules.narrow({'resources': holds, 'roles': {'content_editor': content_editor}}, picked)
     by_key = {(item['type'], item['id']): item for item in holds}
     return access_rules.expand(narrowed, _children(conn, project, by_key))

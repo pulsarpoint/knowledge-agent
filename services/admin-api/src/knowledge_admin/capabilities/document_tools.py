@@ -1,8 +1,8 @@
 """The document tools: get_document reads a document the run was given (its own open draft of it when it has one,
 else the live version) or one linked to a resource it was given; save_document and edit_document save the run's draft of
 a document it was given as editable, or write the new document it was given (an id 'new:<uuid>': the first save creates
-the run's new-document draft, later saves update it). Which documents a run may use is pinned in its config (document_access) and
-checked here with allowed(); the run's session is config['session_id'], set by the worker. A save locks the run's
+the run's new-document draft, later saves update it). Which documents a run may use is in its access object
+(config['access']), checked by check_<tool> here through access.py; the run's session is config['session_id'], set by the worker. A save locks the run's
 session, then its draft (the order the worker and promote take them in), never ka.projects or ka.documents rows, and
 recomputes the draft's sources from the run's tool calls. A draft is a row of ka.documents (is_draft); a draft id is
 never a document id here."""
@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from psycopg import errors
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from knowledge_admin.capabilities.context import NOT_AVAILABLE, allowed
+from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.inventory import connect, project_of
 from knowledge_admin.documents.api import Description, Markdown, Title
 from knowledge_admin.documents.drafts import (
@@ -117,33 +117,66 @@ def _document_id(value: str) -> UUID:
     try:
         return UUID(str(value))
     except ValueError:
-        raise ValueError(NOT_AVAILABLE.format(kind='document')) from None
+        raise ValueError(access_rules.refuse_use('document')) from None
 
 
-def readable(conn, config: dict[str, Any], document: UUID) -> bool:
-    """A document the run was given, or one with an active link (built for or linked) to a server, service,
-    environment or code project the run was given (read-only; get_resource lists them). A document linked only to
-    resources the run was not given is not readable."""
-    try:
-        allowed(config, 'document', str(document))
-        return True
-    except ValueError:
-        pass
-    for row in conn.execute(LINKED, (document,)).fetchall():
+def _linked(conn, document: UUID) -> list[tuple[str, str]]:
+    """The resources a document has an active link to (built for or linked), as (type, id)."""
+    return [
+        (kind, str(row[column]))
+        for row in conn.execute(LINKED, (document,)).fetchall()
         for kind, column in (
             ('server', 'server_id'),
             ('service', 'service_id'),
             ('environment', 'environment_id'),
             ('code_project', 'code_project_id'),
-        ):
-            if row[column] is None:
-                continue
-            try:
-                allowed(config, kind, str(row[column]))
-                return True
-            except ValueError:
-                continue
-    return False
+        )
+        if row[column] is not None
+    ]
+
+
+def check_get_document(access: dict, document_id: str, linked: list[tuple[str, str]] = (), **_) -> str | None:
+    """None when allowed, else the refusal text: a document in the run's list, or one linked to a server, service,
+    environment or code project in it (read-only; get_resource lists them). `linked`: the document's links, (type, id),
+    loaded by the tool. A document linked only to resources outside the list is not readable."""
+    if access_rules.can_use(access, 'document', document_id):
+        return None
+    if any(access_rules.can_use(access, kind, key) for kind, key in linked):
+        return None
+    return access_rules.refuse_use('document')
+
+
+def readable(conn, access: dict, document: UUID) -> bool:
+    """Whether get_document reads this document in a run with this access object."""
+    return check_get_document(access, str(document), linked=_linked(conn, document)) is None
+
+
+def check_save_document(access: dict, document_id: str, **_) -> str | None:
+    """None when allowed, else the refusal text: a content editor, a document in the list that is editable, and for
+    the new document every resource it is built for in the list. A refused id is answered with the documents the run
+    may change (the tool schemas are the same in every run, so they do not list them)."""
+    if not access_rules.is_content_editor(access):
+        return access_rules.NOT_EDITOR
+    if not access_rules.has_any(access, 'document'):
+        return access_rules.refuse_none('document')
+    if not access_rules.can_write_document(access, document_id):
+        refusal = access_rules.refuse_use('document')
+        editable = [entry for entry in access_rules.listing(access, 'document') if entry.get('editable')]
+        if not editable:
+            return refusal
+        names = ', '.join(f'{entry["name"]} ({entry["id"]})' for entry in editable)
+        return f'{refusal} {MAY_CHANGE.format(documents=names)}'
+    entry = access_rules.entry(access, 'document', document_id)
+    built_for = [(kind, key) for kind, key in entry.get('built_for') or []]
+    if entry.get('new') and not access_rules.can_create_document(access, built_for):
+        kind = next(kind for kind, key in built_for if not access_rules.can_use(access, kind, key))
+        return access_rules.refuse_use(kind)
+    return None
+
+
+def check_edit_document(access: dict, document_id: str, **_) -> str | None:
+    """None when allowed, else the refusal text (as check_save_document)."""
+    return check_save_document(access, document_id)
 
 
 def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: bool = False) -> dict | None:
@@ -156,11 +189,8 @@ def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: 
 
 
 def _get_new_document(config: dict[str, Any], document_id: str) -> tuple[dict | None, str | None]:
-    """(the run's draft of its new document, or None with the answer to give instead)."""
-    try:
-        entry = allowed(config, 'document', document_id)
-    except ValueError as exc:
-        return None, str(exc)
+    """(the run's draft of its new document, or None with the answer to give instead); the caller checked it."""
+    entry = access_rules.entry(config['access'], 'document', document_id)
     session = config.get('session_id')
     if not session:
         return None, NOT_WRITTEN
@@ -173,6 +203,8 @@ def _get_document(
     config: dict[str, Any], document_id: str, section: str | None, start_line: int | None, end_line: int | None
 ) -> str:
     if str(document_id).startswith(NEW_PREFIX):
+        if refusal := check_get_document(config['access'], document_id):
+            return refusal
         draft, answer = _get_new_document(config, document_id)
         if draft is None:
             return answer
@@ -184,10 +216,10 @@ def _get_document(
     with connect() as conn:
         project = project_of(conn, config)
         live = conn.execute(LIVE, (document, project)).fetchone()
-        if live is None and str(document) in {str(entry.get('id')) for entry in config.get('document_access', [])}:
-            return 'Document not found'  # deleted during the run
-        if live is None or not readable(conn, config, document):
-            return NOT_AVAILABLE.format(kind='document')
+        if refusal := check_get_document(config['access'], str(document), linked=_linked(conn, document)):
+            return refusal
+        if live is None:
+            return 'Document not found'  # deleted during the run (or a draft id: never read as a document)
         session = config.get('session_id')
         draft = conn.execute(WORKING, (session, document)).fetchone() if session else None
     return _render(str(document), draft, live, section, start_line, end_line)
@@ -242,21 +274,8 @@ def _save(config: dict[str, Any], document_id: str, change: Callable[[dict[str, 
         return _save_once(config, document_id, change)
 
 
-def _editable(config: dict[str, Any], document_id: str) -> dict[str, Any]:
-    """The run's entry of a document it may change; any other id is refused with the ones it may change (the tool
-    schemas are the same in every run, so they do not list them)."""
-    try:
-        return allowed(config, 'document', document_id, write=True)
-    except ValueError as exc:
-        editable = [entry for entry in config.get('document_access', []) if entry.get('editable')]
-        if not editable:
-            raise
-        names = ', '.join(f'{entry["title"]} ({entry["id"]})' for entry in editable)
-        raise ValueError(f'{exc} {MAY_CHANGE.format(documents=names)}') from None
-
-
 def _save_once(config: dict[str, Any], document_id: str, change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
-    entry = _editable(config, document_id)
+    entry = access_rules.entry(config['access'], 'document', document_id)  # the tool checked it
     if str(document_id).startswith(NEW_PREFIX):
         return _save_new(config, entry, change)
     document = _document_id(document_id)
@@ -299,15 +318,13 @@ def _note(conn, session: dict, document: UUID, version: int) -> str:
     return notes[outcome['status']].format(version=version)
 
 
-def _run_links(config: dict[str, Any]) -> dict[str, list[str]]:
-    """The resources the run was started for, as the resource_ids a new document links on promote: what the person
-    chose (an environment, not what it brings for the tools). A run started before chosen_resources was recorded links
-    its run_resources."""
-    chosen = config.get('chosen_resources') or config.get('run_resources') or {}
-    return {
-        key: [str(item) for item in chosen.get(key, [])]
-        for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
-    } | {'deployment_ids': []}
+def _run_links(new: dict[str, Any]) -> dict[str, list[str]]:
+    """What the new document links on promote (its access entry's links: what the person chose, an environment, not
+    what it brings for the tools), as resource_ids."""
+    links = {key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')}
+    for kind, key in new.get('links') or []:
+        links[f'{kind}_ids'].append(str(key))
+    return links
 
 
 def _write(
@@ -357,7 +374,7 @@ def _write(
                 origin='generated',
                 slug=new['slug'],
                 folder=new['folder'],
-                links=available_resources(conn, project, _run_links(config)),
+                links=available_resources(conn, project, _run_links(new)),
             )
         except errors.UniqueViolation:  # another run's or a person's brand-new draft holds this folder and slug
             raise ValueError(NAME_IN_USE.format(slug=new['slug'])) from None
@@ -379,7 +396,7 @@ def _locked_session(conn, config: dict[str, Any]) -> dict:
 
 
 def _save_new(config: dict[str, Any], entry: dict[str, Any], change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
-    """A save of the run's new document (the caller checked allowed()): the first creates its draft, later ones update
+    """A save of the run's new document (the tool checked it): the first creates its draft, later ones update
     that draft. When the entry's folder and slug name an existing document (also one a person promoted the run's
     earlier draft into), the first save creates a draft of that document from its live content instead."""
     if not config.get('session_id'):
@@ -404,7 +421,7 @@ def _save_new(config: dict[str, Any], entry: dict[str, Any], change: Callable[[d
             dict(current)
             if current is not None
             else {
-                'title': live['title'] if live else entry['title'],
+                'title': live['title'] if live else entry['name'],
                 'description': live['description'] if live else '',
                 'markdown': None,
             }
@@ -499,6 +516,8 @@ async def save_document(
     context, document_id: str, markdown: str, title: str | None = None, description: str | None = None
 ) -> str:
     """Save your draft of the document with this id: the complete text (optionally a new title or description). A person reviews the draft and decides whether it becomes the live version."""
+    if refusal := check_save_document(context['config']['access'], document_id=document_id):
+        return refusal
 
     def change(base: dict[str, Any]) -> dict[str, Any]:
         if base['markdown'] is None:  # the first save of a new document (or of the existing one its name matched)
@@ -519,4 +538,6 @@ async def save_document(
 @tool(arguments=EditDocument)
 async def edit_document(context, document_id: str, old_text: str, new_text: str) -> str:
     """Replace one exact passage of the document with this id (old_text, which must occur exactly once) with new_text, and save the result as your draft. An empty new_text removes the passage."""
+    if refusal := check_edit_document(context['config']['access'], document_id=document_id):
+        return refusal
     return await asyncio.to_thread(_save, context['config'], document_id, _replace(old_text, new_text))

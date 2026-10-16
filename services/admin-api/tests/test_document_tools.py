@@ -5,6 +5,7 @@ import json
 
 import httpx
 import pytest
+from access_helpers import with_access
 from agents.tool_context import ToolContext
 from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_paths, get_prompt
@@ -75,7 +76,7 @@ def invoke(tool, context, **arguments):
 
 
 def run_context(cfg):
-    return {'config': cfg, 'credentials': {}, 'workspace': None, 'shell_enabled': False}
+    return {'config': with_access(cfg), 'credentials': {}, 'workspace': None, 'shell_enabled': False}
 
 
 def test_search_numbers_excerpts_and_limits_collections(rag):
@@ -99,20 +100,21 @@ def test_search_numbers_excerpts_and_limits_collections(rag):
 def test_empty_collection_scope_never_searches_everything(rag):
     calls, _ = rag
     context = run_context(config(collections=[]))
-    assert invoke(search_documents, context, query='anything') == 'No matches in the documentation.'
-    assert calls == []
-    assert context['grounding'] == {'excerpts': [], 'searches': 1, 'empty_searches': 1, 'reported': None}
+    assert invoke(search_documents, context, query='anything') == 'This run has no collections.'
+    assert calls == [] and 'grounding' not in context
 
 
 def test_search_is_limited_to_granted_collections(rag):
     calls, _ = rag
-    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'}]))
+    context = run_context(
+        config(collections=[{'id': 'jira', 'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'}])
+    )
     invoke(search_documents, context, query='x')
     body = json.loads(calls[-1].content)
     assert body['collections'] == ['jira'] and 'mode' not in body
     assert (
         invoke(search_documents, context, query='x', collection='docs')
-        == 'This collection is outside the agent’s document collections.'
+        == 'This collection is not available in this run.'
     )
 
 
@@ -121,8 +123,8 @@ def test_collection_argument_narrows_to_one_granted_collection(rag):
     context = run_context(
         config(
             collections=[
-                {'name': 'jira', 'description': '', 'path': ''},
-                {'name': 'docs', 'description': '', 'path': ''},
+                {'id': 'jira', 'name': 'jira', 'description': '', 'path': ''},
+                {'id': 'docs', 'name': 'docs', 'description': '', 'path': ''},
             ]
         )
     )
@@ -130,15 +132,16 @@ def test_collection_argument_narrows_to_one_granted_collection(rag):
     assert json.loads(calls[-1].content)['collections'] == ['jira']
 
 
-def test_all_collections_searches_everything(rag):
+def test_all_collections_searches_the_collections_the_run_lists(rag):
+    """ "All collections" is resolved into the list when the configuration loads; the run searches that list."""
     calls, _ = rag
     invoke(search_documents, run_context(config(all_collections=True)), query='x')
-    assert 'collections' not in json.loads(calls[-1].content)
-    invoke(search_documents, run_context(config(all_collections=True)), query='x', collection='any')
-    assert json.loads(calls[-1].content)['collections'] == ['any']
+    assert json.loads(calls[-1].content)['collections'] == ['payments']
+    refused = invoke(search_documents, run_context(config(all_collections=True)), query='x', collection='any')
+    assert refused == 'This collection is not available in this run.' and len(calls) == 2
 
 
-def test_legacy_config_searches_mapped_collections(rag):
+def test_a_legacy_folder_config_has_no_collections(rag):
     calls, _ = rag
     legacy = config()
     legacy['documents'] = {
@@ -147,8 +150,9 @@ def test_legacy_config_searches_mapped_collections(rag):
         'all_folders': False,
         'folders': [{'path': '/work/rag-data/demo/payments', 'search_folder': 'demo.payments'}],
     }
-    invoke(search_documents, run_context(legacy), query='x')
-    assert json.loads(calls[-1].content)['collections'] == ['demo']
+    # folder-era collections carry no id: they are not in the run's access object
+    assert invoke(search_documents, run_context(legacy), query='x') == 'This run has no collections.'
+    assert calls == []
 
 
 def test_rag_failure_is_reported_to_model_and_not_counted(rag):
@@ -161,19 +165,22 @@ def test_rag_failure_is_reported_to_model_and_not_counted(rag):
 
 def test_read_document_uses_collection_and_path(rag):
     calls, _ = rag
-    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': ''}]))
+    context = run_context(config(collections=[{'id': 'jira', 'name': 'jira', 'description': '', 'path': ''}]))
     assert (
         invoke(read_document, context, collection='jira', path='DEMO-1.md') == '[1] jira/DEMO-1.md\nFull retry policy.'
     )
     assert dict(calls[-1].url.params) == {'collection': 'jira', 'path': 'DEMO-1.md'}
     assert context['grounding']['excerpts'][0]['collection'] == 'jira'
-    assert 'outside' in invoke(read_document, context, collection='docs', path='a.md')
+    assert (
+        invoke(read_document, context, collection='docs', path='a.md')
+        == 'This collection is not available in this run.'
+    )
     assert 'Use a document path' in invoke(read_document, context, collection='jira', path='../x')
 
 
 def test_read_document_never_reads_hidden_or_unindexed_files(rag):
     calls, _ = rag
-    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': ''}]))
+    context = run_context(config(collections=[{'id': 'jira', 'name': 'jira', 'description': '', 'path': ''}]))
     for path in ('.env', '.env.local', 'sub/.git/config', 'node_modules/x/README.md'):
         assert invoke(read_document, context, collection='jira', path=path) == 'Document not found.'
     assert calls == []
@@ -187,8 +194,8 @@ def test_search_tolerates_renamed_or_deleted_collections(rag):
     context = run_context(
         config(
             collections=[
-                {'name': 'payments', 'description': '', 'path': ''},
-                {'name': 'renamed', 'description': '', 'path': ''},
+                {'id': 'payments', 'name': 'payments', 'description': '', 'path': ''},
+                {'id': 'renamed', 'name': 'renamed', 'description': '', 'path': ''},
             ]
         )
     )
@@ -269,7 +276,7 @@ def test_get_paths_treats_legacy_config_without_grounded_as_ungrounded():
 
 def test_read_document_passes_full_path(rag):
     calls, _ = rag
-    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'paths': []}]))
+    context = run_context(config(collections=[{'id': 'jira', 'name': 'jira', 'description': '', 'paths': []}]))
     result = invoke(read_document, context, collection='jira', path='jira/DEMO-1.md')
     assert result == '[1] jira/jira/DEMO-1.md\nFull retry policy.'
     assert dict(calls[-1].url.params) == {'collection': 'jira', 'path': 'jira/DEMO-1.md'}

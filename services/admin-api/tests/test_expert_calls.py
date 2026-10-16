@@ -182,7 +182,7 @@ def test_a_resource_the_caller_lacks_is_refused_before_anything_is_loaded():
     subagents, fake, _, _ = host({}, loader)
     with pytest.raises(ValueError) as refused:
         asyncio.run(ask(subagents, 'e1', 'Map payments', {'code_project_ids': ['nope']}))
-    assert str(refused.value) == 'Code project nope is not one of your resources.'
+    assert str(refused.value) == 'This code project is not available in this run.'
     for task in ('  ', 'x' * 20_001):
         with pytest.raises(ValueError):
             asyncio.run(ask(subagents, 'e1', task))
@@ -529,10 +529,15 @@ def test_load_resolves_per_run_resources_against_the_expert_and_refuses_unavaila
     config, credentials = load(s.store, project, entry, given)
     assert config['run_resources'] == given and config['experts'] == [] and 'record' not in config
     assert [p['name'] for p in config['code']['projects']] == ['Payments API']
+    # its access object, built as a run start builds it: what it was given, no content editor
+    given_access = [(e['type'], e['id'], e['source']) for e in config['access']['resources'] if e['source'] == 'given']
+    assert given_access == [('code_project', s.repo, 'given'), ('server', s.host['id'], 'given')]
+    assert config['access']['roles'] == {'content_editor': False}
     key_id = config['ssh']['servers'][0]['private_key_ref']['id']
     assert credentials[key_id] == s.key['private_key']  # its own SSH key, decrypted for this call
     nothing, _ = load(s.store, project, entry, None)
     assert nothing['run_resources'] == NO_RESOURCES
+    assert [e['type'] for e in nothing['access']['resources'] if e['type'] in ('server', 'code_project')] == []
     for change in ('enabled=false', 'expert=false'):
         with s.store.connect() as conn:
             conn.execute(f'UPDATE ka.agents SET {change} WHERE id=%s', (s.analyst,))

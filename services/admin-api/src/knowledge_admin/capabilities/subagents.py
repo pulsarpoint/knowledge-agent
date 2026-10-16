@@ -5,6 +5,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.tools.registry import tool
 
@@ -20,6 +21,25 @@ class SubagentResources(BaseModel):
     )
     server_ids: list[str] = Field(default_factory=list, description='SSH server IDs from get_available_resources.')
     service_ids: list[str] = Field(default_factory=list, description='Service IDs from get_available_resources.')
+
+
+# The resources a helper (or an expert) may be given, by argument key.
+RESOURCE_TYPES = {
+    'code_project_ids': 'code_project',
+    'collection_ids': 'collection',
+    'server_ids': 'server',
+    'service_ids': 'service',
+}
+
+
+def check_run_subagent(access: dict, resources: dict | None = None, **_) -> str | None:
+    """None when allowed, else the refusal text: every resource given to the helper is in the run's list (None: all
+    of the run's own). The helper's access is the run's, narrowed to them (subagents.subagent_config)."""
+    for key, type_ in RESOURCE_TYPES.items():
+        for item in (resources or {}).get(key) or []:
+            if not access_rules.can_use(access, type_, item):
+                return access_rules.refuse_use(type_)
+    return None
 
 
 @tool
@@ -40,4 +60,6 @@ async def run_subagent(
     # Imported here: the subagent runtime imports tools.catalog (which imports this module) and the native session runtime.
     from knowledge_admin.knowledge_agents import subagents
 
+    if refusal := check_run_subagent(context['config']['access'], resources=resources):
+        return refusal
     return await subagents.run_subagent(context, task, tools, resources)

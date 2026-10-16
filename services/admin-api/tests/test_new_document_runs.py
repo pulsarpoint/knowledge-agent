@@ -7,8 +7,10 @@ from uuid import UUID, uuid4
 import pytest
 
 from knowledge_admin.capabilities import inventory
-from knowledge_admin.capabilities.context import NOT_AVAILABLE
+from knowledge_admin import access as access_rules
+from knowledge_admin.access import refuse_use
 from knowledge_admin.capabilities.document_tools import _run_links
+from knowledge_admin.sessions.run_access import built_for
 from knowledge_admin.data_root import FOLDER_RULE
 from live_documents import live_document, replace_live_document
 from knowledge_admin.sessions.start import ONE_START
@@ -338,7 +340,7 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
 def test_a_run_without_its_chosen_resources_links_what_it_was_given():
     # a session started before chosen_resources was recorded links its run_resources, as it did
     given = {'code_project_ids': ['p'], 'collection_ids': ['c'], 'server_ids': ['h'], 'service_ids': ['s']}
-    assert _run_links({'run_resources': given}) == {
+    assert _run_links({'links': built_for({'run_resources': given})}) == {
         'code_project_ids': ['p'],
         'environment_ids': [],
         'service_ids': ['s'],
@@ -346,8 +348,10 @@ def test_a_run_without_its_chosen_resources_links_what_it_was_given():
         'deployment_ids': [],
     }
     chosen = {**given, 'server_ids': [], 'service_ids': [], 'environment_ids': ['e']}
-    assert _run_links({'run_resources': given, 'chosen_resources': chosen})['environment_ids'] == ['e']
-    assert _run_links({}) == {
+    assert _run_links({'links': built_for({'run_resources': given, 'chosen_resources': chosen})})[
+        'environment_ids'
+    ] == ['e']
+    assert _run_links({'links': built_for({})}) == {
         key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')
     }
 
@@ -358,12 +362,11 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
     session, config, _ = started(s)
     _, _, other = started(s)
     for document_id in ('new:' + str(uuid4()), other):
-        with pytest.raises(ValueError) as refused:
-            call(config, 'save_document', document_id=document_id, markdown='# Mine')
+        refused = call(config, 'save_document', document_id=document_id, markdown='# Mine')
         # the refusal names the documents the run may change: its own new document
-        assert str(refused.value).startswith(NOT_AVAILABLE.format(kind='document') + ' Documents you may change: ')
-        assert config['document_access'][0]['id'] in str(refused.value)
-        assert call(config, 'get_document', document_id=document_id) == NOT_AVAILABLE.format(kind='document')
+        assert refused.startswith(refuse_use('document') + ' Documents you may change: ')
+        assert config['document_access'][0]['id'] in refused
+        assert call(config, 'get_document', document_id=document_id) == refuse_use('document')
     assert drafts(s, session['id']) == [] and all_drafts(s) == 0
 
 
@@ -665,10 +668,14 @@ def test_an_inventory_run_for_a_server_without_ssh_starts_without_it_and_says_so
     assert session['run_resources']['server_ids'] == []
     assert (
         call(config, 'get_resource', resource_type='server', resource_id=s.server['id'])
-        == f'The server {s.server["id"]} is not available in this run.'
+        == 'This run has no servers.'  # left out: no SSH
     )
     [note] = config['start_notes']
     assert 'prod-1' in note and 'SSH' in note
+    # it still writes the server's inventory document: built for what it holds, linked to the server it chose
+    [entry] = access_rules.listing(config['access'], 'document')
+    assert (entry['links'], entry['built_for']) == ([['server', s.server['id']]], [])
+    assert call(config, 'save_document', document_id=entry['id'], markdown='# prod-1') == 'Saved draft (1 lines).'
     debug = s.client.get(f'/api/sessions/{session["id"]}/debug', headers=HEADERS).json()
     assert debug['notes'] == [note]
 
@@ -698,7 +705,5 @@ def test_a_new_document_run_without_inventory_reads_only_what_it_was_given(sessi
     assert resources['code_project_ids'] == [s.repo]
     assert resources['service_ids'] == [] and resources['server_ids'] == []
     config = {**session['config'], 'session_id': session['id']}
-    assert call(config, 'get_resource', resource_type='service', resource_id=s.service) == (
-        f'The service {s.service} is not available in this run.'
-    )
+    assert call(config, 'get_resource', resource_type='service', resource_id=s.service) == 'This run has no services.'
     assert 'start_notes' not in session['config']

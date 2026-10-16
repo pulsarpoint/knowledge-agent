@@ -7,6 +7,7 @@ import json
 import pytest
 
 from tool_helpers import tool
+from access_helpers import with_access
 from test_function_tools import context, invoke
 
 code_search = tool('code_search')
@@ -97,8 +98,10 @@ def test_literal_names_stable_pagination_and_scope(context, tmp_path):
     for selected in [outside, root / 'escape.go', tmp_path / 'documents', tmp_path / 'workspace']:
         assert 'error' in asyncio.run(invoke(code_search, context, **(args | {'path': str(selected)}))).lower()
     context['config']['code']['enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(code_search, context, **args))
+    with_access(context['config'])  # code off at start: no code project in the run's access object
+    assert asyncio.run(invoke(code_search, context, **args)) == 'This run has no code projects.'
     context['config']['code']['enabled'] = True
+    with_access(context['config'])
     context['config']['enabled'] = False
     assert 'disabled' in asyncio.run(invoke(code_search, context, **args))
 
