@@ -158,7 +158,7 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
                     'subagent_allowed': row['subagent_allowed'] if row else True,
                     'available': available,
                     'reason': None if available else MCP_REASON,
-                    'tab': 'mcp',
+                    'tab': 'resources',
                 }
             )
     for found in conn.execute(EXPERTS, (agent_id,)):

@@ -104,7 +104,6 @@ function serve({
 }
 type Props = {
   available?: boolean;
-  ready?: boolean;
   dirty?: boolean;
   sessionId?: string;
   revision?: number;
@@ -119,7 +118,6 @@ function Page(props: Props) {
         agentId="ops"
         agentName="Operations"
         available={props.available ?? true}
-        ready={props.ready ?? true}
         dirty={props.dirty ?? false}
         active
         revision={props.revision ?? 3}
@@ -180,13 +178,29 @@ test("the test tab cannot start while the configuration tabs have unsaved change
   ).toBeInTheDocument();
 });
 
-test("the other cannot-start reasons: a disabled agent and a loading configuration", async () => {
+test("the other cannot-start reason: a disabled agent", async () => {
   serve();
-  const disabled = renderTestTab({ available: false });
+  renderTestTab({ available: false });
   expect(await screen.findByText("This agent is disabled. Enable it in General to run a task.")).toBeInTheDocument();
-  disabled.unmount();
-  renderTestTab({ ready: false });
-  expect(await screen.findByText("Loading agent configuration…")).toBeInTheDocument();
+});
+
+test("a saved agent with resources cannot start with none of them picked", async () => {
+  const calls = serve();
+  const none = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
+  localStorage.setItem(
+    "agent-settings:agent:ops",
+    JSON.stringify({
+      v: 2,
+      revision: 3,
+      linked: [],
+      settings: { modelId: "m1", promptKey: "own", systemPrompt: "x", chosen: none, documents: [], off: [] },
+    }),
+  );
+  renderTestTab();
+  expect(await screen.findByText("Pick at least one resource")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Go" } });
+  expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(false);
 });
 
 test("feedback on an answer asks for suggestions and they can be reviewed and applied", async () => {

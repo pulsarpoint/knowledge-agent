@@ -16,7 +16,14 @@ import {
   type RunSummary,
   type SessionDetail,
 } from "./api";
-import { settingsFromSession, settingsSummary, startInput, withScope, type useAgentSettings } from "./agentSettings";
+import {
+  pickReason,
+  settingsFromSession,
+  settingsSummary,
+  startInput,
+  withScope,
+  type useAgentSettings,
+} from "./agentSettings";
 import { runPath } from "./runs";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
@@ -192,7 +199,12 @@ export default function AgentChat({
     }
   }
   // Before a run: a new document needs its Title and Folder; a saved agent may be blocked by the page.
-  const blocked = isNew && (!scope.title.trim() || !scope.folder.trim()) ? NEEDS_NAME : blockedReason;
+  // A saved agent with resources needs at least one picked (none picked would give it all of them).
+  const blocked =
+    isNew && (!scope.title.trim() || !scope.folder.trim())
+      ? NEEDS_NAME
+      : (blockedReason ??
+        (settings.options && settings.settings ? pickReason(settings.options, settings.settings) : null));
   async function send() {
     const text = message.trim();
     if (!text || !settings.options || !settings.settings || waiting || foreign || (!open && blocked)) return;
@@ -245,15 +257,6 @@ export default function AgentChat({
   const earlier = runs?.filter((item) => item.id !== runId) ?? [];
   const working = session?.status === "starting" || session?.status === "working";
   const reviews = session?.reviews ?? [];
-  const resources = !isAgent
-    ? "Per run"
-    : session
-      ? session.run_resources
-        ? "Per run"
-        : "Fixed"
-      : settings.options?.agent?.resources_fixed === false
-        ? "Per run"
-        : "Fixed";
 
   return (
     <section
@@ -286,7 +289,6 @@ export default function AgentChat({
         <RunWorkspace
           compact={!isAgent}
           run={foreign ? { ...run, session: null, events: [] } : run}
-          resources={resources}
           notice={notice || info}
           agentName={session?.agent_name ?? (scope.kind === "agent" ? scope.name : "Ask agent")}
           heading={

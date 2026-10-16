@@ -168,6 +168,17 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   };
 }
 
+/** Why a saved agent's run cannot start with these settings: it has resources and none is picked (the API would give
+ * it all of them). Null otherwise. */
+export function pickReason(options: AgentOptions, settings: AgentSettings): string | null {
+  if (!options.agent) return null;
+  const has =
+    AGENT_KINDS.some(({ key }) => options.resources[key].length > 0) || options.resources.documents.length > 0;
+  const picked =
+    AGENT_KINDS.some(({ field }) => settings.chosen[field].length > 0) || (settings.documents ?? []).length > 0;
+  return has && !picked ? "Pick at least one resource" : null;
+}
+
 /** The tools that apply to what is chosen. */
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
   options.tools.filter((tool) => toolApplies(tool, settings.chosen, options.resources));

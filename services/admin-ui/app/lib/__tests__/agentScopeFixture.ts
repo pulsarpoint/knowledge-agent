@@ -8,7 +8,6 @@ export const agentOptions: AgentOptions = {
     revision: 3,
     model: { id: "m1", name: "GPT" },
     system_prompt: "You operate servers.",
-    resources_fixed: false,
     subagents_allowed: true,
   },
   models: [{ id: "m1", name: "GPT" }],

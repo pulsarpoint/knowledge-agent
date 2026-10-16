@@ -13,7 +13,7 @@ export interface AgentTool {
   subagent_allowed: boolean;
   available: boolean;
   reason: string | null;
-  tab: string | null; // set while a need is unmet: the resources it needs are added on the Resources tab
+  tab: "resources" | "general" | null; // where an unmet need is met
 }
 export interface AgentTools {
   revision: number;
@@ -30,7 +30,6 @@ export interface CatalogTool {
 }
 export interface ToolsSummary {
   on?: number;
-  per_run?: number;
   groups?: Partial<Record<ToolGroup, number>>;
 }
 export const TOOL_GROUPS: [ToolGroup, string][] = [
@@ -125,6 +124,5 @@ export function toolsSummaryLabel(summary?: ToolsSummary): string {
       ([group, label]) => `${label} ${summary.groups![group]}`,
     ),
   ];
-  if (summary.per_run) parts.push(`+${summary.per_run} per run`);
   return parts.join(" · ");
 }

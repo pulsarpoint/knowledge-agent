@@ -311,7 +311,6 @@ export interface AgentOptions {
     revision: number;
     model: { id: string; name: string } | null;
     system_prompt: string;
-    resources_fixed: boolean;
     subagents_allowed: boolean;
   };
   models: { id: string; name: string }[];

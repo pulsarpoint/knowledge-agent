@@ -279,9 +279,9 @@ test("All agents shows each agent's tools", async () => {
         name: "Analyst",
         model_name: null,
         counts: NO_COUNTS,
-        tools_summary: { on: 3, per_run: 0, groups: { code: 1, documents: 0, servers: 1, mcp: 1, agents: 0 } },
+        tools_summary: { on: 3, groups: { code: 1, documents: 0, servers: 1, mcp: 1, agents: 0 } },
       },
-      { ...structuredClone(writer), counts: NO_COUNTS, model_name: null, tools_summary: { on: 0, per_run: 0 } },
+      { ...structuredClone(writer), counts: NO_COUNTS, model_name: null, tools_summary: { on: 0 } },
     ],
   });
   render(

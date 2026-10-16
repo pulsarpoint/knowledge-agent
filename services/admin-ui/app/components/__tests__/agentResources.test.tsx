@@ -73,6 +73,8 @@ test("lists the agent's resources by type with names, short descriptions and mis
   expect(within(group("Documents")).getByRole("switch", { name: "Editable Runbook" })).not.toBeChecked();
   const collections = group("Collections");
   expect(within(collections).getByText("missing")).toBeVisible();
+  expect(within(collections).getByText("Missing collection (c-gone)")).toBeVisible();
+  expect(within(collections).getByRole("button", { name: "Remove Missing collection (c-gone)" })).toBeEnabled();
   expect(within(collections).getByText(/dropped when you save/)).toBeVisible();
 });
 

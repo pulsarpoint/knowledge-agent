@@ -38,7 +38,6 @@ export interface WorkspaceComposer {
 export interface RunWorkspaceProps {
   run: SessionRun;
   agentName: string;
-  resources: string; // 'Fixed' | 'Per run: App, Worker'
   heading?: ReactNode; // the page's title area, above the header line
   headerActions?: ReactNode;
   sidebar?: ReactNode; // page sections below "Agents in this run"
@@ -247,7 +246,6 @@ function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
 export default function RunWorkspace({
   run,
   agentName,
-  resources,
   heading,
   headerActions,
   sidebar,
@@ -378,7 +376,6 @@ export default function RunWorkspace({
         <div data-testid="run-header" className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
             <span className="font-medium">{agentName}</span>
-            <span className="text-muted-foreground">Resources: {resources}</span>
             {session && (
               <Badge variant={session.status === "failed" ? "destructive" : "secondary"}>
                 {statusLabels[session.status]}

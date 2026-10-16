@@ -11,7 +11,6 @@ export default function AgentTestView({
   agentId,
   agentName,
   available,
-  ready,
   dirty,
   active,
   revision,
@@ -20,7 +19,6 @@ export default function AgentTestView({
   agentId: string;
   agentName: string;
   available: boolean;
-  ready: boolean;
   dirty: boolean;
   active: boolean;
   revision?: number;
@@ -56,11 +54,9 @@ export default function AgentTestView({
 
   const blockedReason = !available
     ? "This agent is disabled. Enable it in General to run a task."
-    : !ready
-      ? "Loading agent configuration…"
-      : dirty
-        ? "Save or discard changes in the configuration tabs before starting a task."
-        : null;
+    : dirty
+      ? "Save or discard changes in the configuration tabs before starting a task."
+      : null;
   if (!seen) return null;
   return (
     <AgentChat

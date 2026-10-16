@@ -79,8 +79,8 @@ function ToolRow({
                 <>
                   {" "}
                   ·{" "}
-                  <Link className="underline underline-offset-4" to="?view=resources">
-                    Open Resources
+                  <Link className="underline underline-offset-4" to={`?view=${tool.tab}`}>
+                    Open {tool.tab === "general" ? "General" : "Resources"}
                   </Link>
                 </>
               )}

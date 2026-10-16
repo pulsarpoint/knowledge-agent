@@ -106,14 +106,14 @@ export default function AgentResources({
                 {held.length > 0 && (
                   <div className="divide-y rounded-md border">
                     {held.map((item) => {
-                      const name = item.missing ? `Missing ${one}` : item.name;
+                      const name = item.missing ? `Missing ${one} (${item.id})` : item.name;
                       return (
                         <div key={item.id} className="flex flex-wrap items-start gap-3 p-3">
                           <div className="min-w-0 flex-1">
-                            <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                               {name}
                               {item.missing && <Badge variant="outline">missing</Badge>}
-                            </p>
+                            </div>
                             <p className="text-sm text-muted-foreground">
                               {item.missing
                                 ? "This resource no longer exists. It is dropped when you save."

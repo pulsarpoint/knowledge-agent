@@ -86,7 +86,7 @@ test("the session page shows the tools the session used", async () => {
     </MemoryRouter>,
   );
   expect(await screen.findByLabelText("Tools used")).toHaveTextContent("Read 5 · Grep 2");
-  expect(screen.getByText("Resources: Fixed")).toBeVisible();
+  expect(screen.queryByText(/^Resources:/)).toBeNull();
 });
 
 test("the session page follows the turn, sends messages, stops, previews the draft and closes", async () => {

@@ -140,7 +140,6 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
                   agentId={agentId}
                   agentName={profile.name}
                   available={profile.enabled}
-                  ready
                   dirty={profileDirty || promptDirty || resourcesDirty}
                   active={view === "test"}
                   revision={profile.revision}

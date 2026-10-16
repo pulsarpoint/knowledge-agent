@@ -50,7 +50,7 @@ const tool = (patch: Partial<tools.AgentTool>): tools.AgentTool => ({
   subagent_allowed: true,
   available: true,
   reason: null,
-  tab: "git",
+  tab: "resources",
   ...patch,
 });
 const native: tools.AgentTools = {
@@ -71,7 +71,7 @@ const native: tools.AgentTools = {
       group: "servers",
       available: false,
       reason: "Needs SSH servers",
-      tab: "ssh",
+      tab: "resources",
       default_usage: "Execute a command.",
     }),
     tool({
@@ -81,7 +81,7 @@ const native: tools.AgentTools = {
       group: "mcp",
       usage: "Use for API pages.",
       default_usage: "Look up docs.",
-      tab: "mcp",
+      tab: "resources",
     }),
   ],
 };
@@ -186,6 +186,30 @@ test("unmet needs are greyed out with their reason and link", async () => {
     "/agents/payments?view=resources",
   );
   expect(within(row("Read file")).queryByText(/Needs/)).toBeNull();
+});
+
+test("an unmet need of a General switch links to General", async () => {
+  vi.mocked(tools.getAgentTools).mockResolvedValue({
+    ...structuredClone(native),
+    tools: [
+      tool({
+        tool: "report_not_covered",
+        label: "Report not covered",
+        group: "documents",
+        available: false,
+        reason: 'Needs "Answer only from documents"',
+        tab: "general",
+      }),
+    ],
+  });
+  open("/agents/payments?view=tools");
+  const line = (await screen.findByRole("switch", { name: "Report not covered" })).closest(
+    "[data-tool]",
+  ) as HTMLElement;
+  expect(within(line).getByRole("link", { name: "Open General" })).toHaveAttribute(
+    "href",
+    "/agents/payments?view=general",
+  );
 });
 
 test("an emptied usage saves as the default text", async () => {

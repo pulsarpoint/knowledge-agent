@@ -102,7 +102,6 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       <RunWorkspace
         run={run}
         agentName={session.agent_name}
-        resources={session.run_resources ? "Per run" : "Fixed"}
         notice={notice}
         heading={
           <>

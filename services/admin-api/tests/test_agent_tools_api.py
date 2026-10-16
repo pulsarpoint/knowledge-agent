@@ -80,13 +80,13 @@ def test_the_catalog_and_an_agents_tools(store, saved_agent):
         True,
     )
     read = current['tools'][1]
-    assert read['default_usage'] == CATALOG['read_file'].usage and read['available'] and read['tab'] == 'git'
+    assert read['default_usage'] == CATALOG['read_file'].usage and read['available'] and read['tab'] == 'resources'
     with store.connect() as conn:  # no code projects, collections or servers any more
         give(conn, 'operations', [('skill', saved_agent[3]['id']), ('mcp_server', mcp['id'])])
     unmet = {tool['tool']: tool for tool in view(client)['tools']}
     assert not unmet['read_file']['available']
     assert unmet['read_file']['reason'] == 'Needs code projects, or documents without "Answer only from documents"'
-    assert unmet['ssh_run']['reason'] == 'Needs SSH servers' and unmet['ssh_run']['tab'] == 'ssh'
+    assert unmet['ssh_run']['reason'] == 'Needs SSH servers' and unmet['ssh_run']['tab'] == 'resources'
 
 
 def test_put_replaces_the_tools_and_enforces_the_save_rules(store, saved_agent):

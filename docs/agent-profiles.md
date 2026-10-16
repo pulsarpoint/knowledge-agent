@@ -12,7 +12,7 @@ inherited from another agent. Agents share these tabs:
 | General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Content editor** (off by default: "Lets this agent propose services and documents and edit editable documents."), **Answer only from documents**, May start subagents, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
 | Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**; a document has an **Editable** switch (read-only by default). A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
 | Tools | Choose which tools the agent gets, edit their usage instructions; a tool whose need is unmet links to Resources |
-| Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; a document goes with the agent's own Editable); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
+| Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; a document goes with the agent's own Editable; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
 Other `?view=` values open General.
 
@@ -50,7 +50,7 @@ hidden, except Agents), each with an on/off switch, a one-line summary and its u
 built-in instructions the model reads with your own text (up to 8,000 characters; the row shows **Edited**);
 **Reset** returns to the built-in text. A tool whose capability is not available shows a "Needs …" row instead of
 a switch effect: `Needs code projects`, `Needs documents`, `Needs "Answer only from documents"`, `Needs SSH servers`,
-`Needs MCP`; it stays saved but is not offered until the need is met, and links to **Resources**. MCP tools of the selected servers are on by default; an
+`Needs MCP`; it stays saved but is not offered until the need is met, and links to where it is met (`tab`: **Resources**, or **General** for "Answer only from documents"). MCP tools of the selected servers are on by default; an
 edited usage text for one is added to the prompt as **Tool notes** (the tool's own description still comes from the
 server). **Save tools** saves the whole list with the agent's revision (`GET/PUT /api/agents/{id}/tools`; a stale
 list returns 409 "The tools changed since you opened them. Reload.").

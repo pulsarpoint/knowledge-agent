@@ -1,6 +1,7 @@
 import {
   OWN,
   defaultSettings,
+  pickReason,
   restoreSettings,
   settingsFromSession,
   settingsSummary,
@@ -338,6 +339,18 @@ test("a saved agent defaults: its model and prompt, every resource of its access
     subagents: true,
     experts: ["e1"],
   });
+});
+
+test("a saved agent with resources needs at least one picked; one without resources does not", () => {
+  const none = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
+  expect(pickReason(fuller, defaultSettings(fuller))).toBeNull();
+  expect(pickReason(fuller, { ...defaultSettings(fuller), chosen: none, documents: [] })).toBe(
+    "Pick at least one resource",
+  );
+  expect(pickReason(fuller, { ...defaultSettings(fuller), chosen: none, documents: ["d2"] })).toBeNull();
+  const empty = { ...fuller, resources: { ...fuller.resources, servers: [], environments: [], documents: [] } };
+  expect(pickReason(empty, { ...defaultSettings(empty), chosen: none, documents: [] })).toBeNull();
+  expect(pickReason(options, { ...defaultSettings(options), chosen: none })).toBeNull(); // not a saved agent
 });
 
 test("a saved agent's restored settings keep the picked subset of today's resources", () => {

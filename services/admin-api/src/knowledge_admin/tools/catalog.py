@@ -138,13 +138,15 @@ NEED_REASONS: dict[str, str] = {
     'editable_document': 'Needs a document to edit',
     'resources': 'Always on for a run with servers, services, environments or code projects',
 }
+# The agent editor tab where an unmet need is met: resources are added on Resources, "Answer only from documents" is on
+# General.
 NEED_TABS: dict[str, str] = {
-    'files': 'git',
-    'code': 'git',
-    'code_graph': 'git',
-    'documents': 'documents',
-    'grounded': 'documents',
-    'ssh': 'ssh',
+    'files': 'resources',
+    'code': 'resources',
+    'code_graph': 'resources',
+    'documents': 'resources',
+    'grounded': 'general',
+    'ssh': 'resources',
 }
 
 

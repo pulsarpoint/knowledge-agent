@@ -85,7 +85,6 @@ function show(props: Partial<RunWorkspaceProps> = {}) {
   const all: RunWorkspaceProps = {
     run: run(),
     agentName: "Payments helper",
-    resources: "Per run: App",
     composer,
     ...props,
   };
@@ -96,9 +95,9 @@ function show(props: Partial<RunWorkspaceProps> = {}) {
   );
 }
 
-test("the header shows the agent, its resources, the status, the tokens and the tools used", () => {
+test("the header shows the agent, the status, the tokens and the tools used", () => {
   show({ headerActions: <button type="button">History</button> });
-  expect(screen.getByText("Resources: Per run: App")).toBeVisible();
+  expect(screen.queryByText(/^Resources:/)).toBeNull();
   expect(screen.getByText("Waiting for you")).toBeVisible();
   expect(screen.getByLabelText("Token totals")).toHaveTextContent(
     "In 1,300 · Out 300 · Cached 20 · Model calls 2 · Reasoning 30",
@@ -144,7 +143,6 @@ test("the main agent in the sidebar follows the session live", () => {
           toolCounts: [{ name: "search_documents", calls: 3 }],
         })}
         agentName="Payments helper"
-        resources="Fixed"
         composer={composer}
       />
     </MemoryRouter>,
@@ -286,7 +284,6 @@ test("a subagent is a line in the Worked block and an entry in the sidebar; Open
           ],
         })}
         agentName="Payments helper"
-        resources="Fixed"
         composer={composer}
       />
     </MemoryRouter>,
@@ -367,7 +364,7 @@ function sized(pane: HTMLElement, scrollHeight: number, clientHeight: number) {
 }
 const workspace = (change: Partial<SessionRun>) => (
   <MemoryRouter>
-    <RunWorkspace run={run(change)} agentName="Payments helper" resources="Fixed" composer={composer} />
+    <RunWorkspace run={run(change)} agentName="Payments helper" composer={composer} />
   </MemoryRouter>
 );
 
