@@ -27,6 +27,7 @@ from knowledge_admin.knowledge_agents.config import (
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.knowledge_agents.run_resources import (
+    DEPLOYED_SERVICES,
     RunResourceError,
     RunResources,
     bring,
@@ -573,10 +574,8 @@ def build(
     except RunResourceError as exc:
         raise HTTPException(400, str(exc)) from None
     if server is not None:
-        deployed = conn.execute(
-            'SELECT DISTINCT service_id FROM ka.service_deployments WHERE server_id=%s', (server['id'],)
-        ).fetchall()
-        pinned = pin_services(conn, project, pinned, [row['service_id'] for row in deployed])
+        deployed = conn.execute(DEPLOYED_SERVICES, (server['id'],)).fetchall()
+        pinned = pin_services(conn, project, pinned, [row['id'] for row in deployed])
     if resource is not None:
         pinned['started_from'] = {'type': resource[0], 'id': str(origin['id']), 'name': origin['name']}
         pinned['proposal_tools'] = [name for name in PROPOSAL_TOOLS if name in value.tools]
@@ -621,6 +620,7 @@ def build(
     # runs a person asked to write (a new document, a revision, proposals) are content editors
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
     picked += [{'type': 'document', 'id': entry['id']} for entry in pinned['document_access']]
+    # a resource run that requests proposal tools counts as a Propose wizard run (content editor on)
     writes = value.started_from.resource() is None or any(name in PROPOSAL_TOOLS for name in value.tools)
     try:
         pinned['access'] = run_access(

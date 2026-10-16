@@ -35,8 +35,8 @@ def stored(store, session_id) -> tuple[dict, dict]:
     return row['access'], row['agent_config']
 
 
-def entry(type_: str, id_, name: str, description: str, source: str = 'given') -> dict:
-    return {'type': type_, 'id': str(id_), 'name': name, 'description_short': description, 'source': source}
+def entry(type_: str, id_, name: str, description: str, source: str = 'given', **extra) -> dict:
+    return {'type': type_, 'id': str(id_), 'name': name, 'description_short': description, 'source': source, **extra}
 
 
 def test_a_server_run_is_given_its_server_and_the_services_deployed_on_it(world):
@@ -60,13 +60,14 @@ def test_a_service_run_is_given_its_service_its_code_and_its_servers(world):
     via = f'via service {world.nginx}'
     assert access['resources'] == [
         entry('service', world.nginx, 'nginx', 'Front proxy for the shop'),
-        entry('code_project', world.shop, 'Shop', '', via),
+        entry('code_project', world.shop, 'Shop', '', via, folder_paths=[]),
         entry('server', world.server['id'], 'web-1', 'Shop front end', via),
     ]
     assert access['roles'] == {'content_editor': False}
 
 
 def test_an_environment_run_is_given_the_environment_and_what_it_contains(world):
+    """Each child names its direct parent: the environment's service brings its code project."""
     ssh_ready(world)
     access, _ = stored(world.store, start(world, {'environment_id': str(world.environment)}))
     via = f'via environment {world.environment}'
@@ -74,7 +75,7 @@ def test_an_environment_run_is_given_the_environment_and_what_it_contains(world)
         entry('environment', world.environment, 'Production', 'Live'),
         entry('service', world.nginx, 'nginx', 'Front proxy for the shop', via),
         entry('server', world.server['id'], 'web-1', 'Shop front end', via),
-        entry('code_project', world.shop, 'Shop', '', via),
+        entry('code_project', world.shop, 'Shop', '', f'via service {world.nginx}', folder_paths=[]),
     ]
 
 
@@ -122,7 +123,10 @@ def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(an
     a = analyst
     session = agent_start(a, run_resources={'code_project_ids': [a.app]})
     access, config = stored(a.store, session['id'])
-    assert access == {'resources': [entry('code_project', a.app, 'App', '')], 'roles': {'content_editor': False}}
+    assert access == {
+        'resources': [entry('code_project', a.app, 'App', '', folder_paths=[str(a.root / 'app')])],
+        'roles': {'content_editor': False},
+    }
     assert config['access'] == access
     nothing, _ = stored(a.store, agent_start(a)['id'])
     assert nothing == {'resources': [], 'roles': {'content_editor': False}}
@@ -137,7 +141,10 @@ def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(an
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == before
         conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
     fixed, _ = stored(a.store, agent_start(a)['id'])  # a fixed agent: everything it has
-    assert fixed == {'resources': [entry('code_project', a.app, 'App', '')], 'roles': {'content_editor': False}}
+    assert fixed == {
+        'resources': [entry('code_project', a.app, 'App', '', folder_paths=[str(a.root / 'app')])],
+        'roles': {'content_editor': False},
+    }
 
 
 def test_a_widening_pick_is_refused_with_the_narrowing_text(analyst, monkeypatch):
@@ -153,7 +160,7 @@ def test_a_widening_pick_is_refused_with_the_narrowing_text(analyst, monkeypatch
 
     monkeypatch.setattr(run_access, 'held', without_worker)
     message = refused(a, 400, run_resources={'code_project_ids': [a.worker]})
-    assert message == f"code_project {a.worker} is not in the agent's access"
+    assert message == f"code project {a.worker} is not in the agent's access"
 
 
 def test_get_available_resources_lists_the_run_and_filters_by_type(world):
@@ -205,3 +212,38 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     names = [(item['type'], item['name'], item['source']) for item in access['resources']]
     assert names == [('code_project', 'Shop', 'given'), ('server', 'web-1', 'given'), ('service', 'nginx', 'given')]
     assert access['roles'] == {'content_editor': False} and config['access'] == access
+
+
+def test_code_projects_carry_their_folders_and_graph_and_collections_their_paths(world):
+    from knowledge_admin.sessions.run_access import held
+
+    config = {
+        'ssh': {'enabled': False, 'servers': []},
+        'services': {'enabled': False, 'items': []},
+        'code': {
+            'enabled': True,
+            'projects': [{'id': 'p1', 'name': 'API', 'description': '', 'folder_paths': ['/code/api']}],
+            'graphs': [{'id': 'p1', 'name': 'API', 'graph_path': '/graphs/p1', 'code_root': '/code/api'}],
+        },
+        'documents': {
+            'enabled': True,
+            'all_collections': False,
+            'collections': [{'id': 'c1', 'name': 'docs', 'description': '', 'paths': ['/data/docs']}],
+        },
+        'skills': {'enabled': False, 'items': []},
+        'mcp': {'enabled': False, 'servers': []},
+    }
+    with world.store.connect() as conn:
+        found = held(conn, world.project, config, [])
+    assert found == [
+        {
+            'type': 'code_project',
+            'id': 'p1',
+            'name': 'API',
+            'description_short': '',
+            'folder_paths': ['/code/api'],
+            'graph_path': '/graphs/p1',
+            'code_root': '/code/api',
+        },
+        {'type': 'collection', 'id': 'c1', 'name': 'docs', 'description_short': '', 'paths': ['/data/docs']},
+    ]

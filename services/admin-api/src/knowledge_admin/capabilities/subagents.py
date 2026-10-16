@@ -12,10 +12,14 @@ from knowledge_admin.tools.registry import tool
 class SubagentResources(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    code_project_ids: list[str] = Field(default_factory=list, description='Code project IDs from your resources.')
-    collection_ids: list[str] = Field(default_factory=list, description='Document collection IDs from your resources.')
-    server_ids: list[str] = Field(default_factory=list, description='SSH server IDs from your resources.')
-    service_ids: list[str] = Field(default_factory=list, description='Service IDs from your resources.')
+    code_project_ids: list[str] = Field(
+        default_factory=list, description='Code project IDs from get_available_resources.'
+    )
+    collection_ids: list[str] = Field(
+        default_factory=list, description='Document collection IDs from get_available_resources.'
+    )
+    server_ids: list[str] = Field(default_factory=list, description='SSH server IDs from get_available_resources.')
+    service_ids: list[str] = Field(default_factory=list, description='Service IDs from get_available_resources.')
 
 
 @tool

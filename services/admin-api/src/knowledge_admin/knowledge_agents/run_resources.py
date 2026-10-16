@@ -69,6 +69,8 @@ ENVIRONMENT_SERVERS = """SELECT es.server_id AS id FROM ka.environment_servers e
 SERVICE_CODE = """SELECT r.id FROM ka.inventory_links l JOIN ka.repositories r ON r.id=l.to_code_project_id
     WHERE l.kind='built_from' AND r.project_id=%s AND l.from_service_id=ANY(%s) AND r.archived_at IS NULL
     ORDER BY lower(r.name),r.id"""
+# The services deployed on one server (a server run reads them; they are its children in the run's access).
+DEPLOYED_SERVICES = 'SELECT DISTINCT service_id AS id FROM ka.service_deployments WHERE server_id=%s'
 SERVICE_SERVERS = """SELECT h.id FROM ka.service_deployments d JOIN ka.servers h ON h.id=d.server_id
     WHERE h.project_id=%s AND d.service_id=ANY(%s) AND h.ssh_allowed ORDER BY lower(h.name),h.id"""
 

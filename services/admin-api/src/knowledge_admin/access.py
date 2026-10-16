@@ -69,7 +69,7 @@ def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] |
         for p in picked:
             e = entry(agent_access, p['type'], p['id'])
             if e is None:
-                raise ValueError(f"{p['type']} {p['id']} is not in the agent's access")
+                raise ValueError(f"{TYPE_WORDS.get(p['type'], p['type'])} {p['id']} is not in the agent's access")
             resources.append(dict(e))
     roles = dict(agent_access.get('roles', {}))
     roles['content_editor'] = bool(roles.get('content_editor'))
@@ -79,9 +79,11 @@ def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] |
 
 
 def expand(access: dict, children: dict[tuple[str, str], list[dict]]) -> dict:
-    """Add the given children of each given resource, marked 'via <type> <id>'; never duplicates."""
+    """Add the children of each resource, marked 'via <type> <id>' of their direct parent: those of the given
+    resources, then those of the children added (an environment's service brings its code projects); never
+    duplicates."""
     resources = [{**r, 'source': 'given'} for r in access.get('resources', [])]
-    for r in list(resources):
+    for r in resources:  # grows while it is read: children of children are reached too
         for c in children.get((r['type'], str(r['id'])), []):
             if entry({'resources': resources}, c['type'], c['id']) is None:
                 resources.append({**c, 'source': f'via {r["type"]} {r["id"]}'})

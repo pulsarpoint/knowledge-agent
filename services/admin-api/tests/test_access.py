@@ -114,3 +114,20 @@ def test_listing_filters_and_keeps_order():
     assert [r['id'] for r in access.listing(a)] == ['s1', 'd1', 'd2', 'v1']
     assert [r['id'] for r in access.listing(a, 'document')] == ['d1', 'd2']
     assert access.listing(a, 'skill') == []
+
+
+def test_expand_marks_a_grandchild_via_its_direct_parent():
+    a = {'resources': [{'type': 'environment', 'id': 'e1', 'name': 'Prod', 'description_short': ''}], 'roles': {}}
+    service = {'type': 'service', 'id': 'v1', 'name': 'api', 'description_short': ''}
+    project = {'type': 'code_project', 'id': 'c1', 'name': 'API', 'description_short': ''}
+    out = access.expand(a, {('environment', 'e1'): [service], ('service', 'v1'): [project]})
+    assert [(r['id'], r['source']) for r in out['resources']] == [
+        ('e1', 'given'),
+        ('v1', 'via environment e1'),
+        ('c1', 'via service v1'),
+    ]
+
+
+def test_narrow_refusal_names_the_type_in_words():
+    with pytest.raises(ValueError, match="^code project x is not in the agent's access$"):
+        access.narrow(run_access(True), [{'type': 'code_project', 'id': 'x'}])

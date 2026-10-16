@@ -283,10 +283,15 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
     assert request['path'] == '/v1/responses' and request['authorization'] == 'Bearer fixture-api-secret'
     assert request['body']['model'] == 'fixture-model'
     serialized = json.dumps(request['body'])
-    for expected in ('Use the active saved system prompt.', 'Explain the source fixture.'):
+    # the skills stay in the prompt until load_skill (Phase 3)
+    for expected in (
+        'Use the active saved system prompt.',
+        'Explain the source fixture.',
+        'Read before suggesting changes.',
+    ):
         assert expected in serialized
     # the run's resources are not in the prompt: get_available_resources lists them, get_resource details them
-    for listed in ('Local source', 'Operations docs', 'Read before suggesting changes.', 'Inspect the queue.'):
+    for listed in ('Local source', 'Operations docs', 'Inspect the queue.'):
         assert listed not in serialized
     for excluded in ('fixture-api-secret', 'MUST_NOT_APPEAR', 'must-not-connect.test', 'must-not-contact.test'):
         assert excluded not in serialized

@@ -2,10 +2,11 @@
 
 What the run holds: the resources its pinned configuration lists (servers it may use, services, code projects,
 collections, skills, MCP servers, documents) and the environments it was given. What it was given (picked; None:
-everything it holds) is narrowed out of that with access.narrow; the direct children of what it was given that it holds
-are added by access.expand ('via <type> <id>'): an environment its services, servers and their code projects; a service
-its code projects and servers; a server the services deployed on it. Skills and MCP servers are not picked: always
-given."""
+everything it holds) is narrowed out of that with access.narrow; the children it holds are added by access.expand,
+each 'via <type> <id>' of its direct parent: an environment its services and servers; a service its code projects and
+the servers it is deployed on; a server the services deployed on it. Skills and MCP servers are not picked: always
+given. Code projects and collections carry their paths (folder_paths, paths) and a code project its graph (graph_path,
+code_root): the file, shell and graph tools work on them."""
 
 from typing import Any
 
@@ -13,21 +14,33 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.agents.runner import ssh_servers
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.inventory import short
-from knowledge_admin.knowledge_agents.run_resources import bring
+from knowledge_admin.knowledge_agents.run_resources import (
+    DEPLOYED_SERVICES,
+    ENVIRONMENT_SERVERS,
+    ENVIRONMENT_SERVICES,
+    SERVICE_CODE,
+    SERVICE_SERVERS,
+)
 from knowledge_admin.rag.collections import document_collections
 
-DEPLOYED = 'SELECT DISTINCT service_id FROM ka.service_deployments WHERE server_id=%s'
 ENVIRONMENTS = 'SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=ANY(%s)'
 ALWAYS_GIVEN = ('skill', 'mcp_server')
 
 
-def _entry(type_: str, item: dict[str, Any]) -> dict[str, Any]:
+def _entry(type_: str, item: dict[str, Any], **extra) -> dict[str, Any]:
     return {
         'type': type_,
         'id': str(item['id']),
         'name': item['name'],
         'description_short': short(item.get('description')),
+        **extra,
     }
+
+
+def _code_project(item: dict[str, Any], graphs: dict[str, dict]) -> dict[str, Any]:
+    graph = graphs.get(str(item['id']))
+    found = {'graph_path': graph['graph_path'], 'code_root': graph['code_root']} if graph else {}
+    return _entry('code_project', item, folder_paths=list(item.get('folder_paths', [])), **found)
 
 
 def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[dict[str, Any]]:
@@ -37,9 +50,14 @@ def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[d
     if config['services']['enabled']:
         found += [_entry('service', item) for item in config['services']['items']]
     if config['code']['enabled']:
-        found += [_entry('code_project', item) for item in config['code']['projects']]
+        graphs = {str(graph['id']): graph for graph in config['code'].get('graphs', [])}
+        found += [_code_project(item, graphs) for item in config['code']['projects']]
     if config['documents']['enabled']:
-        found += [_entry('collection', item) for item in document_collections(config)[1] if 'id' in item]
+        found += [
+            _entry('collection', item, paths=list(item.get('paths', [])))
+            for item in document_collections(config)[1]
+            if 'id' in item
+        ]
     if environment_ids:
         rows = conn.execute(ENVIRONMENTS, (project, [str(item) for item in environment_ids])).fetchall()
         by_id = {str(row['id']): row for row in rows}
@@ -61,23 +79,25 @@ def held(conn, project, config: dict[str, Any], environment_ids: list) -> list[d
     return list({(item['type'], item['id']): item for item in found}.values())
 
 
-def _children(conn, project, given: list[dict[str, Any]], holds: dict[tuple[str, str], dict]) -> dict:
-    """The children of each given server, service and environment that the run holds, by (type, id)."""
+def _ids(conn, query: str, parameters: tuple) -> list[str]:
+    return [str(row['id']) for row in conn.execute(query, parameters)]
+
+
+def _children(conn, project, holds: dict[tuple[str, str], dict]) -> dict:
+    """The direct children the run holds of each server, service and environment it holds, by (type, id)."""
     found = {}
-    for item in given:
-        if item['type'] == 'environment':
-            brought = bring(conn, project, [], [item['id']])
-            keys = [('service', i) for i in brought['service_ids']] + [('server', i) for i in brought['server_ids']]
-            keys += [('code_project', i) for i in brought['code_project_ids']]
-        elif item['type'] == 'service':
-            brought = bring(conn, project, [item['id']])
-            keys = [('code_project', i) for i in brought['code_project_ids']]
-            keys += [('server', i) for i in brought['server_ids']]
-        elif item['type'] == 'server':
-            keys = [('service', str(row['service_id'])) for row in conn.execute(DEPLOYED, (item['id'],)).fetchall()]
+    for kind, key in holds:
+        if kind == 'environment':
+            keys = [('service', i) for i in _ids(conn, ENVIRONMENT_SERVICES, (project, [key]))]
+            keys += [('server', i) for i in _ids(conn, ENVIRONMENT_SERVERS, (project, [key]))]
+        elif kind == 'service':
+            keys = [('code_project', i) for i in _ids(conn, SERVICE_CODE, (project, [key]))]
+            keys += [('server', i) for i in _ids(conn, SERVICE_SERVERS, (project, [key]))]
+        elif kind == 'server':
+            keys = [('service', i) for i in _ids(conn, DEPLOYED_SERVICES, (key,))]
         else:
             continue
-        found[(item['type'], item['id'])] = [holds[key] for key in dict.fromkeys(keys) if key in holds]
+        found[(kind, key)] = [holds[child] for child in dict.fromkeys(keys) if child in holds]
     return found
 
 
@@ -97,4 +117,4 @@ def run_access(
         picked = [*picked, *(item for item in holds if item['type'] in ALWAYS_GIVEN)]
     narrowed = access_rules.narrow({'resources': holds, 'roles': {'content_editor': content_editor}}, picked)
     by_key = {(item['type'], item['id']): item for item in holds}
-    return access_rules.expand(narrowed, _children(conn, project, narrowed['resources'], by_key))
+    return access_rules.expand(narrowed, _children(conn, project, by_key))

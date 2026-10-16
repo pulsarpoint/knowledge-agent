@@ -195,7 +195,7 @@ async def get_resource(
         Field(
             min_length=1,
             max_length=64,
-            description='The resource id: from the Resource line, your resources or a link of an earlier get_resource.',
+            description='The resource id: from the Resource line, get_available_resources or a link of an earlier get_resource.',
         ),
     ],
 ) -> str:

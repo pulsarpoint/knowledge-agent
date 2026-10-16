@@ -106,6 +106,8 @@ the resource block), a new tool `get_available_resources(type?)` in `capabilitie
 `services/admin-ui/app/features/sessions/DebugPanel.tsx` (show resources with source and roles), tests
 `tests/test_session_access.py`, the debug/preview tests, prompt snapshot tests that contained the resource block.
 
+- Decision: `get_available_resources` is offered in every run, grounded ("answer only from documents") runs too — it
+  lists the run's resources and reads no content.
 - [ ] Step 1: failing tests — saved-agent run and ad-hoc server/service/environment runs store the expected access
   object (children `via …`); narrowing refused when widening (400 with the ValueError text); writing runs get
   `content_editor: true`, a plain chat `false`; `get_available_resources` returns the listing and filters by type;

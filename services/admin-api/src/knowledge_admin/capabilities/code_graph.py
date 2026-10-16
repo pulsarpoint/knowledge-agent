@@ -123,7 +123,9 @@ def current_graph(project: dict) -> dict | None:
 @tool
 async def code_graph(
     context: RunContext,
-    project_id: Annotated[str, Field(description='Code graph project ID from the supplied agent resources.')],
+    project_id: Annotated[
+        str, Field(description='Code graph project ID: a code project ID from get_available_resources.')
+    ],
     action: Annotated[
         Literal['overview', 'search', 'routes', 'code', 'context', 'callers', 'callees', 'traverse', 'unresolved'],
         Field(description='Overview, search, routes, code, context, callers, callees, traverse or unresolved.'),

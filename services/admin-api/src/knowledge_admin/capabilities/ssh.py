@@ -227,7 +227,7 @@ async def ssh_run(
     its allow_sudo is true. The backend supplies the login, key and host verification;
     never request credentials from the user or include them in command arguments.
 
-    Use ssh_run with the server ID from your resources."""
+    Use ssh_run with the server ID from get_available_resources."""
     config = context['config']
     if not config['enabled'] or not config['ssh']['enabled']:
         raise ValueError('SSH is disabled for this agent.')
