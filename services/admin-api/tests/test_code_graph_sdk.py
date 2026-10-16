@@ -11,6 +11,7 @@ import subprocess
 import pytest
 
 from contextlib import nullcontext
+from uuid import uuid4
 
 from access_helpers import of
 from knowledge_admin.capabilities import code_graph as code_graph_module
@@ -61,6 +62,7 @@ func unrelated() {}
         code_graph_module, 'load_graphs', lambda conn, project, ids: [graph] if 'project' in ids else []
     )
     monkeypatch.setattr(code_graph_module, 'connect', nullcontext)
+    context['config']['project_id'] = str(uuid4())  # project_of reads it without a query
     return graph
 
 

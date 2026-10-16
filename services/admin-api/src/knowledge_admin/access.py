@@ -5,7 +5,7 @@ An entry also carries what the tools need to reach its resource: a code project 
 code_root), a collection its paths, a skill its description, a new document where it goes; a server its connection
 (hostname, port, username, allow_sudo, known_hosts, enabled, ssh_allowed, private_key_ref) and an MCP server its (url,
 enabled, bearer_token_ref): references only, never secrets. listing shows only the PUBLIC fields: the model and the
-Debug tab never see a connection.
+Debug tab never see a connection. A server entry with ssh_allowed has a pinned connection (runner.connected_servers).
 No I/O. Every tool decides access through these functions.
 """
 

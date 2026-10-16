@@ -4,6 +4,7 @@ never get_available_resources, the Debug tab or the prompt."""
 
 import asyncio
 from pathlib import Path
+from uuid import UUID
 
 from access_helpers import give
 from discovery_world import world  # noqa: F401  (fixture)
@@ -17,6 +18,7 @@ from test_repositories import HEADERS
 from test_session_access import NEW, start, stored
 from test_test_sessions import analyst, start as agent_start, tester  # noqa: F401  (fixtures)
 
+PROJECT = '5f0c2d7e-0000-4000-8000-000000000001'
 SECTIONS = ('code', 'documents', 'ssh', 'services', 'skills', 'mcp', 'document_access')
 CONNECTION = ('hostname', 'port', 'username', 'allow_sudo', 'known_hosts', 'private_key_ref', 'url', 'bearer_token_ref')
 
@@ -89,7 +91,7 @@ def config_of(*entries: dict, grounded: bool = False) -> dict:
         'system_prompt': {'content': 'You answer.'},
         'instructions': '',
         'grounded': grounded,
-        'project_id': 'project',
+        'project_id': PROJECT,
         'access': {'resources': [{**item, 'source': 'given'} for item in entries], 'roles': {'content_editor': False}},
     }
 
@@ -160,4 +162,4 @@ def test_the_tools_work_from_access_entries_alone(monkeypatch, tmp_path):
     monkeypatch.setattr(code_graph, 'connect', lambda: Connection())
     spec = CATALOG['code_graph']
     text = asyncio.run(spec.run(context, spec.arguments.model_validate({'project_id': 'p1', 'action': 'overview'})))
-    assert loaded == [('project', ['p1'])] and '"files": 3' in text and '/g/p1' not in text
+    assert loaded == [(UUID(PROJECT), ['p1'])] and '"files": 3' in text and '/g/p1' not in text

@@ -68,9 +68,9 @@ config = get_agent_config('operations')  # Saved ID; custom agents use their UUI
 ```
 
 `knowledge_agents/config.py` reads a consistent database snapshot and returns a JSON-compatible
-dictionary: `model`, `system_prompt`, `instructions`, `grounded` (the agent answers only from its collections; only
-when it holds one) and `access`, the access object. Identity, description, when-to-use text, availability and
-revisions are included. No records are created or updated by loading. A missing agent raises `LookupError`.
+dictionary: `model`, `system_prompt`, `instructions`, `grounded` (its "Answer only from documents" switch) and
+`access`, the access object. Identity, description, when-to-use text, availability and revisions are included.
+No records are created or updated by loading. A missing agent raises `LookupError`.
 
 `access` is the only description of what the agent may use: its stored references (and roles), each loaded into an
 entry `{type, id, name, description_short}` with what the tools need (`resource_entries`); deleted collections,

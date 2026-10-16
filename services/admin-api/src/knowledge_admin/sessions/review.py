@@ -15,6 +15,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.agents.reviews import TuningSuggestion
 from knowledge_admin.agents.runner import agent, load_credentials
@@ -139,8 +140,10 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
         reviewer['access'] = {'resources': [], 'roles': {'content_editor': False}}
         reviewer['grounded'] = False
         credentials = await asyncio.to_thread(load_credentials, db, reviewer)
+        # the reviewer reads what the agent was given, never a connection (access.listing: its PUBLIC fields)
+        shown = {**pinned, 'access': {**pinned['access'], 'resources': access_rules.listing(pinned['access'])}}
         context = {
-            'agent_config': pinned,
+            'agent_config': shown,
             'conversation': conversation(rows),
             'comment': value.comment,
             'turn': value.turn,

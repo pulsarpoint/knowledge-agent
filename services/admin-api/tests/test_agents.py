@@ -271,6 +271,9 @@ def test_an_agent_without_access_has_nothing(store, saved_agent):
     other = create(client, 'Other agent')
     isolated = get_agent_config(other['id'], conninfo=store.conninfo)
     assert isolated['access'] == {'resources': [], 'roles': {'content_editor': False}}
+    with store.connect() as conn:  # grounded is its "Answer only from documents" switch, whatever it holds
+        conn.execute('UPDATE ka.agents SET documents_grounded=true WHERE id=%s', (other['id'],))
+    assert get_agent_config(other['id'], conninfo=store.conninfo)['grounded'] is True
 
 
 def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(

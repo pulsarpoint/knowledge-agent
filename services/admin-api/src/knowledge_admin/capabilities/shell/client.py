@@ -63,7 +63,7 @@ async def shell_run(
     paths = [str(path) for path in _roots(context) if path != workspace]
     paths.extend(
         project['graph_path']
-        for project in access_rules.listing(context['config']['access'], 'code_project')
+        for project in access_rules.entries(context['config']['access'], 'code_project')
         if project.get('graph_path')
     )
     async with httpx.AsyncClient(timeout=timeout_seconds + 10, trust_env=False) as client:

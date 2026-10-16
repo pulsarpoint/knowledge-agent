@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from agents import ModelBehaviorError
 
+from access_helpers import entry
 from knowledge_admin.sessions.review import NO_RESPONSE, NO_TURNS, NOT_A_TEST, REVIEW_BUSY
 from test_generations import record
 from test_repositories import HEADERS
@@ -111,6 +112,51 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
     source = chat.client.get(f'/api/agents/{chat.agent}/reviews/{saved["id"]}', headers=HEADERS)
     assert source.status_code == 200 and source.json()['changes']['instructions'] == 'Cite sources.'  # Review and apply
     assert chat.client.get(f'/api/agents/code/reviews/{saved["id"]}', headers=HEADERS).status_code == 404
+
+
+def test_the_reviewer_never_reads_a_connection(chat, monkeypatch):
+    """The pinned access entries reach the reviewer model with their public fields only (access.listing)."""
+    server = {
+        **entry(
+            'server',
+            uuid4(),
+            'web-1',
+            hostname='10.9.9.9',
+            port=2222,
+            username='opsuser',
+            allow_sudo=True,
+            known_hosts='web-1 ssh-ed25519 AAAA',
+            enabled=True,
+            ssh_allowed=True,
+            private_key_ref={'table': 'ka.credentials', 'id': str(uuid4()), 'aad': 'x'},
+        ),
+        'source': 'given',
+    }
+    mcp = {
+        **entry('mcp_server', uuid4(), 'Docs', url='http://mcp.example/mcp', enabled=True, bearer_token_ref=None),
+        'source': 'given',
+    }
+    with chat.store.connect() as conn:
+        conn.execute(
+            """UPDATE ka.agent_sessions SET agent_config=jsonb_set(agent_config,'{access,resources}',
+            (agent_config->'access'->'resources') || %s::jsonb) WHERE id=%s""",
+            (json.dumps([server, mcp]), chat.session),
+        )
+    calls = []
+
+    async def review(config, task, **kwargs):
+        calls.append(json.loads(task))
+        return SimpleNamespace(final_output=kwargs['output_type'].model_validate(PROPOSAL))
+
+    monkeypatch.setattr('knowledge_admin.sessions.review.agent', review)
+    response = chat.client.post(chat.review, headers=HEADERS, json={'comment': 'Shorter.'})
+    assert response.status_code == 200, response.text
+    [context] = calls
+    shown = {item['id']: item for item in context['agent_config']['access']['resources']}
+    assert shown[server['id']] == {key: server[key] for key in ('type', 'id', 'name', 'description_short', 'source')}
+    assert set(shown[mcp['id']]) == {'type', 'id', 'name', 'description_short', 'source'}
+    for secret in ('10.9.9.9', 'opsuser', 'AAAA', 'mcp.example', 'private_key_ref', 'ka.credentials'):
+        assert secret not in json.dumps(context)
 
 
 def test_a_secret_in_the_feedback_is_not_stored(chat, monkeypatch):

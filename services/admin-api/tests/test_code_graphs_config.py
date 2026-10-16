@@ -263,6 +263,7 @@ def test_a_generated_graph_answers_code_queries_end_to_end(context, tmp_path, mo
     of(context['config'], 'code_project')[0]['id'] = project['id']  # the graph's code project, in the run's access
     monkeypatch.setattr(code_graph, 'load_graphs', lambda conn, _, ids: [graph] if project['id'] in ids else [])
     monkeypatch.setattr(code_graph, 'connect', nullcontext)
+    context['config']['project_id'] = str(uuid4())  # project_of reads it without a query
     query = tool('code_graph')
     search = json.loads(asyncio.run(invoke(query, context, project_id=project['id'], action='search', query='Handle')))
     node_id = search['entries'][0]['id']

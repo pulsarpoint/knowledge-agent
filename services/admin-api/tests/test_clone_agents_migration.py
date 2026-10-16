@@ -155,7 +155,7 @@ def sections(config: dict) -> dict:
     """config.sections and what the agent runs with by kind: the items of each section (a version saved before 0113
     and a configuration loaded from an access object compare alike)."""
     documents, code = config['documents'], config['code']
-    grounded = bool(documents['enabled'] and documents.get('grounded', False))
+    grounded = bool(documents.get('grounded', False))  # the agent's switch, as config.sections reads it
     return {
         **agent_config.sections({**config, 'grounded': grounded}),
         'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},

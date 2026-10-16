@@ -71,7 +71,7 @@ class AgentConfig(TypedDict):
     system_prompt: dict[str, Any]
     instructions: str
     settings_revision: int | None
-    grounded: bool  # answers only from its collections (the agent's switch, when it holds a collection)
+    grounded: bool  # answers only from its collections: the agent's "Answer only from documents" switch
     access: dict[str, Any]  # what the agent holds: its stored access with each entry loaded; a run pins its own
     run_resources: NotRequired[dict[str, list[str]]]
 
@@ -421,10 +421,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'system_prompt': {'content': agent['system_prompt']},
                 'instructions': agent['instructions'],
                 'settings_revision': None,
-                # grounded only with a collection to answer from (as when its documents switch was on)
-                'grounded': bool(
-                    agent['documents_grounded'] and access_rules.has_any({'resources': resources}, 'collection')
-                ),
+                'grounded': bool(agent['documents_grounded']),  # its "Answer only from documents" switch
                 'access': {'resources': resources, 'roles': access.get('roles', {})},
             }
         )
