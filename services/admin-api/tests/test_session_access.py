@@ -107,7 +107,6 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
                 'folder': document['folder'],
                 'slug': document['slug'],
                 'tags': document['tags'],
-                'links': [],
                 'built_for': [],
             }
         ],

@@ -101,7 +101,8 @@ def test_empty_collection_scope_never_searches_everything(rag):
     calls, _ = rag
     context = run_context(config(collections=[]))
     assert invoke(search_documents, context, query='anything') == 'This run has no collections.'
-    assert calls == [] and 'grounding' not in context
+    assert calls == []  # counted: a grounded answer after it reads as not covered
+    assert context['grounding'] == {'excerpts': [], 'searches': 1, 'empty_searches': 1, 'reported': None}
 
 
 def test_search_is_limited_to_granted_collections(rag):

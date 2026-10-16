@@ -340,7 +340,7 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
 def test_a_run_without_its_chosen_resources_links_what_it_was_given():
     # a session started before chosen_resources was recorded links its run_resources, as it did
     given = {'code_project_ids': ['p'], 'collection_ids': ['c'], 'server_ids': ['h'], 'service_ids': ['s']}
-    assert _run_links({'links': built_for({'run_resources': given})}) == {
+    assert _run_links({'built_for': built_for({'run_resources': given})}) == {
         'code_project_ids': ['p'],
         'environment_ids': [],
         'service_ids': ['s'],
@@ -348,10 +348,10 @@ def test_a_run_without_its_chosen_resources_links_what_it_was_given():
         'deployment_ids': [],
     }
     chosen = {**given, 'server_ids': [], 'service_ids': [], 'environment_ids': ['e']}
-    assert _run_links({'links': built_for({'run_resources': given, 'chosen_resources': chosen})})[
+    assert _run_links({'built_for': built_for({'run_resources': given, 'chosen_resources': chosen})})[
         'environment_ids'
     ] == ['e']
-    assert _run_links({'links': built_for({})}) == {
+    assert _run_links({'built_for': built_for({})}) == {
         key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')
     }
 
@@ -666,15 +666,17 @@ def test_an_inventory_run_for_a_server_without_ssh_starts_without_it_and_says_so
     session, config = inventory_start(s, 'server', s.server['id'])
     assert chosen_only(session) == {'server_ids': [s.server['id']]}
     assert session['run_resources']['server_ids'] == []
-    assert (
-        call(config, 'get_resource', resource_type='server', resource_id=s.server['id'])
-        == 'This run has no servers.'  # left out: no SSH
-    )
+    # its own resource is in its access object, SSH or not: it reads the server, and cannot run commands on it
+    assert read(config, 'server', s.server['id'])['name'] == 'prod-1'
+    [server] = access_rules.listing(config['access'], 'server')
+    assert (server['id'], server['source']) == (s.server['id'], 'given')
+    refused = call(config, 'ssh_run', server_id=s.server['id'], command='uptime')
+    assert refused == 'This server is not available in this run.'
     [note] = config['start_notes']
     assert 'prod-1' in note and 'SSH' in note
-    # it still writes the server's inventory document: built for what it holds, linked to the server it chose
+    # it writes the server's inventory document: built for the server, which is in its access object
     [entry] = access_rules.listing(config['access'], 'document')
-    assert (entry['links'], entry['built_for']) == ([['server', s.server['id']]], [])
+    assert entry['built_for'] == [['server', s.server['id']]]
     assert call(config, 'save_document', document_id=entry['id'], markdown='# prod-1') == 'Saved draft (1 lines).'
     debug = s.client.get(f'/api/sessions/{session["id"]}/debug', headers=HEADERS).json()
     assert debug['notes'] == [note]

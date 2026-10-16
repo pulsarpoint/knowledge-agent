@@ -35,7 +35,7 @@ OLD_TOOLS = (
 TYPES = ['server', 'service', 'environment', 'code_project']
 
 
-def refused(resource_type, resource_id) -> str:
+def refused(resource_type) -> str:
     return access_rules.refuse_use(resource_type)  # a refused resource and a missing one answer alike
 
 
@@ -163,11 +163,11 @@ def test_what_the_run_was_not_given_is_refused_alike(world):
     # linked, not given: the run has none of their kind
     assert get(config, 'service', service['id']) == access_rules.refuse_none('service')
     assert get(config, 'environment', environment['id']) == access_rules.refuse_none('environment')
-    assert get(given(world, environments=False), 'service', uuid4()) == refused('service', None)
+    assert get(given(world, environments=False), 'service', uuid4()) == refused('service')
     missing = uuid4()
-    assert get(config, 'server', missing) == refused('server', missing)
-    assert get(config, 'code_project', world.environment) == refused('code_project', world.environment)
-    assert get(config, 'server', 'not-a-uuid') == refused('server', 'not-a-uuid')
+    assert get(config, 'server', missing) == refused('server')
+    assert get(config, 'code_project', world.environment) == refused('code_project')
+    assert get(config, 'server', 'not-a-uuid') == refused('server')
     off = given(world, servers=False)  # SSH off at start: the server is not in the run's access object
     assert get(off, 'server', world.server['id']) == access_rules.refuse_none('server')
 
@@ -209,7 +209,7 @@ def test_an_environments_documents_are_listed_and_readable_when_it_was_given(wor
 def test_another_workspace_is_not_visible(world):
     with world.store.connect() as conn:
         other = world.store.project(conn, 'other-app')
-    assert get(given(world, project=other), 'server', world.server['id']) == refused('server', world.server['id'])
+    assert get(given(world, project=other), 'server', world.server['id']) == refused('server')
 
 
 def test_lists_stop_at_100(world):

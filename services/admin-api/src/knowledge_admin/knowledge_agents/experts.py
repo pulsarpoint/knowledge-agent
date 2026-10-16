@@ -6,9 +6,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from knowledge_admin.capabilities.subagents import RESOURCE_TYPES
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run
-from knowledge_admin.knowledge_agents.run_resources import KINDS, RunResources, resolve
+from knowledge_admin.knowledge_agents.run_resources import KINDS, RunResources, picks, resolve
 
 ROW_PREFIX = 'expert:'
 UNAVAILABLE = 'Expert {name} is not available.'
@@ -108,11 +107,7 @@ def load(
         picked = None  # a fixed expert: everything it has
         if per_run(config):
             config = resolve(conn, project_id, config, RunResources(**(resources or {})))
-            picked = [
-                {'type': type_, 'id': str(item)}
-                for key, type_ in RESOURCE_TYPES.items()
-                for item in (resources or {}).get(key) or []
-            ]
+            picked = picks(resources)
         # its access object, built as a run start builds one for its agent (never a content editor)
         config['access'] = run_access(conn, project_id, config, picked)
     config.pop('record', None)

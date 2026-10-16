@@ -265,6 +265,7 @@ def build_api(app_name, store):
             'skills': {'enabled': False, 'items': []},
             'mcp': {'enabled': False, 'servers': []},
             'services': {'enabled': False, 'items': []},
+            'access': {'resources': [], 'roles': {'content_editor': False}},  # every config that runs tools has one
         }
         schema = AgentProposal.model_json_schema()
         # The designer chooses the agent's model only among models that fit an agent.

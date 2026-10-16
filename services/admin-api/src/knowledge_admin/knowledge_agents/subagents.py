@@ -22,11 +22,11 @@ from agents.run_config import CallModelData, ModelInputData
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
-from knowledge_admin.capabilities.subagents import RESOURCE_TYPES, check_run_subagent
+from knowledge_admin.capabilities.subagents import check_run_subagent
 from knowledge_admin.knowledge_agents import experts, native_sessions
 from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
-from knowledge_admin.knowledge_agents.run_resources import KINDS
+from knowledge_admin.knowledge_agents.run_resources import KINDS, picks
 from knowledge_admin.knowledge_agents.session_worker import clean_text
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, item
 from knowledge_admin.tools.sdk import NOT_OFFERED
@@ -42,7 +42,6 @@ LONG_TASK = 'A subagent task is at most 20,000 characters.'
 NO_TOOLS = 'Give the subagent at least one tool.'
 NO_SPAWN = 'Tool run_subagent cannot be given to a subagent.'
 NOT_FOR_SUBAGENTS = 'Tool {name} may not be given to a subagent.'
-NOT_GIVEN = '{label} {id} is not one of your resources.'
 LIMIT = 'This turn already started 16 helpers.'  # subagents and expert calls together
 FAILED = 'Subagent failed: {message}'
 
@@ -99,31 +98,14 @@ def _given_tools(
     return catalog, mcp
 
 
-def check_given(config: Mapping[str, Any], resources: Mapping[str, list[str]]) -> dict[str, list[str]]:
-    """The given resource ids of every kind (each once, in the caller's order), each one of the caller's current
-    resources in the configuration's lists; otherwise a ValueError naming it (NOT_GIVEN). The configuration's lists
-    narrowed for a subagent (_narrow); whether it may be given them at all is check_run_subagent's, on the access
-    object (run_subagent and expert calls)."""
-    given: dict[str, list[str]] = {}
-    for kind in KINDS:
-        listed = _listed(config, kind.capability)
-        ids = list(dict.fromkeys(str(entry) for entry in resources.get(kind.key) or []))
-        for entry in ids:
-            if entry not in listed:
-                raise ValueError(NOT_GIVEN.format(label=kind.label, id=entry))
-        given[kind.key] = ids
-    return given
-
-
 def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
-    """Narrow each resource list to `resources`, as run_resources.resolve narrows a per-run agent's: every id must be
-    in the parent's current list; an empty list gives nothing of that kind, never everything.
-
-    Kept separate from run_resources.resolve on purpose: resolve checks a per-run agent's request against the
-    database (allowed and still available), while a subagent may only narrow its parent's already resolved lists,
-    without reading the database. Keep the two rules in step."""
-    given = check_given(sub, resources)
-    chosen = {kind.key: [_listed(sub, kind.capability)[entry] for entry in given[kind.key]] for kind in KINDS}
+    """Narrow each resource list to `resources`: the parent's entries of the given ids (an empty list gives nothing of
+    that kind, never everything). Whether they may be given at all is decided on the access object only
+    (check_run_subagent, access.narrow in subagent_access); a resource the parent holds through another (a service
+    via its server) has no entry of its own here and is reached through its access entry."""
+    given = {kind.key: [pick['id'] for pick in picks(resources) if pick['type'] == kind.type] for kind in KINDS}
+    listed = {kind.key: _listed(sub, kind.capability) for kind in KINDS}
+    chosen = {key: [listed[key][item] for item in ids if item in listed[key]] for key, ids in given.items()}
     code_ids = set(given['code_project_ids'])
     sub['code'] = {
         **sub['code'],
@@ -211,11 +193,7 @@ def subagent_access(
     if resources is None:
         picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
     else:
-        picked = [
-            {'type': type_, 'id': str(item)}
-            for key, type_ in RESOURCE_TYPES.items()
-            for item in dict.fromkeys(resources.get(key) or [])
-        ]
+        picked = picks(resources)
     picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server' and str(entry['id']) in mcp]
     return access_rules.narrow(dict(parent), picked, ['content_editor'])
 
@@ -379,7 +357,7 @@ class Subagents:
         if resources is not None and (refusal := check_run_subagent(context['config']['access'], resources)):
             raise ValueError(refusal)
         given = (
-            {key: list(dict.fromkeys(str(item) for item in resources.get(key) or [])) for key in RESOURCE_TYPES}
+            {kind.key: [pick['id'] for pick in picks(resources) if pick['type'] == kind.type] for kind in KINDS}
             if resources is not None
             else None
         )

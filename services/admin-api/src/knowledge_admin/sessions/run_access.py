@@ -25,6 +25,11 @@ from knowledge_admin.rag.collections import document_collections
 
 ENVIRONMENTS = 'SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=ANY(%s)'
 ALWAYS_GIVEN = ('skill', 'mcp_server')
+OWN = {
+    'server': 'SELECT id,name,description FROM ka.servers WHERE project_id=%s AND id=%s',
+    'service': 'SELECT id,name,description FROM ka.services WHERE project_id=%s AND id=%s',
+    'environment': 'SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=%s',
+}
 
 
 def _entry(type_: str, item: dict[str, Any], **extra) -> dict[str, Any]:
@@ -53,9 +58,9 @@ NEW_DOCUMENT = ('folder', 'slug', 'tags')
 
 
 def built_for(config: dict[str, Any]) -> list[list[str]]:
-    """The resources the run was started for, [type, id]: what a new document links on promote (what the person
-    chose, an environment rather than what it brings). A run started before chosen_resources was recorded: its
-    run_resources."""
+    """The resources the run was started for, [type, id]: what a new document is built for and links on promote
+    (what the person chose, an environment rather than what it brings). A run started before chosen_resources was
+    recorded: its run_resources."""
     chosen = config.get('chosen_resources') or config.get('run_resources') or {}
     return [[type_, str(item)] for type_, key in BUILT_FOR for item in chosen.get(key, [])]
 
@@ -68,9 +73,8 @@ def document_entry(config: dict[str, Any], item: dict[str, Any]) -> dict[str, An
         'description_short': '',
         'editable': bool(item.get('editable')),
     }
-    if item.get('new'):  # the new document the run writes: its name, where it goes and what it links on promote
-        links = built_for(config)
-        found.update({key: item.get(key) for key in NEW_DOCUMENT}, new=True, links=links, built_for=links)
+    if item.get('new'):  # the new document the run writes: its name, where it goes and what it is built for
+        found.update({key: item.get(key) for key in NEW_DOCUMENT}, new=True, built_for=built_for(config))
     return found
 
 
@@ -137,16 +141,21 @@ def run_access(
     *,
     environment_ids: list = (),
     content_editor: bool = False,
+    own: tuple[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The run's access object. picked: [{type, id}] the run was given (None: everything it holds); raises ValueError
-    when a pick is not held (access.narrow)."""
+    when a pick is not held (access.narrow). own: (type, id) of the run's own resource (a resource run's, or the one
+    its inventory document is about): always in its access object."""
     holds = held(conn, project, config, list(environment_ids))
     if picked is not None:
         picked = [*picked, *(item for item in holds if item['type'] in ALWAYS_GIVEN)]
-    keys = {(item['type'], item['id']) for item in holds}
-    for item in holds:  # built for (checked when it is created): what it links that the run holds (a server without
-        if item.get('new'):  # SSH is linked but not held)
-            item['built_for'] = [link for link in item['links'] if (link[0], link[1]) in keys]
+    if own is not None and (own[0], str(own[1])) not in {(item['type'], item['id']) for item in holds}:
+        # the run's own resource, also one the run holds nothing else of (a server without SSH)
+        row = conn.execute(OWN[own[0]], (project, str(own[1]))).fetchone()
+        if row is not None:
+            holds.append(_entry(own[0], row))
+    if own is not None and picked is not None and {'type': own[0], 'id': str(own[1])} not in picked:
+        picked = [*picked, {'type': own[0], 'id': str(own[1])}]
     narrowed = access_rules.narrow({'resources': holds, 'roles': {'content_editor': content_editor}}, picked)
     by_key = {(item['type'], item['id']): item for item in holds}
     return access_rules.expand(narrowed, _children(conn, project, by_key))

@@ -200,7 +200,7 @@ def test_a_document_of_a_server_run_links_its_server_and_not_the_services_on_it(
     pinned = pinned_of(world, sid)
     assert pinned['chosen_resources']['server_ids'] == [world.server['id']]
     assert pinned['run_resources']['server_ids'] == [world.server['id']]
-    assert _run_links({'links': built_for(pinned)}) == {
+    assert _run_links({'built_for': built_for(pinned)}) == {
         'code_project_ids': [],
         'environment_ids': [],
         'service_ids': [],  # nginx runs on it: read by the run, not linked

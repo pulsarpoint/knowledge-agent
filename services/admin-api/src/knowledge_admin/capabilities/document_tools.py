@@ -319,10 +319,10 @@ def _note(conn, session: dict, document: UUID, version: int) -> str:
 
 
 def _run_links(new: dict[str, Any]) -> dict[str, list[str]]:
-    """What the new document links on promote (its access entry's links: what the person chose, an environment, not
-    what it brings for the tools), as resource_ids."""
+    """What the new document is built for (its access entry's built_for: what the person chose, an environment, not
+    what it brings for the tools), as the resource_ids it links on promote."""
     links = {key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')}
-    for kind, key in new.get('links') or []:
+    for kind, key in new.get('built_for') or []:
         links[f'{kind}_ids'].append(str(key))
     return links
 

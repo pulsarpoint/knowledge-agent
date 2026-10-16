@@ -18,6 +18,7 @@ class Tool:
     usage: str
     arguments: type[BaseModel]
     run: Callable[[Any, BaseModel], Awaitable[str]]
+    function: Callable[..., Awaitable[str]] | None = None  # the decorated function (its module holds check_<name>)
 
 
 REGISTRY: dict[str, Tool] = {}
@@ -71,7 +72,7 @@ def tool(
         async def run(context: Any, value: BaseModel) -> str:
             return await function(context, **value.model_dump())
 
-        registry[tool_name] = Tool(tool_name, text, model, run)
+        registry[tool_name] = Tool(tool_name, text, model, run, function)
         return function
 
     return register(fn) if fn is not None else register

@@ -257,7 +257,7 @@ def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_i
         'service_ids': [ask.s.service],
         'environment_ids': [],
     }
-    assert _run_links({'links': built_for(session['config'])}) == {
+    assert _run_links({'built_for': built_for(session['config'])}) == {
         'code_project_ids': [],
         'environment_ids': [],
         'service_ids': [ask.s.service],

@@ -624,7 +624,13 @@ def build(
     writes = value.started_from.resource() is None or any(name in PROPOSAL_TOOLS for name in value.tools)
     try:
         pinned['access'] = run_access(
-            conn, project, pinned, picked, environment_ids=selection.environment_ids, content_editor=writes
+            conn,
+            project,
+            pinned,
+            picked,
+            environment_ids=selection.environment_ids,
+            content_editor=writes,
+            own=owner or resource,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None

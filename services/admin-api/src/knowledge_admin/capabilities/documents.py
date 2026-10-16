@@ -83,6 +83,11 @@ async def search_documents(
 
     Use search_documents to find knowledge-base excerpts and read_document for a whole document."""
     if refusal := check_search_documents(context['config']['access'], collection=collection):
+        if not access_rules.has_any(context['config']['access'], 'collection'):
+            # a search with nothing to search: counted, so a grounded answer reads as not covered (grounding.py)
+            state = _state(context)
+            state['searches'] += 1
+            state['empty_searches'] += 1
         return refusal
     names = _collections(context['config'])
     if collection is not None:
@@ -123,7 +128,8 @@ async def read_document(
     """Read one knowledge-base document returned by search_documents; cite it with its [n]."""
     if refusal := check_read_document(context['config']['access'], collection=collection):
         return refusal
-    _collections(context['config'])
+    if not context['config']['enabled']:
+        raise ValueError('Document search is not enabled for this agent.')
     collection, path = collection.strip(), path.strip()
     parts = path.split('/')
     if not path or path.startswith('/') or '\\' in path or any(part in ('', '.', '..') for part in parts):

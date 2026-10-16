@@ -3,12 +3,12 @@ or the exact refusal. Rows are built from CATALOG, so a tool without a check or 
 agent run."""
 
 import importlib
-import inspect
 
 import pytest
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.tools.catalog import CATALOG
+from knowledge_admin.tools.registry import REGISTRY
 
 
 def item(type_: str, id_: str, name: str, source: str = 'given', **extra) -> dict:
@@ -39,7 +39,6 @@ ACCESS = {
             'New doc',
             editable=True,
             new=True,
-            links=[['server', 's1']],
             built_for=[['server', 's1']],
         ),
         editor=True,
@@ -153,9 +152,8 @@ EXPECTED = {
 
 
 def check_of(name: str):
-    """check_<name> in the module of the tool's function (the @tool registration wraps it)."""
-    function = inspect.getclosurevars(CATALOG[name].run).nonlocals['function']
-    return getattr(importlib.import_module(function.__module__), f'check_{name}', None)
+    """check_<name> in the module that defines the tool."""
+    return getattr(importlib.import_module(REGISTRY[name].function.__module__), f'check_{name}', None)
 
 
 def test_every_catalog_tool_has_a_check_and_a_row():

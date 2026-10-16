@@ -10,13 +10,13 @@ from access_helpers import with_access
 from agents import RunHooks
 
 from knowledge_admin.agents.runner import agent
+from knowledge_admin.capabilities.subagents import check_run_subagent
 from knowledge_admin.knowledge_agents.subagents import (
     EMPTY_TASK,
     LONG_TASK,
     NO_SPAWN,
     NO_TOOLS,
     NOT_FOR_SUBAGENTS,
-    NOT_GIVEN,
     NOT_OFFERED,
     PROMPT,
     check_task,
@@ -194,6 +194,24 @@ def test_a_subagent_never_gets_more_than_its_parent_and_never_changes_content():
     assert sub['access']['roles'] == {'content_editor': False}
 
 
+WIDER = "{kind} {id} is not in the agent's access"  # access.narrow: a subagent never gets more than its parent
+
+
+def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
+    """The access object alone decides: a service held via its server has no entry of its own in the parent's
+    service list, and is given all the same."""
+    lead = parent(services={'enabled': False, 'items': []})
+    via = {'type': 'service', 'id': 'deployed', 'name': 'Deployed', 'source': 'via server prod'}
+    lead['access']['resources'].append(via)
+    resources = {**NO_RESOURCES, 'service_ids': ['deployed']}
+    assert check_run_subagent(lead['access'], resources=resources) is None
+    sub = subagent_config(lead, ['read_file'], resources, offered=OFFERED, mcp_tools=MCP)
+    assert [(e['type'], e['id'], e['source']) for e in sub['access']['resources']] == [
+        ('service', 'deployed', 'via server prod')
+    ]
+    assert sub['services']['items'] == [] and sub['run_resources']['service_ids'] == ['deployed']
+
+
 @pytest.mark.parametrize(
     'tools, resources, lead, message',
     [
@@ -207,13 +225,13 @@ def test_a_subagent_never_gets_more_than_its_parent_and_never_changes_content():
             NOT_OFFERED.format(name='mcp:docs:lookup'),
         ),  # the Tools tab name is not the model's
         (['shell_run'], None, {}, NOT_FOR_SUBAGENTS.format(name='shell_run')),
-        (['read_file'], {'code_project_ids': ['billing']}, {}, NOT_GIVEN.format(label='Code project', id='billing')),
-        (['read_file'], {'service_ids': ['ledger']}, {}, NOT_GIVEN.format(label='Service', id='ledger')),
+        (['read_file'], {'code_project_ids': ['billing']}, {}, WIDER.format(kind='code project', id='billing')),
+        (['read_file'], {'service_ids': ['ledger']}, {}, WIDER.format(kind='service', id='ledger')),
         (
             ['read_file'],
             {'collection_ids': ['runbooks']},
             {'documents': {'enabled': False, 'collections': []}},
-            NOT_GIVEN.format(label='Collection', id='runbooks'),
+            WIDER.format(kind='collection', id='runbooks'),
         ),  # a kind the parent does not use
         (
             ['read_file'],
@@ -228,7 +246,7 @@ def test_a_subagent_never_gets_more_than_its_parent_and_never_changes_content():
                     'projects': [{'id': 'worker', 'name': 'Worker', 'folder_paths': ['/code/worker']}],
                 },
             },
-            NOT_GIVEN.format(label='Code project', id='app'),
+            WIDER.format(kind='code project', id='app'),
         ),
     ],
 )

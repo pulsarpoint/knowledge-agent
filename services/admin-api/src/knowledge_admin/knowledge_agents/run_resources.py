@@ -32,14 +32,26 @@ class Kind(NamedTuple):
     label: str  # one resource, in messages
     plural: str  # the kind, in messages
     option: str  # the options() key
+    type: str  # the access object's resource type
 
 
 KINDS = (
-    Kind('code_project_ids', 'code', 'Code project', 'code projects', 'code_projects'),
-    Kind('collection_ids', 'documents', 'Collection', 'document collections', 'collections'),
-    Kind('server_ids', 'ssh', 'Server', 'servers', 'servers'),
-    Kind('service_ids', 'services', 'Service', 'services', 'services'),
+    Kind('code_project_ids', 'code', 'Code project', 'code projects', 'code_projects', 'code_project'),
+    Kind('collection_ids', 'documents', 'Collection', 'document collections', 'collections', 'collection'),
+    Kind('server_ids', 'ssh', 'Server', 'servers', 'servers', 'server'),
+    Kind('service_ids', 'services', 'Service', 'services', 'services', 'service'),
 )
+
+
+def picks(resources: dict[str, list] | None) -> list[dict[str, str]]:
+    """Run resources ({code_project_ids, collection_ids, server_ids, service_ids}) as access picks [{type, id}], each
+    once, in KINDS order."""
+    return [
+        {'type': kind.type, 'id': str(item)}
+        for kind in KINDS
+        for item in dict.fromkeys(str(item) for item in (resources or {}).get(kind.key) or [])
+    ]
+
 
 # The id, name and whether it can be given now, of the requested resources of one kind in this workspace.
 FOUND = {

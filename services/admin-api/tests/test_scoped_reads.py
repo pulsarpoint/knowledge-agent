@@ -21,9 +21,9 @@ from test_repositories import HEADERS
 NO_DOCUMENT = 'This document is not available in this run.'
 
 
-def refused(resource_type) -> tuple[str, str]:
-    """Either refusal: not in the run's list, or none of its kind in it (a missing entry reads the same)."""
-    return access_rules.refuse_use(resource_type), access_rules.refuse_none(resource_type)
+def refused(resource_type, none=()) -> str:
+    """Not in the run's list, or (a kind in `none`) the run has none of its kind; a missing entry reads the same."""
+    return access_rules.refuse_none(resource_type) if resource_type in none else access_rules.refuse_use(resource_type)
 
 
 def access(*given: tuple[str, object]) -> dict:
@@ -71,7 +71,7 @@ def add_db(store, project, *, server=None):
     return SimpleNamespace(server=str(server), service=str(service), document=str(saved['id']))
 
 
-def assert_scoped(config, *, web, web_document, db, service=None, project=None):
+def assert_scoped(config, *, web, web_document, db, service=None, project=None, none=()):
     """web (and its attached document) is readable; db-1, its service and its document read as missing."""
     assert get(config, 'server', web)['id'] == web
     for resource_type, resource_id in (
@@ -81,12 +81,12 @@ def assert_scoped(config, *, web, web_document, db, service=None, project=None):
         ('code_project', uuid4()),
         ('server', 'db-1'),
     ):
-        assert get(config, resource_type, resource_id) in refused(resource_type)
+        assert get(config, resource_type, resource_id) == refused(resource_type, none)
     assert web_document in [doc['id'] for doc in get(config, 'server', web)['documents']]
     if service:
         assert get(config, 'service', service)['id'] == service
     if project:
-        assert get(config, 'code_project', project) in refused('code_project')
+        assert get(config, 'code_project', project) == refused('code_project', none)
     assert call(config, 'get_document', document_id=web_document)['id'] == web_document
     assert call(config, 'get_document', document_id=db.document) == NO_DOCUMENT
 
@@ -108,7 +108,13 @@ def test_a_pinned_config_reads_only_what_it_was_given(scoped):
     world, db, config = scoped
     web_document = get(config, 'server', world.server['id'])['documents'][0]['id']
     assert_scoped(
-        config, web=world.server['id'], web_document=web_document, db=db, service=str(world.nginx), project=world.shop
+        config,
+        web=world.server['id'],
+        web_document=web_document,
+        db=db,
+        service=str(world.nginx),
+        project=world.shop,
+        none=('code_project',),
     )
     [server] = [item for item in get(config, 'service', world.nginx)['links'] if item['type'] == 'server']
     assert server['name'] == 'web-1'
@@ -129,7 +135,7 @@ def test_a_document_attached_to_a_given_service_or_code_project_is_readable(scop
     assert call(given, 'get_document', document_id=runbook)['title'] == 'nginx runbook'
     assert get(given, 'code_project', world.shop)['name'] == 'Shop'
     assert call(config, 'get_document', document_id=runbook) == NO_DOCUMENT
-    assert get(config, 'code_project', world.shop) in refused('code_project')
+    assert get(config, 'code_project', world.shop) == refused('code_project', ('code_project',))
 
 
 def test_turned_off_kinds_read_nothing(scoped):
@@ -153,7 +159,9 @@ def test_a_saved_agents_pinned_config_reads_only_its_servers(agent, ask, monkeyp
     config = response.json()['config']
     assert [str(server['id']) for server in config['ssh']['servers']] == [agent.web]
     project = code_project_id(s.store, 'Payments API')
-    assert_scoped(config, web=agent.web, web_document=agent.document, db=db, project=project)
+    assert_scoped(
+        config, web=agent.web, web_document=agent.document, db=db, project=project, none=('service', 'code_project')
+    )
 
 
 def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch):
@@ -173,4 +181,11 @@ def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch
     config = response.json()['config']
     assert config.get('document_access', []) == []
     project = code_project_id(s.store, 'Payments API')
-    assert_scoped(config, web=ask.web['id'], web_document=ask.document['id'], db=db, project=project)
+    assert_scoped(
+        config,
+        web=ask.web['id'],
+        web_document=ask.document['id'],
+        db=db,
+        project=project,
+        none=('service', 'code_project'),
+    )
