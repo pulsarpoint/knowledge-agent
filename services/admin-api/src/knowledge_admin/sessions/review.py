@@ -158,6 +158,7 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
                             credentials=credentials,
                             timeout_seconds=REVIEW_SECONDS,
                             turn_timeout_seconds=REVIEW_SECONDS,
+                            tools=False,  # an internal LLM call, not an agent run: no tools
                             output_type=TuningSuggestion,
                         )
                         proposal = result.final_output

@@ -169,6 +169,7 @@ def test_generation_uses_no_tools_and_does_not_save(store, wizard, monkeypatch):
     assert task['catalog'] == catalog
     assert task['role'] == 'Investigate payments without sudo.'
     assert kwargs['output_type'] is AgentProposal
+    assert kwargs['tools'] is False  # an internal LLM call: no tools
     assert task['output_schema'] == kwargs['output_type'].model_json_schema()
     assert kwargs['credentials'] == {proposal['model_id']: 'test-model-secret'}
     for secret in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret'):

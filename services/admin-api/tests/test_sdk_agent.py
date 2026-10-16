@@ -598,3 +598,11 @@ def test_every_tool_of_an_mcp_server_in_access_is_offered_whatever_its_old_rows_
     request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
     assert len([t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]) == 1
     assert 'Never.' not in json.dumps(request['body'])
+
+
+def test_an_internal_llm_call_sends_no_tools(config, responses_api):
+    """The agent designer and the tuning reviewer call agent(tools=False): the model gets no tools at all."""
+    _, requests = responses_api
+    asyncio.run(agent(config, 'Review.', credentials={'model-key': 'fixture-api-secret'}, tools=False))
+    request = next(r for r in requests if r['path'] == '/v1/responses')
+    assert not request['body'].get('tools')

@@ -52,10 +52,10 @@ UPDATE agent_sessions s SET access = jsonb_build_object(
                                            THEN s.agent_config->'document_access' ELSE '[]' END)
                  WITH ORDINALITY AS x(d, position)
         ) given), '[]'::jsonb),
-    'roles', jsonb_build_object('content_editor',
+    'roles', jsonb_build_object('content_editor', COALESCE(
         s.agent_id IS NULL AND (s.purpose IN ('documents', 'revision')
                                 OR jsonb_typeof(s.agent_config->'proposal_tools') = 'array'
-                                   AND jsonb_array_length(s.agent_config->'proposal_tools') > 0)));
+                                   AND jsonb_array_length(s.agent_config->'proposal_tools') > 0), false)));
 UPDATE agent_sessions SET agent_config = agent_config || jsonb_build_object('access', access) WHERE agent_config IS NOT NULL;
 
 COMMIT;

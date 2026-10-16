@@ -69,6 +69,15 @@ def test_a_subagent_keeps_the_mcp_servers_of_its_parents_access():
         assert [server['id'] for server in sub['mcp']['servers']] == ['m1'] and 'allowlist' not in sub['mcp']
 
 
+def test_an_internal_llm_call_gets_no_tools():
+    """The agent designer and the tuning reviewer (tools=False): no catalog tools, experts or MCP servers."""
+    c = with_access(config(code=True))
+    c['experts'] = [EXPERT]
+    c['mcp'] = {'enabled': True, 'servers': [{'id': 'm1', 'name': 'Docs', 'enabled': True, 'tools': []}]}
+    _, tools, experts, servers = instructions_and_tools(c, subagents=True, tools=False)
+    assert (tools, experts, servers) == ([], [], [])
+
+
 def test_run_subagent_has_no_tools_argument():
     assert set(CATALOG['run_subagent'].arguments.model_json_schema()['properties']) == {'task', 'resources'}
 
@@ -177,3 +186,21 @@ def test_the_options_carry_no_tools(agent, ask):
     assert 'tools' not in options and 'subagents_allowed' not in options['agent']
     plain = ask.s.client.get(f'/api/sessions/options?document_id={ask.document["id"]}', headers=HEADERS).json()
     assert 'tools' not in plain
+
+
+def test_a_search_counts_as_grounding_only_in_a_grounded_run():
+    """search_documents is offered in every run; a refused or plain search must not make an ungrounded turn
+    'not covered'."""
+    from types import SimpleNamespace
+
+    from knowledge_admin.knowledge_agents.native_sessions import grounding_of
+
+    state = {'excerpts': [], 'searches': 1, 'empty_searches': 1, 'reported': None}
+
+    def turn(c):
+        return SimpleNamespace(context_wrapper=SimpleNamespace(context={'config': c, 'grounding': dict(state)}))
+
+    assert grounding_of(turn(with_access(config())), 'An answer.') is None
+    assert grounding_of(turn(with_access(config(documents=True))), 'An answer.') is None
+    grounded = grounding_of(turn(with_access(config(documents=True, grounded=True))), 'An answer.')
+    assert grounded is not None and grounded['not_covered'] is True

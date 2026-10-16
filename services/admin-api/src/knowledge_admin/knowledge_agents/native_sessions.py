@@ -208,9 +208,15 @@ def failure(exc: BaseException, secrets: Iterable[str]) -> str:
 
 def grounding_of(result: Any, answer: str) -> dict[str, Any] | None:
     """The cited sources and coverage of a grounded turn, from its run context's grounding state (the documents tools
-    keep it there), or None for an ungrounded turn."""
+    keep it there), or None for an ungrounded turn (its document searches are not grounding: every run has the
+    tools)."""
     context = getattr(getattr(result, 'context_wrapper', None), 'context', None)
-    return grounding.result(answer, context.get('grounding') if isinstance(context, dict) else None)
+    if not isinstance(context, dict):
+        return None
+    documents = (context.get('config') or {}).get('documents') or {}
+    if not (documents.get('enabled') and documents.get('grounded')):
+        return None
+    return grounding.result(answer, context.get('grounding'))
 
 
 def _retrieve(task: asyncio.Task) -> None:

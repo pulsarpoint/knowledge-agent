@@ -228,6 +228,7 @@ def build_api(app_name, store):
                             credentials={model_id: model.api_key} if model.api_key else {},
                             timeout_seconds=240,
                             turn_timeout_seconds=240,
+                            tools=False,  # an internal LLM call, not an agent run: no tools
                             output_type=AgentProposal,
                         )
                         proposal = result.final_output

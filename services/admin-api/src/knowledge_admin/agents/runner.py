@@ -69,6 +69,7 @@ async def agent(
     call_model_input_filter: CallModelInputFilter | None = None,
     workspace: Path | None = None,
     subagents: Any = None,
+    tools: bool = True,
 ) -> RunResult | RunResultStreaming:
     """Run a saved configuration without reading the database; return the native SDK result.
 
@@ -87,7 +88,8 @@ async def agent(
     such as a session's comments delivered while the turn runs.
 
     workspace: a scratch workspace to share (a subagent uses its parent's); None: a new one for this run, removed
-    afterwards. subagents: the session turn's Subagents, which run_subagent finds in the run context.
+    afterwards. subagents: the session turn's Subagents, which run_subagent finds in the run context. tools False: an
+    internal LLM call (the agent designer, the tuning reviewer) that gets no tools; agent runs get every tool.
     """
     if (
         not task.strip()
@@ -149,6 +151,7 @@ async def agent(
                         timeout_seconds=timeout_seconds,
                         output_type=output_type,
                         subagents=subagents is not None,
+                        tools=tools,
                     ) as assistant,
                 ):
                     # The adapter's backstop and the shell switch follow exactly the tools the model was given.
@@ -220,6 +223,7 @@ async def create_agent(
     timeout_seconds: float,
     output_type: type[BaseModel] | None = None,
     subagents: bool = False,
+    tools: bool = True,
 ) -> AsyncIterator[Agent]:
     """Instantiate a native Agent and keep its model/MCP connections open for the caller.
 
@@ -236,8 +240,8 @@ async def create_agent(
     if reference is not None and not credentials.get(reference['id']):
         raise ValueError('The selected model API key was not supplied.')
     model_api_key = credentials[reference['id']] if reference is not None else None
-    get_ssh(config, credentials)
-    prompt, tools, experts, selected_mcp = instructions_and_tools(config, subagents=subagents)
+    get_ssh(config, credentials)  # a check: raises when a usable server's SSH key was not supplied
+    prompt, function_tools, experts, selected_mcp = instructions_and_tools(config, subagents=subagents, tools=tools)
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
@@ -263,13 +267,13 @@ async def create_agent(
             instructions=prompt,
             model=sdk_model,
             model_settings=model_settings,
-            tools=tools,
+            tools=function_tools,
             mcp_servers=mcp_servers,
             mcp_config={'include_server_in_tool_names': True},
             output_type=AgentOutputSchema(output_type, strict_json_schema=False) if output_type is not None else None,
         )
         if experts:  # an expert named like another tool of the run (an MCP tool as the model sees it) is not offered
-            taken = {tool.name for tool in tools} | {
+            taken = {tool.name for tool in function_tools} | {
                 tool.name for tool in await assistant.get_mcp_tools(RunContextWrapper({}))
             }
             for expert in experts:
@@ -281,19 +285,21 @@ async def create_agent(
 
 
 def instructions_and_tools(
-    config: dict[str, Any], *, subagents: bool
+    config: dict[str, Any], *, subagents: bool, tools: bool = True
 ) -> tuple[str, list[FunctionTool], list[FunctionTool], list[dict[str, Any]]]:
     """(instructions, catalog tools, expert tools, selected MCP servers) of a run of this configuration: what
     create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
     what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. Every catalog tool with
     its built-in usage text (run_subagent only with subagents, as in create_agent); what a tool may do is decided by
-    its check against the run's access object."""
-    selected_mcp = mcp.selected_servers(config)
+    its check against the run's access object. tools False: none at all (an internal LLM call, not an agent run)."""
     prompt = get_prompt(config)
-    tools = [function_tool(spec, spec.usage) for spec in CATALOG.values() if subagents or spec.name != SUBAGENT]
+    selected_mcp = mcp.selected_servers(config)
+    if not tools:
+        return prompt, [], [], []
+    offered = [function_tool(spec, spec.usage) for spec in CATALOG.values() if subagents or spec.name != SUBAGENT]
     # only in a session turn, never inside an expert or a subagent
     experts = [expert_tool(entry) for entry in config.get('experts', [])] if subagents else []
-    return prompt, tools, experts, selected_mcp
+    return prompt, offered, experts, selected_mcp
 
 
 def get_model(config: dict[str, Any]) -> dict[str, Any]:

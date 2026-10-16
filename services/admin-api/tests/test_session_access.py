@@ -204,10 +204,6 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     ssh_ready(world)
     sid = start(world, {'service_id': str(world.nginx)})
     with world.store.connect() as conn:
-        # a run as runs were before every run got every tool: its proposal tools listed
-        conn.execute(
-            """UPDATE ka.agent_sessions SET agent_config=agent_config||'{"proposal_tools": []}' WHERE id=%s""", (sid,)
-        )
         conn.execute((MIGRATIONS / '0112_session_access.down.sql').read_text(), prepare=False)
         row = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
         assert 'access' not in row['agent_config']
