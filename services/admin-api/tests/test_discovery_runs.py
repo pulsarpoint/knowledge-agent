@@ -6,22 +6,16 @@ import json
 from uuid import UUID, uuid4
 
 import asyncssh
+import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities.document_tools import _run_links
 from knowledge_admin.sessions.run_access import built_for
 from knowledge_admin.servers.discovery import NOT_ALLOWED, NOT_CONFIGURED
 from knowledge_admin.sessions.start import ONE_START
-from knowledge_admin.tools.catalog import CATALOG, effective_tools
+from knowledge_admin.tools.catalog import CATALOG
 from test_profiles import create, update
 from test_repositories import HEADERS
-
-TOOLS = [
-    'ssh_run',
-    'get_document',
-    'propose_service',
-    'propose_document',
-]
 
 
 def ssh_ready(world, server=None):
@@ -43,7 +37,7 @@ def body(world, server=None, **change):
         'model_id': world.model,
         'system_prompt': 'You explore servers.',
         'message': 'Explore web-1.\nLook at nginx first.',
-        'tools': TOOLS,
+        'content_editor': True,  # the Propose wizard asks for the content editor role
         **change,
     }
 
@@ -117,15 +111,11 @@ def test_a_run_pins_its_server_and_the_context_facts(world):
     config = pinned_of(world, sid)
     assert [server['id'] for server in config['ssh']['servers']] == [world.server['id']]
     assert config['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
-    assert config['proposal_tools'] == ['propose_service', 'propose_document']
+    assert config['access']['roles']['content_editor'] is True
     assert 'discovery' not in config and 'session_id' not in config
     assert config['project_id'] == str(world.project)
     assert config['system_prompt']['content'] == 'You explore servers.'  # the Resource line names the server
-    rows = {item['tool']: item for item in config['tools']['items']}
-    assert rows['propose_service']['mode'] == 'on' and not rows['propose_service']['subagent_allowed']
-    assert rows['propose_document']['mode'] == 'on' and not rows['propose_document']['subagent_allowed']
-    offered = {spec.name for spec, _ in effective_tools(config, config['ssh']['servers'])}
-    assert {'ssh_run', 'get_resource', 'propose_service', 'propose_document'} <= offered
+    assert 'tools' not in config  # every run gets every tool
     with world.store.connect() as conn:
         session = conn.execute(
             """SELECT purpose,server_id,agent_id,title,target_document_id,context_snapshot,prompt_snapshot
@@ -233,30 +223,18 @@ def test_two_runs_on_one_server_can_run_at_once_and_are_listed_with_their_counts
     assert runs[1]['status'] == 'working' and runs[0]['model_name'] == 'GPT' and runs[0]['purpose'] == 'resource'
 
 
-def test_a_run_has_only_the_experts_it_chose(world):
+def test_a_run_has_every_expert_or_only_those_it_chose(world):
     expert = update(
         world.client, create(world.client, 'Payments'), expert=True, when_to_use='Payments.', model_id=world.model
     )
     assert expert.status_code == 200, expert.text
     ssh_ready(world)
     config = pinned_of(world, start(world).json()['id'])
-    assert config['experts'] == []
+    assert [entry['id'] for entry in config['experts']] == [expert.json()['id']]
+    assert pinned_of(world, start(world, expert_ids=[]).json()['id'])['experts'] == []
     chosen = start(world, expert_ids=[expert.json()['id']])
     assert chosen.status_code == 201, chosen.text
     assert [entry['id'] for entry in pinned_of(world, chosen.json()['id'])['experts']] == [expert.json()['id']]
-
-
-def test_switching_a_proposal_tool_off_is_audited(world):
-    ssh_ready(world)
-    started = start(world, tools=[tool for tool in TOOLS if tool != 'propose_document'])
-    assert started.status_code == 201, started.text
-    with world.store.connect() as conn:
-        details = conn.execute(
-            """SELECT details FROM ka.audit_events WHERE action='agent_run.created'
-            AND resource_id=%s""",
-            (started.json()['id'],),
-        ).fetchone()['details']
-    assert 'propose_document' in details['tools_off'] and 'propose_service' not in details['tools_off']
 
 
 def test_the_options_for_a_server(world):
@@ -272,18 +250,12 @@ def test_the_options_for_a_server(world):
         ).fetchone()['id']
     assert options['default_prompt_id'] == str(seeded)
     assert [prompt['name'] for prompt in options['prompts']] == ['Server assistant']
-    tools = {tool['name']: tool for tool in options['tools']}
-    assert {'propose_service', 'propose_document', 'ssh_run'} <= set(tools)
-    assert tools['propose_service']['requires'] == 'a run started from a server'
-    assert not {'save_document', 'edit_document'} & set(tools)  # a server run has no document to edit
+    assert 'tools' not in options  # every run gets every tool
     ssh_ready(world)
     [server] = world.client.get(f'/api/sessions/options?server_id={world.server["id"]}', headers=HEADERS).json()[
         'resources'
     ]['servers']
     assert server['usable'] and server['reason'] is None
-    elsewhere = world.client.get('/api/sessions/options?new_document=1', headers=HEADERS).json()
-    assert 'propose_service' not in {tool['name'] for tool in elsewhere['tools']}
-    assert {'save_document', 'edit_document'} <= {tool['name'] for tool in elsewhere['tools']}
     both = world.client.get(f'/api/sessions/options?server_id={world.server["id"]}&new_document=1', headers=HEADERS)
     assert both.status_code == 400 and both.json()['error']['message'] == ONE_START
     assert world.client.get(f'/api/sessions/options?server_id={uuid4()}', headers=HEADERS).status_code == 404
@@ -300,11 +272,13 @@ def test_the_proposal_tools_are_refused_in_a_run_not_started_from_a_server(world
             'system_prompt': 'You write.',
             'message': 'Write.',
             'resources': {'server_ids': [world.server['id']]},
-            'tools': ['propose_service'],
         },
     )
-    assert started.status_code == 400
-    assert started.json()['error']['message'] == 'propose_service needs a run started from a server.'
+    assert started.status_code == 201, started.text
+    config = config_of(world, started.json()['id'])
+    assert 'started_from' not in config
+    with pytest.raises(ValueError, match='The proposal tools work only in a run started from a server'):
+        call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'})
 
 
 def test_the_old_discovery_routes_are_gone(world):

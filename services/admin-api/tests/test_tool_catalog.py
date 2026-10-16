@@ -1,23 +1,16 @@
-"""The catalog: SDK-independent tools with usage text, the "offered today" rule, selection and the adapter."""
+"""The catalog: SDK-independent tools with usage text, the list summary and the adapter (every run gets every tool:
+test_every_tool.py)."""
 
 import asyncio
 import dataclasses
-import itertools
 import json
 
-import pytest
 from access_helpers import with_access
 from agents import FunctionTool
 from agents.tool_context import ToolContext
 from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_prompt
-from knowledge_admin.tools.catalog import (
-    CATALOG,
-    capability_tools,
-    effective_tools,
-    enabled_capability_tools,
-    tools_summary,
-)
+from knowledge_admin.tools.catalog import CATALOG, tools_summary
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool
 
 SERVER = {
@@ -63,57 +56,6 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), to
     return value
 
 
-def todays_tools(c, ssh_servers) -> set[str]:
-    """the former agents tool selection before this change, kept here as the reference (get_available_resources: in
-    every run)."""
-    names = {'get_available_resources'}
-    grounded = c['documents']['enabled'] and c['documents'].get('grounded', False)
-    if c['code']['enabled'] or c['documents']['enabled'] and not grounded:
-        names |= {'list_files', 'read_file', 'search_files', 'shell_run'}
-    if c['documents']['enabled']:
-        names |= {'search_documents', 'read_document'}
-    if grounded:
-        names.add('report_not_covered')
-    if c['code']['enabled']:
-        names |= {'code_search', 'ast_grep'}
-    if c['code']['enabled'] and c['code'].get('graphs'):
-        names.add('code_graph')
-    if ssh_servers:
-        names.add('ssh_run')
-    if c['ssh']['enabled'] and c['ssh']['servers']:
-        names.add('get_resource')  # on in every run with resources (here: its servers)
-    return names
-
-
-def offered(c, ssh_servers=()) -> set[str]:
-    """What the run offers besides get_available_resources (in every run)."""
-    return {spec.name for spec, _ in effective_tools(c, list(ssh_servers))} - {'get_available_resources'}
-
-
-@pytest.mark.parametrize('code, documents, grounded, ssh, graph', list(itertools.product([False, True], repeat=5)))
-def test_catalog_offers_todays_tools_for_every_capability_combination(code, documents, grounded, ssh, graph):
-    graphs = [{'id': 'p', 'name': 'P', 'graph_path': '/g', 'code_root': '/c', 'source_hash': 'h'}] if graph else []
-    c = config(code, documents, grounded, ssh, graphs)
-    servers = [SERVER] if ssh else []
-    c['tools'] = implied_tools(c)
-    assert {spec.name for spec, _ in effective_tools(c, servers)} == todays_tools(c, servers)
-
-
-def test_only_selected_tools_with_met_needs_are_offered():
-    c = config(code=True, documents=True, ssh=True, tools=['read_file', 'ssh_run', 'search_documents', 'code_graph'])
-    # get_resource: on whenever the run has resources (here its server), whatever was selected
-    assert offered(c, [SERVER]) == {'read_file', 'ssh_run', 'search_documents', 'get_resource'}  # no graph
-    assert offered(c, []) == {'read_file', 'search_documents', 'get_resource'}  # ssh_run: no usable server
-    c['code']['enabled'] = False
-    assert offered(c, [SERVER]) == {'read_file', 'ssh_run', 'search_documents', 'get_resource'}  # files
-    c['documents']['grounded'] = True
-    assert offered(c, [SERVER]) == {'ssh_run', 'search_documents', 'get_resource'}
-    c['tools']['items'][0]['mode'] = 'off'
-    c['tools']['items'][2]['mode'] = 'per_run'  # not offered in step 1
-    assert offered(c, [SERVER]) == {'ssh_run', 'get_resource'}
-    assert offered(config(code=True, tools=[]), []) == set()
-
-
 def test_descriptions_are_the_usage_text_and_keep_todays_guidance():
     for spec in CATALOG.values():
         built = function_tool(spec, spec.usage)
@@ -134,11 +76,6 @@ def test_descriptions_are_the_usage_text_and_keep_todays_guidance():
         'as_root',
         'timeout_seconds',
     }
-    c = config(code=True, tools=['read_file'])
-    c['tools']['items'][0]['usage'] = 'Read only the files you were asked about.'
-    [(spec, usage)] = [item for item in effective_tools(c, []) if item[0].name == 'read_file']
-    assert usage == 'Read only the files you were asked about.'
-    assert function_tool(spec, usage).description == usage
 
 
 def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
@@ -167,7 +104,7 @@ def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
 
 
 def test_the_prompt_no_longer_carries_tool_sentences():
-    prompt = get_prompt(config(code=True, documents=True, ssh=True), [])
+    prompt = get_prompt(config(code=True, documents=True, ssh=True))
     for sentence in (
         'Use shell_run for Bash pipelines',
         'Use code_search to find',
@@ -233,8 +170,8 @@ def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monke
     assert 'TOP-SECRET' not in error['data']['error'] and '[redacted]' in error['data']['error']
 
 
-def test_the_summary_counts_tools_that_are_on_with_their_need_met_and_enabled_mcp_servers():
-    c = config(code=True, tools=['read_file', 'code_search', 'ssh_run', 'search_documents', 'code_graph'])
+def test_the_summary_counts_every_tool_and_the_tools_of_enabled_mcp_servers():
+    c = config(code=True, tools=['read_file'])
     c['mcp'] = {
         'enabled': True,
         'servers': [
@@ -242,53 +179,14 @@ def test_the_summary_counts_tools_that_are_on_with_their_need_met_and_enabled_mc
             {'id': 'm2', 'name': 'Two', 'enabled': False, 'tools': [{'name': 'c'}]},
         ],
     }
-    summary = tools_summary(c)  # ssh_run: no SSH; search_documents: no documents; code_graph counts by the switch
-    assert summary['groups'] == {
-        'code': 3,
-        'documents': 0,
-        'servers': 0,
-        'inventory': 0,
-        'memory': 0,
-        'mcp': 2,
-        'agents': 0,
-    }
-    assert summary['on'] == 5
+    summary = tools_summary(c)
+    groups = {'code': 0, 'documents': 0, 'servers': 0, 'inventory': 0, 'memory': 0, 'mcp': 2, 'agents': 0}
+    for spec in CATALOG.values():
+        groups[spec.group] += 1
+    assert summary['groups'] == groups and summary['on'] == len(CATALOG) + 2
 
 
-CODE_TOOLS = ['list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph']
-FILE_TOOLS = ['list_files', 'read_file', 'search_files', 'shell_run']
-
-
-def test_a_capabilitys_tools_are_every_tool_of_its_needs():
-    assert capability_tools('code', config(code=True)) == CODE_TOOLS  # code_graph too, graph or not
-    assert capability_tools('documents', config(documents=True)) == [*FILE_TOOLS, 'search_documents', 'read_document']
-    # with code projects on the file tools belong to code; report_not_covered only while grounded
-    assert capability_tools('documents', config(code=True, documents=True, grounded=True)) == [
-        'search_documents',
-        'read_document',
-        'report_not_covered',
-    ]
-    # grounded documents without code projects: no file tools (their need, files, is not met)
-    assert capability_tools('documents', config(documents=True, grounded=True)) == [
-        'search_documents',
-        'read_document',
-        'report_not_covered',
-    ]
-    assert capability_tools('ssh', config(ssh=True)) == ['ssh_run']
-    assert enabled_capability_tools(config(code=True, ssh=True)) == [*CODE_TOOLS, 'ssh_run']
-    assert enabled_capability_tools(config(code=True, documents=True)) == [
-        *CODE_TOOLS,
-        'search_documents',
-        'read_document',
-    ]  # each once
-    assert enabled_capability_tools(config()) == []
-
-
-def test_run_subagent_is_never_on_by_default_and_never_implied():
+def test_run_subagent_is_in_the_catalog():
     spec = CATALOG['run_subagent']
-    assert (spec.group, spec.label, spec.needs) == ('agents', 'Start subagents', None)
+    assert (spec.group, spec.label) == ('agents', 'Start subagents')
     assert spec.usage.startswith('Start a helper for a separate, well-defined part of your work')
-    every = config(code=True, documents=True, ssh=True)
-    assert 'run_subagent' not in {entry['tool'] for entry in implied_tools(every)['items'] if entry['mode'] == 'on'}
-    assert 'run_subagent' not in enabled_capability_tools(every)
-    assert 'run_subagent' in offered(config(tools=['run_subagent']))  # offered exactly when its row is on

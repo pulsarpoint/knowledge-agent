@@ -152,9 +152,7 @@ def test_a_saved_agents_pinned_config_reads_only_its_servers(agent, ask, monkeyp
         project = s.store.project(conn, 'shop')
         link_document(conn, project, ask.document['id'], 'server_id', ask.web['id'])
     db = add_db(s.store, project)
-    response = start(
-        agent.client, '/preview', agent_id=agent.id, tools=['read_file'], resources={'server_ids': [agent.web]}
-    )
+    response = start(agent.client, '/preview', agent_id=agent.id, resources={'server_ids': [agent.web]})
     assert response.status_code == 200, response.text
     config = response.json()['config']
     assert [str(server['id']) for server in config['ssh']['servers']] == [agent.web]
@@ -174,7 +172,6 @@ def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch
     body = {
         **ask.body,
         'resources': {'server_ids': [ask.web['id']]},
-        'tools': ['get_document'],
     }
     response = s.client.post('/api/sessions/preview', headers=HEADERS, json=body)
     assert response.status_code == 200, response.text

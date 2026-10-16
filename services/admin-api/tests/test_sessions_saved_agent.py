@@ -13,9 +13,9 @@ from test_sessions_world import ask  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 
-def saved(ask, name, *, subagent=True):
-    """A saved, enabled agent with the GPT model, tools ssh_run and read_file (and run_subagent) on, the Payments
-    service, the web-1 server and both code projects in its access object, and the one expert."""
+def saved(ask, name):
+    """A saved, enabled agent with the GPT model, the Payments service, the web-1 server and both code projects in its
+    access object, and the one expert."""
     s = ask.s
     agent = create(s.client, name)
     with s.store.connect() as conn:
@@ -25,11 +25,6 @@ def saved(ask, name, *, subagent=True):
             agent['id'],
             [('service', s.service), ('server', ask.web['id']), ('code_project', s.repo), ('code_project', s.worker)],
         )
-        for tool in ('ssh_run', 'read_file', *(('run_subagent',) if subagent else ())):
-            conn.execute(
-                "INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,%s,'on',%s)",
-                (agent['id'], tool, tool != 'run_subagent'),
-            )
     return agent['id']
 
 
@@ -65,7 +60,6 @@ def agent(ask):
         environment=s.environment,
         document=ask.document['id'],
         outside_server=outside['id'],
-        no_subagents=saved(ask, 'Solo', subagent=False),
         expert=expert['id'],
     )
 
@@ -86,33 +80,28 @@ def test_a_saved_agent_starts_with_its_own_configuration_narrowed(agent):
             agent.client,
             path,
             agent_id=agent.id,
-            tools=['read_file'],
             expert_ids=[],
-            subagents=False,
             resources={'server_ids': [agent.web]},
         )
         assert response.status_code in (200, 201), response.text
     session = response.json()
     assert (session['purpose'], session['agent_id'], session['target_document_id']) == ('test', agent.id, None)
-    modes = {item['tool']: item['mode'] for item in session['config']['tools']['items']}
-    assert modes['read_file'] == 'on' and modes['ssh_run'] == 'off' and modes['run_subagent'] == 'off'
     assert session['config']['experts'] == []
     given = [
         (item['type'], item['id']) for item in session['config']['access']['resources'] if item['source'] == 'given'
     ]
     assert given == [('server', agent.web)] and session['run_resources'] is None
-    preview = start(
-        agent.client, '/preview', agent_id=agent.id, tools=['read_file'], resources={'server_ids': [agent.web]}
-    ).json()
+    preview = start(agent.client, '/preview', agent_id=agent.id, resources={'server_ids': [agent.web]}).json()
     assert preview['config']['system_prompt'] == session['config']['system_prompt']
 
 
 def test_nothing_can_be_added_to_a_saved_agent(agent):
     other_expert = '00000000-0000-0000-0000-000000000009'
     for body, message in (
-        ({'tools': ['get_resource']}, "get_resource is not one of this agent's tools."),
+        ({'tools': ['get_resource']}, 'Extra inputs are not permitted'),
         ({'expert_ids': [other_expert]}, f'This expert is not available: {other_expert}.'),
-        ({'subagents': True, 'agent_id': agent.no_subagents}, 'This agent does not allow subagents.'),
+        ({'subagents': True}, 'Extra inputs are not permitted'),
+        ({'content_editor': True}, 'A run cannot make a saved agent a content editor.'),
         ({'model_id': agent.other_model}, 'A saved agent uses its own model and prompt.'),
         ({'system_prompt': 'Be someone else.'}, 'A saved agent uses its own model and prompt.'),
         (
@@ -141,15 +130,9 @@ def test_the_agents_own_model_and_prompt_may_be_sent_back(agent):
         '/preview',
         agent_id=agent.id,
         model_id=agent.model,
-        tools=['read_file'],
         resources={'server_ids': [agent.web]},
     )
     assert response.status_code == 200, response.text
-
-
-def test_narrowing_away_what_a_tool_needs_is_refused(agent):
-    response = start(agent.client, agent_id=agent.id, tools=['ssh_run'], resources={'code_project_ids': [agent.repo]})
-    assert response.status_code == 400 and response.json()['error']['message'] == 'ssh_run needs at least one server.'
 
 
 def test_context_is_added_as_facts(agent):
@@ -157,7 +140,6 @@ def test_context_is_added_as_facts(agent):
         agent.client,
         '/preview',
         agent_id=agent.id,
-        tools=['read_file'],
         context='Ticket OPS-1',
         resources={'server_ids': [agent.web]},
     ).json()['config']
@@ -167,8 +149,7 @@ def test_context_is_added_as_facts(agent):
 def test_options_for_a_saved_agent_offer_only_what_may_be_narrowed(agent):
     options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
     assert options['agent']['id'] == agent.id and not options['agent']['resources_fixed']
-    assert options['agent']['subagents_allowed'] and options['prompts'] == [] and options['default_prompt_id'] is None
-    assert {tool['name'] for tool in options['tools']} == {'ssh_run', 'read_file'}
+    assert options['prompts'] == [] and options['default_prompt_id'] is None and 'tools' not in options
     assert [server['id'] for server in options['resources']['servers']] == [agent.web]
     assert [service['id'] for service in options['resources']['services']] == [agent.service]
     assert options['resources']['environments'] == options['resources']['documents'] == []
@@ -188,50 +169,17 @@ def test_the_old_test_routes_are_gone(agent):
 
 
 def test_code_graph_without_a_graph_still_starts(whole, ask):
-    with ask.s.store.connect() as conn:
-        conn.execute(
-            "INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'code_graph','on',true)",
-            (whole.id,),
-        )
     for path, status in (('/preview', 200), ('', 201)):
-        response = start(whole.client, path, agent_id=whole.id, tools=['code_graph', 'read_file'])
+        response = start(whole.client, path, agent_id=whole.id)
         assert response.status_code == status, response.text
 
 
-def test_ssh_run_needs_a_usable_saved_server(whole, ask):
+def test_a_saved_agent_without_a_usable_server_still_starts(whole, ask):
     with ask.s.store.connect() as conn:
         conn.execute('UPDATE ka.servers SET enabled=false WHERE id=%s', (whole.web,))
-    response = start(whole.client, '/preview', agent_id=whole.id, tools=['ssh_run'])
-    assert response.status_code == 400 and response.json()['error']['message'] == 'ssh_run needs at least one server.'
-    with ask.s.store.connect() as conn:
-        conn.execute('UPDATE ka.servers SET enabled=true WHERE id=%s', (whole.web,))
-        give(conn, whole.id, [('service', ask.s.service)])
-    response = start(whole.client, '/preview', agent_id=whole.id, tools=['ssh_run'])
-    assert response.status_code == 400 and response.json()['error']['message'] == 'ssh_run needs at least one server.'
-
-
-def test_tools_the_request_does_not_control_keep_their_mode(ask):
-    grounded = saved(ask, 'Grounded')
-    with ask.s.store.connect() as conn:
-        project = ask.s.store.project(conn, 'shop')
-        conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (project,))
-        collection = conn.execute(
-            "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'runbooks') RETURNING id", (project,)
-        ).fetchone()['id']
-        given = conn.execute('SELECT access FROM ka.agents WHERE id=%s', (grounded,)).fetchone()['access']['resources']
-        give(conn, grounded, [*given, ('collection', collection)])
-        conn.execute('UPDATE ka.agents SET documents_grounded=true WHERE id=%s', (grounded,))
-        conn.execute(
-            "INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'report_not_covered','on',true)",
-            (grounded,),
-        )
-    options = ask.s.client.get(f'/api/sessions/options?agent_id={grounded}', headers=HEADERS).json()
-    tools = [tool['name'] for tool in options['tools']]
-    assert 'report_not_covered' not in tools
-    response = start(ask.s.client, '/preview', agent_id=grounded, tools=tools)
+    response = start(whole.client, '/preview', agent_id=whole.id)
     assert response.status_code == 200, response.text
-    modes = {item['tool']: item['mode'] for item in response.json()['config']['tools']['items']}
-    assert modes['report_not_covered'] == 'on'
+    assert 'ssh_run' in [tool['name'] for tool in response.json()['tools']]  # its check refuses what it cannot use
 
 
 def test_options_tell_what_a_service_brings(agent, ask):
@@ -254,7 +202,7 @@ def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_i
             VALUES (%s,%s,%s,'Staging','payments-api',8081)""",
             (ask.s.store.project(conn, 'shop'), ask.s.service, agent.web),
         )
-    response = start(agent.client, agent_id=agent.id, tools=['read_file'], resources={'service_ids': [ask.s.service]})
+    response = start(agent.client, agent_id=agent.id, resources={'service_ids': [ask.s.service]})
     assert response.status_code == 201, response.text
     session = response.json()
     reached = {(item['type'], item['id']) for item in session['config']['access']['resources']}

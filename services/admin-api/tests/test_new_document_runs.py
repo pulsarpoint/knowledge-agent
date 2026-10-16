@@ -31,7 +31,6 @@ def body(s, **change):
         'model_id': s.gpt,
         'system_prompt': 'You document systems.',
         'resources': {'code_project_ids': [s.repo], 'documents': [{'new': NEW, 'editable': True}]},
-        'tools': ['read_file', 'get_document', 'save_document', 'edit_document'],
         **change,
     }
 
@@ -398,7 +397,7 @@ def test_options_for_a_new_document(sessions):
     assert options['resources']['documents'] == [] and all(
         not item['linked'] for item in options['resources']['services']
     )
-    assert {'save_document', 'edit_document', 'get_document'} <= {tool['name'] for tool in options['tools']}
+    assert 'tools' not in options  # every run gets every tool
 
 
 def test_options_for_a_new_document_and_a_document_are_refused(sessions):
@@ -605,7 +604,6 @@ def inventory_start(s, kind: str, resource_id: str, **change):
     change = {
         'started_from': {'new_document': new},
         'resources': {'documents': [{'new': new, 'editable': True}]},
-        'tools': ['save_document', *change.pop('tools', [])],
         **change,
     }
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
@@ -651,13 +649,12 @@ def test_an_inventory_run_for_a_server_with_ssh_reads_it_runs_commands_on_it_and
     s = sessions
     monkeypatch.setattr(inventory, '_store', s.store)
     ready_prod(s)
-    session, config = inventory_start(s, 'server', s.server['id'], tools=['ssh_run'])
+    session, config = inventory_start(s, 'server', s.server['id'])
     assert chosen_only(session) == {'server_ids': [s.server['id']]}
     assert session['run_resources']['server_ids'] == [s.server['id']]
     assert read(config, 'server', s.server['id'])['name'] == 'prod-1'
     assert read(config, 'service', s.service)['name'] == 'Payments'  # deployed on it, pinned as a server chat pins it
     assert [server['id'] for server in config['ssh']['servers']] == [s.server['id']]
-    assert next(item for item in config['tools']['items'] if item['tool'] == 'ssh_run')['mode'] == 'on'
     assert config.get('start_notes', []) == []
 
 
@@ -701,7 +698,7 @@ def test_a_new_document_run_without_inventory_reads_only_what_it_was_given(sessi
     s = sessions
     monkeypatch.setattr(inventory, '_store', s.store)
     ready_prod(s)
-    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, tools=['save_document']))
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s))
     assert response.status_code == 201, response.text
     session = response.json()
     resources = session['run_resources']

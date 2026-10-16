@@ -11,22 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from knowledge_admin.access import has_any
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage
-from knowledge_admin.knowledge_agents.config import access_ids, without_missing
+from knowledge_admin.knowledge_agents.config import access_ids
 from knowledge_admin.knowledge_agents.experts import ROW_PREFIX
-from knowledge_admin.tools.catalog import (
-    CATALOG,
-    SUBAGENT,
-    NEED_REASONS,
-    NEED_TABS,
-    run_only,
-    capability_tools,
-    catalog_listing,
-    needs_met,
-)
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing
 
 STALE = 'The tools changed since you opened them. Reload.'
-GROUNDED = 'Grounded answers need report_not_covered.'
-DISCOVERY_ONLY = 'This tool is not chosen for an agent: a run gets it from what it starts from or is given.'
 UNKNOWN = 'Unknown tool: {tool}.'
 UNKNOWN_EXPERT = 'Unknown expert: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
@@ -44,8 +33,6 @@ EXPERTS = """SELECT id,name,when_to_use FROM ka.agents WHERE expert AND id<>%s O
 # The MCP servers of the application project the agent's access references.
 SELECTED_MCP = """SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m
     WHERE m.project_id=%s AND m.id=ANY(%s::uuid[]) ORDER BY lower(m.name),m.id"""
-SWITCH_ON = """INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')
-    ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',updated_at=now()"""
 
 
 class ToolChoice(BaseModel):
@@ -118,15 +105,11 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
             'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)
         )
     }
-    current = flags(without_missing(conn, agent['access']), agent['documents_grounded'])
     tools = []
-    for spec in CATALOG.values():
+    for spec in CATALOG.values():  # every run gets every tool: these rows are no longer read by runs
         row = saved.get(spec.name)
-        if run_only(spec.name):
-            continue  # given per run (proposal and edit tools) or always on (get_resource, get_available_resources)
         if spec.name == SUBAGENT and row is None:
             continue  # listed only while May start subagents is on
-        available = needs_met(spec.needs, current, None)
         tools.append(
             {
                 'tool': spec.name,
@@ -137,9 +120,9 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
                 'usage': row['usage'] if row else None,
                 'default_usage': spec.usage,
                 'subagent_allowed': row['subagent_allowed'] if row else True,
-                'available': available,
-                'reason': None if available else NEED_REASONS[spec.needs],
-                'tab': NEED_TABS.get(spec.needs),
+                'available': True,
+                'reason': None,
+                'tab': None,
             }
         )
     for server in conn.execute(SELECTED_MCP, (project, access_ids(agent['access'], 'mcp_server'))):
@@ -183,26 +166,6 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     return {'revision': agent['revision'], 'expert': agent['expert'], 'tools': tools}
 
 
-CAPABILITIES = ('code', 'documents', 'ssh')
-
-
-def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, Any]) -> None:
-    """Profile save (flags of the old and the new access): a capability the access now gives gets all of its tools on
-    (catalog.capability_tools), replacing earlier off rows (they had no effect while it was off). Grounded answers
-    always get report_not_covered. A capability gone, and a save that adds none, keep every row; edited usage text is
-    kept."""
-    switched_on = [
-        capability for capability in CAPABILITIES if new[capability]['enabled'] and not old[capability]['enabled']
-    ]
-    wanted: set[str] = set()
-    for capability in switched_on:
-        wanted.update(capability_tools(capability, new))
-    if new['documents']['enabled'] and new['documents']['grounded']:
-        wanted.add('report_not_covered')
-    for name in sorted(wanted):
-        conn.execute(SWITCH_ON, (agent_id, name))
-
-
 def build_api(app_name, store):
     router = APIRouter()
 
@@ -239,8 +202,6 @@ def build_api(app_name, store):
             experts = {id for id, expert in agents.items() if expert}
             for choice in value.tools:
                 if choice.tool in CATALOG:
-                    if run_only(choice.tool):
-                        raise HTTPException(400, DISCOVERY_ONLY)
                     continue
                 if choice.tool.startswith(ROW_PREFIX):
                     if choice.tool.removeprefix(ROW_PREFIX) not in agents:  # not an agent, or the agent itself
@@ -258,10 +219,6 @@ def build_api(app_name, store):
             ).fetchone()
             if SUBAGENT in chosen and switch is None:
                 raise HTTPException(400, SUBAGENTS_OFF)
-            report = chosen.get('report_not_covered')
-            documents = flags(without_missing(conn, agent['access']), agent['documents_grounded'])['documents']
-            if documents['enabled'] and documents['grounded'] and (report is None or report.mode != 'on'):
-                raise HTTPException(400, GROUNDED)
             # Choices about agents that are not experts now survive the replace (they apply again if one returns).
             kept = [
                 row['tool']

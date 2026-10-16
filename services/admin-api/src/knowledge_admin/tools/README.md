@@ -12,14 +12,12 @@ docstring is the usage text the model reads. `usage=` and `arguments=` override 
 `*args` or `**kwargs` parameter needs `arguments=`, and a name registered twice is an error.
 
 `tools/tools.json` holds the other attributes of each tool, in the order the Tools tab and the runner use: `name`,
-`group` (`code`, `documents`, `servers`, `inventory` or `agents`), `label`, `summary` (the short line on the Tools
-tab), and `needs` (the capability the tool needs, or null). `tools/catalog.py` joins the file with the registered
-functions (`load_catalog`) and raises on a tool missing from either side, a duplicate, or an unknown group or need.
-`CATALOG` is the result, a `ToolSpec` per tool (name, group, label, summary, usage text, argument model, run, needs).
-`NEED_REASONS` for the Tools tab and `effective_tools(config, ssh_servers)` (the tools a run offers: switched on and
-their need met) are built on it. Every configuration carries its own `tools` (`config['tools']['items']`, one row per
-tool with `mode`, `usage` and `subagent_allowed`), so there is no fallback for configurations without them.
-`mcp_blocked` and `mcp_notes` do the same for MCP tools.
+`group` (`code`, `documents`, `servers`, `inventory`, `memory` or `agents`), `label` and `summary` (the short line on
+the Tools tab). `tools/catalog.py` joins the file with the registered functions (`load_catalog`) and raises on a tool
+missing from either side, a duplicate, or an unknown group. `CATALOG` is the result, a `ToolSpec` per tool (name,
+group, label, summary, usage text, argument model, run). Every run gets every catalog tool with its built-in usage
+text: no per-agent choice, needs or usage overrides (the Tools tab's `ka.agent_tools` rows are no longer read by runs).
+What a tool may do is decided by its `check_<tool>` against the run's access object (`knowledge_admin/access.py`).
 
 `ka.tools` is the table copy of `tools.json` (migration 0108): `tools/fixture.py` `sync_tools` replaces it with the file
 in one transaction at the admin-api start, under an advisory lock, so concurrent starts wait for each other. The file
@@ -29,25 +27,23 @@ is the only writer; edit the file, not the table, and a start after the edit mak
 and argument schema are the same in every run (what a run may use is in its prompt and checked by the tool), and the
 adapter refuses a tool missing from `context['tools']` (`Tool <name> is not available in this run.`) as a backstop.
 
-`create_agent` (`knowledge_admin/agents/runner.py`) builds the tools from `effective_tools`; MCP servers get a static
-`tool_filter` that blocks the tools switched off on the Tools tab (a tool without a row is on). Edited usage text
-of an MCP tool that is on is added to the prompt under `Tool notes:` as `- <server name>/<tool>: <usage>`; the
-tool's own description still comes from the server. `code_graph` is offered only when a selected code project has a
-current generated graph that ended ready or partial (see below); the prompt lists code graphs only when `code_graph`
-or `shell_run` is offered.
+`create_agent` (`knowledge_admin/agents/runner.py`, `instructions_and_tools`) builds every catalog tool; the MCP
+servers in the run's access offer every one of their tools (no filter, no notes in the prompt).
 
-`run_subagent` (`capabilities/subagents.py`; group `agents`, needs none, never on by default) is on exactly when the agent's `run_subagent` row is
-(**May start subagents**). Its run is `knowledge_agents/subagents.run_subagent`, which finds the turn's `Subagents` in
-the run context (`context['subagents']`, native sessions only) and the call id in `capabilities.context.TOOL_CALL_ID`
-(set by `tools/sdk.py` around each invocation). `subagent_config` checks the given tools against `context['tools']` and
-`context['mcp_tools']` (the MCP tools as the model sees them, built by `agents.mcp_tool_names`) and `subagent_allowed`,
-and narrows the resources to the parent's current lists.
+`run_subagent` (`capabilities/subagents.py`; group `agents`) is offered in every run that has the turn's `Subagents`
+host (a native session turn, an expert's call), never in a subagent's own run. Its arguments are the task and,
+optionally, the resources to give (from the run's own). Its run is `knowledge_agents/subagents.run_subagent`, which
+finds the host in the run context (`context['subagents']`) and the call id in `capabilities.context.TOOL_CALL_ID`
+(set by `tools/sdk.py` around each invocation). `subagent_config` narrows the resources to the parent's current lists;
+the subagent gets every tool but `run_subagent`, the parent's MCP servers, no experts, and the parent's access
+narrowed with content editor off.
 
 Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog, have no `ka.agent_tools` usage text
 and cannot be edited on the Tools tab. A session pins the experts it may call (`config['experts']`); the runtime builds
 one function tool per entry with `tools/sdk.py` (name, description and parameters from the entry; per-run experts also
-take `resources`), and `knowledge_agents/experts.py` runs the call. The caller's choices are `expert:<agent id>` rows
-(`off` only) in `ka.agent_tools`. Subagents never get them, and an expert's own run has an empty `experts` list. Calls
+take `resources`), and `knowledge_agents/experts.py` runs the call. A run gets every enabled expert other than its own
+agent, or those its start request names (`expert_ids`). Subagents never get them, and an expert's own run has an empty
+`experts` list. Calls
 share the turn's limit of 16 helpers with subagents.
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
@@ -55,7 +51,7 @@ share the turn's limit of 16 helpers with subagents.
   after resolving symlinks; searches use the installed `rg` executable.
 - `ast_grep`. Runs the native ast-grep CLI in search-only mode to
   return complete functions, methods, classes, or other matched syntax nodes.
-  Offered when it is switched on on the Tools tab and code projects are enabled. Uses the file tools' selected-root checks,
+  Refuses a run without code projects. Uses the file tools' selected-root checks,
   secret redaction, and a 30-second timeout; it does not enable general shell
   access. Its SDK tool description includes patterns and a function-name rule.
 - `code_search`. Searches functions and methods by literal name
@@ -71,8 +67,7 @@ share the turn's limit of 16 helpers with subagents.
   Preserves native fields and edge metadata. Source hashes must match the index.
   The pinned SDK ignores `readOnly` on open, so it opens a disposable snapshot
   copy; source and published snapshots remain unchanged.
-- Inventory tools (`get_resource`, `get_document`). `get_resource` is on in every run that has servers, services,
-  environments or code projects (need `resources`; not chosen on the Tools tab or per run, no `agent_tools` row).
+- Inventory tools (`get_resource`, `get_document`).
   `get_resource(resource_type, resource_id)` — `resource_type` one
   of `server`, `service`, `environment`, `code_project` (a fixed enum), `resource_id` a plain uuid — returns everything
   recorded about one resource as JSON: its fields, its `inventory_document` (id, title; or null), its other `documents`
@@ -87,8 +82,7 @@ share the turn's limit of 16 helpers with subagents.
   the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.
 - `shell_run`. A normal function tool sending Bash commands to the
-  internal `shell-worker` service. Offered when it is switched on on the Tools tab and code
-  projects, or documents without "Answer only from documents", are enabled.
+  internal `shell-worker` service. Refuses a run without code projects or collections.
   The worker provides Bash, Python, `rg`, `ast-grep`, Git and standard utilities.
   Each command sees only selected source/document/graph paths, mounted read-only,
   plus writable scratch files shared with the file tools for the duration of a run.

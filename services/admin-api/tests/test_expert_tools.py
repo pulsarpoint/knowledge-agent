@@ -10,7 +10,6 @@ from test_profiles import create, update
 from test_repositories import HEADERS
 
 from knowledge_admin.knowledge_agents.experts import offered, slug
-from knowledge_admin.tools.catalog import SUBAGENT
 
 
 def expert(client, name, when='When it fits.', **changes):
@@ -60,7 +59,9 @@ def test_tool_names_are_slugs_and_collisions_get_a_number(store, saved_agent):
     assert tools[first['id']] == 'ask_payments_api' and tools[second['id']] == 'ask_payments_api_2'
 
 
-def test_only_enabled_experts_with_a_model_other_than_the_caller_and_not_switched_off_are_offered(store, saved_agent):
+def test_only_enabled_experts_with_a_model_other_than_the_caller_are_offered_whatever_its_old_rows_say(
+    store, saved_agent
+):
     client, model = saved_agent[0], model_of(saved_agent)
     me = update(client, caller(store, saved_agent, model), expert=True, when_to_use='Me.', model_id=model).json()
     expert(client, 'No model')
@@ -80,7 +81,7 @@ def test_only_enabled_experts_with_a_model_other_than_the_caller_and_not_switche
         )
         found = {entry['id']: entry for entry in offered(conn, me['id'])}
         everyone = {entry['id'] for entry in offered(conn, None)}
-    assert set(found) == {fixed['id'], per_run['id']}
+    assert set(found) == {hidden['id'], fixed['id'], per_run['id']}  # an off row is no longer read
     assert {hidden['id'], me['id']} <= everyone and disabled['id'] not in everyone
     assert (
         found[fixed['id']]['description']
@@ -114,14 +115,19 @@ def test_generate_documents_pins_every_expert_and_offers_run_subagent(sessions):
     s = sessions
     first = expert(s.client, 'Payments', model_id=s.claude)
     second = expert(s.client, 'Billing', model_id=s.claude)
-    session = start(s, expert_ids=[second['id'], first['id']], subagents=True)
+    session = start(s, expert_ids=[second['id'], first['id']])
     with s.store.connect() as conn:
         pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (session['id'],)).fetchone()[
             'agent_config'
         ]
     assert [entry['id'] for entry in pinned['experts']] == [second['id'], first['id']]  # by name
-    tools = {entry['tool']: entry for entry in pinned['tools']['items']}
-    assert tools[SUBAGENT]['mode'] == 'on' and tools[SUBAGENT]['subagent_allowed'] is False
+    assert 'tools' not in pinned  # every run gets every tool, run_subagent too
+    every = start(s)
+    with s.store.connect() as conn:
+        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (every['id'],)).fetchone()[
+            'agent_config'
+        ]
+    assert {entry['id'] for entry in pinned['experts']} == {first['id'], second['id']}  # none named: all of them
 
 
 def test_the_tools_tab_lists_other_experts_on_by_default_and_saves_off_rows(store, saved_agent):

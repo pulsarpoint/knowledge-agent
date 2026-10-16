@@ -2,8 +2,10 @@
 the tools and resources it is given and without the conversation. Subagents run only in native agent sessions (Test
 and Generate documents), whose runner puts the turn's Subagents into the run context.
 
-The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with only
-the given tools on and the resource lists narrowed, the built-in prompt, no instructions and no skills.
+The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with the
+resource lists narrowed, the built-in prompt, no instructions, no skills and no experts. A subagent gets every tool but
+run_subagent (its run has no Subagents host) and every tool of the MCP servers in its access; what a tool may do is
+decided by its check against the subagent's access (the parent's, narrowed, content editor off).
 
 Running (Subagents): one per native turn, in parallel up to AGENT_MAX_SUBAGENTS, each recorded in the turn's record
 with parent_call_id and counted in the session's totals; Stop cancels them with the turn. Expert calls (ask_<name>,
@@ -14,7 +16,7 @@ import asyncio
 import copy
 import logging
 import os
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +30,6 @@ from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
 from knowledge_admin.knowledge_agents.run_resources import KINDS, picked_ids, picks
 from knowledge_admin.knowledge_agents.session_worker import clean_text
-from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, item
-from knowledge_admin.tools.sdk import NOT_OFFERED
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +39,6 @@ PROMPT = (Path(__file__).parent / 'prompts' / 'subagent.md').read_text(encoding=
 UNAVAILABLE = 'Subagents run only in agent sessions.'
 EMPTY_TASK = 'Give the subagent a task.'
 LONG_TASK = 'A subagent task is at most 20,000 characters.'
-NO_TOOLS = 'Give the subagent at least one tool.'
-NO_SPAWN = 'Tool run_subagent cannot be given to a subagent.'
-NOT_FOR_SUBAGENTS = 'Tool {name} may not be given to a subagent.'
 LIMIT = 'This turn already started 16 helpers.'  # subagents and expert calls together
 FAILED = 'Subagent failed: {message}'
 
@@ -66,38 +63,6 @@ def _listed(config: Mapping[str, Any], capability: str) -> dict[str, dict[str, A
     return {str(entry['id']): entry for entry in items if 'id' in entry}
 
 
-def _given_tools(
-    config: Mapping[str, Any], tools: list[str], offered: Collection[str], mcp_tools: Mapping[str, str]
-) -> tuple[set[str], dict[str, set[str]]]:
-    """The given catalog tools, and the given MCP tools by server id. Each name must be offered to this run (MCP
-    tools by the name the model sees), allowed for subagents, and not run_subagent."""
-    if not tools:
-        raise ValueError(NO_TOOLS)
-    rows = {entry['tool']: entry for entry in config['tools']['items']}
-    catalog: set[str] = set()
-    mcp: dict[str, set[str]] = {}
-    expert_tools = {entry['tool'] for entry in config.get('experts', [])}
-    for name in dict.fromkeys(tools):
-        if name == SUBAGENT:
-            raise ValueError(NO_SPAWN)
-        if name in expert_tools:
-            raise ValueError(NOT_FOR_SUBAGENTS.format(name=name))
-        if name in offered:
-            row_name = name
-        elif name in mcp_tools:
-            row_name = mcp_tools[name]
-        else:
-            raise ValueError(NOT_OFFERED.format(name=name))
-        if not rows.get(row_name, {}).get('subagent_allowed', True):
-            raise ValueError(NOT_FOR_SUBAGENTS.format(name=name))
-        if row_name.startswith('mcp:'):
-            _, server, tool = row_name.split(':', 2)
-            mcp.setdefault(server, set()).add(tool)
-        else:
-            catalog.add(row_name)
-    return catalog, mcp
-
-
 def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
     """Narrow each resource list to `resources`: the parent's entries of the given ids (an empty list gives nothing of
     that kind, never everything). Whether they may be given at all is decided on the access object only
@@ -120,60 +85,16 @@ def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
     sub['run_resources'] = given
 
 
-def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_tools: Mapping[str, str]) -> None:
-    """Only the given tools on: catalog tools by name; MCP servers kept only for given MCP tools, every other tool of
-    those servers off (from the snapshot's tool lists, the run's live names and the parent's own mcp:<server>:* rows,
-    so a tool switched off for the parent stays off for the subagent). The kept servers offer only the tools switched
-    on (an allowlist: a tool a server adds later stays out). Without ssh_run, no SSH server stays, so a subagent gets
-    no SSH private key."""
-    rows = {entry['tool']: entry for entry in sub['tools']['items']}
-    items = [item(name, 'on' if name in catalog else 'off', rows.get(name, {}).get('usage')) for name in CATALOG]
-
-    def keep(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [server for server in servers if str(server['id']) in mcp]
-
-    sub['mcp'] = {
-        **sub['mcp'],
-        'enabled': bool(mcp) and sub['mcp']['enabled'],
-        'servers': keep(sub['mcp']['servers']),
-        'allowlist': True,
-    }
-    if 'ssh_run' not in catalog:
-        sub['ssh'] = {**sub['ssh'], 'servers': []}
-        if 'run_resources' in sub:
-            sub['run_resources'] = {**sub['run_resources'], 'server_ids': []}
-    kept = sub['mcp']['servers']
-    for server_id, given in sorted(mcp.items()):
-        listed = {tool['name'] for server in kept if str(server['id']) == server_id for tool in server.get('tools', [])}
-        listed |= {
-            name.split(':', 2)[2] for name in [*mcp_tools.values(), *rows] if name.startswith(f'mcp:{server_id}:')
-        }
-        for tool in sorted(listed):
-            name = f'mcp:{server_id}:{tool}'
-            items.append(item(name, 'on' if tool in given else 'off', rows.get(name, {}).get('usage'), group='mcp'))
-    sub['tools'] = {'items': items}
-
-
-def subagent_config(
-    config: Mapping[str, Any],
-    tools: list[str],
-    resources: Mapping[str, list[str]] | None,
-    *,
-    offered: Collection[str],
-    mcp_tools: Mapping[str, str],
-) -> dict[str, Any]:
-    """The configuration a subagent runs with, or a ValueError naming the tool or resource that cannot be given.
-    `offered`: the catalog tools of the parent's run (context['tools']); `mcp_tools`: its MCP tools as the model sees
-    them (context['mcp_tools']). resources None: the parent's lists and mode; otherwise a per-run run of exactly those."""
-    catalog, mcp = _given_tools(config, tools, offered, mcp_tools)
+def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
+    """The configuration a subagent runs with. resources None: the parent's lists; otherwise a run of exactly those."""
     sub = copy.deepcopy(dict(config))
     sub.pop('record', None)
-    sub.pop('document_access', None)  # the document tools are never given to a subagent
+    sub.pop('document_access', None)  # a subagent never gets the run's documents
+    sub.pop('tools', None)  # every tool, whatever the agent's old rows say
     sub['experts'] = []  # a subagent never calls experts
     if resources is not None:
         _narrow(sub, resources)
-    _only(sub, catalog, mcp, mcp_tools)
-    sub['access'] = subagent_access(config['access'], resources, mcp)
+    sub['access'] = subagent_access(config['access'], resources)
     sub['name'] = f'{config["name"]} · subagent'
     sub['system_prompt'] = {'content': PROMPT}
     sub['instructions'] = ''
@@ -181,17 +102,15 @@ def subagent_config(
     return sub
 
 
-def subagent_access(
-    parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None, mcp: Mapping[str, Any]
-) -> dict[str, Any]:
+def subagent_access(parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
     """The parent's access narrowed (access.narrow, never widened) to what the subagent is given: the given resources
-    (None: all of the parent's but its documents and skills, which a subagent never gets), the MCP servers of its
-    given MCP tools; content editor off (a subagent never changes content)."""
+    (None: all of the parent's but its documents and skills, which a subagent never gets) and the parent's MCP servers;
+    content editor off (a subagent never changes content)."""
     if resources is None:
         picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
     else:
         picked = picks(resources)
-    picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server' and str(entry['id']) in mcp]
+    picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server']
     return access_rules.narrow(dict(parent), picked, ['content_editor'])
 
 
@@ -201,12 +120,12 @@ def referenced_credentials(config: Mapping[str, Any], credentials: Mapping[str, 
     return {key: value for key, value in credentials.items() if str(key) in wanted}
 
 
-async def run_subagent(context: Any, task: str, tools: list[str], resources: dict[str, list[str]] | None) -> str:
+async def run_subagent(context: Any, task: str, resources: dict[str, list[str]] | None) -> str:
     """The catalog tool: the subagent's final answer, or a ValueError the adapter returns as a tool error."""
     host = context.get('subagents')
     if host is None:
         raise ValueError(UNAVAILABLE)
-    return await host.run(context, task, tools, resources, TOOL_CALL_ID.get() or '')
+    return await host.run(context, task, resources, TOOL_CALL_ID.get() or '')
 
 
 def _abandon(task: asyncio.Task) -> None:
@@ -307,16 +226,13 @@ class Subagents:
         self,
         context: Mapping[str, Any],
         task: str,
-        tools: list[str],
         resources: Mapping[str, list[str]] | None,
         call_id: str,
     ) -> str:
         """One run_subagent call: the subagent's final answer (redacted), FAILED with the redacted reason when it fails,
         or a ValueError for a refused call (refused calls do not count towards MAX_PER_TURN)."""
         check_task(task)
-        sub = subagent_config(
-            context['config'], tools, resources, offered=context['tools'], mcp_tools=context.get('mcp_tools', {})
-        )
+        sub = subagent_config(context['config'], resources)
         if self.closed or self.parent.closed:
             raise asyncio.CancelledError
         if self.root.started >= MAX_PER_TURN:

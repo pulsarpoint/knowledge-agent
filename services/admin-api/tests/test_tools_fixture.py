@@ -8,7 +8,7 @@ import pytest
 from knowledge_admin.tools.fixture import FIXTURE, load_fixture, sync_tools
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
-ROWS = 'SELECT name,position,tool_group,label,summary,needs FROM ka.tools ORDER BY position'
+ROWS = 'SELECT name,position,tool_group,label,summary,needs FROM ka.tools ORDER BY position'  # needs: no longer written
 
 
 def rows(store):
@@ -28,7 +28,7 @@ def test_sync_inserts_every_entry_in_order(store):
         'tool_group': entries[0]['group'],
         'label': entries[0]['label'],
         'summary': entries[0]['summary'],
-        'needs': entries[0]['needs'],
+        'needs': None,
     }
 
 
@@ -44,12 +44,16 @@ def test_a_second_sync_updates_changed_and_removes_missing_entries(store):
     assert rows(store) == found
 
 
-def test_an_unknown_need_fails_and_keeps_the_table(store):
+def test_an_unknown_group_fails_and_keeps_the_table(store):
     sync_tools(store)
     before = rows(store)
     with pytest.raises(psycopg.errors.CheckViolation):
-        sync_tools(store, [dict(load_fixture()[0], needs='wishes')])
+        sync_tools(store, [dict(load_fixture()[0], group='toys')])
     assert rows(store) == before
+
+
+def test_the_fixture_has_no_needs():
+    assert all('needs' not in entry for entry in load_fixture())
 
 
 def test_sync_twice_concurrently(store):

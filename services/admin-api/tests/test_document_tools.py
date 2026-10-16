@@ -11,7 +11,6 @@ from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_paths, get_prompt
 from knowledge_admin.capabilities import documents
 from knowledge_admin.sessions import grounding
-from knowledge_admin.tools.catalog import effective_tools
 from tool_helpers import tools
 
 read_document, report_not_covered, search_documents = tools('read_document', 'report_not_covered', 'search_documents')
@@ -248,17 +247,10 @@ def test_not_covered_rule(state, expected):
     assert grounding.result('answer', state)['not_covered'] is expected
 
 
-def test_grounded_agents_get_only_citable_tools_and_policy():
-    grounded = config()
-    names = {spec.name for spec, _ in effective_tools(grounded, [])}
-    # get_available_resources lists what the run may use (in every run); it reads no content
-    assert names == {'search_documents', 'read_document', 'report_not_covered', 'get_available_resources'}
-    assert grounding.POLICY in get_prompt(grounded, [])
-    ungrounded = config(grounded=False)
-    names = {spec.name for spec, _ in effective_tools(ungrounded, [])}
-    assert {'search_documents', 'read_document', 'list_files', 'shell_run'} <= names
-    assert 'report_not_covered' not in names
-    assert grounding.POLICY not in get_prompt(ungrounded, [])
+def test_grounded_agents_get_the_policy():
+    """Grounded runs get every tool like any run (test_every_tool.py); the policy is in their prompt."""
+    assert grounding.POLICY in get_prompt(config())
+    assert grounding.POLICY not in get_prompt(config(grounded=False))
 
 
 def test_get_paths_skips_document_collections_for_grounded_agents():

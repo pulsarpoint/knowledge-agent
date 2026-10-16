@@ -21,7 +21,6 @@ def start(world, started_from: dict, **change) -> str:
         'model_id': world.model,
         'system_prompt': 'You answer.',
         'message': 'Is it alive?',
-        'tools': ['get_document'],
         **change,
     }
     created = world.client.post('/api/sessions', headers=HEADERS, json=body)
@@ -86,7 +85,7 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
     assert plain['roles'] == {'content_editor': False}
     wizard, _ = stored(
         world.store,
-        start(world, {'server_id': world.server['id']}, tools=['get_document', 'propose_service'], tags=['proposals']),
+        start(world, {'server_id': world.server['id']}, content_editor=True, tags=['proposals']),
     )
     assert wizard['roles'] == {'content_editor': True}
     new, config = stored(
@@ -95,7 +94,6 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
             world,
             {'new_document': NEW},
             resources={'documents': [{'new': NEW, 'editable': True}]},
-            tools=['get_document', 'save_document'],
         ),
     )
     document = config['document_access'][0]
@@ -121,7 +119,6 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
             world,
             {'document_id': str(live)},
             resources={'documents': [{'id': str(live), 'editable': True}]},
-            tools=['get_document', 'edit_document'],
         ),
     )
     assert revision == {
@@ -179,7 +176,7 @@ def test_get_available_resources_lists_the_run_and_filters_by_type(world):
 def test_the_prompt_no_longer_carries_the_resource_block(world):
     ssh_ready(world)
     _, config = stored(world.store, start(world, {'server_id': world.server['id']}))
-    prompt = get_prompt(config, [])
+    prompt = get_prompt(config)
     assert f'Resource: server {world.server["id"]} (web-1)' in prompt
     assert '"ssh_servers"' not in prompt and '"services"' not in prompt and 'Shop front end' not in prompt
     assert 'This run was given only' not in prompt
@@ -193,7 +190,6 @@ def test_debug_and_preview_return_the_access_object(world):
         'model_id': world.model,
         'system_prompt': 'You answer.',
         'message': 'Is it alive?',
-        'tools': ['get_document'],
     }
     preview = world.client.post('/api/sessions/preview', headers=HEADERS, json=body)
     assert preview.status_code == 200, preview.text
@@ -208,6 +204,10 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     ssh_ready(world)
     sid = start(world, {'service_id': str(world.nginx)})
     with world.store.connect() as conn:
+        # a run as runs were before every run got every tool: its proposal tools listed
+        conn.execute(
+            """UPDATE ka.agent_sessions SET agent_config=agent_config||'{"proposal_tools": []}' WHERE id=%s""", (sid,)
+        )
         conn.execute((MIGRATIONS / '0112_session_access.down.sql').read_text(), prepare=False)
         row = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
         assert 'access' not in row['agent_config']

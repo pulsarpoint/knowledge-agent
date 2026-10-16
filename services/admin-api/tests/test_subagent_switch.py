@@ -105,8 +105,7 @@ def test_the_wizard_switches_subagents_on_with_the_tools_a_subagent_may_use(stor
     assert created.status_code == 201, created.text
     agent_id = created.json()['id']
     assert row(store, agent_id) == {'mode': 'on', 'usage': None, 'subagent_allowed': False}
-    assert row(store, agent_id, 'shell_run')['subagent_allowed'] is False
-    assert row(store, agent_id, 'read_file')['subagent_allowed'] is True
+    assert row(store, agent_id, 'shell_run') is None  # no rows implied: every run gets every tool
     assert profile(client, agent_id)['subagents'] is True
     for body, message in (
         (wizard_payload('Odd', tools=[SUBAGENT]), SUBAGENT_SWITCH),
@@ -147,7 +146,7 @@ def test_run_subagent_outside_a_session_is_a_tool_error():
         'shell_enabled': False,
         'tools': frozenset({SUBAGENT}),
     }
-    payload = json.dumps({'task': 'Read the worker', 'tools': ['read_file'], 'resources': None})
+    payload = json.dumps({'task': 'Read the worker', 'resources': None})
     wrapped = ToolContext(context=context, tool_name=SUBAGENT, tool_call_id='s1', tool_arguments=payload)
     result = asyncio.run(tool.on_invoke_tool(wrapped, payload))
     assert result.startswith('An error occurred while running the tool.') and UNAVAILABLE in result

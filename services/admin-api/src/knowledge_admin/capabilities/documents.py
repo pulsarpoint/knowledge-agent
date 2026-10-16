@@ -47,9 +47,13 @@ def check_read_document(access: dict, collection: str, **_) -> str | None:
     return check_search_documents(access, collection)
 
 
-def check_report_not_covered(access: dict, **_) -> str | None:
-    """Always allowed: it records that the documents do not answer, and reads nothing."""
-    return None
+NOT_GROUNDED = 'This run does not answer only from documents.'
+
+
+def check_report_not_covered(access: dict, grounded: bool = False, **_) -> str | None:
+    """None when allowed, else the refusal text: only a grounded run ("Answer only from documents") reports that the
+    documents do not answer; it reads nothing."""
+    return None if grounded else NOT_GROUNDED
 
 
 def _client() -> httpx.AsyncClient:
@@ -160,7 +164,9 @@ async def report_not_covered(
     reason: Annotated[str, Field(description='What information is missing from the documentation.')],
 ) -> str:
     """Record that the retrieved documents do not answer the question."""
-    if refusal := check_report_not_covered(context['config']['access'], reason=reason):
+    documents = context['config']['documents']
+    grounded = bool(documents['enabled'] and documents.get('grounded', False))
+    if refusal := check_report_not_covered(context['config']['access'], grounded=grounded, reason=reason):
         return refusal
     _state(context)['reported'] = reason.strip()[:1000] or 'Not covered by the documentation.'
     return 'Recorded. Tell the user the documentation does not cover this and what is missing.'

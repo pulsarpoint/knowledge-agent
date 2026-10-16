@@ -25,7 +25,7 @@ from agents import (
     Session,
     trace,
 )
-from agents.mcp import MCPServerStreamableHttp, create_static_tool_filter
+from agents.mcp import MCPServerStreamableHttp
 from agents.run_config import CallModelInputFilter
 from pydantic import BaseModel
 
@@ -38,13 +38,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
-from knowledge_admin.tools.catalog import (
-    SUBAGENT,
-    effective_tools,
-    mcp_allowed,
-    mcp_blocked,
-    mcp_notes,
-)
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT
 from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin.knowledge_agents.config import (
     AD_HOC_AGENT,
@@ -123,7 +117,6 @@ async def agent(
             'workspace': workspace,
             'shell_enabled': False,
             'tools': frozenset(),
-            'mcp_tools': {},
             'subagents': subagents,
         }
         # A snapshot: redaction keeps working when the caller clears `credentials` (a session turn after Stop).
@@ -161,7 +154,6 @@ async def agent(
                     # The adapter's backstop and the shell switch follow exactly the tools the model was given.
                     context['tools'] = frozenset(tool.name for tool in assistant.tools)
                     context['shell_enabled'] = 'shell_run' in context['tools']
-                    context['mcp_tools'] = await mcp_tool_names(assistant, context)
                     run_config = RunConfig(
                         tracing={'include_task_and_turn_spans': False},
                         model_settings=ModelSettings(max_tokens=max_output_tokens),
@@ -233,9 +225,9 @@ async def create_agent(
 
     Used by agent() for test chats, live runs and native sessions. This does
     not run the agent or read the database; credentials stay in backend objects.
-    subagents: whether the run can start subagents and call experts (a native session turn); without, run_subagent and
-    the pinned experts are not offered even when on (the tuning reviewer, test chats, live runs), since they could only
-    fail.
+    subagents: whether the run can start subagents and call experts (a native session turn, an expert's call); without
+    (a subagent's own run, the tuning reviewer, the agent designer), run_subagent and the pinned experts are not
+    offered, since they could only fail.
     """
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
@@ -244,8 +236,8 @@ async def create_agent(
     if reference is not None and not credentials.get(reference['id']):
         raise ValueError('The selected model API key was not supplied.')
     model_api_key = credentials[reference['id']] if reference is not None else None
-    ssh_servers = get_ssh(config, credentials)
-    prompt, tools, experts, selected_mcp = instructions_and_tools(config, ssh_servers, subagents=subagents)
+    get_ssh(config, credentials)
+    prompt, tools, experts, selected_mcp = instructions_and_tools(config, subagents=subagents)
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
@@ -255,12 +247,7 @@ async def create_agent(
             agent_model(model, model_api_key, timeout_seconds)
         )
         mcp_servers = []
-        for server in selected_mcp:
-            if config['mcp'].get('allowlist'):  # a subagent: only its given tools, never one the server adds later
-                tool_filter = create_static_tool_filter(allowed_tool_names=mcp_allowed(config, server['id']))
-            else:
-                blocked = mcp_blocked(config, server['id'])
-                tool_filter = create_static_tool_filter(blocked_tool_names=blocked) if blocked else None
+        for server in selected_mcp:  # every tool of every MCP server in the run's access
             mcp_servers.append(
                 await connections.enter_async_context(
                     MCPServerStreamableHttp(
@@ -268,7 +255,6 @@ async def create_agent(
                         params={'url': server['url'], 'headers': mcp.auth_headers(server, credentials)},
                         cache_tools_list=True,
                         client_session_timeout_seconds=timeout_seconds,
-                        tool_filter=tool_filter,
                     )
                 )
             )
@@ -295,39 +281,19 @@ async def create_agent(
 
 
 def instructions_and_tools(
-    config: dict[str, Any], ssh_servers: list[dict[str, Any]], *, subagents: bool
+    config: dict[str, Any], *, subagents: bool
 ) -> tuple[str, list[FunctionTool], list[FunctionTool], list[dict[str, Any]]]:
     """(instructions, catalog tools, expert tools, selected MCP servers) of a run of this configuration: what
     create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
-    what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. ssh_servers: the usable
-    servers (ssh_servers()); subagents as in create_agent."""
+    what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. Every catalog tool with
+    its built-in usage text (run_subagent only with subagents, as in create_agent); what a tool may do is decided by
+    its check against the run's access object."""
     selected_mcp = mcp.selected_servers(config)
-    offered = [
-        (spec, usage) for spec, usage in effective_tools(config, ssh_servers) if subagents or spec.name != SUBAGENT
-    ]
-    prompt = get_prompt(config, selected_mcp)
-    tools = [function_tool(spec, usage) for spec, usage in offered]
+    prompt = get_prompt(config)
+    tools = [function_tool(spec, spec.usage) for spec in CATALOG.values() if subagents or spec.name != SUBAGENT]
     # only in a session turn, never inside an expert or a subagent
     experts = [expert_tool(entry) for entry in config.get('experts', [])] if subagents else []
     return prompt, tools, experts, selected_mcp
-
-
-async def mcp_tool_names(assistant: Agent, context: dict[str, Any]) -> dict[str, str]:
-    """The run's MCP tools as the model sees them (the SDK's server-prefixed names), each with its Tools tab name
-    mcp:<server id>:<tool>. Both listings are the SDK's own (cached, filtered, in the same server and tool order); if
-    they ever disagree, no MCP tool is named, so run_subagent cannot give a wrong one."""
-    if not assistant.mcp_servers:
-        return {}
-    wrapper = RunContextWrapper(context)
-    visible = await assistant.get_mcp_tools(wrapper)
-    names = [
-        f'mcp:{server.name}:{tool.name}'
-        for server in assistant.mcp_servers
-        for tool in await server.list_tools(wrapper, assistant)
-    ]
-    if len(visible) != len(names):
-        return {}
-    return {tool.name: name for tool, name in zip(visible, names)}
 
 
 def get_model(config: dict[str, Any]) -> dict[str, Any]:
@@ -378,7 +344,7 @@ def documents_grounded(config: dict[str, Any]) -> bool:
     return config['documents']['enabled'] and config['documents'].get('grounded', False)
 
 
-def get_prompt(config: dict[str, Any], selected_mcp: list[dict[str, Any]]) -> str:
+def get_prompt(config: dict[str, Any]) -> str:
     """The active prompt with the grounding policy, the agent's instructions and the access rules. A run started from a
     resource names it in one line (Resource: <type> <id> (<name>)); the run's resources are not in the prompt
     (get_available_resources lists them); its skills are, under # Skills, until load_skill."""
@@ -398,9 +364,6 @@ def get_prompt(config: dict[str, Any], selected_mcp: list[dict[str, Any]]) -> st
     started = config.get('started_from')
     if started:
         prompt += f'\n\nResource: {started["type"]} {started["id"]} ({started["name"]})'
-    notes = mcp_notes(config, selected_mcp)
-    if notes:
-        prompt += '\n\nTool notes:\n' + '\n'.join(notes)
     return prompt
 
 

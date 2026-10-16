@@ -18,13 +18,7 @@ def test_options_mark_the_documents_links_and_unusable_servers(ask):
     assert options['resources']['documents'] == [
         {'id': ask.document['id'], 'name': 'Payments runbook', 'linked': True, 'editable': True}
     ]
-    tools = {item['name']: item for item in options['tools']}
-    assert tools['save_document']['requires'] == 'a document to edit' and 'get_document' in tools
-    assert (
-        tools['ssh_run']['requires'] == 'at least one server'
-        and 'run_subagent' not in tools
-        and 'propose_service' not in tools
-    )
+    assert 'tools' not in options  # every run gets every tool
     assert ask.s.gpt in {item['id'] for item in options['models']}
 
 
@@ -43,17 +37,8 @@ def test_preview_is_exactly_what_start_pins(ask):
     assert pinned['document_access'] == [{'id': ask.document['id'], 'title': 'Payments runbook', 'editable': True}]
     assert preview.json()['config'] == pinned
     assert preview.json()['first_message'] == ask.body['message']
-    modes = {item['tool']: item for item in pinned['tools']['items']}
-    assert all(
-        modes[name]['mode'] == 'on' and not modes[name]['subagent_allowed']
-        for name in ('save_document', 'edit_document')
-    )
-    assert modes['get_document']['mode'] == 'on'
-    assert (
-        modes['ssh_run']['mode'] == 'on' and modes['get_resource']['mode'] == 'off'
-    )  # not chosen: on in the run anyway
-    assert modes['read_file']['mode'] == 'off'
-    assert modes['run_subagent']['mode'] == 'off' and pinned['experts'] == []
+    assert 'tools' not in pinned and pinned['experts'] == []  # every run gets every tool
+    assert pinned['access']['roles'] == {'content_editor': True}  # a revision is a writing run
     assert 'You revise documents.' in pinned['system_prompt']['content']
     assert '# Context\n\nDocument: Payments runbook' in pinned['system_prompt']['content']
     assert '## Backup' not in pinned['system_prompt']['content']  # no document text or outline is appended
@@ -64,10 +49,8 @@ def test_preview_is_exactly_what_start_pins(ask):
 def test_start_refuses_what_cannot_run(ask):
     web = [ask.web['id']]
     for change, message in (
-        ({'tools': ['read_file'], 'resources': {'server_ids': web}}, 'read_file needs a code project or a collection.'),
-        # Payments is deployed only on prod-1, whose SSH is not set up, so it brings no server.
-        ({'tools': ['ssh_run'], 'resources': {'service_ids': [ask.s.service]}}, 'ssh_run needs at least one server.'),
-        ({'tools': ['nope']}, 'Unknown tool: nope.'),
+        ({'tools': ['read_file'], 'resources': {'server_ids': web}}, 'Extra inputs are not permitted'),
+        ({'subagents': True}, 'Extra inputs are not permitted'),
         (
             {'expert_ids': ['00000000-0000-0000-0000-000000000001']},
             'This expert is not available: 00000000-0000-0000-0000-000000000001.',
@@ -95,7 +78,8 @@ def test_start_is_audited(ask):
         details = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent_run.created'").fetchone()[
             'details'
         ]
-    assert details['document_id'] == ask.document['id'] and 'read_file' in details['tools_off']
+    assert details['document_id'] == ask.document['id'] and details['content_editor'] is True
+    assert 'tools_off' not in details and 'subagents' not in details
     assert 'kind' not in details
 
 
@@ -112,10 +96,8 @@ def test_deleting_the_document_deletes_its_runs(ask):
 
 def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless):
     change = {'resources': {'service_ids': [keyless.service]}}
-    refused = post(ask, **change, tools=['ssh_run'])
-    assert refused.status_code == 400 and refused.json()['error']['message'] == 'ssh_run needs at least one server.'
     for path in ('/preview', ''):
-        response = post(ask, path, **change, tools=['get_document'])
+        response = post(ask, path, **change)
         assert response.status_code in (200, 201), response.text
         config = response.json()['config']
         assert config['ssh']['servers'] == [] and not config['ssh']['enabled']
@@ -124,7 +106,7 @@ def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless)
 
 def test_options_say_what_each_service_and_environment_brings(ask, keyless):
     """brings_code: it resolves to a code project; brings_servers: to a server the run can use (enabled, SSH allowed, a
-    key) — so the panel offers only the tools Start accepts."""
+    key) — so the panel can say what each brings."""
     gateway, staging = uuid4(), uuid4()
     with ask.s.store.connect() as conn:
         project = ask.s.store.project(conn, 'shop')
@@ -153,14 +135,6 @@ def test_options_say_what_each_service_and_environment_brings(ask, keyless):
         'Production': (True, False),
         'Staging': (False, True),
     }
-
-
-def test_start_names_every_tool_it_cannot_give_at_once(ask):
-    for path in ('/preview', ''):
-        response = post(ask, path, tools=['read_file', 'ssh_run', 'get_document'], resources={})
-        assert response.status_code == 400 and response.json()['error']['message'] == (
-            'read_file needs a code project or a collection. ssh_run needs at least one server.'
-        ), response.text
 
 
 def test_options_default_to_the_model_last_used_on_the_document(ask):

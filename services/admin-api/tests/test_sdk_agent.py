@@ -341,8 +341,8 @@ def test_disabled_resources_are_not_used_or_validated(config, responses_api):
     assert not any(
         tool.get('type') in ('local_shell', 'shell', 'custom') for tool in requests[0]['body'].get('tools', [])
     )
-    assert not any(tool.get('name') == 'ast_grep' for tool in requests[0]['body'].get('tools', []))
-    assert 'ast_grep' not in serialized and 'shell_run' not in serialized and 'code_search' not in serialized
+    # every tool is offered; without code projects the code tools refuse (their checks)
+    assert any(tool.get('name') == 'ast_grep' for tool in requests[0]['body'].get('tools', []))
 
 
 @pytest.mark.parametrize('final_newline', [True, False])
@@ -574,3 +574,27 @@ def test_a_missing_document_collection_path_is_skipped_not_fatal(config, respons
         )
     assert result.final_output
     assert 'Skipping unavailable document collection folder: /missing/rag-data/jira' in caplog.text
+
+
+def test_every_tool_of_an_mcp_server_in_access_is_offered_whatever_its_old_rows_say(config, responses_api):
+    config['mcp'] = {
+        'enabled': True,
+        'servers': [
+            {
+                'id': 'docs',
+                'name': 'docs',
+                'description': 'Fixture',
+                'url': responses_api[0].removesuffix('/v1') + '/mcp',
+                'enabled': True,
+                'bearer_token_ref': None,
+            }
+        ],
+    }
+    with_access(config)
+    config['tools']['items'].append(
+        {'tool': 'mcp:docs:lookup', 'group': 'mcp', 'mode': 'off', 'usage': 'Never.', 'subagent_allowed': True}
+    )
+    asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
+    request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
+    assert len([t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]) == 1
+    assert 'Never.' not in json.dumps(request['body'])

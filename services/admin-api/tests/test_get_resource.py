@@ -11,11 +11,10 @@ from pydantic import ValidationError
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin import access as access_rules
-from knowledge_admin.agents.runner import get_prompt, instructions_and_tools, load_credentials, ssh_servers
+from knowledge_admin.agents.runner import get_prompt, instructions_and_tools, load_credentials
 from knowledge_admin.capabilities import document_tools, inventory, ssh
 from live_documents import link_document, live_document
-from knowledge_admin.sessions.start import choosable
-from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS, catalog_listing, effective_tools
+from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.sdk import function_tool
 from test_discovery_runs import config_of
 from test_generations import sessions  # noqa: F401  (fixture)
@@ -238,31 +237,9 @@ def test_the_type_is_a_fixed_enum_in_the_schema():
         spec.arguments.model_validate({'resource_type': 'database', 'resource_id': str(uuid4())})
 
 
-def test_the_catalog_has_one_inventory_reader_that_is_not_chosen():
+def test_the_catalog_has_one_inventory_reader():
     assert not set(OLD_TOOLS) & set(CATALOG)
-    spec = CATALOG['get_resource']
-    assert spec.group == 'inventory' and spec.needs == 'resources' and spec.needs in RUN_ONLY_NEEDS
-    assert 'get_resource' not in [tool['name'] for tool in catalog_listing()]
-    assert 'get_resource' not in [spec.name for spec in choosable()]
-
-
-def offered(config) -> set[str]:
-    return {spec.name for spec, _ in effective_tools(config, [])}
-
-
-def test_get_resource_is_on_in_every_run_with_resources_and_only_there(world):
-    nothing = {'tools': {'items': [{'tool': 'ssh_run', 'mode': 'on', 'usage': None}]}}
-    assert 'get_resource' not in offered(
-        {**given(world, servers=False, services=False, code=False, environments=False), **nothing}
-    )
-    for kind in ('servers', 'services', 'code', 'environments'):
-        only = {key: key == kind for key in ('servers', 'services', 'code', 'environments')}
-        assert 'get_resource' in offered({**given(world, **only), **nothing}), kind
-    off = {'tools': {'items': [{'tool': 'get_resource', 'mode': 'off', 'usage': 'Never.'}]}}
-    [(spec, usage)] = [
-        entry for entry in effective_tools({**given(world), **off}, []) if entry[0].name == 'get_resource'
-    ]
-    assert usage == spec.usage  # neither its row's mode nor an edited usage text applies
+    assert CATALOG['get_resource'].group == 'inventory'
 
 
 def test_a_saved_agent_with_ssh_run_reads_its_servers_sudo(agent, ask, monkeypatch):
@@ -273,14 +250,12 @@ def test_a_saved_agent_with_ssh_run_reads_its_servers_sudo(agent, ask, monkeypat
         json={
             'message': 'Check the disk.',
             'agent_id': agent.id,
-            'tools': ['ssh_run'],
             'resources': {'server_ids': [agent.web]},
         },
     )
     assert response.status_code == 200, response.text
     config = response.json()['config']
-    assert 'get_resource' not in [row['tool'] for row in config['tools']['items'] if row['mode'] == 'on']
-    _, tools, _, _ = instructions_and_tools(config, ssh_servers(config), subagents=False)
+    _, tools, _, _ = instructions_and_tools(config, subagents=False)
     names = [tool.name for tool in tools]
     assert 'ssh_run' in names and 'get_resource' in names
     server = config['ssh']['servers'][0]
@@ -298,7 +273,6 @@ def server_run(world) -> str:
             'model_id': world.model,
             'system_prompt': 'You answer.',
             'message': 'Is it alive?',
-            'tools': ['ssh_run', 'get_document'],
         },
     )
     assert created.status_code == 201, created.text
@@ -316,7 +290,7 @@ def test_a_server_runs_prompt_names_it_in_one_line_and_lists_no_resources(world)
     assert 'servers/' not in instructions  # tags stay internal
     config = config_of(world, sid)
     config['ssh']['servers'][0]['instructions'] = 'Never reboot web-1 during business hours.'
-    prompt = get_prompt(config, [])
+    prompt = get_prompt(config)
     assert 'Never reboot' not in prompt and '"instructions"' not in prompt
 
 

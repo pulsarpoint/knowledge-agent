@@ -1,6 +1,6 @@
 """Chats on servers, services and environments: runs with purpose resource, tagged with the resource they start from
 (servers/<id>, services/<id>, environments/<id>), listed by tag; each type's assistant prompt is a new chat's default;
-the proposal tools only when the request turns them on."""
+the proposal tools work only when the request asks for the content editor role (the Propose wizard)."""
 
 from uuid import uuid4
 
@@ -9,12 +9,9 @@ import pytest
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities.discovery import NOT_FROM_SERVER
 from knowledge_admin.sessions.start import BAD_TAG, RESOURCE_TAG, TOO_MANY_TAGS, assistant_prompt_id
-from knowledge_admin.tools.catalog import effective_tools
+from knowledge_admin.access import NOT_EDITOR
 from test_discovery_runs import call, config_of, pinned_of, ssh_ready
 from test_repositories import HEADERS
-
-PLAIN = ['get_document']
-PROPOSALS = ['propose_service', 'propose_document']
 
 
 def body(world, started_from: dict, **change) -> dict:
@@ -23,7 +20,6 @@ def body(world, started_from: dict, **change) -> dict:
         'model_id': world.model,
         'system_prompt': 'You answer.',
         'message': 'Is it alive?',
-        'tools': PLAIN,
         **change,
     }
 
@@ -37,10 +33,6 @@ def session_row(world, session_id):
         return conn.execute(
             'SELECT purpose,tags,server_id,context_snapshot FROM ka.agent_sessions WHERE id=%s', (session_id,)
         ).fetchone()
-
-
-def offered(config) -> set[str]:
-    return {spec.name for spec, _ in effective_tools(config, config['ssh']['servers'])}
 
 
 def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_code_and_servers(world):
@@ -58,7 +50,7 @@ def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_co
     assert pinned['run_resources']['code_project_ids'] == [str(world.shop)]
     assert pinned['ssh']['servers'] == [] and not pinned['ssh']['enabled']  # nothing it brings is reachable
     assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the service
-    assert pinned['proposal_tools'] == []
+    assert pinned['access']['roles']['content_editor'] is False
     ssh_ready(world)
     pinned = pinned_of(world, start(world, {'service_id': str(world.nginx)}).json()['id'])
     assert [server['id'] for server in pinned['ssh']['servers']] == [world.server['id']]
@@ -149,57 +141,36 @@ def test_the_runs_of_a_tag_are_listed_open_first_then_by_activity(world):
     assert len(gone.json()['sessions']) == 4  # the old server filter is gone: an unknown parameter is ignored
 
 
-def test_a_plain_server_chat_has_no_proposal_tools_even_when_its_configuration_has_them_on(world):
+def test_a_plain_server_chat_cannot_propose(world):
     ssh_ready(world)
-    sid = start(world, {'server_id': world.server['id']}, tools=['ssh_run', *PLAIN]).json()['id']
-    config = config_of(world, sid)
-    assert config['proposal_tools'] == []
-    assert {'ssh_run', 'get_resource'} <= offered(config)
-    assert not set(PROPOSALS) & offered(config)
-    for item in config['tools']['items']:  # as a saved agent's configuration listing them on would have them
-        if item['tool'] in PROPOSALS:
-            item['mode'] = 'on'
-    assert not set(PROPOSALS) & offered(config)
+    config = config_of(world, start(world, {'server_id': world.server['id']}).json()['id'])
+    assert config['access']['roles']['content_editor'] is False
+    assert call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'}) == NOT_EDITOR
+    assert call(config, 'propose_document', title='Disks', description='', markdown='# x') == NOT_EDITOR
 
 
-def test_a_saved_agents_run_never_gets_the_proposal_tools(world):
-    config = config_of(world, start(world, {'service_id': str(world.nginx)}).json()['id'])
-    del config['started_from']
-    config['proposal_tools'] = PROPOSALS  # without a resource start nothing turns them on
-    for item in config['tools']['items']:
-        if item['tool'] in PROPOSALS:
-            item['mode'] = 'on'
-    assert not set(PROPOSALS) & offered(config)
-
-
-def test_a_server_run_that_asks_for_the_proposal_tools_has_both(world):
+def test_a_server_run_that_asks_for_the_content_editor_role_proposes_both(world):
     ssh_ready(world)
-    created = start(world, {'server_id': world.server['id']}, tools=[*PLAIN, *PROPOSALS], tags=['proposals'])
+    created = start(world, {'server_id': world.server['id']}, content_editor=True, tags=['proposals'])
     assert created.status_code == 201, created.text
     config = config_of(world, created.json()['id'])
-    assert config['proposal_tools'] == PROPOSALS
-    assert set(PROPOSALS) <= offered(config)
-    only_documents = config_of(
-        world, start(world, {'server_id': world.server['id']}, tools=[*PLAIN, 'propose_document']).json()['id']
-    )
-    assert 'propose_document' in offered(only_documents) and 'propose_service' not in offered(only_documents)
+    assert config['access']['roles']['content_editor'] is True
+    said = call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'})
+    assert said == 'Proposal 1: new service redis.'
+    said = call(config, 'propose_document', title='Disks', description='', markdown='# x')
+    assert said.startswith('Proposal 2: new document "Disks"')
 
 
 def test_propose_service_is_refused_on_a_service_or_environment_run_and_propose_document_works_there(world):
-    for started_from in ({'service_id': str(world.nginx)}, {'environment_id': str(world.environment)}):
-        refused = start(world, started_from, tools=[*PLAIN, 'propose_service'])
-        assert refused.status_code == 400
-        assert refused.json()['error']['message'] == 'propose_service needs a run started from a server.'
-    created = start(world, {'service_id': str(world.nginx)}, tools=[*PLAIN, 'propose_document'])
+    created = start(world, {'service_id': str(world.nginx)}, content_editor=True)
     assert created.status_code == 201, created.text
     config = config_of(world, created.json()['id'])
-    assert offered(config) & set(PROPOSALS) == {'propose_document'}
     said = call(config, 'propose_document', title='Health checks', description='How to check nginx.', markdown='# x')
     assert said == 'Proposal 1: new document "Health checks" about service nginx.'
-    with pytest.raises(ValueError, match=NOT_FROM_SERVER):  # even if it were offered
+    with pytest.raises(ValueError, match=NOT_FROM_SERVER):
         call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'})
     environment = config_of(
-        world, start(world, {'environment_id': str(world.environment)}, tools=['propose_document']).json()['id']
+        world, start(world, {'environment_id': str(world.environment)}, content_editor=True).json()['id']
     )
     said = call(environment, 'propose_document', title='Production', description='The environment.', markdown='# x')
     assert said == 'Proposal 1: new document "Production" about environment Production.'
@@ -225,9 +196,7 @@ def test_a_new_chats_prompt_is_its_types_assistant_prompt(world):
         assert options['default_prompt_id'] == str(assistant_prompt_id(world.project, kind))
         names = [prompt['name'] for prompt in options['prompts']]
         assert name in names
-        tools = {tool['name'] for tool in options['tools']}
-        assert not {'save_document', 'edit_document'} & tools
-        assert ('propose_service' in tools) == (kind == 'server') and 'propose_document' in tools
+        assert 'tools' not in options  # every run gets every tool
     server = world.client.get(f'/api/sessions/options?server_id={world.server["id"]}', headers=HEADERS).json()
     assert [prompt['name'] for prompt in server['prompts']] == ['Server assistant']  # tagged assistant and server
     service = world.client.get(f'/api/sessions/options?service_id={world.nginx}', headers=HEADERS).json()

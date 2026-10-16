@@ -17,22 +17,16 @@ from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.experts import FAILED, UNAVAILABLE, load, offered, pin
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
-from knowledge_admin.knowledge_agents.subagents import (
-    LIMIT,
-    MAX_PER_TURN,
-    NOT_FOR_SUBAGENTS,
-    Subagents,
-    subagent_config,
-)
+from knowledge_admin.knowledge_agents.subagents import LIMIT, MAX_PER_TURN, Subagents, subagent_config
 from knowledge_admin.sessions.run_record import RunRecorder
-from knowledge_admin.tools.catalog import item
+from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.sdk import NOT_OFFERED, expert_tool
 from run_helpers import post, wait_for
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 from test_native_sessions import claimed, native  # noqa: F401  (fixture)
 from test_run_resources import per_run  # noqa: F401  (fixture)
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
-from test_subagent_config import CREDENTIALS, MCP, NO_RESOURCES, OFFERED, parent
+from test_subagent_config import CREDENTIALS, NO_RESOURCES, parent
 from test_subagents import SCRATCH, SECRET, start
 
 ENTRY = {
@@ -103,8 +97,7 @@ async def ask(subagents, call_id, task, resources=None, entry=ENTRY):
         'config': {**parent(), 'experts': [entry]},
         'credentials': dict(CREDENTIALS),
         'workspace': SCRATCH,
-        'tools': OFFERED | {entry['tool']},
-        'mcp_tools': MCP,
+        'tools': frozenset(CATALOG) | {entry['tool']},
         'subagents': subagents,
     }
     token = TOOL_CALL_ID.set(call_id)
@@ -374,7 +367,7 @@ def expert_with_a_subagent(inner: list, inner_steps: list) -> dict:
     return {
         'Ask': {
             'offered': ['read_file', 'run_subagent'],
-            'steps': [delegate('n1', 'Inner', ['read_file'], results=inner)],
+            'steps': [delegate('n1', 'Inner', results=inner)],
             'answer': 'expert ok',
         },
         'Inner': {'steps': inner_steps, 'answer': 'inner ok'},
@@ -447,7 +440,6 @@ def test_experts_are_offered_only_to_a_run_with_the_turns_host_and_never_inside_
     config, responses_api
 ):
     _, requests = responses_api
-    config['tools'] = {'items': [item('read_file', 'on')]}
     config['experts'] = [ENTRY, FIXED]
 
     def offered_tools(**extra) -> dict[str, dict]:
@@ -468,15 +460,8 @@ def test_experts_are_offered_only_to_a_run_with_the_turns_host_and_never_inside_
     tools = offered_tools(subagents=object())
     assert tools['read_file']['description'] != ENTRY['description'] and 'ask_ledger' in tools
     lead = parent(experts=[ENTRY])
-    sub = subagent_config(lead, ['read_file'], None, offered=OFFERED | {'ask_payments'}, mcp_tools=MCP)
+    sub = subagent_config(lead, None)
     assert sub['experts'] == []
-    with pytest.raises(ValueError) as refused:
-        subagent_config(lead, ['ask_payments'], None, offered=OFFERED | {'ask_payments'}, mcp_tools=MCP)
-    assert (
-        str(refused.value)
-        == NOT_FOR_SUBAGENTS.format(name='ask_payments')
-        == ('Tool ask_payments may not be given to a subagent.')
-    )
 
 
 def test_the_expert_tool_passes_the_call_to_the_turns_host():

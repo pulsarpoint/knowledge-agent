@@ -39,18 +39,15 @@ async def run_subagent(
     task: Annotated[
         str, Field(description='The complete task, up to 20000 characters: the helper does not see this conversation.')
     ],
-    tools: Annotated[
-        list[str], Field(description='Names of your tools the helper may use, as you see them; at least one.')
-    ],
     resources: Annotated[
         SubagentResources | None,
         Field(description='The resources the helper may use, from yours; omit it to give all of yours.'),
     ] = None,
 ) -> str:
-    """Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. Give it the fewest tools and resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."""
+    """Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. It gets your tools except run_subagent and the experts; give it the fewest resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."""
     # Imported here: the subagent runtime imports tools.catalog (which imports this module) and the native session runtime.
     from knowledge_admin.knowledge_agents import subagents
 
     if refusal := check_run_subagent(context['config']['access'], resources=resources):
         return refusal
-    return await subagents.run_subagent(context, task, tools, resources)
+    return await subagents.run_subagent(context, task, resources)

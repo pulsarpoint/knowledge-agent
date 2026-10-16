@@ -6,7 +6,7 @@ import asyncio
 import pytest
 from access_helpers import with_access
 
-from knowledge_admin.agents.runner import instructions_and_tools, ssh_servers
+from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.capabilities import document_tools
 from live_documents import write_live_document
 from test_generations import sessions  # noqa: F401  (fixture)
@@ -17,7 +17,7 @@ REFUSED = 'This document is not available in this run. Documents you may change:
 
 
 def schemas(config) -> list[tuple]:
-    _, tools, _, _ = instructions_and_tools(config, ssh_servers(config), subagents=False)
+    _, tools, _, _ = instructions_and_tools(config, subagents=False)
     return [(tool.name, tool.description, tool.params_json_schema) for tool in tools]
 
 

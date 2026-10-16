@@ -82,7 +82,7 @@ ARGS = {
     'get_memory': {'name': 'x'},
     'save_memory': {'name': 'x', 'content': 'y'},
     'update_memory': {'name': 'x', 'content': 'y', 'revision': 1},
-    'run_subagent': {'task': 'look', 'tools': ['ssh_run'], 'resources': {'server_ids': ['s1']}},
+    'run_subagent': {'task': 'look', 'resources': {'server_ids': ['s1']}},
 }
 
 NOT_EDITOR = access_rules.NOT_EDITOR
@@ -95,6 +95,7 @@ NOT_SERVER = 'This server is not available in this run.'
 NOT_CODE = 'This code project is not available in this run.'
 NOT_COLLECTION = 'This collection is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
+NOT_GROUNDED = 'This run does not answer only from documents.'
 WITH_SERVER = ('server', 'server_with_services', 'wizard', 'new_document')
 WITHOUT_EDITOR = ('empty', 'server', 'server_with_services', 'read_only_document', 'editable_document')
 
@@ -134,7 +135,7 @@ EXPECTED = {
     'code_graph': row(NO_CODE, code_and_collection=None, other=NOT_CODE),
     'search_documents': COLLECTION,
     'read_document': COLLECTION,
-    'report_not_covered': ALWAYS,
+    'report_not_covered': row(NOT_GROUNDED),  # a grounded run passes grounded=True (below)
     'ssh_run': SERVER_ROW,
     'get_available_resources': ALWAYS,
     'get_resource': SERVER_ROW,
@@ -199,6 +200,13 @@ def test_a_subagent_given_all_of_its_parents_resources_is_allowed():
     assert check_run_subagent(ACCESS['empty'], resources=None) is None
     assert check_run_subagent(ACCESS['code_and_collection'], resources={'collection_ids': ['k1']}) is None
     assert check_run_subagent(ACCESS['code_and_collection'], resources={'code_project_ids': ['c9']}) == NOT_CODE
+
+
+def test_report_not_covered_is_allowed_in_a_grounded_run_whatever_its_access():
+    from knowledge_admin.capabilities.documents import check_report_not_covered
+
+    for access in ACCESS.values():
+        assert check_report_not_covered(access, grounded=True, reason='missing') is None
 
 
 def test_proposals_outside_a_resource_run_are_left_to_the_tool():

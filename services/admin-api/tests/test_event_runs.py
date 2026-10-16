@@ -160,9 +160,9 @@ def test_an_event_or_handler_deleted_later_leaves_the_run(tester):
     assert (session['handler_id'], session['purpose']) == (None, 'event')
 
 
-def test_a_tool_the_agent_cannot_use_is_left_off(tester):
+def test_an_event_run_starts_whatever_the_agents_old_tool_rows_say(tester):
     t = tester
-    with t.store.connect() as conn:  # ssh_run on, but SSH is off and no server is usable
+    with t.store.connect() as conn:  # ssh_run on, but SSH is off and no server is usable: its check refuses
         conn.execute(
             """INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'ssh_run','on',true)
             ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on'""",
@@ -174,8 +174,6 @@ def test_a_tool_the_agent_cannot_use_is_left_off(tester):
     [handler_run] = runs(t.store, first['id'])
     [session] = sessions(t.store)
     assert (handler_run['status'], handler_run['agent_session_id']) == ('succeeded', session['id'])
-    modes = {item['tool']: item['mode'] for item in session['agent_config']['tools']['items']}
-    assert modes['ssh_run'] == 'off'
 
 
 def test_the_event_detail_and_notifications_carry_the_run(tester):

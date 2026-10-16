@@ -18,7 +18,6 @@ def snapshot() -> list[dict]:
             'group': spec.group,
             'label': spec.label,
             'summary': spec.summary,
-            'needs': spec.needs,
             'usage': spec.usage,
             'schema': ensure_strict_json_schema(spec.arguments.model_json_schema()),
         }

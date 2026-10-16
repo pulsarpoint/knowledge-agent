@@ -7,10 +7,9 @@ from test_discovery_review import decide, propose, publish
 from test_discovery_runs import config_of, ssh_ready
 from test_repositories import HEADERS
 
-TOOLS = ['get_document']
 
-
-def start(world, started_from: dict, tools: list[str]) -> str:
+def start(world, started_from: dict) -> str:
+    """A Propose wizard run: it asks for the content editor role."""
     created = world.client.post(
         '/api/sessions',
         headers=HEADERS,
@@ -19,7 +18,7 @@ def start(world, started_from: dict, tools: list[str]) -> str:
             'model_id': world.model,
             'system_prompt': 'You propose.',
             'message': 'Propose documents.',
-            'tools': [*TOOLS, *tools],
+            'content_editor': True,
             'tags': ['proposals'],
         },
     )
@@ -55,13 +54,13 @@ def attached(world, kind: str, entry_id) -> set[str]:
 def test_the_proposals_of_a_servers_runs_are_grouped_by_run_newest_first_and_filtered_by_status(world):
     ssh_ready(world)
     tag = f'servers/{world.server["id"]}'
-    first = start(world, {'server_id': world.server['id']}, ['propose_document'])
+    first = start(world, {'server_id': world.server['id']})
     propose(config_of(world, first), 'propose_document', title='Disk layout', markdown='# Disks', description='')
-    second = start(world, {'server_id': world.server['id']}, ['propose_service', 'propose_document'])
+    second = start(world, {'server_id': world.server['id']})
     propose(config_of(world, second), 'propose_service', name='redis', deployment={'runtime': 'systemd'})
     propose(config_of(world, second), 'propose_document', title='Backups', markdown='# Backups', description='')
-    start(world, {'server_id': world.server['id']}, [])  # no proposals: not listed
-    other = start(world, {'service_id': str(world.nginx)}, ['propose_document'])
+    start(world, {'server_id': world.server['id']})  # no proposals: not listed
+    other = start(world, {'service_id': str(world.nginx)})
     propose(config_of(world, other), 'propose_document', title='Health', markdown='# Health', description='')
     with world.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET created_at=now()+interval '1 minute' WHERE id=%s", (second,))
@@ -88,7 +87,7 @@ def test_the_proposals_of_a_servers_runs_are_grouped_by_run_newest_first_and_fil
 
 
 def test_a_document_from_a_service_run_is_built_for_and_attached_to_the_service(world):
-    sid = start(world, {'service_id': str(world.nginx)}, ['propose_document'])
+    sid = start(world, {'service_id': str(world.nginx)})
     propose(config_of(world, sid), 'propose_document', title='Health checks', markdown='# Health', description='How')
     [run] = across(world, f'services/{world.nginx}')
     accepted = decide(world, run['proposals'][0], 'accept')
@@ -111,7 +110,7 @@ def test_a_document_from_a_service_run_is_built_for_and_attached_to_the_service(
 
 
 def test_a_document_from_an_environment_run_is_built_for_and_attached_to_the_environment(world):
-    sid = start(world, {'environment_id': str(world.environment)}, ['propose_document'])
+    sid = start(world, {'environment_id': str(world.environment)})
     config = config_of(world, sid)
     propose(config, 'propose_document', title='Overview', markdown='# Production', description='The environment')
     propose(config, 'propose_document', title='Proxy', markdown='# nginx here', description='', about_service='nginx')

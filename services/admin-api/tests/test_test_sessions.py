@@ -50,13 +50,11 @@ def tester(store, tmp_path, monkeypatch):
 
 
 def test_start(client, agent_id: str, message: str = 'How many retries?', run_resources=None) -> dict:
-    """The body a Test tab sends: everything the agent has on (its tools, experts, subagents), with the given resources."""
+    """The body a Test tab sends: the agent's experts, with the given resources (every run gets every tool)."""
     options = client.get(f'/api/sessions/options?agent_id={agent_id}', headers=HEADERS).json()
     return {
         'agent_id': agent_id,
         'message': message,
-        'tools': [tool['name'] for tool in options['tools']],
-        'subagents': options['agent']['subagents_allowed'],
         'expert_ids': [e['id'] for e in options['experts']],
         'resources': run_resources or {},
     }

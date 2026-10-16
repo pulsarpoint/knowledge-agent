@@ -37,9 +37,7 @@ def ask(sessions):
             'server_ids': [web['id']],
             'documents': [{'id': document['id'], 'editable': True}],
         },
-        'tools': ['ssh_run', 'get_document', 'save_document', 'edit_document'],
         'expert_ids': [],
-        'subagents': False,
     }
     return SimpleNamespace(s=s, web=web, document=document, body=body)
 

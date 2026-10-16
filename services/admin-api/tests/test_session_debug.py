@@ -13,7 +13,6 @@ from knowledge_admin.sessions.start import assistant_prompt_id
 from test_discovery_runs import config_of
 from test_repositories import HEADERS
 
-PLAIN = ['ssh_run', 'get_document']
 MODEL_KEY = 'sk-debug-model-key-0123456789'
 
 
@@ -54,7 +53,6 @@ def body(world, **change) -> dict:
         'model_id': world.model,
         'system_prompt': 'You answer.',
         'message': 'Is it alive?',
-        'tools': PLAIN,
         **change,
     }
 
@@ -93,7 +91,7 @@ def test_debug_shows_the_instructions_and_tools_the_runner_sends(world):
     instructions, tools = runner_view(world, sid)
     assert shown['instructions'] == instructions
     assert shown['tools'] == tools
-    assert {tool['name'] for tool in tools} >= {'ssh_run', 'get_resource'}
+    assert {tool['name'] for tool in tools} >= {'ssh_run', 'get_resource', 'propose_document', 'run_subagent'}
     assert shown['model'] == {'id': world.model, 'name': 'GPT'}
     assert shown['prompt_source'] == 'library' and shown['prompt'] is None  # no library prompt was chosen
     assert shown['agent_instructions'] == '' and shown['skills'] == []
@@ -146,9 +144,9 @@ def test_a_library_prompt_and_its_version_and_a_wizard_prompt(world):
     assert shown['prompt_source'] == 'library'
     edited = debug(world, start(world, prompt_id=str(prompt_id), system_prompt=content + '\nAnd be brief.'))
     assert edited['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': None}
-    wizard = debug(world, start(world, tags=['proposals'], tools=[*PLAIN, 'propose_document']))
+    wizard = debug(world, start(world, tags=['proposals'], content_editor=True))
     assert wizard['prompt_source'] == 'wizard' and wizard['prompt'] is None
-    assert 'propose_document' in {tool['name'] for tool in wizard['tools']}
+    assert wizard['access']['roles'] == {'content_editor': True}
 
 
 def test_secrets_never_show(world):

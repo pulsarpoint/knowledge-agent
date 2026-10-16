@@ -2,7 +2,6 @@
 closing."""
 
 import json
-import re
 import threading
 import time
 from types import SimpleNamespace
@@ -136,8 +135,7 @@ SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids',
 
 def post(sessions, **change):
     """Start a new-document run as the Generate documents form did: `sessions.body` (the form's keys) as POST /api/sessions.
-    `expert_ids` and `subagents` pass through when given. The run is offered every tool the options list; a tool whose need the selection does not meet (the start refuses it
-    by name) is left out and the start repeated, so one body works for every selection."""
+    `expert_ids` passes through when given (every run gets every tool)."""
     form = {**sessions.body, **change}
     new = {'folder': form['folder'], 'name': form['document_name']}
     body = {
@@ -146,21 +144,13 @@ def post(sessions, **change):
         'model_id': form['model_id'],
         'system_prompt': form['system_prompt'],
         'prompt_id': form.get('prompt_id'),
-        **{key: form[key] for key in ('expert_ids', 'subagents') if key in form},
+        **{key: form[key] for key in ('expert_ids',) if key in form},
         'resources': {
             **{key: form[key] for key in SELECTION if key in form},
             'documents': [{'new': new, 'editable': True}],
         },
     }
-    options = sessions.client.get('/api/sessions/options?new_document=1', headers=HEADERS).json()
-    tools = [tool['name'] for tool in options['tools']]
-    while True:
-        response = sessions.client.post('/api/sessions', headers=HEADERS, json={**body, 'tools': tools})
-        refusal = response.json().get('error', {}).get('message', '') if response.status_code == 400 else ''
-        unmet = {word for word in re.findall(r'(\w+) needs ', refusal) if word in tools}
-        if not unmet:
-            return response
-        tools = [tool for tool in tools if tool not in unmet]
+    return sessions.client.post('/api/sessions', headers=HEADERS, json=body)
 
 
 def start(sessions, **change) -> dict:

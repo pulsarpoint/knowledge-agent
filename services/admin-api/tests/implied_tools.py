@@ -1,7 +1,28 @@
 """The 0078 backfill rule — the tools a configuration's capabilities gave before tools were chosen per agent. The app
 no longer needs it (every configuration has its tools); tests of that migration and of capability combinations do."""
 
-from knowledge_admin.tools.catalog import CATALOG, _code, _documents, _files, _grounded, _ssh, item
+from knowledge_admin.tools.catalog import CATALOG, item
+
+
+def _grounded(config):
+    return bool(config['documents']['enabled'] and config['documents'].get('grounded', False))
+
+
+def _files(config):
+    return bool(config['code']['enabled'] or config['documents']['enabled'] and not _grounded(config))
+
+
+def _code(config):
+    return bool(config['code']['enabled'])
+
+
+def _documents(config):
+    return bool(config['documents']['enabled'])
+
+
+def _ssh(config):
+    return bool(config['ssh']['enabled'])
+
 
 DEFAULT_ON = {
     'list_files': _files,

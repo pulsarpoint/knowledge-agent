@@ -300,12 +300,6 @@ def test_a_deleted_resource_in_the_access_is_skipped(world):
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Proxies.' WHERE id=%s", (agent,))
         [offered] = [item for item in experts.offered(conn, None) if item['id'] == agent]
     assert offered['accepts'] == ['service_ids']  # a missing reference is not counted
-    tools = w.client.get(f'/api/agents/{agent}/tools', headers=HEADERS)
-    assert tools.status_code == 200, tools.text
-    available = {
-        item['tool']: item['available'] for item in tools.json()['tools'] if item['tool'] in ('ssh_run', 'read_file')
-    }
-    assert available == {'ssh_run': False, 'read_file': False}  # the deleted server and code project give no tools
     config = get_agent_config(agent, conninfo=w.store.conninfo)
     assert config['code'] == {'enabled': False, 'all_projects': False, 'projects': [], 'graphs': []}
     assert not config['ssh']['enabled'] and not config['documents']['enabled']

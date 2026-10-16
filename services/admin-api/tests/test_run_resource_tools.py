@@ -139,7 +139,7 @@ def test_ssh_reaches_only_the_given_servers(folders):
 
 
 def test_the_prompt_no_longer_lists_the_runs_resources(folders):
-    prompt = get_prompt(run_context(folders, code=['given'])['config'], [])
+    prompt = get_prompt(run_context(folders, code=['given'])['config'])
     assert 'This run was given only' not in prompt and str(folders['given']) not in prompt
 
 

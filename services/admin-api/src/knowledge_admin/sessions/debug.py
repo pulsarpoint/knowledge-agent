@@ -6,7 +6,7 @@ Every text shown is redacted with the configuration's secrets, as run records ar
 from typing import Any
 from uuid import UUID
 
-from knowledge_admin.agents.runner import instructions_and_tools, known_secrets, ssh_servers
+from knowledge_admin.agents.runner import instructions_and_tools, known_secrets
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.activity import redact
 
@@ -17,7 +17,7 @@ def instructions_and_tool_list(config: dict[str, Any], secrets: list[str]) -> di
     """{instructions, tools: [{name, description}]} as a session turn gives them to the model (a session turn offers
     subagents and experts), redacted with `secrets` (known_secrets). MCP tools are listed by their servers once a run
     connects; the servers are in the access object."""
-    prompt, tools, experts, _ = instructions_and_tools(config, ssh_servers(config), subagents=True)
+    prompt, tools, experts, _ = instructions_and_tools(config, subagents=True)
     return {
         'instructions': redact(prompt, secrets),
         'tools': [{'name': tool.name, 'description': redact(tool.description, secrets)} for tool in [*tools, *experts]],

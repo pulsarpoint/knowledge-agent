@@ -25,8 +25,8 @@ from knowledge_admin.agents.profiles_api import (
     project_resources,
     references,
 )
-from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing, enabled_capability_tools, run_only
-from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing
+from knowledge_admin.agents.tools_api import SUBAGENT_SWITCH, UNKNOWN, switch_subagents
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.
@@ -274,8 +274,6 @@ def build_api(app_name, store):
                 for name in [*(value.tools or []), *value.subagent_blocked]:
                     if name not in CATALOG:
                         raise HTTPException(400, UNKNOWN.format(tool=name))
-                    if run_only(name):
-                        raise HTTPException(400, DISCOVERY_ONLY)
                     if name == SUBAGENT:
                         raise HTTPException(400, SUBAGENT_SWITCH)
                 actor = store.actor(conn, *request_actor(request))
@@ -297,7 +295,7 @@ def build_api(app_name, store):
                         actor,
                     ),
                 )
-                names = value.tools if value.tools is not None else enabled_capability_tools(flags(access, False))
+                names = value.tools or []  # every run gets every tool: these rows are no longer read by runs
                 for name in dict.fromkeys(names):
                     conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')", (agent_id, name))
                 if value.subagent_blocked:

@@ -1,8 +1,7 @@
 """The ad-hoc agent of Docs → Generate documents: a native agent that exists only in its session. Its configuration
-has the shape get_agent_config returns, without an agents row: the user's system prompt and model, every catalog tool
-on (run_subagent too, never given to a subagent), and every resource of the workspace allowed, so that run_resources.resolve narrows it to exactly what the run
-documents. A kind left empty is switched off, so the runtime offers only the tools of the selected kinds. Credentials
-stay references."""
+has the shape get_agent_config returns, without an agents row and without tool rows (every run gets every tool): the
+user's system prompt and model, and every resource of the workspace allowed, so that run_resources.resolve narrows it
+to exactly what the run documents. A kind left empty is switched off. Credentials stay references."""
 
 import os
 from pathlib import PurePosixPath
@@ -10,7 +9,7 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 
-from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME, private_key_ref, tool_items
+from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME, private_key_ref
 from knowledge_admin.knowledge_agents.experts import pin
 from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve
 
@@ -65,8 +64,6 @@ def pin_services(conn, project_id, config: dict[str, Any], service_ids: list[str
 
 def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) -> dict[str, Any]:
     """Everything allowed, before the run's selection narrows it."""
-    from knowledge_admin.tools.catalog import CATALOG, SUBAGENT  # the catalog imports config
-
     return jsonable_encoder(
         {
             'id': AD_HOC_AGENT,
@@ -85,9 +82,6 @@ def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) 
             'mcp': {'enabled': False, 'servers': []},
             'ssh': {'enabled': True, 'servers': _servers(conn, project_id)},
             'services': {'enabled': True, 'items': _services(conn, project_id)},
-            'tools': tool_items(
-                {'tool': name, 'mode': 'on', 'usage': None, 'subagent_allowed': name != SUBAGENT} for name in CATALOG
-            ),
         }
     )
 

@@ -119,7 +119,7 @@ def test_down_restores_discovery_runs_and_up_again_round_trips(world):
             'model_id': world.model,
             'system_prompt': 'You answer.',
             'message': 'Disk?',
-            'tools': ['ssh_run', 'propose_document'],
+            'content_editor': True,
             'tags': ['proposals'],
         },
     )
@@ -151,7 +151,7 @@ def test_down_restores_discovery_runs_and_up_again_round_trips(world):
             'Service assistant',
         ]
     assert row['purpose'] == 'resource' and row['tags'] == [f'servers/{world.server["id"]}']
-    assert row['agent_config']['proposal_tools'] == ['propose_document']
+    assert row['agent_config']['proposal_tools'] == []  # built from tool rows, which runs no longer have or read
 
 
 def test_up_seeds_the_assistant_prompts_for_existing_workspaces(world):

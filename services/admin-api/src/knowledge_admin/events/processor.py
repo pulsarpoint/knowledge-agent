@@ -72,7 +72,7 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
 
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
     """Start an ordinary run of the handler's agent (purpose event) through the sessions start: the saved agent with
-    everything it has on (a tool it could not use left off), the rendered prompt as its first message, the handler's
+    everything it has (every tool, every expert), the rendered prompt as its first message, the handler's
     creator as actor, titled by the event. One run per event and handler: processing the event again links the run it
     started before."""
     agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
@@ -88,14 +88,7 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     if row is not None:
         return started, {'agent_session_id': row['id']}
     try:
-        offer = start.agent_options(conn, event['project_id'], handler['agent_id'], store.conninfo)
-        value = start.StartInput(
-            agent_id=handler['agent_id'],
-            message=prompt,
-            tools=start.usable_tools(conn, event['project_id'], handler['agent_id'], store.conninfo),
-            expert_ids=[expert['id'] for expert in offer['experts']],
-            subagents=offer['agent']['subagents_allowed'],
-        )
+        value = start.StartInput(agent_id=handler['agent_id'], message=prompt)
         session_id = start.start_run(
             conn,
             event['project_id'],

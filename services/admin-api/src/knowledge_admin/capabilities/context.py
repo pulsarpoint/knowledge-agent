@@ -16,7 +16,6 @@ class RunContext(TypedDict):
     workspace: Path
     shell_enabled: bool
     tools: frozenset[str]  # the catalog tools offered to this run
-    mcp_tools: NotRequired[dict[str, str]]  # the MCP tools as the model sees them → mcp:<server id>:<tool name>
     subagents: NotRequired[Any]  # the turn's knowledge_agents.subagents.Subagents (native sessions only)
 
 

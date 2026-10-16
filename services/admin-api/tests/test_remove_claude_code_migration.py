@@ -10,7 +10,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.tools.catalog import enabled_capability_tools
+from implied_tools import implied_tools
 from session_rows import a_model, add_ad_hoc_session, add_review, add_test_session
 from test_api import _client
 from test_repositories import HEADERS
@@ -89,7 +89,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
             tools = {
                 row['tool'] for row in conn.execute('SELECT tool FROM ka.agent_tools WHERE agent_id=%s', (agent_id,))
             }
-            assert tools == set(enabled_capability_tools(config)), agent_id
+            assert tools == {e['tool'] for e in implied_tools(config)['items'] if e['mode'] == 'on'}, agent_id
         assert [row['tool'] for row in conn.execute("SELECT tool FROM ka.agent_tools WHERE agent_id='cc-chosen'")] == [
             'read_file'
         ]

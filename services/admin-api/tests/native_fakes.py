@@ -274,7 +274,7 @@ class FakeSubagent:
         return SimpleNamespace(final_output=script['answer'])
 
 
-def delegate(call_id: str, task: str, tools: list[str], resources: dict | None = None, results: list | None = None):
+def delegate(call_id: str, task: str, resources: dict | None = None, results: list | None = None):
     """The parent's run_subagent call as the SDK runs it: on_tool_start, the catalog tool with this call id (a refusal
     becomes the SDK's error text), on_tool_end with its result. `results` collects the results."""
 
@@ -283,7 +283,7 @@ def delegate(call_id: str, task: str, tools: list[str], resources: dict | None =
         await turn.hooks.on_tool_start(context, turn.writer, function)
         token = TOOL_CALL_ID.set(call_id)
         try:
-            output = await run_subagent(turn.context, task, tools, resources)
+            output = await run_subagent(turn.context, task, resources)
         except Exception as exc:
             output = f'An error occurred while running the tool. Please try again. Error: {exc}'
         finally:

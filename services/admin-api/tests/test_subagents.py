@@ -23,16 +23,16 @@ from knowledge_admin.agents.runner import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
-from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, NOT_OFFERED, PROMPT, Subagents, run_subagent
+from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, PROMPT, Subagents, run_subagent
 from knowledge_admin.sessions.run_record import RunRecorder
-from knowledge_admin.tools.catalog import CATALOG, item
+from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.sdk import function_tool
 from run_helpers import events as run_events, post, session_row, wait_for
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_native_sessions import KEY, claimed, leftover_tasks, native  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
-from test_subagent_config import CREDENTIALS, MCP, NO_RESOURCES, OFFERED, parent
+from test_subagent_config import CREDENTIALS, NO_RESOURCES, parent
 
 SECRET = CREDENTIALS['model-key']
 SCRATCH = Path('/work/agent-workspaces/lead')
@@ -53,20 +53,19 @@ def host(turns: dict, *, limit: int = 4, usage: list | None = None):
     return subagents, fake, recorder, lead
 
 
-async def start(subagents, call_id, task, tools=('read_file',), resources=None):
+async def start(subagents, call_id, task, resources=None):
     """The run_subagent tool as the adapter runs it for one call."""
     context = {
         'config': parent(),
         'credentials': dict(CREDENTIALS),
         'workspace': SCRATCH,
         'shell_enabled': True,
-        'tools': OFFERED,
-        'mcp_tools': MCP,
+        'tools': frozenset(CATALOG),
         'subagents': subagents,
     }
     token = TOOL_CALL_ID.set(call_id)
     try:
-        return await run_subagent(context, task, list(tools), resources)
+        return await run_subagent(context, task, resources)
     finally:
         TOOL_CALL_ID.reset(token)
 
@@ -93,7 +92,8 @@ def test_a_subagent_runs_its_task_with_its_configuration_and_is_recorded_in_the_
     [run] = fake.calls
     assert run['config']['system_prompt'] == {'content': PROMPT}
     assert [p['id'] for p in run['config']['code']['projects']] == ['worker']
-    assert run['credentials'] == {'model-key': SECRET}  # only what its configuration references
+    # only what its configuration references: the model and the parent's MCP server (no SSH server was given)
+    assert run['credentials'] == {'model-key': SECRET, 'mcp-token': CREDENTIALS['mcp-token']}
     assert (run['workspace'], run['max_turns'], run['turn_timeout_seconds'], run['stream']) == (
         SCRATCH,
         None,
@@ -154,8 +154,8 @@ def test_a_turn_starts_at_most_16_subagents_and_refused_calls_do_not_count():
 
     async def scenario():
         with pytest.raises(ValueError) as refused:
-            await start(subagents, 'bad', 'Task 0', tools=('ast_grep',))
-        assert str(refused.value) == NOT_OFFERED.format(name='ast_grep')
+            await start(subagents, 'bad', 'Task 0', resources={'code_project_ids': ['billing']})
+        assert str(refused.value) == "code project billing is not in the agent's access"
         return await asyncio.gather(
             *(start(subagents, f'c{n}', f'Task {n}') for n in range(17)), return_exceptions=True
         )
@@ -272,16 +272,14 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
                 'offered': ['read_file', 'run_subagent'],
                 'steps': [
                     llm(
-                        call(
-                            's1', 'run_subagent', {'task': 'Read the worker', 'tools': ['read_file'], 'resources': None}
-                        ),
-                        call('s2', 'run_subagent', {'task': 'Read the app', 'tools': ['read_file'], 'resources': None}),
+                        call('s1', 'run_subagent', {'task': 'Read the worker', 'resources': None}),
+                        call('s2', 'run_subagent', {'task': 'Read the app', 'resources': None}),
                         input_tokens=100,
                         output_tokens=10,
                     ),
                     together(
-                        delegate('s1', 'Read the worker', ['read_file'], results=results),
-                        delegate('s2', 'Read the app', ['read_file'], results=results),
+                        delegate('s1', 'Read the worker', results=results),
+                        delegate('s2', 'Read the app', results=results),
                     ),
                     llm(message('Both read.'), input_tokens=50, output_tokens=5),
                 ],
@@ -329,12 +327,8 @@ def test_stop_cancels_a_running_subagent_and_leaves_nothing_running(native):
             {
                 'offered': ['read_file'],
                 'steps': [
-                    llm(
-                        call(
-                            's1', 'run_subagent', {'task': 'Watch the queue', 'tools': ['read_file'], 'resources': None}
-                        )
-                    ),
-                    delegate('s1', 'Watch the queue', ['read_file']),
+                    llm(call('s1', 'run_subagent', {'task': 'Watch the queue', 'resources': None})),
+                    delegate('s1', 'Watch the queue'),
                 ],
                 'answer': 'never',
             }
@@ -514,10 +508,9 @@ def test_a_call_waiting_for_a_slot_starts_nothing_once_the_turn_ends():
 
 
 def test_run_subagent_is_offered_only_to_a_run_with_the_turns_subagents(config, responses_api):
-    """A run without a Subagents host (the tuning reviewer, a test chat, a live run) is never offered run_subagent,
-    even when its row is on: the call could only fail with UNAVAILABLE."""
+    """A run without a Subagents host (a subagent's own run, the tuning reviewer, the agent designer) is never offered
+    run_subagent: the call could only fail with UNAVAILABLE."""
     _, requests = responses_api
-    config['tools'] = {'items': [item('read_file', 'on'), item('run_subagent', 'on', subagent_allowed=False)]}
 
     def offered(**extra) -> list[str]:
         requests.clear()
@@ -573,7 +566,7 @@ def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore
     subagent = FakeSubagent({'Stubborn': {'steps': [stubborn(sub_started, ignored, release)], 'answer': 'late'}})
 
     async def lead(turn):  # the run_subagent call, in a turn that ignores its own cancellation
-        call = asyncio.ensure_future(delegate('s1', 'Stubborn', ['read_file'])(turn))
+        call = asyncio.ensure_future(delegate('s1', 'Stubborn')(turn))
         lead_started.set()
         while not release.is_set():
             try:
@@ -588,7 +581,7 @@ def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore
             {
                 'offered': ['read_file'],
                 'steps': [
-                    llm(call('s1', 'run_subagent', {'task': 'Stubborn', 'tools': ['read_file'], 'resources': None})),
+                    llm(call('s1', 'run_subagent', {'task': 'Stubborn', 'resources': None})),
                     lead,
                 ],
                 'answer': 'late',

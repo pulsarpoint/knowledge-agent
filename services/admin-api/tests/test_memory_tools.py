@@ -45,7 +45,6 @@ def call(run, tool: str, /, **arguments) -> dict:
 def test_the_four_tools_are_in_the_memory_group_and_build_as_strict_function_tools():
     names = ['search_memory', 'get_memory', 'save_memory', 'update_memory']
     assert [name for name, spec in CATALOG.items() if spec.group == 'memory'] == names
-    assert all(CATALOG[name].needs is None for name in names)
     for name in names:
         assert function_tool(CATALOG[name], CATALOG[name].usage).strict_json_schema
 

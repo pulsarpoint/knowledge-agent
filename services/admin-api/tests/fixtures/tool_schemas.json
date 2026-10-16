@@ -3,7 +3,6 @@
     "group": "code",
     "label": "List files",
     "name": "list_files",
-    "needs": "files",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -47,7 +46,6 @@
     "group": "code",
     "label": "Read file",
     "name": "read_file",
-    "needs": "files",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -110,7 +108,6 @@
     "group": "code",
     "label": "Search files",
     "name": "search_files",
-    "needs": "files",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -153,7 +150,6 @@
     "group": "code",
     "label": "Shell",
     "name": "shell_run",
-    "needs": "files",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -183,7 +179,6 @@
     "group": "code",
     "label": "Code search",
     "name": "code_search",
-    "needs": "code",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -243,7 +238,6 @@
     "group": "code",
     "label": "Structural search",
     "name": "ast_grep",
-    "needs": "code",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -305,7 +299,6 @@
     "group": "code",
     "label": "Code graph",
     "name": "code_graph",
-    "needs": "code_graph",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -381,7 +374,6 @@
     "group": "documents",
     "label": "Search documents",
     "name": "search_documents",
-    "needs": "documents",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -417,7 +409,6 @@
     "group": "documents",
     "label": "Read document",
     "name": "read_document",
-    "needs": "documents",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -446,7 +437,6 @@
     "group": "documents",
     "label": "Report not covered",
     "name": "report_not_covered",
-    "needs": "grounded",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -469,7 +459,6 @@
     "group": "servers",
     "label": "SSH",
     "name": "ssh_run",
-    "needs": "ssh",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -512,7 +501,6 @@
     "group": "inventory",
     "label": "Available resources",
     "name": "get_available_resources",
-    "needs": null,
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -552,7 +540,6 @@
     "group": "inventory",
     "label": "Resource info",
     "name": "get_resource",
-    "needs": "resources",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -589,7 +576,6 @@
     "group": "inventory",
     "label": "Read document",
     "name": "get_document",
-    "needs": null,
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -656,7 +642,6 @@
     "group": "inventory",
     "label": "Propose service",
     "name": "propose_service",
-    "needs": "server_proposals",
     "schema": {
       "$defs": {
         "DeploymentProposal": {
@@ -894,7 +879,6 @@
     "group": "inventory",
     "label": "Propose document",
     "name": "propose_document",
-    "needs": "resource_proposals",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -949,7 +933,6 @@
     "group": "documents",
     "label": "Save a document",
     "name": "save_document",
-    "needs": "editable_document",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -1011,7 +994,6 @@
     "group": "documents",
     "label": "Edit a document",
     "name": "edit_document",
-    "needs": "editable_document",
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -1051,7 +1033,6 @@
     "group": "memory",
     "label": "Search memory",
     "name": "search_memory",
-    "needs": null,
     "schema": {
       "$defs": {
         "MetadataItem": {
@@ -1144,7 +1125,6 @@
     "group": "memory",
     "label": "Read a memory",
     "name": "get_memory",
-    "needs": null,
     "schema": {
       "additionalProperties": false,
       "properties": {
@@ -1169,7 +1149,6 @@
     "group": "memory",
     "label": "Save a memory",
     "name": "save_memory",
-    "needs": null,
     "schema": {
       "$defs": {
         "MetadataItem": {
@@ -1241,7 +1220,6 @@
     "group": "memory",
     "label": "Update a memory",
     "name": "update_memory",
-    "needs": null,
     "schema": {
       "$defs": {
         "MetadataItem": {
@@ -1313,7 +1291,6 @@
     "group": "agents",
     "label": "Start subagents",
     "name": "run_subagent",
-    "needs": null,
     "schema": {
       "$defs": {
         "SubagentResources": {
@@ -1379,25 +1356,16 @@
           "description": "The complete task, up to 20000 characters: the helper does not see this conversation.",
           "title": "Task",
           "type": "string"
-        },
-        "tools": {
-          "description": "Names of your tools the helper may use, as you see them; at least one.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Tools",
-          "type": "array"
         }
       },
       "required": [
         "task",
-        "tools",
         "resources"
       ],
       "title": "RunSubagent",
       "type": "object"
     },
     "summary": "Hand a separate part of the work to a helper that runs in parallel.",
-    "usage": "Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. Give it the fewest tools and resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."
+    "usage": "Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. It gets your tools except run_subagent and the experts; give it the fewest resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."
   }
 ]

@@ -10,15 +10,13 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
 from knowledge_admin.knowledge_agents.run_resources import KINDS, picks
 
-ROW_PREFIX = 'expert:'
+ROW_PREFIX = 'expert:'  # the Tools tab's rows of an expert (no run reads them)
 UNAVAILABLE = 'Expert {name} is not available.'
 FAILED = 'Expert {name} failed: {message}'
 MAX_SLUG = 50
 OFFERED = """SELECT a.id,a.name,a.when_to_use,a.access,m.provider,m.api_format,m.model
     FROM ka.agents a JOIN ka.llm_models m ON m.id=a.model_id AND m.enabled
     WHERE a.expert AND a.enabled AND a.id IS DISTINCT FROM %(caller)s
-      AND NOT EXISTS (SELECT 1 FROM ka.agent_tools t WHERE t.agent_id=%(caller)s AND t.tool='expert:'||a.id
-                      AND t.mode='off')
     ORDER BY lower(a.name),a.id"""
 
 
@@ -36,8 +34,8 @@ def description(name: str, when_to_use: str, accepts: list[str]) -> str:
 
 
 def offered(conn, caller_id: str | None) -> list[dict[str, Any]]:
-    """The experts this caller may call: experts, enabled, with an enabled agent model, never the caller itself, and not
-    switched off on its Tools tab. A Generate documents agent (caller None) gets them all."""
+    """The experts this caller may call: experts, enabled, with an enabled agent model, never the caller itself. An
+    ad-hoc run (caller None) gets them all."""
     entries: list[dict[str, Any]] = []
     taken: set[str] = set()
     for row in conn.execute(OFFERED, {'caller': caller_id}):

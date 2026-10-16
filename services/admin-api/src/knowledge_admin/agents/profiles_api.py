@@ -13,9 +13,9 @@ from knowledge_admin.access import TYPES, is_content_editor
 from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
-from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, tool_items, without_missing
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, tool_items
 from knowledge_admin.tools.catalog import tools_summary
-from knowledge_admin.agents.tools_api import flags, subagents_on, switch_on_defaults, switch_subagents
+from knowledge_admin.agents.tools_api import flags, subagents_on, switch_subagents
 
 
 EXPERT_NEEDS_WHEN = 'Experts need When to use.'
@@ -361,12 +361,6 @@ def build_api(app_name, store):
                 )
                 if new_model:
                     conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
-                switch_on_defaults(
-                    conn,
-                    agent_id,
-                    flags(without_missing(conn, old['access']), old['documents_grounded']),
-                    flags(access, grounded),
-                )
                 if value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
                     switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision
                 return read(conn, agent_id)

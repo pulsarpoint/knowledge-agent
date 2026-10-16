@@ -228,14 +228,6 @@ def test_the_wizard_creates_an_agent_with_its_access_and_instructions(world):
         'resources': [{'type': 'server', 'id': w.server['id']}, {'type': 'service', 'id': str(w.nginx)}],
         'roles': {'content_editor': True},
     }
-    with w.store.connect() as conn:
-        tools = {
-            r['tool']
-            for r in conn.execute(
-                "SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'", (created.json()['id'],)
-            )
-        }
-    assert 'ssh_run' in tools  # a server in its access brings the SSH tools
     missing = wizard_payload(
         'Other', access={'resources': [{'type': 'server', 'id': str(uuid4())}], 'roles': {'content_editor': False}}
     )

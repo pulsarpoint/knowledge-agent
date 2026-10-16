@@ -1,5 +1,5 @@
 """The ad-hoc agent of Generate documents: no agents row, the user's prompt and model, exactly the selection as its
-resources and the tools of the selected kinds."""
+resources, and no tool rows (every run gets every tool)."""
 
 import json
 from types import SimpleNamespace
@@ -11,7 +11,6 @@ from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError
-from knowledge_admin.tools.catalog import effective_tools
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 
@@ -45,10 +44,7 @@ def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
         'server_ids': [],
         'service_ids': [],
     }
-    offered = [spec.name for spec, _ in effective_tools(config, [])]
-    assert 'read_file' in offered and 'ssh_run' not in offered and 'search_documents' not in offered
-    assert 'report_not_covered' not in offered
-    assert 'run_subagent' in offered  # on for Generate documents (never given to its subagents)
+    assert 'tools' not in config
 
 
 def test_an_environment_brings_its_services_code_and_servers(sessions):
@@ -105,7 +101,6 @@ def test_a_chosen_server_keeps_its_own_connection_as_a_reference(sessions):
     [pinned] = config['ssh']['servers']
     assert pinned['id'] == server['id'] and pinned['username'] == server['username']
     assert pinned['private_key_ref']['id'] and key['private_key'] not in json.dumps(config)
-    assert 'ssh_run' in [spec.name for spec, _ in effective_tools(config, config['ssh']['servers'])]
 
 
 def test_a_server_that_cannot_be_used_is_refused_by_name(sessions):

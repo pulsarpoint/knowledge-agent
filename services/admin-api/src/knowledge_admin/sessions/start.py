@@ -29,15 +29,6 @@ from knowledge_admin.knowledge_agents.run_resources import (
 from knowledge_admin.sessions.run_access import agent_access, held, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
-from knowledge_admin.tools.catalog import (
-    ALWAYS_ON,
-    CATALOG,
-    DOCUMENT_EDIT_TOOLS,
-    PROPOSAL_STARTS,
-    PROPOSAL_TOOLS,
-    SUBAGENT,
-    needs_met,
-)
 
 REVISION_TAG = 'document-revision'
 WRITE_TAG = 'documentation'
@@ -49,18 +40,6 @@ INVENTORY_FOR = 'An inventory document is written for one server, service or env
 NOT_THE_START = 'The new document must be the one the run starts from.'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
-UNKNOWN_TOOL = 'Unknown tool: {names}.'
-NEEDS = '{tool} needs {what}.'
-REQUIRES = {
-    'files': 'a code project or a collection',
-    'code': 'a code project',
-    'code_graph': 'a code project',
-    'documents': 'a collection',
-    'ssh': 'at least one server',
-    'editable_document': 'a document to edit',
-    'server_proposals': 'a run started from a server',
-    'resource_proposals': 'a run started from a server, service or environment',
-}
 PICKS = (
     ('code_project', 'code_project_ids'),
     ('collection', 'collection_ids'),
@@ -84,8 +63,7 @@ RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
 NOT_SET_UP = 'SSH is not set up for this server.'
 NOT_ALLOWED = 'SSH is not allowed for this server.'
-NOT_ITS_TOOL = "{tool} is not one of this agent's tools."
-NO_SUBAGENTS = 'This agent does not allow subagents.'
+NOT_AN_EDITOR = 'A run cannot make a saved agent a content editor.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
 NO_SSH = (
     'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
@@ -179,7 +157,9 @@ def resource_tag(kind: str, resource_id) -> str:
 
 class StartInput(BaseModel):
     """What a start panel sends: the first message, the model and prompt, facts from where it starts (context), what
-    the run may use (resources, tools, experts, subagents) and where it was started from (a label for lists)."""
+    the run may use (resources, experts; every run gets every tool), whether it may change content (content_editor:
+    an ad-hoc run asks for the role, as the Propose wizard does; a saved agent's request may only switch its own off)
+    and where it was started from (a label for lists)."""
 
     model_config = ConfigDict(extra='forbid')
     agent_id: str | None = None
@@ -190,9 +170,8 @@ class StartInput(BaseModel):
     system_prompt: str = Field(default='', max_length=20000)
     context: str = Field(default='', max_length=20000)
     resources: Resources = Field(default_factory=Resources)
-    tools: list[str] = Field(default_factory=list, max_length=100)
-    expert_ids: list[UUID] = Field(default_factory=list, max_length=50)
-    subagents: bool = False
+    expert_ids: list[UUID] | None = Field(default=None, max_length=50)  # None: every expert offered
+    content_editor: bool | None = None  # None: an ad-hoc run's rule (a new document or a revision), a saved agent's own
     tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
 
     @model_validator(mode='after')
@@ -211,8 +190,8 @@ class StartInput(BaseModel):
                 raise ValueError('Choose a model.')
             if not self.system_prompt:
                 raise ValueError('Enter a system prompt')
-        self.tools = list(dict.fromkeys(self.tools))
-        self.expert_ids = list(dict.fromkeys(self.expert_ids))
+        if self.expert_ids is not None:
+            self.expert_ids = list(dict.fromkeys(self.expert_ids))
         self.tags = list(dict.fromkeys(tag.strip() for tag in self.tags))
         own = self.resource_tag()
         for tag in self.tags:
@@ -248,17 +227,6 @@ class StartInput(BaseModel):
         return [*self.tags, *([own] if own and own not in self.tags else [])]
 
 
-def choosable() -> list:
-    """The tools a person can switch on for a run: not "Answer only from documents", not run_subagent (its own
-    switch), not get_resource (on in every run with resources), not get_available_resources (on in every run). The
-    proposal tools work only in a run started from a resource whose request turns them on (their need says so)."""
-    return [
-        spec
-        for spec in CATALOG.values()
-        if spec.needs not in ('grounded', 'resources') and spec.name != SUBAGENT and spec.name not in ALWAYS_ON
-    ]
-
-
 def revise_prompt_id(project: UUID) -> UUID:
     """The seeded "Revise a document" prompt's id (migration 0100: md5(...)::uuid)."""
     return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:document-revision:{project}'.encode()).hexdigest())
@@ -272,11 +240,6 @@ def write_prompt_id(project: UUID) -> UUID:
 def assistant_prompt_id(project: UUID, kind: str) -> UUID:
     """The seeded "<Type> assistant" prompt's id of a resource type (migration 0106: md5(...)::uuid)."""
     return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:{kind}-assistant:{project}'.encode()).hexdigest())
-
-
-def proposals_offered(kind: str | None) -> tuple[str, ...]:
-    """The proposal tools a run started from this resource type may ask for (none for other runs)."""
-    return tuple(name for name in PROPOSAL_TOOLS if kind is not None and kind in PROPOSAL_STARTS[CATALOG[name].needs])
 
 
 def start_server(conn, project: UUID, server_id: UUID) -> dict:
@@ -369,9 +332,9 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
 
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
     """A saved agent's configuration for one run, narrowed by the request and never widened: its access object or the
-    resources the request picked out of it (access.narrow: a pick outside it is refused), its tools that are on
-    (switch off only), a subset of its experts and subagents only if it allows them. Its model, system prompt and
-    content editor role are its own; its sections keep only what the run's access object holds."""
+    resources the request picked out of it (access.narrow: a pick outside it is refused), a subset of its experts. Its
+    model and system prompt are its own, and its content editor role (a request may only switch it off); its sections
+    keep only what the run's access object holds."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -389,6 +352,9 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         raise HTTPException(409, AGENT_DISABLED)
     if model is None or not model['enabled'] or not model_fits(model):
         raise HTTPException(409, AGENT_NO_MODEL)
+    editor = access_rules.is_content_editor(config['access'])
+    if value.content_editor and not editor:
+        raise HTTPException(400, NOT_AN_EDITOR)
     resources = value.resources
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
     picked += [
@@ -400,41 +366,14 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
             project,
             config,
             picked or None,  # nothing picked: everything it has
-            content_editor=access_rules.is_content_editor(config['access']),
+            content_editor=editor and value.content_editor is not False,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     pinned = pin(conn, cut, agent_id)
     if picked:  # what a new document of the run is built for
         pinned['chosen_resources'] = {key: [str(i) for i in getattr(resources, key)] for _, key in PICKS}
-    items = {item['tool']: item for item in pinned['tools']['items']}
-    on = {name for name, item in items.items() if item['mode'] == 'on'}
-    added = [name for name in value.tools if name not in on]
-    if added:
-        raise HTTPException(400, ' '.join(NOT_ITS_TOOL.format(tool=name) for name in added))
-    if value.subagents and SUBAGENT not in on:
-        raise HTTPException(400, NO_SUBAGENTS)
-    controlled = {spec.name for spec in choosable()}  # what agent_options lists; any other tool keeps its pinned mode
-    for name, item in items.items():
-        if name == SUBAGENT:
-            item['mode'] = 'on' if value.subagents else 'off'
-        elif name in controlled and name in on and name not in value.tools:
-            item['mode'] = 'off'
-    usable = [server for server in pinned['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
-    unmet = [
-        NEEDS.format(tool=name, what=REQUIRES[CATALOG[name].needs])
-        for name in value.tools
-        if name in CATALOG
-        and CATALOG[name].needs in REQUIRES
-        and not needs_met(CATALOG[name].needs, pinned, usable if CATALOG[name].needs == 'ssh' else None)
-    ]
-    if unmet:
-        raise HTTPException(400, ' '.join(unmet))
-    experts = {entry['id']: entry for entry in pinned['experts']}
-    for expert_id in value.expert_ids:
-        if str(expert_id) not in experts:
-            raise HTTPException(400, NO_EXPERT.format(id=expert_id))
-    pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
+    pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     if value.context:
         content = pinned['system_prompt']['content'] + f'\n\n# Context\n\n{value.context}'
         pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
@@ -443,24 +382,15 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
     return jsonable_encoder(pinned), model
 
 
-def usable_tools(conn, project: UUID, agent_id: str, conninfo: str) -> list[str]:
-    """The agent's tools that are on (as agent_options lists them) whose need its saved configuration meets, judged as
-    narrow judges them. What a start with everything the agent has on can send: a tool it could not use is left off
-    rather than refused."""
-    try:
-        config = get_agent_config(agent_id, conninfo=conninfo)
-    except LookupError as exc:
-        raise HTTPException(404, str(exc)) from None
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from None
-    on = {item['tool'] for item in config['tools']['items'] if item['mode'] == 'on'}
-    usable = [server for server in config['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
-    return [
-        spec.name
-        for spec in choosable()
-        if spec.name in on
-        and (spec.needs not in REQUIRES or needs_met(spec.needs, config, usable if spec.needs == 'ssh' else None))
-    ]
+def chosen_experts(offered: list[dict], expert_ids: list[UUID] | None) -> list[dict]:
+    """The experts a run may call: every offered one, or those the request names (each must be offered)."""
+    if expert_ids is None:
+        return offered
+    experts = {entry['id']: entry for entry in offered}
+    for expert_id in expert_ids:
+        if str(expert_id) not in experts:
+            raise HTTPException(400, NO_EXPERT.format(id=expert_id))
+    return [experts[str(expert_id)] for expert_id in expert_ids]
 
 
 def build(
@@ -471,8 +401,7 @@ def build(
     document. A run started from a resource records it as `started_from` ({type, id, name}) and is chosen for it
     (`chosen_resources`). A server run has SSH to it (added to the chosen servers when missing) and reads the services
     deployed on it (pinned without what they would bring); a service brings its code projects and the servers it is
-    deployed on, an environment its services and servers (what the run cannot reach is left out). The proposal tools
-    the request turns on are recorded as `proposal_tools`: their need is met only there."""
+    deployed on, an environment its services and servers (what the run cannot reach is left out)."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
@@ -528,10 +457,6 @@ def build(
         reason = server_reason(row)
         if reason:
             raise HTTPException(400, f'Server {row["name"]}: {reason}')
-    names = {spec.name: spec for spec in choosable()}
-    unknown = [name for name in value.tools if name not in names]
-    if unknown:
-        raise HTTPException(400, UNKNOWN_TOOL.format(names=', '.join(unknown)))
     # a resource run's resource is named in the instructions (runner.get_prompt), not in its context
     system_prompt = value.system_prompt + (f'\n\n# Context\n\n{value.context}' if value.context else '')
     try:
@@ -543,7 +468,6 @@ def build(
         pinned = pin_services(conn, project, pinned, [row['id'] for row in deployed])
     if resource is not None:
         pinned['started_from'] = {'type': resource[0], 'id': str(origin['id']), 'name': origin['name']}
-        pinned['proposal_tools'] = [name for name in PROPOSAL_TOOLS if name in value.tools]
     keyed = [server for server in pinned['ssh']['servers'] if server.get('private_key_ref') is not None]
     if len(keyed) != len(pinned['ssh']['servers']):  # a server a service or environment brought in, without an SSH key
         pinned['ssh'] = {**pinned['ssh'], 'servers': keyed, 'enabled': pinned['ssh']['enabled'] and bool(keyed)}
@@ -565,37 +489,17 @@ def build(
     if owner is not None:  # built for the resource alone; what the person gave it is only read
         chosen = {key: [] for key in (*pinned.get('chosen_resources', {}), 'environment_ids', f'{owner[0]}_ids')}
         pinned['chosen_resources'] = {**chosen, f'{owner[0]}_ids': [str(owner[1])]}
-    unmet = [
-        NEEDS.format(tool=name, what=REQUIRES[names[name].needs])
-        for name in value.tools
-        if not needs_met(names[name].needs, pinned, None)
-    ]
-    if unmet:
-        raise HTTPException(400, ' '.join(unmet))
-    chosen = set(value.tools)
-    for item in pinned['tools']['items']:
-        if item['tool'] == SUBAGENT:
-            item['mode'] = 'on' if value.subagents else 'off'
-        elif item['tool'] in CATALOG:
-            item['mode'] = 'on' if item['tool'] in chosen else 'off'
-            if item['tool'] in DOCUMENT_EDIT_TOOLS + PROPOSAL_TOOLS:
-                item['subagent_allowed'] = False
-    experts = {entry['id']: entry for entry in pinned['experts']}
-    for expert_id in value.expert_ids:
-        if str(expert_id) not in experts:
-            raise HTTPException(400, NO_EXPERT.format(id=expert_id))
-    pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
+    pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     pinned['project_id'] = str(project)
     pinned = jsonable_encoder(pinned)
     # given: what was picked (the resource it starts from, its inventory document's resource) and its documents; the
-    # runs a person asked to write (a new document, a revision, proposals) are content editors
+    # runs a person asked to write (a new document, a revision; content_editor: the Propose wizard) are content editors
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
     picked += [{'type': 'document', 'id': entry['id']} for entry in pinned['document_access']]
-    # a resource run that requests proposal tools counts as a Propose wizard run (content editor on)
     writes = (
-        value.started_from.new_document is not None
-        or value.started_from.document_id is not None
-        or any(name in PROPOSAL_TOOLS for name in value.tools)
+        value.started_from.new_document is not None or value.started_from.document_id is not None
+        if value.content_editor is None
+        else value.content_editor
     )
     try:
         pinned['access'] = run_access(
@@ -635,17 +539,7 @@ def start_run(
     pinned, model, origin = build(conn, project, value, session_id, conninfo)
     title = (title or value.message.splitlines()[0])[:TITLE_LENGTH]
     resource = value.resource()
-    # the proposal tools are offered only for runs started from a resource they work on: audited as off only there
-    offered = proposals_offered(resource[0] if resource else None)
-    tools_off = sorted(
-        item['tool']
-        for item in pinned['tools']['items']
-        if item['tool'] in CATALOG
-        and item['mode'] != 'on'
-        and CATALOG[item['tool']].needs != 'resources'  # on whenever the run has resources
-        and item['tool'] not in ALWAYS_ON
-        and (item['tool'] not in PROPOSAL_TOOLS or item['tool'] in offered)
-    )
+    editor = access_rules.is_content_editor(pinned['access'])
     tags = value.run_tags()
     if value.agent_id is not None:
         snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
@@ -673,9 +567,8 @@ def start_run(
         details = {
             'agent_id': value.agent_id,
             'model_id': model['id'],
-            'tools_off': tools_off,
             'expert_ids': [entry['id'] for entry in pinned['experts']],
-            'subagents': value.subagents,
+            'content_editor': editor,
             'resources': pinned.get('chosen_resources'),
             'tags': tags,
         }
@@ -709,9 +602,8 @@ def start_run(
             'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
-            'tools_off': tools_off,
-            'expert_ids': value.expert_ids,
-            'subagents': value.subagents,
+            'expert_ids': [entry['id'] for entry in pinned['experts']],
+            'content_editor': editor,
         }
     elif value.started_from.new_document is not None:
         new = value.started_from.new_document.model_dump(mode='json', exclude_defaults=True)
@@ -740,9 +632,8 @@ def start_run(
             'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
-            'tools_off': tools_off,
-            'expert_ids': value.expert_ids,
-            'subagents': value.subagents,
+            'expert_ids': [entry['id'] for entry in pinned['experts']],
+            'content_editor': editor,
         }
     else:
         document_id = value.started_from.document_id
@@ -775,9 +666,8 @@ def start_run(
             'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
-            'tools_off': tools_off,
-            'expert_ids': value.expert_ids,
-            'subagents': value.subagents,
+            'expert_ids': [entry['id'] for entry in pinned['experts']],
+            'content_editor': editor,
         }
     conn.execute('UPDATE ka.agent_sessions SET access=%s WHERE id=%s', (Jsonb(pinned['access']), session_id))
     conn.execute(
@@ -804,9 +694,8 @@ def options(
 ) -> dict:
     """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
     tagged documentation; for a server, service or environment, the prompts tagged assistant and with its type, its
-    seeded assistant prompt the first choice), resources (marked linked to the starting document or resource), the choosable
-    tools (the proposal tools only where a resource run may ask for them; for a resource, none that edits a
-    document) and experts."""
+    seeded assistant prompt the first choice), resources (marked linked to the starting document or resource) and
+    experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
     server = server_row(conn, project, server_id) if server_id is not None else None
     started = (
@@ -907,7 +796,7 @@ def options(
 
     def brings(items: list[dict], environments: bool) -> list[dict]:
         """Whether each service or environment brings a code project, and a server the run can use (as
-        run_resources.resolve and build() narrow them), so the panel offers only tools Start accepts."""
+        run_resources.resolve and build() narrow them), so the panel can say what each brings."""
         for entry in items:
             found = bring(conn, project, [] if environments else [entry['id']], [entry['id']] if environments else [])
             entry['brings_code'] = bool(found['code_project_ids'])
@@ -951,19 +840,6 @@ def options(
             'prompts': prompts,
             'default_prompt_id': prompt_choice,
             'resources': resources,
-            'tools': [
-                {
-                    'name': spec.name,
-                    'label': spec.label,
-                    'summary': spec.summary,
-                    'group': spec.group,
-                    'needs': spec.needs,
-                    'requires': REQUIRES.get(spec.needs) if spec.needs else None,
-                }
-                for spec in choosable()
-                if (spec.name in proposals_offered(kind) if spec.name in PROPOSAL_TOOLS else True)
-                and (kind is None or spec.needs != 'editable_document')
-            ],
             'experts': experts,
         }
     )
@@ -971,7 +847,7 @@ def options(
 
 def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
     """What a start panel offers for a saved agent: only what the request may narrow. Its own model and prompt (no
-    choice), what its access object holds (a run may pick a subset), its tools that are on and its offered experts."""
+    choice), what its access object holds (a run may pick a subset) and its offered experts."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -982,7 +858,6 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
     fits = model is not None and model['enabled'] and model_fits(model)
     holds = held(conn, project, config, access_ids(config['access'], 'environment'))
     listed = lambda type_: [item for item in holds if item['type'] == type_]
-    on = {item['tool'] for item in config['tools']['items'] if item['mode'] == 'on'}
     servers = {item['id'] for item in listed('server')}
     projects = {item['id'] for item in listed('code_project')}
 
@@ -1023,25 +898,12 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
                 'model': {'id': model['id'], 'name': model['name']} if model else None,
                 'system_prompt': config['system_prompt']['content'],
                 'resources_fixed': False,
-                'subagents_allowed': SUBAGENT in on,
             },
             'models': [{'id': model['id'], 'name': model['name']}] if fits else [],
             'default_model_id': model['id'] if fits else None,
             'prompts': [],
             'default_prompt_id': None,
             'resources': resources,
-            'tools': [
-                {
-                    'name': spec.name,
-                    'label': spec.label,
-                    'summary': spec.summary,
-                    'group': spec.group,
-                    'needs': spec.needs,
-                    'requires': REQUIRES.get(spec.needs) if spec.needs else None,
-                }
-                for spec in choosable()
-                if spec.name in on
-            ],
             'experts': [
                 {'id': entry['id'], 'name': entry['name'], 'when_to_use': entry['when_to_use']}
                 for entry in offered(conn, agent_id)

@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 from access_helpers import with_access
 from knowledge_admin import access as access_rules
 from knowledge_admin.access import refuse_use
-from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, RUN_ONLY_NEEDS, needs_met
+from knowledge_admin.tools.catalog import CATALOG
 from drafts_world import API, docs, make_document, promote, version_of  # noqa: F401  (docs: fixture rev builds on)
 from knowledge_admin.capabilities.document_tools import outline
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -328,13 +328,9 @@ def test_a_document_neither_in_the_run_nor_in_the_inventory_cannot_be_read(rev):
     assert call(rev, 'get_document', document_id='not-an-id') == refuse_use('document')
 
 
-def test_the_edit_tools_need_an_editable_document_and_are_never_chosen_for_saved_agents():
-    assert all(CATALOG[name].needs == 'editable_document' for name in DOCUMENT_EDIT_TOOLS)
-    assert 'editable_document' in RUN_ONLY_NEEDS and 'revision' not in RUN_ONLY_NEEDS
-    assert needs_met('editable_document', {'document_access': [{'id': 'd', 'title': 'T', 'editable': True}]}, None)
-    assert not needs_met('editable_document', {'document_access': [{'id': 'd', 'title': 'T', 'editable': False}]}, None)
-    assert not needs_met('editable_document', {}, None)
-    assert CATALOG['get_document'].needs is None and not {'get_doc', 'save_doc', 'edit_doc'} & set(CATALOG)
+def test_the_document_tools_are_in_the_catalog():
+    assert {'get_document', 'save_document', 'edit_document'} <= set(CATALOG)
+    assert not {'get_doc', 'save_doc', 'edit_doc'} & set(CATALOG)
 
 
 def test_without_a_session_the_edit_tools_refuse(rev):
@@ -350,14 +346,13 @@ def test_without_a_session_the_edit_tools_refuse(rev):
         )
 
 
-def test_a_subagent_gets_no_document_access_so_the_edit_tools_are_unmet():
-    from test_subagent_config import MCP, OFFERED, parent
+def test_a_subagent_gets_no_document_access_so_the_edit_tools_refuse():
+    from test_subagent_config import parent
     from knowledge_admin.knowledge_agents.subagents import subagent_config
 
     lead = parent(document_access=[{'id': 'd', 'title': 'T', 'editable': True}])
-    assert needs_met('editable_document', lead, None)
-    sub = subagent_config(with_access(lead, True), ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
-    assert 'document_access' not in sub and not needs_met('editable_document', sub, None)
+    sub = subagent_config(with_access(lead, True), None)
+    assert 'document_access' not in sub
     assert access_rules.listing(sub['access'], 'document') == [] and not access_rules.is_content_editor(sub['access'])
 
 

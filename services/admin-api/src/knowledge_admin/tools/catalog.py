@@ -1,5 +1,5 @@
 """The built-in tools: each is a function marked @tool in knowledge_admin.capabilities (its signature the arguments,
-its docstring the usage text) plus its attributes from tools/tools.json (group, label, summary, needs, order).
+its docstring the usage text) plus its attributes from tools/tools.json (group, label, summary, order).
 tools/sdk.py turns an entry into an Agents SDK tool."""
 
 import typing
@@ -29,20 +29,7 @@ from knowledge_admin.tools.fixture import load_fixture
 from knowledge_admin.tools.registry import REGISTRY, Tool
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'memory', 'agents']
-Need = Literal[
-    'files',
-    'code',
-    'code_graph',
-    'documents',
-    'grounded',
-    'ssh',
-    'server_proposals',
-    'resource_proposals',
-    'editable_document',
-    'resources',
-]
 GROUPS = typing.get_args(Group)
-NEEDS = typing.get_args(Need)
 SUBAGENT = 'run_subagent'
 
 
@@ -55,27 +42,6 @@ class ToolSpec:
     usage: str
     arguments: type[BaseModel]
     run: Callable[[RunContext, BaseModel], Awaitable[str]]
-    needs: Need | None
-
-
-def _grounded(config: Mapping[str, Any]) -> bool:
-    return bool(config['documents']['enabled'] and config['documents'].get('grounded', False))
-
-
-def _files(config: Mapping[str, Any]) -> bool:
-    return bool(config['code']['enabled'] or config['documents']['enabled'] and not _grounded(config))
-
-
-def _code(config: Mapping[str, Any]) -> bool:
-    return bool(config['code']['enabled'])
-
-
-def _documents(config: Mapping[str, Any]) -> bool:
-    return bool(config['documents']['enabled'])
-
-
-def _ssh(config: Mapping[str, Any]) -> bool:
-    return bool(config['ssh']['enabled'])
 
 
 def load_catalog(entries: list[dict[str, Any]], registry: Mapping[str, Tool]) -> dict[str, ToolSpec]:
@@ -89,8 +55,6 @@ def load_catalog(entries: list[dict[str, Any]], registry: Mapping[str, Tool]) ->
             raise ValueError(f'tools.json entry has no registered function: {name}')
         if entry['group'] not in GROUPS:
             raise ValueError(f'tools.json {name}: unknown group {entry["group"]!r}')
-        if entry['needs'] is not None and entry['needs'] not in NEEDS:
-            raise ValueError(f'tools.json {name}: unknown needs {entry["needs"]!r}')
         found = registry[name]
         catalog[name] = ToolSpec(
             name,
@@ -100,7 +64,6 @@ def load_catalog(entries: list[dict[str, Any]], registry: Mapping[str, Tool]) ->
             found.usage,
             found.arguments,
             found.run,
-            entry['needs'],
         )
     missing = sorted(set(registry) - set(catalog))
     if missing:
@@ -109,87 +72,6 @@ def load_catalog(entries: list[dict[str, Any]], registry: Mapping[str, Tool]) ->
 
 
 CATALOG: dict[str, ToolSpec] = load_catalog(load_fixture(), REGISTRY)
-
-DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
-PROPOSAL_TOOLS = ('propose_service', 'propose_document')
-# Offered in every run, never switched: how the model lists what the run may use.
-ALWAYS_ON = ('get_available_resources',)
-# Never chosen for a saved agent: a run is started from a resource (and asks for the proposal tools), documents are
-# given, per run, and get_resource is on in every run that has resources (it is how the model reads them).
-RUN_ONLY_NEEDS = ('server_proposals', 'resource_proposals', 'editable_document', 'resources')
-# Where each proposal tool works: the resource types a run may start from to ask for it.
-PROPOSAL_STARTS = {'server_proposals': ('server',), 'resource_proposals': ('server', 'service', 'environment')}
-
-
-def run_only(name: str) -> bool:
-    """Never chosen for a saved agent (not on the Tools tab or in the wizard): a run-only need, or always on."""
-    return CATALOG[name].needs in RUN_ONLY_NEEDS or name in ALWAYS_ON
-
-
-NEED_REASONS: dict[str, str] = {
-    'files': 'Needs code projects, or documents without "Answer only from documents"',
-    'code': 'Needs code projects',
-    'code_graph': 'Needs code projects',
-    'documents': 'Needs documents',
-    'grounded': 'Needs "Answer only from documents"',
-    'ssh': 'Needs SSH servers',
-    'server_proposals': 'Needs a run started from a server that turns it on',
-    'resource_proposals': 'Needs a run started from a server, service or environment that turns it on',
-    'editable_document': 'Needs a document to edit',
-    'resources': 'Always on for a run with servers, services, environments or code projects',
-}
-# The agent editor tab where an unmet need is met: resources are added on Resources, "Answer only from documents" is on
-# General.
-NEED_TABS: dict[str, str] = {
-    'files': 'resources',
-    'code': 'resources',
-    'code_graph': 'resources',
-    'documents': 'resources',
-    'grounded': 'general',
-    'ssh': 'resources',
-}
-
-
-def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dict[str, Any]] | None) -> bool:
-    """Whether a tool can work in this configuration. ssh_servers None: judge by the capability switch only (the
-    Tools tab); a list: the usable servers of this run. code_graph needs a graph at run time."""
-    if need is None:
-        return True
-    if need == 'files':
-        return _files(config)
-    if need == 'code':
-        return _code(config)
-    if need == 'code_graph':
-        return _code(config) and (ssh_servers is None or bool(config['code'].get('graphs')))
-    if need == 'documents':
-        return _documents(config)
-    if need == 'grounded':
-        return _grounded(config)
-    if need in PROPOSAL_STARTS:  # only a run started from such a resource whose request turned the tool on
-        started = config.get('started_from') or {}
-        tool = 'propose_service' if need == 'server_proposals' else 'propose_document'
-        return started.get('type') in PROPOSAL_STARTS[need] and tool in config.get('proposal_tools', [])
-    if need == 'editable_document':
-        return any(entry.get('editable') for entry in config.get('document_access', []))
-    if need == 'resources':
-        return has_resources(config)
-    return _ssh(config) if ssh_servers is None else bool(ssh_servers)
-
-
-def _section(config: Mapping[str, Any], section: str, key: str) -> list[dict[str, Any]]:
-    value = config.get(section) or {}
-    return value.get(key, []) if value.get('enabled') else []
-
-
-def has_resources(config: Mapping[str, Any]) -> bool:
-    """Whether the configuration has a server, service, environment or code project (get_resource's kinds): tool
-    selection only, judged from the configuration's sections (until Phase 3 offers every tool)."""
-    return bool(
-        _section(config, 'ssh', 'servers')
-        or _section(config, 'services', 'items')
-        or _section(config, 'code', 'projects')
-        or (config.get('chosen_resources') or {}).get('environment_ids')
-    )
 
 
 def item(
@@ -204,66 +86,6 @@ def item(
     }
 
 
-def effective_tools(config: Mapping[str, Any], ssh_servers: list[dict[str, Any]]) -> list[tuple[ToolSpec, str]]:
-    """The catalog tools this run offers, in catalog order, with their usage text: switched on, and their need met;
-    get_resource (need resources) in every run that has resources and get_available_resources in every run, whatever
-    their rows say."""
-    chosen = {entry['tool']: entry for entry in config['tools']['items']}
-    offered = []
-    for spec in CATALOG.values():
-        if spec.name in ALWAYS_ON:
-            offered.append((spec, spec.usage))
-            continue
-        if spec.needs == 'resources':
-            if needs_met(spec.needs, config, ssh_servers):
-                offered.append((spec, spec.usage))
-            continue
-        entry = chosen.get(spec.name)
-        if entry is None or entry['mode'] != 'on' or not needs_met(spec.needs, config, ssh_servers):
-            continue
-        offered.append((spec, entry['usage'] or spec.usage))
-    return offered
-
-
-def _mcp_rows(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    return {entry['tool']: entry for entry in config['tools']['items'] if entry['tool'].startswith('mcp:')}
-
-
-def mcp_blocked(config: Mapping[str, Any], server_id: str) -> list[str]:
-    """The tool names of one MCP server the model must not get: switched off (or per run, not offered in step 1).
-    A tool without a row is on."""
-    prefix = f'mcp:{server_id}:'
-    return sorted(
-        name.removeprefix(prefix)
-        for name, entry in _mcp_rows(config).items()
-        if name.startswith(prefix) and entry['mode'] != 'on'
-    )
-
-
-def mcp_allowed(config: Mapping[str, Any], server_id: str) -> list[str]:
-    """The tool names of one MCP server switched on in the configuration: a subagent's allowlist (subagents.py), so a
-    tool without a row stays off."""
-    prefix = f'mcp:{server_id}:'
-    return sorted(
-        name.removeprefix(prefix)
-        for name, entry in _mcp_rows(config).items()
-        if name.startswith(prefix) and entry['mode'] == 'on'
-    )
-
-
-def mcp_notes(config: Mapping[str, Any], servers: list[dict[str, Any]]) -> list[str]:
-    """Edited usage of MCP tools that are on, as prompt lines: the description itself comes from the server."""
-    rows = _mcp_rows(config)
-    notes = []
-    for server in servers:
-        prefix = f'mcp:{server["id"]}:'
-        for name in sorted(rows):
-            entry = rows[name]
-            if name.startswith(prefix) and entry['mode'] == 'on' and entry['usage']:
-                notes.append(f'- {server["name"]}/{name.removeprefix(prefix)}: {entry["usage"]}')
-    return notes
-
-
 def catalog_listing() -> list[dict[str, Any]]:
     return [
         {
@@ -272,57 +94,19 @@ def catalog_listing() -> list[dict[str, Any]]:
             'label': spec.label,
             'summary': spec.summary,
             'usage': spec.usage,
-            'needs': spec.needs,
         }
         for spec in CATALOG.values()
-        if not run_only(spec.name)
     ]
-
-
-CAPABILITY_NEEDS: dict[str, tuple[str, ...]] = {
-    'code': ('files', 'code', 'code_graph'),
-    'documents': ('documents', 'grounded'),
-    'ssh': ('ssh',),
-}
-
-
-def capability_tools(capability: str, config: Mapping[str, Any]) -> list[str]:
-    """All tools of one capability, by need, in catalog order (not only those switched on by default). With code projects
-    off and "Answer only from documents" off, documents also bring the file tools (their need, files).
-    report_not_covered belongs to "Answer only from documents" and is listed only while it is on."""
-    files = capability == 'documents' and not _code(config) and not _grounded(config)
-    needs = CAPABILITY_NEEDS[capability] + (('files',) if files else ())
-    return [
-        spec.name
-        for spec in CATALOG.values()
-        if spec.needs in needs and (spec.name != 'report_not_covered' or _grounded(config))
-    ]
-
-
-def enabled_capability_tools(config: Mapping[str, Any]) -> list[str]:
-    """The tools of every capability switched on, each once, in catalog order."""
-    names = {
-        name
-        for capability in CAPABILITY_NEEDS
-        if config[capability]['enabled']
-        for name in capability_tools(capability, config)
-    }
-    return [name for name in CATALOG if name in names]
 
 
 def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
-    """All agents: how many tools are on with their need met (by the capability switches, as the Tools tab judges),
-    per group, MCP tools of enabled servers included."""
-    chosen = {entry['tool']: entry for entry in config['tools']['items']}
+    """All agents: how many tools a run gets, per group: every catalog tool and every tool of its enabled MCP
+    servers."""
     groups = {'code': 0, 'documents': 0, 'servers': 0, 'inventory': 0, 'memory': 0, 'mcp': 0, 'agents': 0}
     for spec in CATALOG.values():
-        if chosen.get(spec.name, {}).get('mode') == 'on' and needs_met(spec.needs, config, None):
-            groups[spec.group] += 1
+        groups[spec.group] += 1
     if config['mcp']['enabled']:
         for server in config['mcp']['servers']:
-            if not server.get('enabled', True):
-                continue
-            for found in server.get('tools', []):
-                if chosen.get(f'mcp:{server["id"]}:{found["name"]}', {}).get('mode', 'on') == 'on':
-                    groups['mcp'] += 1
+            if server.get('enabled', True):
+                groups['mcp'] += len(server.get('tools', []))
     return {'on': sum(groups.values()), 'per_run': 0, 'groups': groups}
