@@ -97,8 +97,11 @@ def test_debug_shows_the_instructions_and_tools_the_runner_sends(world):
     assert shown['model'] == {'id': world.model, 'name': 'GPT'}
     assert shown['prompt_source'] == 'library' and shown['prompt'] is None  # no library prompt was chosen
     assert shown['agent_instructions'] == '' and shown['skills'] == []
-    assert shown['resources']['servers'] == ['web-1']
-    assert shown['resources']['services'] == ['nginx']
+    assert [(item['type'], item['name'], item['source']) for item in shown['access']['resources']] == [
+        ('server', 'web-1', 'given'),
+        ('service', 'nginx', f'via server {world.server["id"]}'),
+    ]
+    assert shown['access']['roles'] == {'content_editor': False}
 
 
 def test_the_preview_shows_the_same_before_the_run_starts(world):
@@ -110,7 +113,7 @@ def test_the_preview_shows_the_same_before_the_run_starts(world):
     assert preview.json()['tools'] == shown['tools']
     assert preview.json()['config']['started_from']['type'] == 'server'
     # the rest of the Debug tab too, built by the same view
-    for key in ('prompt', 'prompt_source', 'agent_instructions', 'skills', 'resources', 'model'):
+    for key in ('prompt', 'prompt_source', 'agent_instructions', 'skills', 'access', 'model'):
         assert preview.json()[key] == shown[key], key
     prompt_id = assistant_prompt_id(world.project, 'server')
     with world.store.connect() as conn:

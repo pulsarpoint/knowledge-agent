@@ -64,8 +64,9 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), to
 
 
 def todays_tools(c, ssh_servers) -> set[str]:
-    """the former agents tool selection before this change, kept here as the reference."""
-    names = set()
+    """the former agents tool selection before this change, kept here as the reference (get_available_resources: in
+    every run)."""
+    names = {'get_available_resources'}
     grounded = c['documents']['enabled'] and c['documents'].get('grounded', False)
     if c['code']['enabled'] or c['documents']['enabled'] and not grounded:
         names |= {'list_files', 'read_file', 'search_files', 'shell_run'}
@@ -85,7 +86,8 @@ def todays_tools(c, ssh_servers) -> set[str]:
 
 
 def offered(c, ssh_servers=()) -> set[str]:
-    return {spec.name for spec, _ in effective_tools(c, list(ssh_servers))}
+    """What the run offers besides get_available_resources (in every run)."""
+    return {spec.name for spec, _ in effective_tools(c, list(ssh_servers))} - {'get_available_resources'}
 
 
 @pytest.mark.parametrize('code, documents, grounded, ssh, graph', list(itertools.product([False, True], repeat=5)))
@@ -94,7 +96,7 @@ def test_catalog_offers_todays_tools_for_every_capability_combination(code, docu
     c = config(code, documents, grounded, ssh, graphs)
     servers = [SERVER] if ssh else []
     c['tools'] = implied_tools(c)
-    assert offered(c, servers) == todays_tools(c, servers)
+    assert {spec.name for spec, _ in effective_tools(c, servers)} == todays_tools(c, servers)
 
 
 def test_only_selected_tools_with_met_needs_are_offered():
@@ -134,7 +136,7 @@ def test_descriptions_are_the_usage_text_and_keep_todays_guidance():
     }
     c = config(code=True, tools=['read_file'])
     c['tools']['items'][0]['usage'] = 'Read only the files you were asked about.'
-    [(spec, usage)] = effective_tools(c, [])
+    [(spec, usage)] = [item for item in effective_tools(c, []) if item[0].name == 'read_file']
     assert usage == 'Read only the files you were asked about.'
     assert function_tool(spec, usage).description == usage
 
@@ -164,7 +166,7 @@ def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
 
 
 def test_the_prompt_no_longer_carries_tool_sentences():
-    prompt = get_prompt(config(code=True, documents=True, ssh=True), [SERVER], [])
+    prompt = get_prompt(config(code=True, documents=True, ssh=True), [])
     for sentence in (
         'Use shell_run for Bash pipelines',
         'Use code_search to find',
@@ -173,7 +175,7 @@ def test_the_prompt_no_longer_carries_tool_sentences():
         'Use ssh_run with the configured server ID',
     ):
         assert sentence not in prompt
-    assert 'Use only the configured resources and tools.' in prompt and '"ssh_servers"' in prompt
+    assert 'Use only the configured resources and tools.' in prompt and '"ssh_servers"' not in prompt
 
 
 def test_a_refused_tool_answers_not_offered_even_with_invalid_arguments():
@@ -246,15 +248,6 @@ def test_the_summary_counts_tools_that_are_on_with_their_need_met_and_enabled_mc
         'agents': 0,
     }
     assert summary['on'] == 5
-
-
-def test_code_graphs_are_listed_only_when_a_tool_that_reads_them_is_offered():
-    graph = {'id': 'p', 'name': 'P', 'graph_path': '/g', 'code_root': '/c', 'source_hash': 'h'}
-    for tools, listed in ((['read_file'], False), (['read_file', 'code_graph'], True), (['shell_run'], True)):
-        c = config(code=True, graphs=[graph], tools=tools)
-        assert ('"code_graphs"' in get_prompt(c, [], [])) is listed, tools
-        assert ('"code_graphs"' in get_prompt(c, [], [], tools)) is listed, tools
-    assert '"code_graphs"' not in get_prompt(config(code=True, graphs=[graph], tools=['code_graph']), [], [], [])
 
 
 CODE_TOOLS = ['list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph']

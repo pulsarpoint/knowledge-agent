@@ -1,19 +1,29 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Copy } from "lucide-react";
-import { getSessionDebug, previewSession, type SessionDebug, type StartInput } from "./api";
+import { getSessionDebug, previewSession, type AccessResource, type SessionDebug, type StartInput } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 
-const RESOURCES: [string, string][] = [
-  ["servers", "Servers"],
-  ["services", "Services"],
-  ["code_projects", "Code projects"],
-  ["document_collections", "Document collections"],
-  ["documents", "Documents"],
-  ["mcp_servers", "MCP servers"],
-];
+const TYPE_WORDS: Record<string, string> = {
+  server: "Server",
+  service: "Service",
+  environment: "Environment",
+  code_project: "Code project",
+  collection: "Collection",
+  document: "Document",
+  skill: "Skill",
+  mcp_server: "MCP server",
+};
+
+/** Where a resource comes from: given to the run, or via the resource it came with (named when the run has it). */
+function source(resource: AccessResource, resources: AccessResource[]): string {
+  if (resource.source === "given") return "Given";
+  const [, type, id] = resource.source.split(" ");
+  const parent = resources.find((item) => item.type === type && item.id === id);
+  return `Via ${(TYPE_WORDS[type] ?? type).toLowerCase()} ${parent?.name ?? id}`;
+}
 
 function Section({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return (
@@ -64,7 +74,7 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
         <Spinner /> Loading what the model gets…
       </p>
     );
-  const resources = RESOURCES.filter(([key]) => (view.resources[key] ?? []).length > 0);
+  const resources = view.access.resources;
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {runId === null && (
@@ -156,19 +166,23 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
         {resources.length === 0 ? (
           <p className="text-sm text-muted-foreground">None.</p>
         ) : (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-            {resources.map(([key, label]) => (
-              <div key={key} className="contents">
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="flex min-w-0 flex-wrap gap-x-2 break-words">
-                  {view.resources[key].map((name, index) => (
-                    <span key={`${name}:${index}`}>{name}</span>
-                  ))}
-                </dd>
-              </div>
+          <ul className="flex flex-col divide-y rounded-md border">
+            {resources.map((resource) => (
+              <li
+                key={`${resource.type}:${resource.id}`}
+                className="flex min-w-0 flex-wrap items-baseline gap-x-2 px-3 py-2 text-sm"
+              >
+                <span className="text-muted-foreground">{TYPE_WORDS[resource.type] ?? resource.type}</span>
+                <span className="break-words font-medium">{resource.name}</span>
+                {resource.editable && <span className="text-xs text-muted-foreground">editable</span>}
+                <span className="ml-auto text-xs text-muted-foreground">{source(resource, resources)}</span>
+              </li>
             ))}
-          </dl>
+          </ul>
         )}
+      </Section>
+      <Section title="Roles">
+        <p className="text-sm">Content editor: {view.access.roles.content_editor ? "on" : "off"}</p>
       </Section>
       <Section title="Model">
         <p className="text-sm">{view.model?.name ?? "No model"}</p>

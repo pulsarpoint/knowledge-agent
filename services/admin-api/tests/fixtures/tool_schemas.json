@@ -510,6 +510,46 @@
   },
   {
     "group": "inventory",
+    "label": "Available resources",
+    "name": "get_available_resources",
+    "needs": null,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "server",
+                "service",
+                "environment",
+                "code_project",
+                "collection",
+                "document",
+                "skill",
+                "mcp_server"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only resources of this type.",
+          "title": "Resource Type"
+        }
+      },
+      "required": [
+        "resource_type"
+      ],
+      "title": "GetAvailableResources",
+      "type": "object"
+    },
+    "summary": "The resources this run may use, optionally of one type.",
+    "usage": "The resources this run may use, as JSON: each with its type, id, name, short description and source (given to\nthe run, or via the resource it belongs to). Pass a type to list only those. Use get_resource for one resource's\ndetails."
+  },
+  {
+    "group": "inventory",
     "label": "Resource info",
     "name": "get_resource",
     "needs": "resources",

@@ -16,7 +16,7 @@ from knowledge_admin.tools.catalog import (
     SUBAGENT,
     NEED_REASONS,
     NEED_TABS,
-    RUN_ONLY_NEEDS,
+    run_only,
     capability_tools,
     catalog_listing,
     enabled_capability_tools,
@@ -123,8 +123,8 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     tools = []
     for spec in CATALOG.values():
         row = saved.get(spec.name)
-        if spec.needs in RUN_ONLY_NEEDS:
-            continue  # given per run (proposal and edit tools) or always on with resources (get_resource)
+        if run_only(spec.name):
+            continue  # given per run (proposal and edit tools) or always on (get_resource, get_available_resources)
         if spec.name == SUBAGENT and row is None:
             continue  # listed only while May start subagents is on
         available = needs_met(spec.needs, current, None)
@@ -242,7 +242,7 @@ def build_api(app_name, store):
             experts = {id for id, expert in agents.items() if expert}
             for choice in value.tools:
                 if choice.tool in CATALOG:
-                    if CATALOG[choice.tool].needs in RUN_ONLY_NEEDS:
+                    if run_only(choice.tool):
                         raise HTTPException(400, DISCOVERY_ONLY)
                     continue
                 if choice.tool.startswith(ROW_PREFIX):

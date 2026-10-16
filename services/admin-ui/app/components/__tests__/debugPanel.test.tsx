@@ -47,13 +47,13 @@ const view = {
     { name: "ssh_run", description: "Run a read-only command on a server." },
     { name: "get_resource", description: "Read one resource." },
   ],
-  resources: {
-    code_projects: [],
-    document_collections: [],
-    servers: ["web-1"],
-    services: ["nginx"],
-    mcp_servers: [],
-    documents: [],
+  access: {
+    resources: [
+      { type: "server", id: "s1", name: "web-1", description_short: "Shop front end", source: "given" },
+      { type: "service", id: "n1", name: "nginx", description_short: "", source: "via server s1" },
+      { type: "document", id: "d1", name: "Runbook", description_short: "", source: "given", editable: true },
+    ],
+    roles: { content_editor: false },
   },
   model: { id: "m1", name: "GPT" },
 };
@@ -78,7 +78,7 @@ afterEach(() => {
   live.sessions = {};
 });
 
-test("an existing run: GET debug shows Instructions with Copy, Prompt, Tools, Resources and Model", async () => {
+test("an existing run: GET debug shows Instructions with Copy, Prompt, Tools, Resources, Roles and Model", async () => {
   const user = userEvent.setup();
   const calls = api({ "GET /api/sessions/r1/debug": () => [200, view] });
   const writeText = vi.fn(async () => undefined);
@@ -100,12 +100,30 @@ test("an existing run: GET debug shows Instructions with Copy, Prompt, Tools, Re
   expect(within(tools).getByText("Run a read-only command on a server.")).toBeInTheDocument();
   expect(within(tools).getByText("get_resource")).toBeInTheDocument();
   const resources = screen.getByRole("region", { name: "Resources" });
-  expect(within(resources).getByText("Servers")).toBeInTheDocument();
-  expect(within(resources).getByText("web-1")).toBeInTheDocument();
-  expect(within(resources).getByText("nginx")).toBeInTheDocument();
-  expect(within(resources).queryByText("MCP servers")).toBeNull(); // empty lists are left out
+  const rows = within(resources).getAllByRole("listitem");
+  expect(rows.map((row) => row.textContent)).toEqual([
+    "Serverweb-1Given",
+    "ServicenginxVia server web-1", // a child names the resource it came with
+    "DocumentRunbookeditableGiven",
+  ]);
+  const roles = screen.getByRole("region", { name: "Roles" });
+  expect(within(roles).getByText("Content editor: off")).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Model" })).getByText("GPT")).toBeInTheDocument();
   expect(calls.map((call) => call.key)).toEqual(["GET /api/sessions/r1/debug"]);
+});
+
+test("a run with no resources says so; a writing run is a content editor", async () => {
+  api({
+    "GET /api/sessions/r1/debug": () => [200, { ...view, access: { resources: [], roles: { content_editor: true } } }],
+  });
+  render(
+    <MemoryRouter>
+      <DebugPanel runId="r1" input={null} />
+    </MemoryRouter>,
+  );
+  const resources = await screen.findByRole("region", { name: "Resources" });
+  expect(within(resources).getByText("None.")).toBeInTheDocument();
+  expect(screen.getByText("Content editor: on")).toBeInTheDocument();
 });
 
 test("what the start left out is said above the instructions", async () => {

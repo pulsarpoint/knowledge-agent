@@ -33,9 +33,11 @@ from knowledge_admin.knowledge_agents.run_resources import (
     options as run_options,
     resolve,
 )
+from knowledge_admin.sessions.run_access import run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import (
+    ALWAYS_ON,
     CATALOG,
     DOCUMENT_EDIT_TOOLS,
     PROPOSAL_STARTS,
@@ -66,6 +68,13 @@ REQUIRES = {
     'server_proposals': 'a run started from a server',
     'resource_proposals': 'a run started from a server, service or environment',
 }
+PICKS = (
+    ('code_project', 'code_project_ids'),
+    ('collection', 'collection_ids'),
+    ('server', 'server_ids'),
+    ('service', 'service_ids'),
+    ('environment', 'environment_ids'),
+)
 # A chat on a resource: its tag (lists find its chats by it) and the table its id is in.
 RESOURCE_TYPES = {'server': 'servers', 'service': 'services', 'environment': 'environments'}
 RESOURCE_NOT_FOUND = {
@@ -249,9 +258,13 @@ class StartInput(BaseModel):
 
 def choosable() -> list:
     """The tools a person can switch on for a run: not "Answer only from documents", not run_subagent (its own
-    switch), not get_resource (on in every run with resources). The proposal tools work only in a run started from a
-    resource whose request turns them on (their need says so)."""
-    return [spec for spec in CATALOG.values() if spec.needs not in ('grounded', 'resources') and spec.name != SUBAGENT]
+    switch), not get_resource (on in every run with resources), not get_available_resources (on in every run). The
+    proposal tools work only in a run started from a resource whose request turns them on (their need says so)."""
+    return [
+        spec
+        for spec in CATALOG.values()
+        if spec.needs not in ('grounded', 'resources') and spec.name != SUBAGENT and spec.name not in ALWAYS_ON
+    ]
 
 
 def revise_prompt_id(project: UUID) -> UUID:
@@ -443,7 +456,18 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         content = pinned['system_prompt']['content'] + f'\n\n# Context\n\n{value.context}'
         pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
     pinned['project_id'] = str(project)
-    return jsonable_encoder(pinned), model
+    pinned = jsonable_encoder(pinned)
+    # a fixed agent is given everything it has; a per-run agent what the request picked (never more: access.narrow)
+    picked = (
+        [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
+        if per_run(pinned)
+        else None
+    )
+    try:
+        pinned['access'] = run_access(conn, project, pinned, picked)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return pinned, model
 
 
 def usable_tools(conn, project: UUID, agent_id: str, conninfo: str) -> list[str]:
@@ -592,7 +616,19 @@ def build(
             raise HTTPException(400, NO_EXPERT.format(id=expert_id))
     pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
     pinned['project_id'] = str(project)
-    return jsonable_encoder(pinned), model, origin if origin is not None else target
+    pinned = jsonable_encoder(pinned)
+    # given: what was picked (the resource it starts from, its inventory document's resource) and its documents; the
+    # runs a person asked to write (a new document, a revision, proposals) are content editors
+    picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
+    picked += [{'type': 'document', 'id': entry['id']} for entry in pinned['document_access']]
+    writes = value.started_from.resource() is None or any(name in PROPOSAL_TOOLS for name in value.tools)
+    try:
+        pinned['access'] = run_access(
+            conn, project, pinned, picked, environment_ids=selection.environment_ids, content_editor=writes
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return pinned, model, origin if origin is not None else target
 
 
 def start_run(
@@ -626,6 +662,7 @@ def start_run(
         if item['tool'] in CATALOG
         and item['mode'] != 'on'
         and CATALOG[item['tool']].needs != 'resources'  # on whenever the run has resources
+        and item['tool'] not in ALWAYS_ON
         and (item['tool'] not in PROPOSAL_TOOLS or item['tool'] in offered)
     )
     tags = value.run_tags()
@@ -761,6 +798,7 @@ def start_run(
             'expert_ids': value.expert_ids,
             'subagents': value.subagents,
         }
+    conn.execute('UPDATE ka.agent_sessions SET access=%s WHERE id=%s', (Jsonb(pinned['access']), session_id))
     conn.execute(
         'INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
         (session_id, actor, value.message),

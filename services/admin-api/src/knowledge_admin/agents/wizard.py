@@ -21,7 +21,7 @@ from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import model_fits
 from knowledge_admin.servers.operations_store import SSHInput
 from knowledge_admin.agents.profiles_api import PROMPT_LIMIT
-from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS, SUBAGENT, catalog_listing, enabled_capability_tools
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing, enabled_capability_tools, run_only
 from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
 
 
@@ -328,7 +328,7 @@ def build_api(app_name, store):
                 for name in [*(value.tools or []), *value.subagent_blocked]:
                     if name not in CATALOG:
                         raise HTTPException(400, UNKNOWN.format(tool=name))
-                    if CATALOG[name].needs in RUN_ONLY_NEEDS:
+                    if run_only(name):
                         raise HTTPException(400, DISCOVERY_ONLY)
                     if name == SUBAGENT:
                         raise HTTPException(400, SUBAGENT_SWITCH)

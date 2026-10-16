@@ -243,13 +243,14 @@ def test_not_covered_rule(state, expected):
 def test_grounded_agents_get_only_citable_tools_and_policy():
     grounded = config()
     names = {spec.name for spec, _ in effective_tools(grounded, [])}
-    assert names == {'search_documents', 'read_document', 'report_not_covered'}
-    assert grounding.POLICY in get_prompt(grounded, [], [])
+    # get_available_resources lists what the run may use (in every run); it reads no content
+    assert names == {'search_documents', 'read_document', 'report_not_covered', 'get_available_resources'}
+    assert grounding.POLICY in get_prompt(grounded, [])
     ungrounded = config(grounded=False)
     names = {spec.name for spec, _ in effective_tools(ungrounded, [])}
     assert {'search_documents', 'read_document', 'list_files', 'shell_run'} <= names
     assert 'report_not_covered' not in names
-    assert grounding.POLICY not in get_prompt(ungrounded, [], [])
+    assert grounding.POLICY not in get_prompt(ungrounded, [])
 
 
 def test_get_paths_skips_document_collections_for_grounded_agents():

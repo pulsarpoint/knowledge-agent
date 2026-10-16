@@ -283,18 +283,14 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
     assert request['path'] == '/v1/responses' and request['authorization'] == 'Bearer fixture-api-secret'
     assert request['body']['model'] == 'fixture-model'
     serialized = json.dumps(request['body'])
-    for expected in (
-        'Use the active saved system prompt.',
-        'Explain the source fixture.',
-        'Local source',
-        'Operations docs',
-        'Read before suggesting changes.',
-    ):
+    for expected in ('Use the active saved system prompt.', 'Explain the source fixture.'):
         assert expected in serialized
-    assert 'Inspect the queue.' not in serialized  # a service's details come from get_resource
+    # the run's resources are not in the prompt: get_available_resources lists them, get_resource details them
+    for listed in ('Local source', 'Operations docs', 'Read before suggesting changes.', 'Inspect the queue.'):
+        assert listed not in serialized
     for excluded in ('fixture-api-secret', 'MUST_NOT_APPEAR', 'must-not-connect.test', 'must-not-contact.test'):
         assert excluded not in serialized
-    assert config['code']['projects'][0]['folder_paths'][0] in serialized
+    assert config['code']['projects'][0]['folder_paths'][0] not in serialized
     structural = next(tool for tool in request['body']['tools'] if tool.get('name') == 'ast_grep')
     assert 'SetPersonalLimits' in structural['description']
     assert 'native rule' in structural['description']

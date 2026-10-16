@@ -188,7 +188,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
             row = conn.execute(
-                'SELECT agent_config,tags,prompt_snapshot FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
+                'SELECT agent_config,access,tags,prompt_snapshot FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
                 (session_id, project),
             ).fetchone()
             if row is None:
@@ -198,7 +198,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn,
                 db,
                 project,
-                row['agent_config'],
+                {**row['agent_config'], 'access': row['access']},
                 tags=row['tags'],
                 prompt_id=snapshot.get('prompt_id'),
                 prompt_text=snapshot.get('system_prompt') or '',

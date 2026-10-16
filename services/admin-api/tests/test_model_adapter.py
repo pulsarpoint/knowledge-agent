@@ -159,7 +159,7 @@ def test_direct_chat_connection(config, chat_api):
     assert result.final_output == 'Adapter completed the task.'
     assert len(requests) == 1 and requests[0]['path'] == '/v1/chat/completions'
     assert requests[0]['auth'] == 'Bearer chat-secret'
-    assert 'Local source' in json.dumps(requests[0]['body'])
+    assert 'Use the active saved system prompt.' in json.dumps(requests[0]['body'])
     assert 'chat-secret' not in json.dumps(requests[0]['body'])
     assert result.context_wrapper.usage.total_tokens == 15
 
@@ -224,7 +224,10 @@ def test_sdk_executes_mcp_call_and_returns_matching_result(config, chat_api, res
 
 def test_sdk_executes_file_tool_and_preserves_tool_history(config, chat_api, tmp_path):
     config['model'].update(api_format='chat_completions', base_url=chat_api[0])
-    result = asyncio.run(agent(config, 'ADAPTER_FILE_CYCLE: read the README.', credentials={'model-key': 'key'}))
+    folder = config['code']['projects'][0]['folder_paths'][0]  # the fixture model reads it from the message
+    result = asyncio.run(
+        agent(config, f'ADAPTER_FILE_CYCLE: read the README in {folder}', credentials={'model-key': 'key'})
+    )
     assert result.final_output == 'Adapter completed the task.'
     messages = chat_api[1][1]['body']['messages']
     assert any(m['role'] == 'tool' and 'Source fixture.' in m['content'] for m in messages)

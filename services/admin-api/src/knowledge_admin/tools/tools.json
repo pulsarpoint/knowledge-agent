@@ -77,6 +77,13 @@
     "needs": "ssh"
   },
   {
+    "name": "get_available_resources",
+    "group": "inventory",
+    "label": "Available resources",
+    "summary": "The resources this run may use, optionally of one type.",
+    "needs": null
+  },
+  {
     "name": "get_resource",
     "group": "inventory",
     "label": "Resource info",

@@ -112,11 +112,20 @@ CATALOG: dict[str, ToolSpec] = load_catalog(load_fixture(), REGISTRY)
 
 DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
 PROPOSAL_TOOLS = ('propose_service', 'propose_document')
+# Offered in every run, never switched: how the model lists what the run may use.
+ALWAYS_ON = ('get_available_resources',)
 # Never chosen for a saved agent: a run is started from a resource (and asks for the proposal tools), documents are
 # given, per run, and get_resource is on in every run that has resources (it is how the model reads them).
 RUN_ONLY_NEEDS = ('server_proposals', 'resource_proposals', 'editable_document', 'resources')
 # Where each proposal tool works: the resource types a run may start from to ask for it.
 PROPOSAL_STARTS = {'server_proposals': ('server',), 'resource_proposals': ('server', 'service', 'environment')}
+
+
+def run_only(name: str) -> bool:
+    """Never chosen for a saved agent (not on the Tools tab or in the wizard): a run-only need, or always on."""
+    return CATALOG[name].needs in RUN_ONLY_NEEDS or name in ALWAYS_ON
+
+
 NEED_REASONS: dict[str, str] = {
     'files': 'Needs code projects, or documents without "Answer only from documents"',
     'code': 'Needs code projects',
@@ -184,10 +193,14 @@ def item(
 
 def effective_tools(config: Mapping[str, Any], ssh_servers: list[dict[str, Any]]) -> list[tuple[ToolSpec, str]]:
     """The catalog tools this run offers, in catalog order, with their usage text: switched on, and their need met;
-    get_resource (need resources) in every run that has resources, whatever its row says."""
+    get_resource (need resources) in every run that has resources and get_available_resources in every run, whatever
+    their rows say."""
     chosen = {entry['tool']: entry for entry in config['tools']['items']}
     offered = []
     for spec in CATALOG.values():
+        if spec.name in ALWAYS_ON:
+            offered.append((spec, spec.usage))
+            continue
         if spec.needs == 'resources':
             if needs_met(spec.needs, config, ssh_servers):
                 offered.append((spec, spec.usage))
@@ -249,7 +262,7 @@ def catalog_listing() -> list[dict[str, Any]]:
             'needs': spec.needs,
         }
         for spec in CATALOG.values()
-        if spec.needs not in RUN_ONLY_NEEDS
+        if not run_only(spec.name)
     ]
 
 

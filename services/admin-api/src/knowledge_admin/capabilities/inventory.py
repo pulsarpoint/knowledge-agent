@@ -11,6 +11,7 @@ from uuid import UUID
 
 from pydantic import Field
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext, allowed
 from knowledge_admin.documents.store import inventory_document, resource_document_list
 from knowledge_admin.tools import texts
@@ -21,6 +22,8 @@ SHORT = 300
 UNAVAILABLE = 'The inventory is not available in this run.'
 NOT_GIVEN = 'The {type} {id} is not available in this run.'
 ResourceType = Literal['server', 'service', 'environment', 'code_project']
+AccessType = Literal[access_rules.TYPES]
+EMPTY_ACCESS = {'resources': [], 'roles': {'content_editor': False}}
 _store = None
 
 
@@ -197,3 +200,14 @@ async def get_resource(
     ],
 ) -> str:
     return await asyncio.to_thread(_resource, context['config'], resource_type, resource_id)
+
+
+@tool
+async def get_available_resources(
+    context: RunContext,
+    resource_type: Annotated[AccessType | None, Field(description='Only resources of this type.')] = None,
+) -> str:
+    """The resources this run may use, as JSON: each with its type, id, name, short description and source (given to
+    the run, or via the resource it belongs to). Pass a type to list only those. Use get_resource for one resource's
+    details."""
+    return dumps(access_rules.listing(context['config'].get('access', EMPTY_ACCESS), resource_type))

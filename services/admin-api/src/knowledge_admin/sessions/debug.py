@@ -6,9 +6,7 @@ Every text shown is redacted with the configuration's secrets, as run records ar
 from typing import Any
 from uuid import UUID
 
-from knowledge_admin.capabilities import mcp
 from knowledge_admin.agents.runner import instructions_and_tools, known_secrets, ssh_servers
-from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.activity import redact
 
@@ -18,7 +16,7 @@ WIZARD_TAG = 'proposals'  # a run started from the Propose wizard: its prompt wa
 def instructions_and_tool_list(config: dict[str, Any], secrets: list[str]) -> dict[str, Any]:
     """{instructions, tools: [{name, description}]} as a session turn gives them to the model (a session turn offers
     subagents and experts), redacted with `secrets` (known_secrets). MCP tools are listed by their servers once a run
-    connects; the servers are in resource_names."""
+    connects; the servers are in the access object."""
     prompt, tools, experts, _ = instructions_and_tools(config, ssh_servers(config), subagents=True)
     return {
         'instructions': redact(prompt, secrets),
@@ -44,19 +42,6 @@ def prompt_origin(conn, project: UUID, prompt_id: UUID | str | None, text: str) 
     return {'id': str(row['id']), 'name': row['name'], 'version': version}
 
 
-def resource_names(config: dict[str, Any]) -> dict[str, list[str]]:
-    """What the run is pinned to, by name."""
-    documents = config['documents']['enabled']
-    return {
-        'code_projects': [item['name'] for item in config['code']['projects']] if config['code']['enabled'] else [],
-        'document_collections': [item['name'] for item in document_collections(config)[1]] if documents else [],
-        'servers': [server['name'] for server in ssh_servers(config)],
-        'services': [item['name'] for item in config['services']['items']] if config['services']['enabled'] else [],
-        'mcp_servers': [server['name'] for server in mcp.selected_servers(config, ssh_servers(config))],
-        'documents': [entry['title'] for entry in config.get('document_access') or []],
-    }
-
-
 def view(
     conn,
     store: RepositoryStore,
@@ -78,7 +63,7 @@ def view(
         'prompt_source': 'wizard' if wizard else 'library',
         'agent_instructions': redact(config['instructions'], secrets),
         'skills': [{'name': item['name']} for item in skills],
-        'resources': resource_names(config),
+        'access': config['access'],  # what the run may use: resources with their source, and roles
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,
         'notes': config.get('start_notes', []),  # what the start left out, and why
     }

@@ -292,21 +292,18 @@ def server_run(world) -> str:
     return created.json()['id']
 
 
-def test_a_server_runs_prompt_names_it_in_one_line_and_lists_an_index(world):
+def test_a_server_runs_prompt_names_it_in_one_line_and_lists_no_resources(world):
     ssh_key(world)
     sid = server_run(world)
     instructions = debug(world, sid)['instructions']
     assert f'Resource: server {world.server["id"]} (web-1)' in instructions
-    entry = {'type': 'server', 'id': world.server['id'], 'name': 'web-1', 'description': 'Shop front end'}
-    assert json.dumps(entry, ensure_ascii=False) in instructions
-    service = {'type': 'service', 'id': str(world.nginx), 'name': 'nginx', 'description': 'Front proxy for the shop'}
-    assert json.dumps(service, ensure_ascii=False) in instructions
+    assert 'Shop front end' not in instructions and 'nginx' not in instructions  # get_available_resources lists them
     assert '10.0.0.7' not in instructions and '"hostname"' not in instructions
     assert '"username"' not in instructions and '"allow_sudo"' not in instructions
     assert 'servers/' not in instructions  # tags stay internal
     config = config_of(world, sid)
     config['ssh']['servers'][0]['instructions'] = 'Never reboot web-1 during business hours.'
-    prompt = get_prompt(config, config['ssh']['servers'], [])
+    prompt = get_prompt(config, [])
     assert 'Never reboot' not in prompt and '"instructions"' not in prompt
 
 

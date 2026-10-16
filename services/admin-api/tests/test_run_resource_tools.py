@@ -145,12 +145,9 @@ def test_ssh_reaches_only_the_given_servers(folders):
     )
 
 
-def test_the_prompt_says_the_run_got_only_these_resources(folders):
-    prompt = get_prompt(run_context(folders, code=['given'])['config'], [], [])
-    assert 'This run was given only the resources listed below.' in prompt
-    assert str(folders['given']) in prompt and str(folders['other']) not in prompt
-    fixed = run_context(folders, code=['given'])['config'] | {'resources': 'fixed'}
-    assert 'This run was given only' not in get_prompt(fixed, [], [])
+def test_the_prompt_no_longer_lists_the_runs_resources(folders):
+    prompt = get_prompt(run_context(folders, code=['given'])['config'], [])
+    assert 'This run was given only' not in prompt and str(folders['given']) not in prompt
 
 
 def test_per_run_narrowing_still_decides_what_tools_reach(folders):

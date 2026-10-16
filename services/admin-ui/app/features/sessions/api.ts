@@ -221,8 +221,22 @@ export const getSessionOptions = (
   );
 export const reviewSession = (id: string, comment: string, turn?: number) =>
   request<SessionReview>(`${session(id)}/review`, json("POST", { comment, ...(turn ? { turn } : {}) }));
+/** One resource of a run's access object. */
+export interface AccessResource {
+  type: string;
+  id: string;
+  name: string;
+  description_short: string;
+  source: string;
+  editable?: boolean;
+}
+/** A run's access object: the resources it may use and its roles (fixed at start). */
+export interface RunAccess {
+  resources: AccessResource[];
+  roles: { content_editor: boolean };
+}
 /** What a run's model receives (its Debug tab): the assembled instructions, where the prompt came from, the tools as the
- * model sees them, and what the run is pinned to (names only). Secrets are redacted. */
+ * model sees them, and what the run may use (its access object). Secrets are redacted. */
 export interface SessionDebug {
   instructions: string;
   /** The library prompt and its version (null: the text was edited before the start); null: no library prompt. */
@@ -232,7 +246,9 @@ export interface SessionDebug {
   agent_instructions: string;
   skills: { name: string }[];
   tools: { name: string; description: string }[];
-  resources: Record<string, string[]>;
+  /** What the run may use: each resource with its source (`given`, or `via <type> <id>` of the resource it came with) and
+   * the roles. */
+  access: RunAccess;
   model: { id: string; name: string } | null;
   /** What the start left out, and why (an inventory document's server without usable SSH). */
   notes?: string[];

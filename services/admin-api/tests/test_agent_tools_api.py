@@ -4,7 +4,7 @@ tools when a capability is switched on; the wizard's tools; the list summary."""
 from uuid import uuid4
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS, effective_tools
+from knowledge_admin.tools.catalog import ALWAYS_ON, CATALOG, effective_tools, run_only
 from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_agent_resources import listed
@@ -54,14 +54,12 @@ def test_the_catalog_and_an_agents_tools(store, saved_agent):
     client, mcp = saved_agent[0], saved_agent[4]
     assert client.get('/api/tools').status_code == 403
     catalog = client.get('/api/tools', headers=HEADERS).json()['tools']
-    assert [tool['name'] for tool in catalog] == [
-        name for name, spec in CATALOG.items() if spec.needs not in RUN_ONLY_NEEDS
-    ]
+    assert [tool['name'] for tool in catalog] == [name for name in CATALOG if not run_only(name)]
     assert set(catalog[0]) == {'name', 'group', 'label', 'summary', 'usage', 'needs'}
     current = view(client)
     names = [tool['tool'] for tool in current['tools']]
     assert names == [
-        *(name for name, spec in CATALOG.items() if name != 'run_subagent' and spec.needs not in RUN_ONLY_NEEDS),
+        *(name for name in CATALOG if name != 'run_subagent' and not run_only(name)),
         f'mcp:{mcp["id"]}:lookup',
     ]  # run_subagent: only with its switch
     lookup = current['tools'][-1]
@@ -246,9 +244,7 @@ def test_a_save_that_switches_nothing_on_leaves_the_tools_alone(store, saved_age
 def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     client = saved_agent[0]
     options = client.get('/api/agents/wizard/options', headers=HEADERS).json()
-    assert [tool['name'] for tool in options['tools']] == [
-        name for name, spec in CATALOG.items() if spec.needs not in RUN_ONLY_NEEDS
-    ]
+    assert [tool['name'] for tool in options['tools']] == [name for name in CATALOG if not run_only(name)]
     implied = client.post(
         '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Implied', ssh_enabled=True)
     ).json()
@@ -291,8 +287,9 @@ def test_the_list_summarises_the_tools_that_run(store, saved_agent):
 
 
 def offered(store, agent_id, ssh_servers=()) -> set[str]:
+    """What a run of the agent offers besides the tools on in every run."""
     config = get_agent_config(agent_id, conninfo=store.conninfo)
-    return {spec.name for spec, _ in effective_tools(config, list(ssh_servers))}
+    return {spec.name for spec, _ in effective_tools(config, list(ssh_servers))} - set(ALWAYS_ON)
 
 
 def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, saved_agent):
