@@ -20,6 +20,7 @@ from knowledge_admin.capabilities import (  # noqa: F401
     files,
     inventory,
     memory,
+    skills,
     ssh,
     subagents,
 )

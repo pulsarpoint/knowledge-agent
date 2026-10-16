@@ -6,6 +6,7 @@ Every text shown is redacted with the configuration's secrets, as run records ar
 from typing import Any
 from uuid import UUID
 
+from knowledge_admin import access as access_rules
 from knowledge_admin.agents.runner import instructions_and_tools, known_secrets
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.activity import redact
@@ -55,14 +56,13 @@ def view(
     """The Debug tab of a configuration. tags, prompt_id, prompt_text: the run's (or the start request's)."""
     secrets = known_secrets(store, config)
     wizard = WIZARD_TAG in tags
-    skills = [item for item in config['skills']['items'] if item['enabled']] if config['skills']['enabled'] else []
     model = config['model']
     return {
         **instructions_and_tool_list(config, secrets),
         'prompt': None if wizard else prompt_origin(conn, project, prompt_id, prompt_text),
         'prompt_source': 'wizard' if wizard else 'library',
         'agent_instructions': redact(config['instructions'], secrets),
-        'skills': [{'name': item['name']} for item in skills],
+        'skills': [{'name': item['name']} for item in access_rules.listing(config['access'], 'skill')],
         'access': config['access'],  # what the run may use: resources with their source, and roles
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,
         'notes': config.get('start_notes', []),  # what the start left out, and why

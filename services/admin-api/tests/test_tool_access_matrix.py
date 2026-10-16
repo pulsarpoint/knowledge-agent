@@ -47,6 +47,8 @@ ACCESS = {
         item('code_project', 'c1', 'payments-api', folder_paths=['/code/payments']),
         item('collection', 'k1', 'payments', paths=['/data/payments']),
     ),
+    # a saved agent's skill (skills are always given)
+    'skill': run(item('skill', 'k1', 'inspect')),
     # one of every kind, none of them the one asked for
     'other': run(
         item('server', 's9', 'db-9'),
@@ -55,6 +57,7 @@ ACCESS = {
         item('code_project', 'c9', 'other-code'),
         item('collection', 'k9', 'private'),
         item('document', 'd9', 'Other doc', editable=True),
+        item('skill', 'k9', 'other-skill'),
         editor=True,
     ),
 }
@@ -83,6 +86,7 @@ ARGS = {
     'save_memory': {'name': 'x', 'content': 'y'},
     'update_memory': {'name': 'x', 'content': 'y', 'revision': 1},
     'run_subagent': {'task': 'look', 'resources': {'server_ids': ['s1']}},
+    'load_skill': {'name': 'inspect'},
 }
 
 NOT_EDITOR = access_rules.NOT_EDITOR
@@ -95,9 +99,10 @@ NOT_SERVER = 'This server is not available in this run.'
 NOT_CODE = 'This code project is not available in this run.'
 NOT_COLLECTION = 'This collection is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
+NOT_SKILL = 'This skill is not available in this run.'
 NOT_GROUNDED = 'This run does not answer only from documents.'
 WITH_SERVER = ('server', 'server_with_services', 'wizard', 'new_document')
-WITHOUT_EDITOR = ('empty', 'server', 'server_with_services', 'read_only_document', 'editable_document')
+WITHOUT_EDITOR = ('empty', 'server', 'server_with_services', 'read_only_document', 'editable_document', 'skill')
 
 
 def row(default, **cells) -> dict:
@@ -149,6 +154,7 @@ EXPECTED = {
     'save_memory': ALWAYS,
     'update_memory': ALWAYS,
     'run_subagent': row(NOT_SERVER, **some(WITH_SERVER, None)),
+    'load_skill': row(NOT_SKILL, skill=None),
 }
 
 

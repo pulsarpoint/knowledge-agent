@@ -220,10 +220,17 @@ def config(responses_api, tmp_path):
                 {
                     'id': 'inspection',
                     'name': 'Inspection',
+                    'description': 'Inspect before changing.',
                     'instructions': 'Read before suggesting changes.',
                     'enabled': True,
                 },
-                {'id': 'disabled', 'name': 'Disabled skill', 'instructions': 'MUST_NOT_APPEAR', 'enabled': False},
+                {
+                    'id': 'disabled',
+                    'name': 'Disabled skill',
+                    'description': 'MUST_NOT_APPEAR',
+                    'instructions': 'MUST_NOT_APPEAR',
+                    'enabled': False,
+                },
             ],
         },
         'mcp': {'enabled': False, 'servers': [{'url': 'http://must-not-contact.test/mcp'}]},
@@ -287,13 +294,14 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
     assert request['path'] == '/v1/responses' and request['authorization'] == 'Bearer fixture-api-secret'
     assert request['body']['model'] == 'fixture-model'
     serialized = json.dumps(request['body'])
-    # the skills stay in the prompt until load_skill (Phase 3)
+    # a skill is listed by name and description; load_skill gives its instructions
     for expected in (
         'Use the active saved system prompt.',
         'Explain the source fixture.',
-        'Read before suggesting changes.',
+        '- Inspection: Inspect before changing.',
     ):
         assert expected in serialized
+    assert 'Read before suggesting changes.' not in serialized
     # the run's resources are not in the prompt: get_available_resources lists them, get_resource details them
     for listed in ('Local source', 'Operations docs', 'Inspect the queue.'):
         assert listed not in serialized
@@ -328,6 +336,7 @@ def test_disabled_resources_are_not_used_or_validated(config, responses_api):
     _, requests = responses_api
     for section in ('code', 'documents', 'skills', 'services'):
         config[section]['enabled'] = False
+    with_access(config)
     config['code']['projects'][0]['folder_paths'] = ['/missing/disabled-source']
     result = asyncio.run(
         agent(config, 'Answer without resources.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45)

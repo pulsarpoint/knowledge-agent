@@ -1367,5 +1367,29 @@
     },
     "summary": "Hand a separate part of the work to a helper that runs in parallel.",
     "usage": "Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. It gets your tools except run_subagent and the experts; give it the fewest resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."
+  },
+  {
+    "group": "agents",
+    "label": "Load a skill",
+    "name": "load_skill",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The skill name, as listed under Skills.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LoadSkill",
+      "type": "object"
+    },
+    "summary": "Get the full instructions of a skill listed in the agent's instructions.",
+    "usage": "Get the full instructions of a skill listed under Skills in your instructions. Call it once per skill, before following the skill."
   }
 ]

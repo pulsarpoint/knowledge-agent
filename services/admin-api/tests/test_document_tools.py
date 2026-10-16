@@ -62,6 +62,7 @@ def config(**documents_settings):
         'services': {'enabled': False, 'items': []},
         'ssh': {'enabled': False, 'servers': []},
         'mcp': {'enabled': False, 'servers': []},
+        'access': {'resources': [], 'roles': {'content_editor': False}},
     }
     return value
 

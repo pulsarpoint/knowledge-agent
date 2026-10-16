@@ -2,7 +2,7 @@
 
 Implementations live in `knowledge_admin/capabilities/`:
 `files.py` (list/read/search files), `ast_grep.py`, `code_search.py`, `code_graph.py` (the CodeGraph queries and
-`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `document_tools.py` (`get_document`, `edit_document`, `save_document`), `ssh.py`, `subagents.py`, `mcp.py`
+`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `document_tools.py` (`get_document`, `edit_document`, `save_document`), `ssh.py`, `subagents.py`, `skills.py`, `mcp.py`
 (MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
 `worker.py` for the shell worker service). They do not import the Agents SDK.
 
@@ -37,6 +37,11 @@ finds the host in the run context (`context['subagents']`) and the call id in `c
 (set by `tools/sdk.py` around each invocation). `subagent_config` narrows the resources to the parent's current lists;
 the subagent gets every tool but `run_subagent`, the parent's MCP servers, no experts, and the parent's access
 narrowed with content editor off.
+
+`load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
+name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this
+run.`). The run's instructions list its skills by name and description only (`skills.section`, used by
+`runner.get_prompt` and `sessions/text.agent_system_prompt`); a run without skills has no Skills section.
 
 Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog and have no usage text of their
 own. A session pins the experts it may call (`config['experts']`); the runtime builds one function tool per entry

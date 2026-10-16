@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from knowledge_admin.capabilities import skills
+
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
 MAX_NOTIFICATION_BODY = 200_000
 NO_ANSWER = '(The agent returned no answer.)'
@@ -9,21 +11,14 @@ NOT_FROM_JIRA = 'This event did not come from a Jira connection.'
 
 
 def agent_system_prompt(config: dict[str, Any]) -> str:
-    """The agent's instructions for a session: the active prompt, the agent's instructions and its enabled skills. What to write in this session stays in the first message."""
+    """The agent's instructions for a session: the active prompt, the agent's instructions and its skills by name and
+    description (skills.section; load_skill gives their instructions). What to write in this session stays in the first
+    message."""
     parts = [config['system_prompt']['content'].strip()]
     if config['instructions'].strip():
         parts.append('## Instructions\n\n' + config['instructions'].strip())
-    skills = [skill for skill in config['skills']['items'] if skill['enabled']] if config['skills']['enabled'] else []
-    if skills:
-        blocks = [
-            '\n\n'.join(
-                part
-                for part in (f'### {skill["name"]}', skill['description'].strip(), skill['instructions'].strip())
-                if part
-            )
-            for skill in skills
-        ]
-        parts.append('## Skills\n\n' + '\n\n'.join(blocks))
+    if listed := skills.section(config['access']):
+        parts.append(listed)
     return '\n\n'.join(parts)
 
 

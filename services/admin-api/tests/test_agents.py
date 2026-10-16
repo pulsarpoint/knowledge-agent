@@ -136,7 +136,8 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
         'remote_git_url': 'https://github.com/example/payments.git',
     }
     assert config['skills']['items'][0]['id'] == skill['id']
-    assert config['skills']['items'][0]['instructions'] == 'Check the exit code.'
+    assert config['skills']['items'][0]['description'] == 'Inspect service health'
+    assert 'instructions' not in config['skills']['items'][0]  # load_skill reads them
     assert config['mcp']['servers'][0]['tools'] == [{'name': 'lookup'}]
     assert config['services']['items'][0]['description'] == 'Check the queue.'
     assert 'operations_notes' not in config['services']['items'][0]

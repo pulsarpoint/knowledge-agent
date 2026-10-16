@@ -43,6 +43,7 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=()):
         'skills': {'enabled': False, 'items': []},
         'services': {'enabled': False, 'items': []},
         'mcp': {'enabled': False, 'servers': []},
+        'access': {'resources': [], 'roles': {'content_editor': False}},
     }
     return value
 

@@ -200,7 +200,7 @@ CODE_PROJECTS = """SELECT r.id,r.name,r.description,r.remote_url AS remote_git_u
 SERVICES = """SELECT s.id,s.name,s.description,s.owner,s.revision,s.repositories,s.deployments,s.dependencies,
     s.dependents,s.links FROM ka.service_assets s WHERE s.project_id=%s AND s.id=ANY(%s::uuid[])
     ORDER BY lower(s.name),s.id"""
-SKILLS = """SELECT id,name,description,instructions,enabled,revision FROM ka.agent_skills
+SKILLS = """SELECT id,name,description,enabled,revision FROM ka.agent_skills
     WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY name,id"""
 MCP_SERVERS = """SELECT id,name,description,url,enabled,tools,revision,token_ciphertext IS NOT NULL AS has_token
     FROM ka.mcp_servers WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY lower(name),id"""

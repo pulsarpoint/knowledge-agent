@@ -96,7 +96,11 @@ def config_resources(config: dict[str, Any]) -> list[dict[str, Any]]:
             if 'id' in item
         ]
     if config['skills']['enabled']:
-        found += [_entry('skill', skill) for skill in config['skills']['items'] if skill['enabled']]
+        found += [
+            _entry('skill', skill, description=skill['description'])  # listed in the instructions (skills.section)
+            for skill in config['skills']['items']
+            if skill['enabled']
+        ]
     found += [_entry('mcp_server', server) for server in mcp.selected_servers(config)]
     found += [document_entry(config, item) for item in config.get('document_access') or []]
     return list({(item['type'], item['id']): item for item in found}.values())

@@ -80,7 +80,10 @@ def parent(**change) -> dict:
                 }
             ],
         },
-        'skills': {'enabled': True, 'items': [{'id': 'inspect', 'name': 'Inspect', 'enabled': True}]},
+        'skills': {
+            'enabled': True,
+            'items': [{'id': 'inspect', 'name': 'Inspect', 'description': 'Inspect first.', 'enabled': True}],
+        },
         'mcp': {
             'enabled': True,
             'servers': [
