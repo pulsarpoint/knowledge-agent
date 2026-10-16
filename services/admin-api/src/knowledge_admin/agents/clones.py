@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
-from knowledge_admin.knowledge_agents.config import changed_sections, fingerprint, get_agent_config
+from knowledge_admin.knowledge_agents.config import changed_sections, fingerprint, saved_config
 from knowledge_admin.agents.profiles_api import WORKING
 
 NAME_TAKEN = 'An agent with this name already exists.'
@@ -100,13 +100,11 @@ def build_api(app_name, store):
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, NAME_TAKEN) from None
 
-    def config(agent_id: str) -> dict:
+    def config(conn, agent_id: str) -> dict:
         try:
-            return get_agent_config(agent_id, conninfo=store.conninfo)
+            return saved_config(conn, agent_id)
         except LookupError:
             raise HTTPException(404, 'Agent not found') from None
-        except ValueError as exc:
-            raise HTTPException(409, str(exc)) from None
 
     def original_of(conn, agent_id: str) -> dict:
         row = conn.execute(
@@ -126,12 +124,12 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         with database().connect() as conn:
             original = original_of(conn, agent_id)
-        target = config(original['id'])
-        return {
-            'original': original,
-            'fingerprint': fingerprint(target),
-            'changes': changed_sections(config(agent_id), target),
-        }
+            target = config(conn, original['id'])
+            return {
+                'original': original,
+                'fingerprint': fingerprint(target),
+                'changes': changed_sections(config(conn, agent_id), target),
+            }
 
     @router.post('/apply')
     def apply(agent_id: str, value: ApplyInput, request: Request):
@@ -144,8 +142,8 @@ def build_api(app_name, store):
             original = original_of(conn, agent_id)  # again, under the locks
             if conn.execute(WORKING, {'a': original['id']}).fetchone():
                 raise HTTPException(409, APPLY_WORKING)
-            # The fingerprint is read on a separate connection, after the locks: writers of the original wait on them.
-            if original['revision'] != value.revision or fingerprint(config(original['id'])) != value.fingerprint:
+            # The fingerprint is read after the locks: writers of the original wait on them.
+            if original['revision'] != value.revision or fingerprint(config(conn, original['id'])) != value.fingerprint:
                 raise HTTPException(409, ORIGINAL_CHANGED)
             actor = store.actor(conn, *request_actor(request))
             copy_configuration(conn, agent_id, original['id'], actor)

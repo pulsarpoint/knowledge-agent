@@ -44,6 +44,7 @@ FOUND = {
     'collection': 'SELECT id,name,deleted_at IS NULL AS usable FROM ka.rag_collections WHERE project_id=%s AND id=ANY(%s)',
     'server': 'SELECT id,name,ssh_allowed AS usable FROM ka.servers WHERE project_id=%s AND id=ANY(%s)',
     'service': 'SELECT id,name,true AS usable FROM ka.services WHERE project_id=%s AND id=ANY(%s)',
+    'environment': 'SELECT id,name,true AS usable FROM ka.environments WHERE project_id=%s AND id=ANY(%s)',
 }
 # What services and environments bring: only usable code projects (not archived) and servers (SSH allowed).
 ENVIRONMENT_SERVICES = """SELECT es.service_id AS id FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
@@ -107,13 +108,13 @@ def bring(
 
 
 def check_picks(conn, project, picked: Iterable[Mapping[str, Any]]) -> None:
-    """ValueError naming the first picked code project, collection, server or service that is not in this workspace
-    or cannot be given now (archived, deleted, SSH not allowed)."""
+    """ValueError naming the first picked code project, collection, server, service or environment that is not in this
+    workspace or cannot be given now (archived, deleted, SSH not allowed)."""
     picked = list(picked)
     for type_, query in FOUND.items():
         ids = [str(item['id']) for item in picked if item['type'] == type_]
         found = {str(row['id']): row for row in conn.execute(query, (project, ids))} if ids else {}
-        label = next(kind.label for kind in KINDS if kind.type == type_)
+        label = access_rules.TYPE_WORDS[type_].capitalize()
         for item in ids:
             row = found.get(item)
             if row is None or not row['usable']:

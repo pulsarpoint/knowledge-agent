@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from access_helpers import give
+from knowledge_admin.access import SSH_NOT_SET_UP
 from knowledge_admin.capabilities.document_tools import _run_links
 from knowledge_admin.sessions.run_access import built_for, given
 from test_profiles import create, update
@@ -154,6 +155,16 @@ def test_options_for_a_saved_agent_offer_only_what_may_be_narrowed(agent):
     assert [service['id'] for service in options['resources']['services']] == [agent.service]
     assert options['resources']['environments'] == options['resources']['documents'] == []
     assert agent.client.get('/api/sessions/options?agent_id=nope', headers=HEADERS).status_code == 404
+
+
+def test_options_never_offer_a_keyless_server_as_usable(agent, ask):
+    """The Test tab and SSH use one rule (access.ssh_reason): an enabled server with SSH allowed but no key is not
+    usable."""
+    with ask.s.store.connect() as conn:
+        conn.execute('UPDATE ka.servers SET enabled=true,ssh_allowed=true,credential_id=NULL WHERE id=%s', (agent.web,))
+    options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
+    [server] = options['resources']['servers']
+    assert not server['usable'] and server['reason'] == SSH_NOT_SET_UP
 
 
 def test_the_old_test_routes_are_gone(agent):

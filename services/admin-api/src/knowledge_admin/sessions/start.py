@@ -70,8 +70,6 @@ BAD_TAG = 'A tag is lowercase letters, digits, _ and -, in parts separated by /,
 TOO_MANY_TAGS = 'A run takes at most 10 tags.'
 RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
-NOT_SET_UP = access_rules.SSH_NOT_SET_UP
-NOT_ALLOWED = access_rules.SSH_NOT_ALLOWED
 NOT_AN_EDITOR = 'A run cannot make a saved agent a content editor.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
 NO_SSH = (
@@ -281,11 +279,8 @@ def inventory_owner(conn, project: UUID, kind: str, resource_id: UUID) -> None:
 
 
 def server_reason(row: dict) -> str | None:
-    if not row['enabled'] or row['credential_id'] is None:
-        return NOT_SET_UP
-    if not row['ssh_allowed']:
-        return NOT_ALLOWED
-    return None
+    """Why a run cannot use this server row over SSH (access.ssh_reason; its credential stands for its key)."""
+    return access_rules.ssh_reason({**row, 'private_key_ref': row['credential_id']})
 
 
 def target_document(conn, project: UUID, document_id: UUID) -> dict:
@@ -883,8 +878,8 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
     def server_state(server_id: str) -> dict:
         """Whether a run can use the server over SSH now (a server without it is still given)."""
         server = next(item for item in holds if item['type'] == 'server' and item['id'] == server_id)
-        usable = bool(server['enabled'] and server['ssh_allowed'])
-        return {'usable': usable, 'reason': None if usable else NOT_SET_UP if server['ssh_allowed'] else NOT_ALLOWED}
+        reason = access_rules.ssh_reason(server)
+        return {'usable': reason is None, 'reason': reason}
 
     def plain(type_: str) -> list[dict]:
         return [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed(type_)]

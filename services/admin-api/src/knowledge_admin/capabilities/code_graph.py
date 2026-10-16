@@ -179,8 +179,12 @@ async def code_graph(
     config = context['config']
     if refusal := check_code_graph(config['access'], project_id=project_id):
         return refusal
-    with connect() as conn:  # the code project's current graph (live, like file contents)
-        graph = next(iter(load_graphs(conn, project_of(conn, config), [project_id])), None)
+
+    def current() -> dict | None:  # the code project's current graph (live, like file contents)
+        with connect() as conn:
+            return next(iter(load_graphs(conn, project_of(conn, config), [project_id])), None)
+
+    graph = await asyncio.to_thread(current)
     if graph is None:
         raise ValueError('Choose a configured code graph project.')
     if offset < 0 or not 1 <= limit <= 100 or len(query) > 300:

@@ -214,7 +214,7 @@ def test_migration_preserves_existing_checkouts_and_agent_links(store):
         )
 
 
-def test_agent_code_config_contains_projects_folders_and_only_applicable_git_urls(store, workspace):
+def test_agent_code_config_contains_projects_and_their_folders(store, workspace):
     client, root = workspace
     local = client.post(
         '/api/code-projects',
@@ -267,7 +267,6 @@ def test_agent_code_config_contains_projects_folders_and_only_applicable_git_url
             'name': 'Git code',
             'description': 'Remote source',
             'folder_paths': [str(root / 'other'), str(root / 'service')],
-            'remote_git_url': 'https://github.com/example/service.git',
         },
         local_config,
     ]

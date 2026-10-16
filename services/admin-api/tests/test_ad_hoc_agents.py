@@ -116,6 +116,9 @@ def test_what_cannot_be_given_is_refused_by_name(sessions):
     assert (
         refusal(s, server_ids=[unknown]) == f'Server {unknown} is not available: it was removed, archived or disabled.'
     )
+    assert refusal(s, environment_ids=[unknown]) == (
+        f'Environment {unknown} is not available: it was removed, archived or disabled.'
+    )
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
         conn.execute(

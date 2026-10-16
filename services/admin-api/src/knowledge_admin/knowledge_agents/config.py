@@ -167,6 +167,28 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+SAVED = """SELECT revision,when_to_use,model_id,system_prompt,documents_grounded,access,instructions
+    FROM ka.agents WHERE id=%s"""
+
+
+def saved_config(conn, agent_id: str) -> dict[str, Any]:
+    """An agent's configuration as it is saved, in the shape sections() reads (and its revision): its access object's
+    stored references, not loaded entries, so a deleted item or a switched-off skill does not change it. Clone compare
+    and the Apply checks read this. LookupError: no such agent."""
+    row = conn.execute(SAVED, (agent_id,)).fetchone()
+    if row is None:
+        raise LookupError(f'Agent {agent_id!r} was not found')
+    return {
+        'revision': row['revision'],
+        'system_prompt': {'content': row['system_prompt']},
+        'instructions': row['instructions'],
+        'when_to_use': row['when_to_use'],
+        'model': {'id': row['model_id']} if row['model_id'] else None,
+        'grounded': bool(row['documents_grounded']),
+        'access': row['access'],
+    }
+
+
 def fingerprint(config: Mapping[str, Any]) -> str:
     """Changes whenever what the agent runs with changes, whichever tab saved it (an instructions save does not bump
     agents.revision)."""
@@ -183,24 +205,24 @@ def changed_sections(source: Mapping[str, Any], target: Mapping[str, Any]) -> li
 COLLECTIONS = """SELECT c.id,c.name,c.description,
     ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
     FROM ka.rag_collections c WHERE c.project_id=%s AND c.id=ANY(%s::uuid[]) AND c.deleted_at IS NULL ORDER BY c.name"""
-CODE_PROJECTS = """SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
+CODE_PROJECTS = """SELECT r.id,r.name,r.description,
     ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
     FROM ka.repositories r WHERE r.project_id=%s AND r.id=ANY(%s::uuid[]) AND r.archived_at IS NULL
     ORDER BY lower(r.name),r.id"""
-SERVICES = """SELECT s.id,s.name,s.description,s.owner,s.revision,s.repositories,s.deployments,s.dependencies,
-    s.dependents,s.links FROM ka.service_assets s WHERE s.project_id=%s AND s.id=ANY(%s::uuid[])
-    ORDER BY lower(s.name),s.id"""
-SKILLS = """SELECT id,name,description,enabled,revision FROM ka.agent_skills
+SERVICES = """SELECT id,name,description FROM ka.services WHERE project_id=%s AND id=ANY(%s::uuid[])
+    ORDER BY lower(name),id"""
+SKILLS = """SELECT id,name,description,enabled FROM ka.agent_skills
     WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY name,id"""
-MCP_SERVERS = """SELECT id,name,description,url,enabled,tools,revision,token_ciphertext IS NOT NULL AS has_token
+MCP_SERVERS = """SELECT id,name,description,url,enabled,token_ciphertext IS NOT NULL AS has_token
     FROM ka.mcp_servers WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY lower(name),id"""
 # A server with its own SSH settings.
-SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,s.revision AS server_revision,
-    s.username,s.port,s.allow_sudo,
+SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.ssh_allowed,s.username,s.port,s.allow_sudo,
     coalesce(s.known_hosts,'') AS known_hosts,s.enabled,
     c.id AS credential_id,c.project_id AS credential_project_id,c.key_version
     FROM ka.servers s LEFT JOIN ka.credentials c ON c.id=s.credential_id
     WHERE s.project_id=%s AND s.id=ANY(%s::uuid[]) ORDER BY lower(s.name),s.id"""
+ENVIRONMENTS = """SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=ANY(%s::uuid[])
+    ORDER BY lower(name),id"""
 DOCUMENTS = 'SELECT id,title FROM ka.live_documents WHERE project_id=%s AND id=ANY(%s::uuid[])'
 
 
@@ -237,8 +259,8 @@ def _code_root() -> PurePosixPath:
 
 
 def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list[dict[str, Any]]]:
-    """The items of these ids by type (collection, code_project, service, skill, mcp_server, server) in config shape:
-    only those that still exist; paths in the agent's container, credentials as references."""
+    """The items of these ids by type (LOADED) in config shape: only those that still exist; paths in the agent's
+    container, credentials as references."""
     code_root = _code_root()
 
     def load(query: str, type_: str) -> list[dict[str, Any]]:
@@ -251,13 +273,6 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
     code_projects = load(CODE_PROJECTS, 'code_project')
     for project in code_projects:
         project['folder_paths'] = [str(code_root / path) for path in project['folder_paths']]
-        if project['remote_git_url'] is None:
-            del project['remote_git_url']
-    services = load(SERVICES, 'service')
-    for service in services:
-        for repository in service['repositories']:
-            if repository['checkout_path'] is not None:
-                repository['checkout_path'] = str(code_root / repository['checkout_path'])
     mcp_servers = load(MCP_SERVERS, 'mcp_server')
     for server in mcp_servers:
         server['bearer_token_ref'] = (
@@ -279,15 +294,15 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
     return {
         'collection': collections,
         'code_project': code_projects,
-        'service': services,
+        'service': load(SERVICES, 'service'),
         'skill': load(SKILLS, 'skill'),
         'mcp_server': mcp_servers,
         'server': servers,
+        'environment': load(ENVIRONMENTS, 'environment'),
     }
 
 
-LOADED = ('collection', 'code_project', 'service', 'skill', 'mcp_server', 'server')
-ENVIRONMENTS = 'SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=ANY(%s::uuid[])'
+LOADED = ('collection', 'code_project', 'service', 'skill', 'mcp_server', 'server', 'environment')
 # What an entry carries of its item, besides its type, id, name and short description (access.py).
 SERVER_FIELDS = (
     'hostname',
@@ -314,8 +329,7 @@ def entry(type_: str, item: Mapping[str, Any], **extra) -> dict[str, Any]:
 
 
 def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
-    """The access entries of loaded items by type (load_items' shape; 'document': entries already; 'environment':
-    rows), each once: servers, services, code projects, collections, skills (enabled ones, listed in the instructions),
+    """The access entries of loaded items by type (load_items' shape; 'document': entries already), each once: servers, services, code projects, collections, skills (enabled ones, listed in the instructions),
     MCP servers (enabled ones), documents, environments. A code project carries its folders and its graph (graphs:
     load_graphs), a collection its paths, a server and an MCP server their connection."""
     graph_of = {str(graph['id']): graph for graph in graphs}
@@ -342,24 +356,14 @@ def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, An
     return list({(item['type'], item['id']): item for item in found}.values())
 
 
-def load_environments(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
-    """The environments of these ids that exist, in their order."""
-    ids = [str(item) for item in ids]
-    if not ids or project_id is None:
-        return []
-    rows = {str(row['id']): row for row in conn.execute(ENVIRONMENTS, (project_id, ids))}
-    return [rows[item] for item in ids if item in rows]
-
-
 def load_entries(
     conn, project_id, ids: Mapping[str, list[str]], documents: Iterable[dict[str, Any]] = ()
 ) -> list[dict[str, Any]]:
-    """The access entries of these ids by type (LOADED and environment), of those that still exist, and these document
-    entries (resource_entries)."""
+    """The access entries of these ids by type (LOADED), of those that still exist, and these document entries
+    (resource_entries)."""
     items = jsonable_encoder(load_items(conn, project_id, ids))
     graphs = jsonable_encoder(load_graphs(conn, project_id, [item['id'] for item in items['code_project']]))
-    environments = jsonable_encoder(load_environments(conn, project_id, ids.get('environment') or []))
-    return resource_entries({**items, 'document': list(documents), 'environment': environments}, graphs)
+    return resource_entries({**items, 'document': list(documents)}, graphs)
 
 
 def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
@@ -406,7 +410,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
             for key in found
             if key in rows
         ]
-        ids = {type_: access_ids(access, type_) for type_ in (*LOADED, 'environment')}
+        ids = {type_: access_ids(access, type_) for type_ in LOADED}
         resources = load_entries(conn, project_id, ids, documents)
         return jsonable_encoder(
             {

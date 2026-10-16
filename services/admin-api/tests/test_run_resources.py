@@ -1,4 +1,4 @@
-"""The per_run fixture (a saved agent other tests narrow), the credentials a run's access references, and the
+"""The narrowed_agent fixture (a saved agent other tests narrow), the credentials a run's access references, and the
 run_resources record: 0076 recorded the resources of each run, 0116 drops it from agent_sessions (a run's access
 object describes what it was given)."""
 
@@ -19,8 +19,8 @@ TABLES = {'agent_sessions_cc', 'agent_sessions', 'operations_runs'}  # as 0076 l
 
 
 @pytest.fixture
-def per_run(sessions):
-    """A native per-run agent, Code analyst, that may be given the Payments API code project, the runbooks collection,
+def narrowed_agent(sessions):
+    """A native agent, Code analyst, that may be given the Payments API code project, the runbooks collection,
     Test host (SSH allowed, saved key, its own instructions) and the Payments service, which is also deployed on Test
     host. Not in its selection: Payments worker and the private collection. prod-1 does not allow SSH."""
     client, store = sessions.client, sessions.store
@@ -123,8 +123,8 @@ def test_0116_drops_the_record_and_down_brings_it_back_empty(store):
         assert run_resource_columns(conn) == set()
 
 
-def test_credentials_are_decrypted_only_for_the_servers_a_run_was_given(per_run):
-    s = per_run
+def test_credentials_are_decrypted_only_for_the_servers_a_run_was_given(narrowed_agent):
+    s = narrowed_agent
     with s.store.connect() as conn:
         [host] = load_entries(conn, s.store.project(conn, 'shop'), {'server': [s.host['id']]})
     config = get_agent_config(s.analyst, conninfo=s.store.conninfo)

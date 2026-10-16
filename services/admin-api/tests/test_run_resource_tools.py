@@ -43,7 +43,7 @@ def folders(tmp_path):
 
 
 def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
-    """A per-run agent's tool context: its access object holds exactly the run's resources."""
+    """A run's tool context: its access object holds exactly the run's resources."""
     host = entry(
         'server',
         'host',
@@ -119,8 +119,8 @@ def test_the_prompt_no_longer_lists_the_runs_resources(folders):
     assert 'This run was given only' not in prompt and str(folders['given']) not in prompt
 
 
-def test_per_run_narrowing_still_decides_what_tools_reach(folders):
-    """A per-run run with every file tool switched on still reads only its own code project."""
+def test_a_runs_access_decides_what_tools_reach(folders):
+    """A run with every file tool switched on still reads only the code project its access holds."""
     context = run_context(folders, code=['given'])
     read = tool('read_file')
     assert 'given' in invoke(read, context, path=str(folders['given'] / 'a.py'))

@@ -320,16 +320,12 @@ def document_paths(config: dict[str, Any]) -> list[Path]:
     ]
 
 
-def connected_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
-    """The servers in the run's access with a pinned connection (a server added only as the run's own resource, as a
-    resource run's server without SSH, has none)."""
-    return [server for server in access_rules.entries(config['access'], 'server') if 'ssh_allowed' in server]
-
-
 def ssh_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
     """The SSH servers a run of this configuration may use: the connected ones (access.ssh_reason); a server it cannot
     connect to stays in its access, listed and read, and is skipped here (their keys are checked by get_ssh)."""
-    return [server for server in connected_servers(config) if access_rules.ssh_reason(server) is None]
+    return [
+        server for server in access_rules.entries(config['access'], 'server') if access_rules.ssh_reason(server) is None
+    ]
 
 
 def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict[str, Any]]:

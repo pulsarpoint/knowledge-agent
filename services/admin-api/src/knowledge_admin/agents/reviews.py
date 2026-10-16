@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from knowledge_admin.identity import request_actor
 from knowledge_admin.agents.clones import NAME_TAKEN, clone
 from knowledge_admin.db import storage
-from knowledge_admin.knowledge_agents.config import fingerprint, get_agent_config
+from knowledge_admin.knowledge_agents.config import fingerprint, saved_config
 
 
 class InstructionChanges(BaseModel):
@@ -74,13 +74,11 @@ def build_api(app_name, store):
             raise HTTPException(404, REVIEW_NOT_FOUND)
         return row
 
-    def config(agent_id: str) -> dict[str, Any]:
+    def config(conn, agent_id: str) -> dict[str, Any]:
         try:
-            return get_agent_config(agent_id, conninfo=store.conninfo)
+            return saved_config(conn, agent_id)
         except LookupError:
             raise HTTPException(404, 'Agent not found') from None
-        except ValueError as exc:
-            raise HTTPException(409, str(exc)) from None
 
     @router.get('')
     def source(agent_id: str, review_id: UUID, response: Response):
@@ -88,7 +86,7 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         with database().connect() as conn:
             review = review_of(conn, agent_id, review_id)
-        current = config(agent_id)
+            current = config(conn, agent_id)
         return {
             'suggestion': review['suggestion'],
             'changes': review['context'].get('changes', NO_CHANGES),
@@ -109,7 +107,7 @@ def build_api(app_name, store):
         with database().connect() as conn:
             conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
             review_of(conn, agent_id, review_id)
-            current = config(agent_id)
+            current = config(conn, agent_id)
             if current['revision'] != value.revision or fingerprint(current) != value.fingerprint:
                 raise HTTPException(409, AGENT_CHANGED)
             actor, project = store.actor(conn, *request_actor(request)), store.project(conn, app_name)

@@ -177,7 +177,7 @@ def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch
     response = s.client.post('/api/sessions/preview', headers=HEADERS, json=body)
     assert response.status_code == 200, response.text
     config = response.json()['config']
-    assert config.get('document_access', []) == []
+    assert not [item for item in config['access']['resources'] if item['type'] == 'document']
     project = code_project_id(s.store, 'Payments API')
     assert_scoped(
         config,

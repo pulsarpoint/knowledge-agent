@@ -161,3 +161,14 @@ def test_a_profile_save_waits_for_apply(store, saved_agent):
     client = saved_agent[0]
     current = client.get('/api/agents/operations', headers=HEADERS).json()  # the form is read before Apply locks
     waits_for_the_agent(store, lambda: update(client, current, instructions='Check only the queue.'))
+
+
+def test_switching_a_referenced_skill_off_keeps_the_fingerprint(store, saved_agent):
+    """Clone compare and the Apply check read the stored access references, not the loaded entries."""
+    client, skill = saved_agent[0], saved_agent[3]
+    copy_id = clone(client)['id']
+    before = preview(client, copy_id)
+    with store.connect() as conn:
+        conn.execute('UPDATE ka.agent_skills SET enabled=false WHERE id=%s', (skill['id'],))
+    after = preview(client, copy_id)
+    assert after['fingerprint'] == before['fingerprint'] and after['changes'] == []

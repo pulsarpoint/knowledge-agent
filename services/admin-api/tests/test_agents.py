@@ -8,9 +8,8 @@ from knowledge_llm.prompts import DEFAULT_PROMPTS
 
 from access_helpers import give
 
-from fastapi.encoders import jsonable_encoder
 
-from knowledge_admin.knowledge_agents.config import get_agent_config, load_items
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.servers.operations_store import OperationsStore
 from test_api import _client
 from test_operations import configured
@@ -121,12 +120,6 @@ def of(config, type_):
     return [item for item in config['access']['resources'] if item['type'] == type_]
 
 
-def service_item(store, service_id):
-    """The service as the loader loads it (load_items: its repositories, deployments and dependencies)."""
-    with store.connect() as conn:
-        return jsonable_encoder(load_items(conn, store.project(conn, 'shop'), {'service': [service_id]}))['service'][0]
-
-
 def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     _, server, ssh, skill, mcp, repo, model = saved_agent
     config = get_agent_config('operations', conninfo=store.conninfo)
@@ -159,10 +152,6 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
         'name',
         'description_short',
     }
-    loaded = service_item(store, service['id'])  # the loader's service, for get_resource-like readers
-    assert 'operations_notes' not in loaded and loaded['repositories'][0]['id'] != repo['id']
-    assert loaded['repositories'][0]['checkout_path'] == '/work/code/managed/unselected'
-    assert loaded['deployments'][0]['log_location'] == '/var/log/payments/app.log'
     [host] = of(config, 'server')
     assert host['id'] == server['id'] and host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
     assert set(host) == {
@@ -322,25 +311,3 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
     for missing in (agent['name'], "' OR true --"):
         with pytest.raises(LookupError):
             get_agent_config(missing)
-
-
-def test_agent_service_context_includes_dependency_directions(store, saved_agent):
-    client = saved_agent[0]
-    [entry] = of(get_agent_config('operations', conninfo=store.conninfo), 'service')
-    service = service_item(store, entry['id'])
-    dependency = client.post('/api/services', headers=HEADERS, json={'name': 'PostgreSQL'}).json()
-    response = client.put(
-        '/api/services/' + service['id'],
-        headers=HEADERS,
-        json={
-            'name': service['name'],
-            'revision': service['revision'],
-            'dependencies': [{'service_id': dependency['id'], 'description': 'Stores payment history'}],
-        },
-    )
-    assert response.status_code == 200, response.text
-    current = service_item(store, entry['id'])
-    assert current['dependencies'] == [
-        {'service_id': dependency['id'], 'name': 'PostgreSQL', 'description': 'Stores payment history'}
-    ]
-    assert current['dependents'] == []

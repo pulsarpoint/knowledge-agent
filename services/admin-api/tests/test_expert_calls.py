@@ -25,7 +25,7 @@ from knowledge_admin.tools.sdk import NOT_OFFERED, expert_tool
 from run_helpers import post, wait_for
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 from test_native_sessions import claimed, native  # noqa: F401  (fixture)
-from test_run_resources import per_run  # noqa: F401  (fixture)
+from test_run_resources import narrowed_agent  # noqa: F401  (fixture)
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 from test_subagent_config import CREDENTIALS, NO_RESOURCES, parent
 from test_subagents import SCRATCH, SECRET, start
@@ -497,8 +497,8 @@ def test_the_expert_tool_passes_the_call_to_the_turns_host():
     assert len(asked) == 3
 
 
-def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(per_run):
-    s = per_run
+def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(narrowed_agent):
+    s = narrowed_agent
     with s.store.connect() as conn:
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Payments code.' WHERE id=%s", (s.analyst,))
     with s.store.connect() as conn:
