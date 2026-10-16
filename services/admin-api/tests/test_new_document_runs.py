@@ -81,6 +81,7 @@ def test_a_new_document_start_pins_a_new_entry_and_records_purpose_documents(ses
         and entry['slug'] == 'payments-api-reference'
     )
     assert session['context_snapshot'] == {'new_document': NEW}
+    assert f'Document: {NEW["name"]} (id {entry["id"]})' in session['config']['system_prompt']['content']
 
 
 def test_the_first_save_creates_the_new_document_draft_and_later_saves_update_it(sessions, monkeypatch):

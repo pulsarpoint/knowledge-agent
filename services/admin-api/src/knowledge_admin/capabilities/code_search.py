@@ -69,7 +69,7 @@ async def code_search(
     roots = [
         Path(folder).resolve()
         for project in access_rules.listing(context['config']['access'], 'code_project')
-        for folder in project['folder_paths']
+        for folder in project.get('folder_paths', [])
     ]
     if not any(selected.is_relative_to(root) for root in roots):
         raise ValueError('Choose a path inside a selected code project.')

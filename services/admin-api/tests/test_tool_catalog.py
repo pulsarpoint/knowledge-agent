@@ -177,7 +177,11 @@ def test_the_prompt_no_longer_carries_tool_sentences():
         'Use ssh_run with the configured server ID',
     ):
         assert sentence not in prompt
-    assert 'Use only the configured resources and tools.' in prompt and '"ssh_servers"' not in prompt
+    assert (
+        'Use only the configured resources and tools.' in prompt
+        and 'get_available_resources lists' in prompt
+        and '"ssh_servers"' not in prompt
+    )
 
 
 def test_a_refused_tool_answers_not_offered_even_with_invalid_arguments():

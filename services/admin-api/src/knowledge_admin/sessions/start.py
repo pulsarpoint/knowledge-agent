@@ -589,6 +589,11 @@ def build(
                 'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept],
             }
     pinned['document_access'] = document_access(conn, project, entries)
+    for entry in pinned['document_access']:
+        if entry.get('new'):  # a document run names its document in its context; a new document's id is made here
+            context = f'Document: {entry["title"]} (id {entry["id"]})'
+            content = pinned['system_prompt']['content'] + f'\n\n{context}'
+            pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
     if notes:
         pinned['start_notes'] = notes
     if owner is not None:  # built for the resource alone; what the person gave it is only read
@@ -621,7 +626,11 @@ def build(
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(selection, key)]
     picked += [{'type': 'document', 'id': entry['id']} for entry in pinned['document_access']]
     # a resource run that requests proposal tools counts as a Propose wizard run (content editor on)
-    writes = value.started_from.resource() is None or any(name in PROPOSAL_TOOLS for name in value.tools)
+    writes = (
+        value.started_from.new_document is not None
+        or value.started_from.document_id is not None
+        or any(name in PROPOSAL_TOOLS for name in value.tools)
+    )
     try:
         pinned['access'] = run_access(
             conn,

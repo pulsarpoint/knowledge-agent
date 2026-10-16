@@ -26,7 +26,7 @@ from knowledge_admin.capabilities.subagents import check_run_subagent
 from knowledge_admin.knowledge_agents import experts, native_sessions
 from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
-from knowledge_admin.knowledge_agents.run_resources import KINDS, picks
+from knowledge_admin.knowledge_agents.run_resources import KINDS, picked_ids, picks
 from knowledge_admin.knowledge_agents.session_worker import clean_text
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, item
 from knowledge_admin.tools.sdk import NOT_OFFERED
@@ -103,7 +103,7 @@ def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
     that kind, never everything). Whether they may be given at all is decided on the access object only
     (check_run_subagent, access.narrow in subagent_access); a resource the parent holds through another (a service
     via its server) has no entry of its own here and is reached through its access entry."""
-    given = {kind.key: [pick['id'] for pick in picks(resources) if pick['type'] == kind.type] for kind in KINDS}
+    given = picked_ids(resources)
     listed = {kind.key: _listed(sub, kind.capability) for kind in KINDS}
     chosen = {key: [listed[key][item] for item in ids if item in listed[key]] for key, ids in given.items()}
     code_ids = set(given['code_project_ids'])
@@ -356,11 +356,7 @@ class Subagents:
         check_task(task)
         if resources is not None and (refusal := check_run_subagent(context['config']['access'], resources)):
             raise ValueError(refusal)
-        given = (
-            {kind.key: [pick['id'] for pick in picks(resources) if pick['type'] == kind.type] for kind in KINDS}
-            if resources is not None
-            else None
-        )
+        given = picked_ids(resources) if resources is not None else None
         if self.load_expert is None:
             raise ValueError(experts.UNAVAILABLE.format(name=entry['name']))
         if self.closed or self.parent.closed:

@@ -42,13 +42,17 @@ def _roots(context: RunContext) -> list[Path]:
     access = config['access']
     paths = [context['workspace']]  # the workspace and code folders must be mounted
     paths.extend(
-        Path(path) for project in access_rules.listing(access, 'code_project') for path in project['folder_paths']
+        Path(path)
+        for project in access_rules.listing(access, 'code_project')
+        for path in project.get('folder_paths', [])
     )
     for path in paths:
         if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
     paths.extend(
-        available_documents(Path(path) for item in access_rules.listing(access, 'collection') for path in item['paths'])
+        available_documents(
+            Path(path) for item in access_rules.listing(access, 'collection') for path in item.get('paths', [])
+        )
     )
     return list(dict.fromkeys(paths))
 

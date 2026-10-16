@@ -53,6 +53,12 @@ def picks(resources: dict[str, list] | None) -> list[dict[str, str]]:
     ]
 
 
+def picked_ids(resources: dict[str, list] | None) -> dict[str, list[str]]:
+    """The ids of picks(resources) by kind key: {code_project_ids: [...], collection_ids: [...], ...}."""
+    given = picks(resources)
+    return {kind.key: [pick['id'] for pick in given if pick['type'] == kind.type] for kind in KINDS}
+
+
 # The id, name and whether it can be given now, of the requested resources of one kind in this workspace.
 FOUND = {
     'code_project_ids': 'SELECT id,name,archived_at IS NULL AS usable FROM ka.repositories WHERE project_id=%s AND id=ANY(%s)',

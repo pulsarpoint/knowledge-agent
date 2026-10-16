@@ -149,13 +149,15 @@ def run_access(
     holds = held(conn, project, config, list(environment_ids))
     if picked is not None:
         picked = [*picked, *(item for item in holds if item['type'] in ALWAYS_GIVEN)]
-    if own is not None and (own[0], str(own[1])) not in {(item['type'], item['id']) for item in holds}:
-        # the run's own resource, also one the run holds nothing else of (a server without SSH)
-        row = conn.execute(OWN[own[0]], (project, str(own[1]))).fetchone()
-        if row is not None:
-            holds.append(_entry(own[0], row))
-    if own is not None and picked is not None and {'type': own[0], 'id': str(own[1])} not in picked:
-        picked = [*picked, {'type': own[0], 'id': str(own[1])}]
+    if own is not None:
+        own_pick = {'type': own[0], 'id': str(own[1])}
+        if (own[0], str(own[1])) not in {(item['type'], item['id']) for item in holds}:
+            # the run's own resource, also one the run holds nothing else of (a server without SSH)
+            row = conn.execute(OWN[own[0]], (project, str(own[1]))).fetchone()
+            if row is not None:
+                holds.append(_entry(own[0], row))
+        if picked is not None and own_pick not in picked:
+            picked = [*picked, own_pick]
     narrowed = access_rules.narrow({'resources': holds, 'roles': {'content_editor': content_editor}}, picked)
     by_key = {(item['type'], item['id']): item for item in holds}
     return access_rules.expand(narrowed, _children(conn, project, by_key))
