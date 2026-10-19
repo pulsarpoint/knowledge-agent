@@ -1,14 +1,15 @@
 """Jira events: what the scheduled pull saw change. One event per new or changed ticket (Jira's `updated` moved),
 judged against the pull's own latest event for that ticket — not the tickets table, which the manual fetch also
 updates. Events carry the ticket's comments. An update whose only change is new comments that are all our own answers
-(events/jira_replies.py) is not recorded, so a handler never answers itself."""
+(events/jira_replies.py) is not recorded, so a handler never answers itself. `for_assignee` says whether the event is
+work for the ticket's assignee."""
 
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
 CREATED, UPDATED = 'jira.ticket.created', 'jira.ticket.updated'
-COMPARED = ('summary', 'status', 'issue_type', 'priority', 'assignee')
+COMPARED = ('summary', 'status', 'issue_type', 'priority')
 
 
 def ticket(base_url: str, issue: dict) -> dict:
@@ -36,6 +37,7 @@ def ticket(base_url: str, issue: dict) -> dict:
         'issue_type': named(fields.get('issuetype')),
         'priority': named(fields.get('priority')),
         'assignee': person(fields.get('assignee')),
+        'assignee_id': (fields.get('assignee') or {}).get('key'),
         'reporter': person(fields.get('reporter')),
         'labels': list(fields.get('labels') or []),
         'created': fields.get('created'),
@@ -51,6 +53,13 @@ def changes(before: dict, after: dict) -> dict:
         for field in COMPARED
         if before.get(field) != after.get(field)
     }
+    if (before.get('assignee'), before.get('assignee_id')) != (after.get('assignee'), after.get('assignee_id')):
+        result['assignee'] = {
+            'from': before.get('assignee'),
+            'to': after.get('assignee'),
+            'from_id': before.get('assignee_id'),
+            'to_id': after.get('assignee_id'),
+        }
     old, new = before.get('labels') or [], after.get('labels') or []
     added, removed = [label for label in new if label not in old], [label for label in old if label not in new]
     if added or removed:
@@ -63,14 +72,25 @@ def changes(before: dict, after: dict) -> dict:
     return result
 
 
-def all_ours(conn, project_id: UUID, connection_id: UUID, username: str, issue_id: str, new: list[dict]) -> bool:
-    """Every new comment is an answer we posted (events/jira_replies.py): its id is a posted reply's, or — while the
-    reply is still being posted and its id not yet recorded — the connection's user wrote it with exactly the text we
-    are posting. Recording such an update would make a handler answer its own comment."""
+def ours(comment: dict, posted: set[str], pending: set[str], username: str) -> bool:
+    """An answer we posted (events/jira_replies.py): its id is a posted reply's, or — while the reply is still being
+    posted and its id not yet recorded — the connection's user wrote it with exactly the text we are posting."""
+    return comment['id'] in posted or (
+        (comment['author_id'] or '').casefold() == username.casefold() and comment['body'] in pending
+    )
+
+
+def own_comment_ids(
+    conn, project_id: UUID, connection_id: UUID, username: str, issue_id: str, new: list[dict]
+) -> set[str]:
+    """The ids of the new comments that are ours. Recording an update made only of them would make a handler answer
+    its own comment."""
     from knowledge_admin.events.jira_replies import (
         comment_body,
     )  # events.jira_replies imports jira.sync, which imports this
 
+    if not new:
+        return set()
     posted = {
         row['jira_comment_id']
         for row in conn.execute(
@@ -88,10 +108,20 @@ def all_ours(conn, project_id: UUID, connection_id: UUID, username: str, issue_i
             (project_id, connection_id, issue_id),
         )
     }
-    return all(
-        comment['id'] in posted
-        or ((comment['author_id'] or '').casefold() == username.casefold() and comment['body'] in pending)
-        for comment in new
+    return {comment['id'] for comment in new if ours(comment, posted, pending, username)}
+
+
+def for_assignee(ticket: dict, changes: dict, first_seen: bool, own_comment_ids: set[str]) -> bool:
+    """Work for the ticket's assignee: it is assigned and new, reassigned (by key), or a comment not ours was added.
+    Other edits (status, labels, description, …) are not."""
+    if ticket.get('assignee_id') is None:
+        return False
+    assignee = changes.get('assignee')
+    added = (changes.get('comments') or {}).get('added', [])
+    return (
+        first_seen
+        or (assignee is not None and assignee['from_id'] != assignee['to_id'])
+        or any(comment_id not in own_comment_ids for comment_id in added)
     )
 
 
@@ -113,20 +143,22 @@ def record(conn, project_id: UUID, connection_id: UUID, base_url: str, username:
         if before is not None and before.get('updated') == after['updated']:
             continue
         diff = {} if before is None else changes(before, after)
+        added = (diff.get('comments') or {}).get('added', [])
+        own = own_comment_ids(
+            conn,
+            project_id,
+            connection_id,
+            username,
+            issue['id'],
+            [comment for comment in after['comments'] if comment['id'] in added],
+        )
         if (
             set(diff) == {'comments'}
             and before.get('comments') is not None  # an event recorded before events carried comments
-            and all_ours(
-                conn,
-                project_id,
-                connection_id,
-                username,
-                issue['id'],
-                [comment for comment in after['comments'] if comment['id'] in diff['comments']['added']],
-            )
+            and own == set(added)
         ):
             continue
-        payload = {**after, 'changes': diff}
+        payload = {**after, 'changes': diff, 'for_assignee': for_assignee(after, diff, before is None, own)}
         row = conn.execute(
             """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
             VALUES (%s,'jira',%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,dedupe_key) DO NOTHING RETURNING id""",

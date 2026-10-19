@@ -57,6 +57,9 @@ def test_first_pull_records_every_ticket_and_a_repeat_records_nothing(store, tmp
         and first['payload']['changes'] == {}
     )
     assert first['payload']['status'] == issues[0]['fields']['status']['name']
+    assignee = issues[0]['fields']['assignee']
+    assert (first['payload']['assignee'], first['payload']['assignee_id']) == (assignee['displayName'], assignee['key'])
+    assert first['payload']['for_assignee'] is True
     assert auto_pull(store, a_schedule(store), transport=jira(issues)) == (
         'succeeded',
         'Pulled 3 of 3 tickets · 0 new events.',
@@ -147,7 +150,7 @@ def test_changes():
     after = {**before, 'summary': 'B', 'assignee': 'Ana', 'labels': ['y', 'z'], 'description': 'e'}
     assert changes(before, after) == {
         'summary': {'from': 'A', 'to': 'B'},
-        'assignee': {'from': None, 'to': 'Ana'},
+        'assignee': {'from': None, 'to': 'Ana', 'from_id': None, 'to_id': None},
         'labels': {'added': ['z'], 'removed': ['x']},
         'description': {'changed': True},
     }
@@ -328,3 +331,32 @@ def test_an_event_recorded_before_comments_were_carried_does_not_hide_our_commen
 
     summary, _ = pulled_twice(store, tmp_path, change)
     assert summary.endswith('1 new event.')
+
+
+def test_our_reply_with_a_field_change_is_not_for_the_assignee_but_a_persons_comment_is(store, tmp_path):
+    def change(store, issues):
+        commented(issues[0], ('501', 'mock-admin', OURS))
+        issues[0]['fields']['status'] = {'id': '3', 'name': 'Done'}
+        posted_comment(store, issues[0], '501')
+        commented(issues[1], ('601', 'ana', 'Can you look?'))
+
+    _, recorded = pulled_twice(store, tmp_path, change)
+    by_key = {event['subject']: event['payload'] for event in recorded[2:]}
+    assert by_key['DEMO-1']['for_assignee'] is False
+    assert by_key['DEMO-2']['for_assignee'] is True
+
+
+def test_a_reassignment_carries_both_keys(store, tmp_path):
+    def change(_, issues):
+        issues[0]['fields']['assignee'] = {'key': 'ops-bot', 'name': 'ops-bot', 'displayName': 'Ops Bot'}
+        issues[0]['fields']['updated'] = '2026-10-15T11:00:00.000+0000'
+
+    _, recorded = pulled_twice(store, tmp_path, change)
+    payload = recorded[-1]['payload']
+    assert payload['changes']['assignee'] == {
+        'from': 'Mock Administrator',
+        'to': 'Ops Bot',
+        'from_id': 'mock-admin',
+        'to_id': 'ops-bot',
+    }
+    assert (payload['assignee_id'], payload['for_assignee']) == ('ops-bot', True)
