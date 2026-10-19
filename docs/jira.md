@@ -221,5 +221,6 @@ comment — a person's, even in the same second as ours — is recorded, togethe
 Every Jira event carries the assignee's Jira key next to the display name (`payload.assignee_id`, null when
 unassigned); a reassignment shows both (`payload.changes.assignee` = `{from, to, from_id, to_id}`).
 `payload.for_assignee` is true when the event is work for the ticket's assignee: the ticket is assigned and it is new,
-its assignee changed (by key), or a comment that is not one of our own answers (as above) was added. Status, label,
-description and other edits leave it false.
+its assignee changed (by key), or a comment was added that is neither one of our own answers (as above) nor written
+by the connection's own Jira user. Status, label, description and other edits leave it false. Matching uses the Data
+Center user `key`: an assignee without one (Jira Cloud's `accountId`) leaves `for_assignee` false.

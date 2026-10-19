@@ -111,17 +111,22 @@ def own_comment_ids(
     return {comment['id'] for comment in new if ours(comment, posted, pending, username)}
 
 
-def for_assignee(ticket: dict, changes: dict, first_seen: bool, own_comment_ids: set[str]) -> bool:
-    """Work for the ticket's assignee: it is assigned and new, reassigned (by key), or a comment not ours was added.
-    Other edits (status, labels, description, …) are not."""
+def for_assignee(ticket: dict, diff: dict, first_seen: bool, own: set[str], connection_user: str) -> bool:
+    """Work for the ticket's assignee: it is assigned (by Data Center key) and new, reassigned (by key), or a comment
+    was added that is neither ours (`own`) nor written by the connection's own Jira user. Other edits (status, labels,
+    description, …) are not."""
     if ticket.get('assignee_id') is None:
         return False
-    assignee = changes.get('assignee')
-    added = (changes.get('comments') or {}).get('added', [])
+    assignee = diff.get('assignee')
+    added = set((diff.get('comments') or {}).get('added', []))
     return (
         first_seen
         or (assignee is not None and assignee['from_id'] != assignee['to_id'])
-        or any(comment_id not in own_comment_ids for comment_id in added)
+        or any(
+            comment['id'] not in own and (comment['author_id'] or '').casefold() != connection_user.casefold()
+            for comment in ticket['comments']
+            if comment['id'] in added
+        )
     )
 
 
@@ -158,7 +163,7 @@ def record(conn, project_id: UUID, connection_id: UUID, base_url: str, username:
             and own == set(added)
         ):
             continue
-        payload = {**after, 'changes': diff, 'for_assignee': for_assignee(after, diff, before is None, own)}
+        payload = {**after, 'changes': diff, 'for_assignee': for_assignee(after, diff, before is None, own, username)}
         row = conn.execute(
             """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
             VALUES (%s,'jira',%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,dedupe_key) DO NOTHING RETURNING id""",

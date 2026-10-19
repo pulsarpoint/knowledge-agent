@@ -1,5 +1,6 @@
 """`for_assignee`: an event is the assignee's work when the ticket is assigned and it is new, reassigned, or a person
-commented. Our own replies (the loop protection's `ours`) never count."""
+commented. Our own replies (the loop protection's `ours`) and anything the connection's own Jira user wrote never
+count."""
 
 import pytest
 from knowledge_admin.jira.events import changes, for_assignee, ours
@@ -15,7 +16,7 @@ def commented(ticket: dict, *comments: tuple[str, str, str]) -> dict:
 
 
 def decide(before: dict | None, after: dict, own: set[str] = frozenset()) -> bool:
-    return for_assignee(after, {} if before is None else changes(before, after), before is None, own)
+    return for_assignee(after, {} if before is None else changes(before, after), before is None, own, 'mock-admin')
 
 
 def test_created_assigned_is_for_the_assignee():
@@ -55,6 +56,11 @@ def test_a_person_comment_on_an_assigned_ticket_is_for_the_assignee():
 
 def test_our_own_reply_is_not():
     assert not decide(ASSIGNED, commented(ASSIGNED, ('501', 'mock-admin', REPLY)), own={'501'})
+
+
+def test_a_hand_written_comment_by_the_connection_user_is_not():
+    assert not decide(ASSIGNED, commented(ASSIGNED, ('501', 'Mock-Admin', 'Written by hand')))
+    assert decide(ASSIGNED, commented(ASSIGNED, ('501', 'Mock-Admin', 'By hand'), ('502', 'ana', 'And me')))
 
 
 def test_a_person_commenting_with_our_reply_is_for_the_assignee():
