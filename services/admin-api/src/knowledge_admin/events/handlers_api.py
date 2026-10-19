@@ -14,6 +14,7 @@ from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.events import matching as event_matching
+from knowledge_admin.events import targets
 from knowledge_admin.events import templates as event_templates
 from knowledge_admin.repositories import RepositoryStore
 
@@ -23,7 +24,9 @@ DUPLICATE = 'A handler with this name already exists.'
 NO_EVENT = 'Event not found.'
 NO_AGENT = 'Agent not found.'
 NOT_AGENT_JIRA = 'Only Send to agent handlers can post to Jira.'
-SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,
+NOT_AGENT_ASSIGNEE = 'Only Send to agent handlers can target the assignee.'
+NOT_JIRA_ASSIGNEE = 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'
+SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_from,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,
     h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
         FROM ka.event_handler_runs r WHERE r.handler_id=h.id ORDER BY r.id DESC LIMIT 1) AS last_run
     FROM ka.event_handlers h LEFT JOIN ka.agents a ON a.id=h.agent_id"""
@@ -52,6 +55,7 @@ class HandlerDraft(BaseModel):
     conditions: list[Condition] = Field(default_factory=list, max_length=20)
     action: Literal['emit', 'agent']
     emit: EmitTemplates | None = None
+    agent_from: Literal['fixed', 'assignee'] = 'fixed'
     agent_id: str | None = Field(default=None, max_length=200)
     prompt: str | None = Field(default=None, max_length=20000)
     reply_to_jira: bool = False
@@ -102,11 +106,18 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         raise bad('Enter a name.')
     if draft.reply_to_jira and draft.action != 'agent':
         raise bad(NOT_AGENT_JIRA)
+    assignee = draft.agent_from == 'assignee'
+    if assignee and draft.action != 'agent':
+        raise bad(NOT_AGENT_ASSIGNEE)
     try:
         event_matching.check_pattern(draft.type_pattern.strip())
         conditions = event_matching.check_conditions([condition.model_dump() for condition in draft.conditions])
     except event_matching.ConditionError as exc:
         raise bad(str(exc)) from None
+    if assignee and not any(
+        event_matching.type_matches(draft.type_pattern.strip(), jira_type) for jira_type in targets.JIRA_TYPES
+    ):
+        raise bad(NOT_JIRA_ASSIGNEE)
     values = {
         'name': name,
         'enabled': draft.enabled,
@@ -114,6 +125,7 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         'conditions': conditions,
         'action': draft.action,
         'emit': None,
+        'agent_from': draft.agent_from,
         'agent_id': None,
         'prompt': None,
         'reply_to_jira': draft.reply_to_jira,
@@ -124,10 +136,10 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
             event_templates.check_emit(emit)
             values['emit'] = emit
         else:
-            if not draft.agent_id:
+            if not assignee and not draft.agent_id:
                 raise bad('Choose an agent.')
             event_templates.check_prompt(draft.prompt or '')
-            values.update(agent_id=draft.agent_id, prompt=draft.prompt)
+            values.update(agent_id=None if assignee else draft.agent_id, prompt=draft.prompt)
     except event_templates.TemplateProblem as exc:
         raise bad(str(exc)) from None
     return values
@@ -141,6 +153,18 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def agent_usable(conn, agent_id: str) -> None:
         if conn.execute('SELECT 1 FROM ka.agents WHERE id=%s', (agent_id,)).fetchone() is None:
             raise bad(NO_AGENT)
+
+    def explain_target(conn, handler: dict, event: dict) -> dict:
+        """Preview: the agent the handler would run for the event, or why none (the processor's texts)."""
+        agent_id, refusal = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
+        if refusal:
+            return {'error': refusal}
+        agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
+        if agent is None:
+            return {'error': NO_AGENT}
+        if not agent['enabled']:
+            return {'error': targets.DISABLED}
+        return {'agent_id': agent_id, 'agent_name': agent['name']}
 
     def one(conn, project: UUID, handler_id: UUID) -> dict:
         row = conn.execute(SELECT + ' WHERE h.id=%s AND h.project_id=%s', (handler_id, project)).fetchone()
@@ -175,8 +199,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             event = conn.execute(
                 'SELECT * FROM ka.events WHERE id=%s AND project_id=%s', (value.event_id, db.project(conn, app))
             ).fetchone()
-        if event is None:
-            raise HTTPException(404, NO_EVENT)
+            if event is None:
+                raise HTTPException(404, NO_EVENT)
+            target = explain_target(conn, handler, event) if handler['action'] == 'agent' else None
         try:
             output = (
                 event_templates.render_emit(handler['emit'], event)
@@ -186,7 +211,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         except event_templates.TemplateProblem as exc:
             output = {'error': str(exc)}
         reason = event_matching.explain(handler, event)
-        return {'matches': reason is None, 'reason': reason, 'output': output}
+        return {'matches': reason is None, 'reason': reason, 'output': output, **({'target': target} if target else {})}
 
     @router.post('/event-handlers', status_code=201)
     def create(value: HandlerDraft, request: Request) -> dict:
@@ -200,7 +225,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 with conn.transaction():
                     handler_id = conn.execute(
                         """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
-                        action,emit,agent_id,prompt,reply_to_jira,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        action,emit,agent_from,agent_id,prompt,reply_to_jira,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (
                             project,
                             values['name'],
@@ -209,6 +234,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             Jsonb(values['conditions']),
                             values['action'],
                             Jsonb(values['emit']) if values['emit'] else None,
+                            values['agent_from'],
                             values['agent_id'],
                             values['prompt'],
                             values['reply_to_jira'],
@@ -226,6 +252,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 {
                     'name': values['name'],
                     'action': values['action'],
+                    'agent_from': values['agent_from'],
                     'reply_to_jira': values['reply_to_jira'],
                 },
             )
@@ -254,7 +281,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 with conn.transaction():
                     conn.execute(
                         """UPDATE ka.event_handlers SET name=%s,enabled=%s,type_pattern=%s,conditions=%s,action=%s,
-                        emit=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
+                        emit=%s,agent_from=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
                         (
                             values['name'],
                             values['enabled'],
@@ -262,6 +289,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             Jsonb(values['conditions']),
                             values['action'],
                             Jsonb(values['emit']) if values['emit'] else None,
+                            values['agent_from'],
                             values['agent_id'],
                             values['prompt'],
                             values['reply_to_jira'],
@@ -280,6 +308,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     'name': values['name'],
                     'action': values['action'],
                     'enabled': values['enabled'],
+                    'agent_from': values['agent_from'],
                     'reply_to_jira': values['reply_to_jira'],
                 },
             )

@@ -3,9 +3,11 @@ agent with everything it has on, the rendered prompt as its first message, the h
 event and handler. 0103 adds the run's event and handler and the notification's run."""
 
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from knowledge_admin.events import processor as event_processor
 from knowledge_admin.sessions.start import AGENT_NO_MODEL
@@ -196,3 +198,130 @@ def test_the_event_detail_and_notifications_carry_the_run(tester):
     assert handler_run['run']['notification_id'] == note
     one = t.client.get(f'/api/notifications/{note}', headers=HEADERS).json()['notification']
     assert (one['session_id'], one['task']) == (str(session['id']), None)
+
+
+def a_mapping(store, agent_id: str, key: str = 'ops-bot', name: str = 'Ops Bot'):
+    """A Jira connection whose user `key` is mapped to the agent; returns the connection id."""
+    with store.connect() as conn:
+        connection = conn.execute(
+            """INSERT INTO ka.jira_connections(project_id,name,base_url,username,jql)
+            VALUES (%s,'primary','https://jira.test','mock-admin','project = DEMO') RETURNING id""",
+            (store.project(conn, 'shop'),),
+        ).fetchone()['id']
+        conn.execute(
+            """INSERT INTO ka.jira_user_agents(connection_id,jira_user_key,jira_user_name,agent_id)
+            VALUES (%s,%s,%s,%s)""",
+            (connection, key, name, agent_id),
+        )
+    return connection
+
+
+def an_assigned_event(store, connection, assignee_id='ops-bot', assignee='Ops Bot') -> dict:
+    payload = {'status': 'In Progress', 'assignee_id': assignee_id, 'assignee': assignee, 'for_assignee': True}
+    return an_event(store, source_id=connection, payload=Jsonb(payload))
+
+
+def test_an_assignee_handler_runs_the_mapped_agent(tester):
+    t = tester
+    connection = a_mapping(t.store, t.agent)
+    handler = a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    first = an_assigned_event(t.store, connection)
+    event_processor.run_once(t.store)
+    [handler_run] = runs(t.store, first['id'])
+    [session] = sessions(t.store)
+    assert (handler_run['status'], handler_run['message'], handler_run['agent_session_id']) == (
+        'succeeded',
+        'Started a run of Tester.',
+        session['id'],
+    )
+    assert (session['agent_id'], session['handler_id'], session['actor_id']) == (
+        t.agent,
+        handler['id'],
+        handler['created_by'],
+    )
+
+
+@pytest.mark.parametrize(
+    'assignee_id, assignee, message',
+    [
+        ('marko', 'Marko Ilić', 'No agent is mapped to Jira user Marko Ilić (marko).'),
+        (None, None, 'The ticket is not assigned.'),
+    ],
+)
+def test_an_assignee_handler_without_an_agent_fails_and_starts_nothing(tester, assignee_id, assignee, message):
+    t = tester
+    connection = a_mapping(t.store, t.agent)
+    a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    first = an_assigned_event(t.store, connection, assignee_id, assignee)
+    event_processor.run_once(t.store)
+    [handler_run] = runs(t.store, first['id'])
+    assert (handler_run['status'], handler_run['message'], handler_run['agent_session_id']) == ('failed', message, None)
+    assert event(t.store, first['id'])['status'] == 'failed'
+    assert sessions(t.store) == []
+
+
+def test_a_disabled_mapped_agent_fails_with_the_disabled_text(tester):
+    t = tester
+    connection = a_mapping(t.store, t.agent)
+    a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    with t.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (t.agent,))
+    first = an_assigned_event(t.store, connection)
+    event_processor.run_once(t.store)
+    [handler_run] = runs(t.store, first['id'])
+    assert (handler_run['status'], handler_run['message']) == ('failed', 'Agent is disabled.')
+    assert sessions(t.store) == []
+
+
+def test_a_mapping_of_another_connection_is_not_used(tester):
+    t = tester
+    a_mapping(t.store, t.agent)
+    a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    first = an_assigned_event(t.store, uuid4())
+    event_processor.run_once(t.store)
+    [handler_run] = runs(t.store, first['id'])
+    assert handler_run['message'] == 'No agent is mapped to Jira user Ops Bot (ops-bot).'
+
+
+def test_a_fixed_and_an_assignee_handler_fire_independently(tester):
+    t = tester
+    connection = a_mapping(t.store, t.agent)
+    a_handler(t.store, name='A fixed', action='agent', emit=None, agent_id=t.agent, prompt=PROMPT)
+    a_handler(t.store, name='B assignee', action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    unmapped = an_assigned_event(t.store, connection, 'marko', 'Marko Ilić')
+    event_processor.run_once(t.store)
+    assert [(r['handler_name'], r['status']) for r in runs(t.store, unmapped['id'])] == [
+        ('A fixed', 'succeeded'),
+        ('B assignee', 'failed'),
+    ]
+    mapped = an_assigned_event(t.store, connection)
+    event_processor.run_once(t.store)
+    assert [(r['handler_name'], r['status']) for r in runs(t.store, mapped['id'])] == [
+        ('A fixed', 'succeeded'),
+        ('B assignee', 'succeeded'),
+    ]
+    assert len(sessions(t.store)) == 3
+
+
+def test_deleting_the_agent_removes_its_mapping_and_the_handler_keeps_working_for_others(tester):
+    t = tester
+    connection = a_mapping(t.store, t.agent)
+    with t.store.connect() as conn:
+        conn.execute(
+            """INSERT INTO ka.agents(id,name,enabled,system_prompt,model_id) SELECT 'other','Other',true,'',model_id
+            FROM ka.agents WHERE id=%s""",
+            (t.agent,),
+        )
+        conn.execute(
+            """INSERT INTO ka.jira_user_agents(connection_id,jira_user_key,jira_user_name,agent_id)
+            VALUES (%s,'ana','Ana Petrović','other')""",
+            (connection,),
+        )
+        conn.execute('DELETE FROM ka.agents WHERE id=%s', (t.agent,))
+    a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    gone = an_assigned_event(t.store, connection)
+    event_processor.run_once(t.store)
+    assert runs(t.store, gone['id'])[0]['message'] == 'No agent is mapped to Jira user Ops Bot (ops-bot).'
+    other = an_assigned_event(t.store, connection, 'ana', 'Ana Petrović')
+    event_processor.run_once(t.store)
+    assert runs(t.store, other['id'])[0]['message'] == 'Started a run of Other.'

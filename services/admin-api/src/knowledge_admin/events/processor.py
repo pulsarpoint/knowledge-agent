@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
-from knowledge_admin.events import matching as event_matching, templates as event_templates
+from knowledge_admin.events import matching as event_matching, targets, templates as event_templates
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions import start
 
@@ -24,7 +24,7 @@ BATCH = 50
 MAX_DEPTH = 5
 TOO_DEEP = f'Chain too deep ({MAX_DEPTH} levels).'
 NO_AGENT = 'Agent not found.'
-DISABLED = 'Agent is disabled.'
+DISABLED = targets.DISABLED
 UNEXPECTED = 'The handler failed unexpectedly. See the repository-worker log.'
 
 CLAIM = "SELECT * FROM ka.events WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"
@@ -73,9 +73,12 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
     """Start an ordinary run of the handler's agent (purpose event) through the sessions start: the saved agent with
     everything it has (every tool, every expert), the rendered prompt as its first message, the handler's
-    creator as actor, titled by the event. One run per event and handler: processing the event again links the run it
-    started before."""
-    agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
+    creator as actor, titled by the event. The agent is the handler's own or the one mapped to the ticket's assignee
+    (events/targets.py). One run per event and handler: processing the event again links the run it started before."""
+    agent_id, refusal = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
+    if refusal:
+        raise HandlerFailed(refusal)
+    agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
     if agent is None:
         raise HandlerFailed(NO_AGENT)
     if not agent['enabled']:
@@ -88,7 +91,7 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     if row is not None:
         return started, {'agent_session_id': row['id']}
     try:
-        value = start.StartInput(agent_id=handler['agent_id'], message=prompt)
+        value = start.StartInput(agent_id=agent_id, message=prompt)
         session_id = start.start_run(
             conn,
             event['project_id'],
