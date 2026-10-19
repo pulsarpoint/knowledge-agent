@@ -21,6 +21,11 @@ TITLES = ["Investigate payment API latency", "Review worker retry behavior", "Up
           "Check database connection pool", "Improve request tracing", "Document service dependencies"]
 STATUSES = ["Open", "In Progress", "Done"]
 PERSON = {"name": "jira-user", "displayName": "Jira User"}
+USERS = {key: {"key": key, "name": key, "displayName": display, "emailAddress": f"{key}@example.com", "active": True}
+         for key, display in [(USERNAME, "Mock Administrator"), ("ops-bot", "Ops Bot"), ("docs-bot", "Docs Bot"),
+                              ("ana", "Ana Petrović"), ("marko", "Marko Ilić")]}
+# Tickets whose number is divisible by 4 are mostly unassigned; these few go to the bots and the people.
+OTHER_ASSIGNEES = {4: "ops-bot", 8: "docs-bot", 12: "ana", 16: "marko"}
 FAILURE_MODES = {"normal", "error", "refuse", "lost"}
 MAX_REQUEST = 1024 * 1024
 
@@ -32,7 +37,7 @@ def new_issue(number: int, summary: str, description: str, status: int, updated:
             "project": {"key": "DEMO"}, "issuetype": {"name": "Task"},
             "status": {"id": str(status + 1), "name": STATUSES[status]},
             "priority": {"name": ["High", "Medium", "Low"][status]},
-            "assignee": None if number % 4 == 0 else {"key": "mock-admin", "displayName": "Mock Administrator"},
+            "assignee": USERS.get(OTHER_ASSIGNEES.get(number, "" if number % 4 == 0 else USERNAME)),
             "reporter": {"key": "mock-admin"}, "labels": ["local-mock", "demo"],
             "created": created, "updated": updated}}
 
@@ -122,16 +127,20 @@ def filter_issues(jql: str) -> list[dict]:
     sorted_by_updated = order.search(jql) is not None
     expression = order.sub("", jql).strip()
     clauses: list[tuple[str, str, str]] = []
+    empty = re.compile(r"assignee\s+is\s+EMPTY", re.I)
     atom = re.compile(r'(project|status|assignee|text|key|labels)\s*(=|~)\s*("(?:[^"\\]|\\.)*"|[A-Za-z0-9_-]+)', re.I)
     while expression:
-        match = atom.match(expression)
-        if match is None:
+        match = empty.match(expression)
+        if match:
+            clauses.append(("assignee", "=", ""))
+        elif match := atom.match(expression):
+            field, operator, raw = match.groups()
+            value = json.loads(raw) if raw.startswith('"') else raw
+            if operator == "~" and field.lower() != "text":
+                raise ValueError("Mock only supports ~ for text")
+            clauses.append((field.lower(), operator, value.casefold()))
+        else:
             raise ValueError("Unsupported mock JQL")
-        field, operator, raw = match.groups()
-        value = json.loads(raw) if raw.startswith('"') else raw
-        if operator == "~" and field.lower() != "text":
-            raise ValueError("Mock only supports ~ for text")
-        clauses.append((field.lower(), operator, value.casefold()))
         expression = expression[match.end():].strip()
         if expression:
             separator = re.match(r"AND\s+", expression, re.I)
@@ -224,17 +233,23 @@ def issue_html(issue: dict) -> str:
                       for status in STATUSES)
     comments = "".join(comment_html(issue, comment) for comment in COMMENTS[issue["id"]])
     key = quote(issue["key"])
+    current = (fields["assignee"] or {}).get("key", "")
+    assignees = '<option value="">Unassigned</option>' + "".join(
+        f'<option value="{user["key"]}"{" selected" if user["key"] == current else ""}>{html.escape(user["displayName"])}</option>'
+        for user in USERS.values())
+    authors = '<option value="">Jira User</option>' + "".join(
+        f'<option value="{user["key"]}">{html.escape(user["displayName"])}</option>' for user in USERS.values())
     return page(issue["key"], f"""<p><a href="/">← Jira mock</a></p>
 <h1>{html.escape(issue["key"])} · {html.escape(fields["summary"])}</h1>
 <p class="muted">id {html.escape(issue["id"])} · {html.escape(fields["status"]["name"])} · updated
 {html.escape(fields["updated"])}</p><pre>{html.escape(fields["description"])}</pre>
 <h2>Comments ({len(COMMENTS[issue["id"]])})</h2>{comments}
 <h2>Add a comment as a person</h2><div class="box"><form method=post action="/mock/{key}/comment">
-<p><textarea name=body rows=4 required></textarea></p><button>Add comment</button></form></div>
+<p><textarea name=body rows=4 required></textarea></p><p>Comment as <select name=author>{authors}</select></p><button>Add comment</button></form></div>
 <h2>Edit</h2><div class="box"><form method=post action="/mock/{key}/edit">
 <p><input type=text name=summary value="{html.escape(fields["summary"])}" required maxlength=255></p>
 <p><textarea name=description rows=6>{html.escape(fields["description"])}</textarea></p>
-<p><select name=status>{options}</select></p><button>Save</button></form></div>""")
+<p><select name=status>{options}</select> Assignee <select name=assignee>{assignees}</select></p><button>Save</button></form></div>""")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -289,7 +304,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def api_get(self, url) -> None:
         if url.path == "/jira/rest/api/2/myself":
-            self.respond(200, {"name": USERNAME, "key": USERNAME, "displayName": "Mock Administrator", "active": True})
+            self.respond(200, USERS[USERNAME])
+        elif url.path == "/jira/rest/api/2/user/search":
+            text = parse_qs(url.query).get("username", [""])[0].casefold()
+            self.respond(200, [user for user in USERS.values()
+                               if text in f"{user['key']} {user['name']} {user['displayName']}".casefold()][:50])
         elif url.path == "/jira/rest/api/2/search":
             query = parse_qs(url.query)
             try:
@@ -373,7 +392,7 @@ class Handler(BaseHTTPRequestHandler):
             save()
             self.respond(500, {"errorMessages": ["Synthetic server error"]})
             return
-        comment = add_comment(issue, payload["body"], {"name": USERNAME, "displayName": "Mock Administrator"})
+        comment = add_comment(issue, payload["body"], USERS[USERNAME])
         POSTED.append(comment["id"])
         save()
         if mode == "lost":
@@ -413,14 +432,19 @@ class Handler(BaseHTTPRequestHandler):
                 if not form.get("body", "").strip():
                     self.respond(400, {"errorMessages": ["Comment body is required"]})
                     return
-                add_comment(issue, form["body"], PERSON)
+                author = PERSON if not form.get("author") else USERS.get(form["author"])
+                if author is None:
+                    self.respond(400, {"errorMessages": ["Unknown user"]})
+                    return
+                add_comment(issue, form["body"], author)
             else:
                 summary, status = form.get("summary", "").strip(), form.get("status", "")
-                if not 1 <= len(summary) <= 255 or status not in STATUSES:
-                    self.respond(400, {"errorMessages": ["A summary of 1-255 characters and a known status are required"]})
+                assignee = form.get("assignee", "")
+                if not 1 <= len(summary) <= 255 or status not in STATUSES or assignee and assignee not in USERS:
+                    self.respond(400, {"errorMessages": ["A summary of 1-255 characters, a known status and a known assignee are required"]})
                     return
                 fields = issue["fields"]
-                fields.update(summary=summary, description=form.get("description", ""), updated=now(),
+                fields.update(assignee=USERS.get(assignee), summary=summary, description=form.get("description", ""), updated=now(),
                               status={"id": str(STATUSES.index(status) + 1), "name": status})
         else:
             self.respond(404, {"errorMessages": ["Unknown mock page"]})
