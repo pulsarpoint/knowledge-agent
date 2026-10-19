@@ -40,6 +40,11 @@ class HandlerFailed(Exception):
     """A handler action that could not run; the message is recorded on its run."""
 
 
+class NotForHandler(Exception):
+    """The event is not for this handler (an assignee handler on an unassigned ticket or an unmapped assignee): the
+    handler does not fire and nothing is recorded."""
+
+
 def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
     if event['depth'] >= MAX_DEPTH:
         raise HandlerFailed(TOO_DEEP)
@@ -74,8 +79,18 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     """Start an ordinary run of the handler's agent (purpose event) through the sessions start: the saved agent with
     everything it has (every tool, every expert), the rendered prompt as its first message, the handler's
     creator as actor, titled by the event. The agent is the handler's own or the one mapped to the ticket's assignee
-    (events/targets.py). One run per event and handler: processing the event again links the run it started before."""
-    agent_id, refusal = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
+    (events/targets.py). One run per event and handler: processing the event again links the run it started before,
+    looked up first, so a changed agent or mapping cannot refuse it or start a second agent."""
+    row = conn.execute(
+        """SELECT s.id,coalesce(a.name,s.agent_id) AS name FROM ka.agent_sessions s
+        LEFT JOIN ka.agents a ON a.id=s.agent_id WHERE s.event_id=%s AND s.handler_id=%s""",
+        (event['id'], handler['id']),
+    ).fetchone()
+    if row is not None:
+        return f'Started a run of {row["name"]}.', {'agent_session_id': row['id']}
+    agent_id, refusal, fires = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
+    if not fires:
+        raise NotForHandler(refusal)
     if refusal:
         raise HandlerFailed(refusal)
     agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
@@ -85,11 +100,6 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
         raise HandlerFailed(DISABLED)
     prompt = event_templates.render_prompt(handler['prompt'], event)
     started = f'Started a run of {agent["name"]}.'
-    row = conn.execute(
-        'SELECT id FROM ka.agent_sessions WHERE event_id=%s AND handler_id=%s', (event['id'], handler['id'])
-    ).fetchone()
-    if row is not None:
-        return started, {'agent_session_id': row['id']}
     try:
         value = start.StartInput(agent_id=agent_id, message=prompt)
         session_id = start.start_run(
@@ -124,6 +134,8 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
             with conn.transaction():  # a savepoint: a failing action leaves nothing behind
                 message, links = ACTIONS[handler['action']](conn, store, handler, event)
             status = 'succeeded'
+        except NotForHandler:
+            continue  # the savepoint left nothing behind; no run is recorded
         except (HandlerFailed, event_templates.TemplateProblem) as exc:
             status, message = 'failed', str(exc)
         except Exception:

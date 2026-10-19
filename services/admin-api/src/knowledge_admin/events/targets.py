@@ -8,14 +8,17 @@ from knowledge_admin.jira.events import CREATED, UPDATED
 
 NOT_ASSIGNED = 'The ticket is not assigned.'
 DISABLED = 'Agent is disabled.'
-JIRA_TYPES = (CREATED, UPDATED)
+JIRA_TYPES = (CREATED, UPDATED)  # every jira.ticket.* type the connection records; add new ones here
 
 
 class Target(NamedTuple):
-    """The agent to run, or why none runs (exactly one is set)."""
+    """The agent to run, or why none runs (exactly one of agent_id and refusal is set). `fires` is False when the event
+    is not for this handler (no assignee, or nobody mapped to them): the processor then skips it and records nothing;
+    a disabled mapped agent fires and fails, like a disabled fixed agent."""
 
     agent_id: str | None
     refusal: str | None
+    fires: bool = True
 
 
 def pick_agent(handler: dict, event: dict, rows: list[dict]) -> Target:
@@ -25,10 +28,10 @@ def pick_agent(handler: dict, event: dict, rows: list[dict]) -> Target:
     payload = event.get('payload') or {}
     key = payload.get('assignee_id')
     if not key:
-        return Target(None, NOT_ASSIGNED)
+        return Target(None, NOT_ASSIGNED, fires=False)
     row = next((row for row in rows if row['jira_user_key'] == key), None)
     if row is None:
-        return Target(None, f'No agent is mapped to Jira user {payload.get("assignee") or key} ({key}).')
+        return Target(None, f'No agent is mapped to Jira user {payload.get("assignee") or key} ({key}).', fires=False)
     if not row['enabled']:
         return Target(None, DISABLED)
     return Target(row['agent_id'], None)

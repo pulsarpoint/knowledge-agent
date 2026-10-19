@@ -50,7 +50,7 @@ def jira_event(assignee_id, assignee=None) -> dict:
 
 def test_the_mapped_agent_is_chosen():
     handler = {'agent_from': 'assignee', 'agent_id': None}
-    assert pick_agent(handler, jira_event('ops-bot', 'Ops Bot'), ROWS) == ('ops-agent', None)
+    assert pick_agent(handler, jira_event('ops-bot', 'Ops Bot'), ROWS) == ('ops-agent', None, True)
 
 
 def test_an_unmapped_assignee_is_refused_with_name_and_key():
@@ -58,25 +58,26 @@ def test_an_unmapped_assignee_is_refused_with_name_and_key():
     assert pick_agent(handler, jira_event('marko', 'Marko Ilić'), ROWS) == (
         None,
         'No agent is mapped to Jira user Marko Ilić (marko).',
+        False,
     )
 
 
 @pytest.mark.parametrize('payload', [{'assignee_id': None, 'assignee': None}, {}])
 def test_an_unassigned_ticket_is_refused(payload):
     handler = {'agent_from': 'assignee', 'agent_id': None}
-    assert pick_agent(handler, {'source': 'jira', 'payload': payload}, ROWS) == (None, NOT_ASSIGNED)
+    assert pick_agent(handler, {'source': 'jira', 'payload': payload}, ROWS) == (None, NOT_ASSIGNED, False)
     assert NOT_ASSIGNED == 'The ticket is not assigned.'
 
 
 def test_a_disabled_mapped_agent_is_refused_with_the_processor_text():
     handler = {'agent_from': 'assignee', 'agent_id': None}
-    assert pick_agent(handler, jira_event('docs-bot', 'Docs Bot'), ROWS) == (None, event_processor.DISABLED)
+    assert pick_agent(handler, jira_event('docs-bot', 'Docs Bot'), ROWS) == (None, event_processor.DISABLED, True)
 
 
 def test_a_fixed_handler_keeps_its_agent():
     handler = {'agent_from': 'fixed', 'agent_id': 'tester'}
-    assert pick_agent(handler, jira_event('ops-bot', 'Ops Bot'), ROWS) == ('tester', None)
-    assert pick_agent(handler, {'source': 'manual', 'payload': {}}, []) == ('tester', None)
+    assert pick_agent(handler, jira_event('ops-bot', 'Ops Bot'), ROWS) == ('tester', None, True)
+    assert pick_agent(handler, {'source': 'manual', 'payload': {}}, []) == ('tester', None, True)
 
 
 # The column
@@ -118,7 +119,7 @@ def test_down_and_up_again(store):
 
 def test_create_and_edit_an_assignee_handler(tester):
     t = tester
-    response = t.client.post('/api/event-handlers', headers=HEADERS, json={**ASSIGNEE, 'agent_id': t.agent})
+    response = t.client.post('/api/event-handlers', headers=HEADERS, json=ASSIGNEE)
     assert response.status_code == 201, response.text
     handler = response.json()['handler']
     assert (handler['agent_from'], handler['agent_id'], handler['agent_name']) == ('assignee', None, None)
@@ -140,6 +141,7 @@ def test_create_and_edit_an_assignee_handler(tester):
             'Only Send to agent handlers can target the assignee.',
         ),
         ({'type_pattern': 'triage.*'}, 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'),
+        ({'agent_id': 'tester'}, 'Leave the agent empty when the handler targets the assignee.'),
         (
             {'type_pattern': 'jira.sprint.*'},
             'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.',
@@ -284,19 +286,28 @@ def test_the_assignee_agent_answers_a_reassigned_ticket_and_a_person_comment_but
             ]
             == 'posted'
         )
+
+    def seen() -> dict:
+        """The newest event id and DEMO-20 as last pulled."""
+        with t.store.connect() as conn:
+            return conn.execute(
+                """SELECT (SELECT max(id) FROM ka.events) AS event_id,
+                (SELECT source_updated_at FROM ka.jira_tickets WHERE issue_key='DEMO-20') AS updated"""
+            ).fetchone()
+
+    before = seen()
     assert pull_and_process() == []  # our own reply starts nothing
+    after = seen()
+    # The pull saw the ticket change (our comment bumped `updated`), and the loop protection recorded no event for a
+    # change that is only our own reply (jira/events.py record), so no for_assignee event can reach the handler.
+    assert after['updated'] > before['updated'] and after['event_id'] == before['event_id']
 
     control('/mock/DEMO-20/comment', {'body': 'Any news?', 'author': 'ana'})
     [second] = pull_and_process()
     assert second['status'] == 'succeeded' and second['agent_session_id'] != first['agent_session_id']
 
     edit('marko')  # reassigned away to an unmapped user: no run for the old agent
-    [third] = pull_and_process()
-    assert (third['status'], third['message'], third['agent_session_id']) == (
-        'failed',
-        'No agent is mapped to Jira user Marko Ilić (marko).',
-        None,
-    )
+    assert pull_and_process() == []
     edit('')  # unassigned: not for the assignee
     assert pull_and_process() == []
     with t.store.connect() as conn:

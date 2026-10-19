@@ -25,6 +25,7 @@ NO_EVENT = 'Event not found.'
 NO_AGENT = 'Agent not found.'
 NOT_AGENT_JIRA = 'Only Send to agent handlers can post to Jira.'
 NOT_AGENT_ASSIGNEE = 'Only Send to agent handlers can target the assignee.'
+ASSIGNEE_WITH_AGENT = 'Leave the agent empty when the handler targets the assignee.'
 NOT_JIRA_ASSIGNEE = 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'
 SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_from,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,
     h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
@@ -109,6 +110,8 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
     assignee = draft.agent_from == 'assignee'
     if assignee and draft.action != 'agent':
         raise bad(NOT_AGENT_ASSIGNEE)
+    if assignee and draft.agent_id:
+        raise bad(ASSIGNEE_WITH_AGENT)
     try:
         event_matching.check_pattern(draft.type_pattern.strip())
         conditions = event_matching.check_conditions([condition.model_dump() for condition in draft.conditions])
@@ -139,7 +142,7 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
             if not assignee and not draft.agent_id:
                 raise bad('Choose an agent.')
             event_templates.check_prompt(draft.prompt or '')
-            values.update(agent_id=None if assignee else draft.agent_id, prompt=draft.prompt)
+            values.update(agent_id=draft.agent_id, prompt=draft.prompt)
     except event_templates.TemplateProblem as exc:
         raise bad(str(exc)) from None
     return values
@@ -156,7 +159,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     def explain_target(conn, handler: dict, event: dict) -> dict:
         """Preview: the agent the handler would run for the event, or why none (the processor's texts)."""
-        agent_id, refusal = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
+        agent_id, refusal, _ = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
         if refusal:
             return {'error': refusal}
         agent = conn.execute('SELECT name,enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()

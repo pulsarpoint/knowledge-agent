@@ -241,22 +241,16 @@ def test_an_assignee_handler_runs_the_mapped_agent(tester):
     )
 
 
-@pytest.mark.parametrize(
-    'assignee_id, assignee, message',
-    [
-        ('marko', 'Marko Ilić', 'No agent is mapped to Jira user Marko Ilić (marko).'),
-        (None, None, 'The ticket is not assigned.'),
-    ],
-)
-def test_an_assignee_handler_without_an_agent_fails_and_starts_nothing(tester, assignee_id, assignee, message):
+@pytest.mark.parametrize('assignee_id, assignee', [('marko', 'Marko Ilić'), (None, None)])
+def test_an_unmapped_or_unassigned_ticket_is_not_for_the_handler(tester, assignee_id, assignee):
+    """Not for this handler: it does not fire, records no run and leaves the event processed."""
     t = tester
     connection = a_mapping(t.store, t.agent)
     a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
     first = an_assigned_event(t.store, connection, assignee_id, assignee)
     event_processor.run_once(t.store)
-    [handler_run] = runs(t.store, first['id'])
-    assert (handler_run['status'], handler_run['message'], handler_run['agent_session_id']) == ('failed', message, None)
-    assert event(t.store, first['id'])['status'] == 'failed'
+    assert runs(t.store, first['id']) == []
+    assert event(t.store, first['id'])['status'] == 'processed'
     assert sessions(t.store) == []
 
 
@@ -279,8 +273,7 @@ def test_a_mapping_of_another_connection_is_not_used(tester):
     a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
     first = an_assigned_event(t.store, uuid4())
     event_processor.run_once(t.store)
-    [handler_run] = runs(t.store, first['id'])
-    assert handler_run['message'] == 'No agent is mapped to Jira user Ops Bot (ops-bot).'
+    assert runs(t.store, first['id']) == [] and sessions(t.store) == []
 
 
 def test_a_fixed_and_an_assignee_handler_fire_independently(tester):
@@ -290,10 +283,8 @@ def test_a_fixed_and_an_assignee_handler_fire_independently(tester):
     a_handler(t.store, name='B assignee', action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
     unmapped = an_assigned_event(t.store, connection, 'marko', 'Marko Ilić')
     event_processor.run_once(t.store)
-    assert [(r['handler_name'], r['status']) for r in runs(t.store, unmapped['id'])] == [
-        ('A fixed', 'succeeded'),
-        ('B assignee', 'failed'),
-    ]
+    assert [(r['handler_name'], r['status']) for r in runs(t.store, unmapped['id'])] == [('A fixed', 'succeeded')]
+    assert event(t.store, unmapped['id'])['status'] == 'processed'
     mapped = an_assigned_event(t.store, connection)
     event_processor.run_once(t.store)
     assert [(r['handler_name'], r['status']) for r in runs(t.store, mapped['id'])] == [
@@ -321,7 +312,24 @@ def test_deleting_the_agent_removes_its_mapping_and_the_handler_keeps_working_fo
     a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
     gone = an_assigned_event(t.store, connection)
     event_processor.run_once(t.store)
-    assert runs(t.store, gone['id'])[0]['message'] == 'No agent is mapped to Jira user Ops Bot (ops-bot).'
+    assert runs(t.store, gone['id']) == []
     other = an_assigned_event(t.store, connection, 'ana', 'Ana Petrović')
     event_processor.run_once(t.store)
     assert runs(t.store, other['id'])[0]['message'] == 'Started a run of Other.'
+
+
+def test_reprocessing_links_the_run_it_started_although_the_mapping_changed(tester):
+    t = tester
+    connection = a_mapping(t.store, t.agent)
+    a_handler(t.store, action='agent', emit=None, agent_from='assignee', prompt=PROMPT)
+    first = an_assigned_event(t.store, connection)
+    event_processor.run_once(t.store)
+    [session] = sessions(t.store)
+    with t.store.connect() as conn:  # the mapping is gone, then the event is picked up again
+        conn.execute('DELETE FROM ka.jira_user_agents')
+        conn.execute("UPDATE ka.events SET status='pending',processed_at=NULL WHERE id=%s", (first['id'],))
+    event_processor.run_once(t.store)
+    assert [(r['status'], r['message'], r['agent_session_id']) for r in runs(t.store, first['id'])] == [
+        ('succeeded', 'Started a run of Tester.', session['id'])
+    ] * 2
+    assert len(sessions(t.store)) == 1
