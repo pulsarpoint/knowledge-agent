@@ -100,6 +100,13 @@ class JiraClient:
         self.client.close()
 
     def get(self, path: str, params: dict | None = None) -> dict:
+        result = self.get_json(path, params)
+        if not isinstance(result, dict):
+            raise HTTPException(502, 'Jira returned an invalid response. Check that the URL points to its REST API')
+        return result
+
+    def get_json(self, path: str, params: dict | None = None) -> object:
+        """One bounded GET; the parsed JSON body, whatever its shape (the user search returns a list)."""
         if time.monotonic() >= self.deadline:
             raise HTTPException(504, 'Jira request timed out. Try a smaller ticket limit')
         try:
@@ -125,10 +132,7 @@ class JiraClient:
                     body.extend(chunk)
                     if len(body) > 4 * 1024 * 1024:
                         raise HTTPException(502, 'Jira response is too large. Try a smaller ticket limit')
-                result = json.loads(body)
-                if not isinstance(result, dict):
-                    raise ValueError('Expected an object')
-                return result
+                return json.loads(body)
         except httpx.TimeoutException:
             raise HTTPException(504, 'Jira request timed out. Check network access from the admin container') from None
         except httpx.HTTPError:
@@ -201,6 +205,22 @@ class JiraClient:
         if name.casefold() != username.casefold():
             raise HTTPException(502, 'The token belongs to a different Jira user. Check the saved username')
         return {'username': name, 'display_name': str(user.get('displayName') or name)}
+
+    def search_users(self, query: str) -> list[dict]:
+        """Active Jira Data Center users matching `query` (key, login name or display name), as display data only:
+        {key, name, display_name}."""
+        rows = self.get_json('user/search', {'username': query, 'maxResults': 50})
+        if not isinstance(rows, list):
+            raise HTTPException(502, 'Jira returned an invalid user list')
+        users = []
+        for row in rows:
+            key = row.get('key') if isinstance(row, dict) else None
+            if not isinstance(key, str) or not key or row.get('active') is False:
+                continue
+            name = row.get('name') if isinstance(row.get('name'), str) else None
+            display = row.get('displayName') if isinstance(row.get('displayName'), str) else None
+            users.append({'key': key, 'name': name, 'display_name': display or name or key})
+        return users
 
     def tickets(self, limit: int, jql: str = JQL) -> tuple[list[dict], int]:
         issues: list[dict] = []

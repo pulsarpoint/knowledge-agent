@@ -7,19 +7,56 @@ from uuid import UUID, uuid4
 
 import httpx
 import psycopg
-from fastapi import APIRouter, HTTPException, Request
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.data_root import jira_folder
-from knowledge_admin.db import storage, workspace
+from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.jira.client import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.jira.export import TicketExportInput, publish_ticket, ticket_markdown
 
 SETTINGS_FIELDS = """id,base_url,username,revision,jql,(credential_id IS NOT NULL) AS has_token,
     last_tested_at,last_test_error,last_successful_sync_at,last_fetch_limit,last_fetch_total"""
+
+
+NO_CONNECTION = 'Save a Jira URL, username and token in Jira Settings first'
+USER_AGENT_FIELDS = """m.jira_user_key,m.jira_user_name,m.agent_id,a.name AS agent_name,a.enabled,m.updated_at"""
+UserKey = Annotated[str, Path(min_length=1, max_length=255, pattern=r'\S')]
+
+
+class UserAgentInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    agent_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(default='', max_length=255)
+
+
+def seen_assignees(conn, connection_id, query: str) -> list[dict]:
+    """Assignees of the connection's pulled tickets whose key or display name contains `query` (case-insensitive),
+    newest name per key, as {key, name, display_name}; the login name is not stored, so it is None."""
+    rows = conn.execute(
+        """SELECT DISTINCT ON (assignee_id) assignee_id,assignee_name FROM ka.jira_tickets
+        WHERE connection_id=%s AND assignee_id IS NOT NULL ORDER BY assignee_id,source_updated_at DESC""",
+        (connection_id,),
+    ).fetchall()
+    needle = query.casefold()
+    users = [
+        {'key': row['assignee_id'], 'name': None, 'display_name': row['assignee_name'] or row['assignee_id']}
+        for row in rows
+        if needle in row['assignee_id'].casefold() or needle in (row['assignee_name'] or '').casefold()
+    ]
+    return sorted(users, key=lambda user: (user['display_name'].casefold(), user['key']))
+
+
+def merged_users(jira_users: list[dict], seen: list[dict]) -> list[dict]:
+    """Jira's users first, then the seen assignees Jira did not return (one entry per key)."""
+    keys = {user['key'] for user in jira_users}
+    return [*jira_users, *(user for user in seen if user['key'] not in keys)]
 
 
 def export_folder() -> str | None:
@@ -256,5 +293,98 @@ def build_api(
                 ),
             )
         return {**result, 'issue_key': issue['key'], 'comments': len(comments)}
+
+    def connection_id(conn, project) -> UUID | None:
+        row = conn.execute(
+            "SELECT id FROM ka.jira_connections WHERE project_id=%s AND name='primary' FOR SHARE", (project,)
+        ).fetchone()
+        return None if row is None else row['id']
+
+    def user_agents(conn, connection: UUID | None) -> list[dict]:
+        if connection is None:
+            return []
+        return conn.execute(
+            f"""SELECT {USER_AGENT_FIELDS} FROM ka.jira_user_agents m JOIN ka.agents a ON a.id=m.agent_id
+            WHERE m.connection_id=%s ORDER BY lower(m.jira_user_name),m.jira_user_key""",
+            (connection,),
+        ).fetchall()
+
+    @router.get('/jira/user-agents')
+    def list_user_agents() -> dict:
+        db = database()
+        with workspace(db, app) as (conn, project):
+            return {'user_agents': user_agents(conn, connection_id(conn, project))}
+
+    @router.put('/jira/user-agents/{key}')
+    def save_user_agent(key: UserKey, value: UserAgentInput, request: Request) -> dict:
+        db = database()
+        subject, email = request_actor(request)
+        key = key.strip()
+        with workspace(db, app) as (conn, project):
+            connection = connection_id(conn, project)
+            if connection is None:
+                raise HTTPException(400, NO_CONNECTION)
+            if conn.execute('SELECT 1 FROM ka.agents WHERE id=%s FOR SHARE', (value.agent_id,)).fetchone() is None:
+                raise HTTPException(400, 'Choose an existing agent')
+            actor = db.actor(conn, subject, email)
+            row = conn.execute(
+                """INSERT INTO ka.jira_user_agents(connection_id,jira_user_key,jira_user_name,agent_id,created_by,updated_by)
+                VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (connection_id,jira_user_key) DO UPDATE SET
+                jira_user_name=EXCLUDED.jira_user_name,agent_id=EXCLUDED.agent_id,updated_by=EXCLUDED.updated_by
+                RETURNING id""",
+                (connection, key, value.name or key, value.agent_id, actor, actor),
+            ).fetchone()
+            audit(
+                conn,
+                project,
+                actor,
+                'jira.user_agent_saved',
+                'jira_user_agent',
+                row['id'],
+                {'jira_user_key': key, 'agent_id': value.agent_id},
+            )
+            return {'user_agents': user_agents(conn, connection)}
+
+    @router.delete('/jira/user-agents/{key}', status_code=204)
+    def delete_user_agent(key: UserKey, request: Request) -> Response:
+        db = database()
+        subject, email = request_actor(request)
+        with workspace(db, app) as (conn, project):
+            row = conn.execute(
+                """DELETE FROM ka.jira_user_agents WHERE connection_id=%s AND jira_user_key=%s
+                RETURNING id,agent_id""",
+                (connection_id(conn, project), key.strip()),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, 'This Jira user is not mapped to an agent')
+            audit(
+                conn,
+                project,
+                db.actor(conn, subject, email),
+                'jira.user_agent_removed',
+                'jira_user_agent',
+                row['id'],
+                {'jira_user_key': key.strip(), 'agent_id': row['agent_id']},
+            )
+        return Response(status_code=204)
+
+    @router.get('/jira/users')
+    def search_users(query: Annotated[str, Query(min_length=1, max_length=100, pattern=r'\S')]) -> dict:
+        """Jira users for the user picker: Jira's own search merged with the assignees seen on pulled tickets. The
+        token goes only to the configured Jira; a Jira failure still returns the seen assignees, with a warning."""
+        db = database()
+        query = query.strip()
+        with workspace(db, app) as (conn, project):
+            connection = connection_id(conn, project)
+            if connection is None:
+                raise HTTPException(400, NO_CONNECTION)
+            seen = seen_assignees(conn, connection, query)
+        try:
+            config, token = connection_credentials(db)
+            with JiraClient(config['base_url'], token, transport) as jira:
+                found = jira.search_users(query)
+        except HTTPException as error:
+            return {'users': seen, 'warning': f'Jira user search failed: {error.detail}'}
+        return {'users': merged_users(found, seen), 'warning': None}
 
     return router
