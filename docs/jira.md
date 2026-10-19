@@ -255,8 +255,9 @@ the agent starts only when the assignee has something new, not on every edit. **
 ### Testing with the mock
 
 1. In Jira → Settings, save the mock connection; under **Users and agents** add `ops-bot` → an agent.
-2. Add a Send to agent handler for `jira.ticket.*` with **Agent mapped to the assignee**, the condition
+2. Let the Jira auto pull record the tickets once before adding the handler (the seeded DEMO-4 is already assigned to
+   `ops-bot`, so a handler that exists at the first pull answers on DEMO-4 too).
+3. Add a Send to agent handler for `jira.ticket.*` with **Agent mapped to the assignee**, the condition
    `payload.for_assignee equals true` and **Also post the answer as a comment on the Jira ticket**.
-3. Let the Jira auto pull record the tickets once, then on the control page set DEMO-3's assignee to Ops Bot and run
-   the schedule: the mapped agent answers on DEMO-3. A comment as Jira User starts another run; the agent's own
-   reply does not.
+4. On the control page set DEMO-3's assignee to Ops Bot and run the schedule: the mapped agent answers on DEMO-3. A
+   comment as Jira User starts another run; the agent's own reply does not.
