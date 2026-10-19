@@ -37,11 +37,14 @@ interface Form {
   conditions: ConditionRow[];
   action: "emit" | "agent";
   emit: { type: string; subject: string; title: string; payload: string };
+  /** The agent select's value: an agent id, or ASSIGNEE for the agent mapped to the assignee. */
   agent_id: string;
   prompt: string;
   reply_to_jira: boolean;
 }
 
+const ASSIGNEE = "@assignee";
+const FOR_ASSIGNEE: ConditionRow = { field: "payload.for_assignee", op: "equals", value: "true" };
 const BLANK: Form = {
   name: "",
   enabled: true,
@@ -70,7 +73,7 @@ function fromHandler(handler: EventHandler): Form {
       value: Array.isArray(c.value) ? c.value.join(", ") : (c.value ?? ""),
     })),
     emit: handler.emit ?? BLANK.emit,
-    agent_id: handler.agent_id ?? "",
+    agent_id: handler.agent_from === "assignee" ? ASSIGNEE : (handler.agent_id ?? ""),
     prompt: handler.prompt ?? "",
     reply_to_jira: handler.reply_to_jira,
   };
@@ -95,7 +98,8 @@ function toDraft(form: Form): HandlerDraft {
             : c.value,
     })),
     emit: form.action === "emit" ? form.emit : null,
-    agent_id: form.action === "agent" ? form.agent_id || null : null,
+    agent_from: form.action === "agent" && form.agent_id === ASSIGNEE ? "assignee" : "fixed",
+    agent_id: form.action === "agent" && form.agent_id !== ASSIGNEE ? form.agent_id || null : null,
     prompt: form.action === "agent" ? form.prompt : null,
     reply_to_jira: form.action === "agent" && form.reply_to_jira,
   };
@@ -141,6 +145,8 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
   const setCondition = (index: number, changes: Partial<ConditionRow>) =>
     update({ conditions: form.conditions.map((row, at) => (at === index ? { ...row, ...changes } : row)) });
   const setEmit = (field: keyof Form["emit"], value: string) => update({ emit: { ...form.emit, [field]: value } });
+  const missingForAssignee =
+    form.agent_id === ASSIGNEE && !form.conditions.some((row) => row.field.trim() === FOR_ASSIGNEE.field);
   const message = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
 
   async function save(event: FormEvent) {
@@ -345,12 +351,38 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
                       </SelectItem>
                     ))}
                   </SelectGroup>
+                  <SelectGroup>
+                    <SelectItem value={ASSIGNEE}>Agent mapped to the assignee</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <FieldDescription>
                 Enabled agents with fixed resources. The agent answers once, without a conversation. The answer goes to
                 Notifications.
               </FieldDescription>
+              {form.agent_id === ASSIGNEE && (
+                <FieldDescription>
+                  Jira events only: runs the agent mapped to the ticket&apos;s assignee in Jira → Settings → Users and
+                  agents. A ticket that is unassigned or assigned to an unmapped user starts no run.
+                </FieldDescription>
+              )}
+              {missingForAssignee && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">
+                    Usually with a condition, so the agent starts only when the assignee has something new:
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={form.conditions.length >= 20}
+                    onClick={() => update({ conditions: [...form.conditions, FOR_ASSIGNEE] })}
+                  >
+                    <Plus data-icon="inline-start" />
+                    Add payload.for_assignee equals true
+                  </Button>
+                </div>
+              )}
             </Field>
             <Field>
               <FieldLabel htmlFor="handler-prompt">Prompt</FieldLabel>
@@ -416,6 +448,11 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
               <p className={preview.matches ? "font-medium" : "text-muted-foreground"}>
                 {preview.matches ? "Matches" : `Doesn’t match: ${preview.reason}`}
               </p>
+              {preview.target && (
+                <p>
+                  {"error" in preview.target ? `No run: ${preview.target.error}` : `Runs ${preview.target.agent_name}`}
+                </p>
+              )}
               {"error" in preview.output ? (
                 <Alert variant="destructive">
                   <AlertDescription>{preview.output.error}</AlertDescription>

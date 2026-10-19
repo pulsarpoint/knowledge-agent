@@ -43,9 +43,33 @@ const snapshot: JiraTickets = {
   export_folder: "exports/jira",
 };
 
+/** The Users and agents section's requests, answered empty. */
+const section = (url: string) =>
+  url === "/api/jira/user-agents"
+    ? new Response(JSON.stringify({ user_agents: [] }))
+    : url === "/api/agents"
+      ? new Response(JSON.stringify({ agents: [] }))
+      : null;
+
+test("the settings page shows Users and agents once a connection is saved", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => section(url) ?? new Response(JSON.stringify({ connection }))),
+  );
+  render(
+    <MemoryRouter>
+      <JiraSettingsView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("Users and agents")).toBeInTheDocument();
+  expect(await screen.findByText("No Jira users are mapped to agents yet.")).toBeInTheDocument();
+});
+
 test("save connection with token, clear password input, and test saved settings", async () => {
   let saved: JiraConnection | null = null;
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const answer = section(url);
+    if (answer) return answer;
     if (init?.method === "PUT") saved = connection;
     if (url.endsWith("/test"))
       return new Response(
@@ -79,7 +103,8 @@ test("save connection with token, clear password input, and test saved settings"
 
 test("blank token is omitted on edit and conflicts preserve input", async () => {
   const fetch = vi.fn(
-    async (_url: string, init?: RequestInit) =>
+    async (url: string, init?: RequestInit) =>
+      section(url) ??
       new Response(
         JSON.stringify(
           init?.method === "PUT"
@@ -109,7 +134,8 @@ test("blank token is omitted on edit and conflicts preserve input", async () => 
 
 test("removing token sends explicit null", async () => {
   const fetch = vi.fn(
-    async (_url: string, init?: RequestInit) =>
+    async (url: string, init?: RequestInit) =>
+      section(url) ??
       new Response(
         JSON.stringify({ connection: init?.method ? { ...connection, has_token: false, revision: 3 } : connection }),
       ),

@@ -11,6 +11,7 @@ const handler = (extra = {}) => ({
   conditions: [{ field: "payload.labels", op: "contains", value: "agent" }],
   action: "emit",
   emit: { type: "triage.requested", subject: "", title: "", payload: "" },
+  agent_from: "fixed",
   agent_id: null,
   agent_name: null,
   prompt: null,
@@ -134,6 +135,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
       conditions: [{ field: "payload.status", op: "in", value: ["Open", "In Progress"] }],
       action: "emit",
       emit: { type: "triage.requested", subject: "", title: "", payload: "" },
+      agent_from: "fixed",
       agent_id: null,
       prompt: null,
       reply_to_jira: false,
@@ -292,4 +294,70 @@ test("the broad-pattern warning adds that the agent comments on every matching t
   await user.clear(within(sheet).getByLabelText("Event type"));
   await user.type(within(sheet).getByLabelText("Event type"), "jira.ticket.updated");
   expect(within(sheet).queryByText(comments)).toBeNull();
+});
+
+test("Agent mapped to the assignee saves no agent and offers the for_assignee condition", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "POST /api/event-handlers": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return {
+        status: 201,
+        body: { handler: handler({ action: "agent", emit: null, agent_from: "assignee", prompt: "Do it" }) },
+      };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.type(within(sheet).getByLabelText("Name"), "Inbox");
+  await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
+  await user.click(screen.getByRole("option", { name: "Send to agent" }));
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  await user.click(screen.getByRole("option", { name: "Agent mapped to the assignee" }));
+  const add = within(sheet).getByRole("button", { name: "Add payload.for_assignee equals true" });
+  await user.click(add);
+  expect(within(sheet).getByLabelText("Condition 1 field")).toHaveValue("payload.for_assignee");
+  expect(within(sheet).getByLabelText("Condition 1 value")).toHaveValue("true");
+  expect(within(sheet).queryByRole("button", { name: "Add payload.for_assignee equals true" })).toBeNull();
+  await user.click(within(sheet).getByLabelText("Prompt"));
+  await user.paste("Do it");
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(sent).toMatchObject({
+      action: "agent",
+      agent_from: "assignee",
+      agent_id: null,
+      conditions: [{ field: "payload.for_assignee", op: "equals", value: "true" }],
+    }),
+  );
+  expect(await screen.findByText("Send to the assignee’s agent")).toBeInTheDocument();
+});
+
+test("a saved assignee handler opens with the assignee target; preview names the agent or why none", async () => {
+  const user = userEvent.setup();
+  let target: unknown = { agent_id: "ops", agent_name: "Ops agent" };
+  api({
+    "GET /api/event-handlers": {
+      handlers: [handler({ action: "agent", emit: null, agent_from: "assignee", prompt: "Do it" })],
+    },
+    ...SHEET_DATA,
+    "POST /api/event-handlers/preview": () => ({
+      body: { matches: true, reason: null, output: { prompt: "Do it" }, target },
+    }),
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByRole("combobox", { name: "Agent" })).toHaveTextContent("Agent mapped to the assignee");
+  await user.click(within(sheet).getByRole("combobox", { name: "Preview event" }));
+  await user.click(screen.getByRole("option", { name: /DEMO-7/ }));
+  await user.click(within(sheet).getByRole("button", { name: "Preview" }));
+  expect(await within(sheet).findByText("Runs Ops agent")).toBeInTheDocument();
+  target = { error: "No agent is mapped to Jira user Ana (ana)." };
+  await user.click(within(sheet).getByRole("button", { name: "Preview" }));
+  expect(await within(sheet).findByText("No run: No agent is mapped to Jira user Ana (ana).")).toBeInTheDocument();
 });

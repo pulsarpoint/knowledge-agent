@@ -19,6 +19,8 @@ export interface HandlerDraft {
   conditions: Condition[];
   action: "emit" | "agent";
   emit: EmitTemplates | null;
+  /** fixed: agent_id; assignee: the agent mapped to the Jira ticket's assignee (agent_id null). */
+  agent_from: "fixed" | "assignee";
   agent_id: string | null;
   prompt: string | null;
   reply_to_jira: boolean;
@@ -39,6 +41,8 @@ export interface PreviewResult {
   matches: boolean;
   reason: string | null;
   output: PreviewOutput;
+  /** Send to agent only: the agent that would run, or why none would. */
+  target?: { agent_id: string; agent_name: string } | { error: string };
 }
 
 export const OPERATOR_LABELS: Record<Operator, string> = {
@@ -57,6 +61,8 @@ export const FIELD_SUGGESTIONS = [
   "payload.status",
   "payload.labels",
   "payload.assignee",
+  "payload.assignee_id",
+  "payload.for_assignee",
   "payload.priority",
   "payload.issue_type",
   "payload.summary",
@@ -92,6 +98,7 @@ export const toDraft = (handler: EventHandler): HandlerDraft => ({
   conditions: handler.conditions,
   action: handler.action,
   emit: handler.emit,
+  agent_from: handler.agent_from,
   agent_id: handler.agent_id,
   prompt: handler.prompt,
   reply_to_jira: handler.reply_to_jira,

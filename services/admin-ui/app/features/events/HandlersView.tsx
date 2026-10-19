@@ -25,7 +25,11 @@ const text = (reason: unknown, fallback: string) => (reason instanceof ApiError 
 const when = (handler: EventHandler) =>
   `${handler.type_pattern} · ${handler.conditions.length} condition${handler.conditions.length === 1 ? "" : "s"}`;
 const action = (handler: EventHandler) =>
-  handler.action === "emit" ? `Emit ${handler.emit?.type ?? ""}` : `Send to ${handler.agent_name ?? handler.agent_id}`;
+  handler.action === "emit"
+    ? `Emit ${handler.emit?.type ?? ""}`
+    : handler.agent_from === "assignee"
+      ? "Send to the assignee’s agent"
+      : `Send to ${handler.agent_name ?? handler.agent_id}`;
 
 export default function HandlersView() {
   const [handlers, setHandlers] = useState<EventHandler[] | null>(null);

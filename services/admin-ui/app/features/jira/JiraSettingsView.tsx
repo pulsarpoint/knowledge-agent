@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { PlugZap, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getJiraSettings, saveJiraSettings, testJiraConnection, type JiraConnection } from "./api";
+import JiraUserAgents from "./JiraUserAgents";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -223,6 +224,7 @@ export default function JiraSettingsView() {
           )}
         </form>
       )}
+      {connection && <JiraUserAgents key={connection.id} />}
     </div>
   );
 }

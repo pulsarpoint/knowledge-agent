@@ -487,6 +487,11 @@ and search permission).
 4. Make sure a collection holds `jira` (RAG → Collections → Add folder), then
    Refresh it or let Auto-sync pick it up.
 
+**Users and agents** (on the Settings page, once a connection is saved) maps Jira users to agents: a ticket assigned
+to a mapped user is that agent's work. Search for a user as you type (or type a user key), choose an agent, **Add**;
+change a row's agent in place or remove it. A row whose agent is turned off says **Agent disabled**. An event handler
+with **Agent mapped to the assignee** (4.18) runs the mapped agent.
+
 For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
 (75 demo tickets). Stop with `make jira-mock-down`.
@@ -862,6 +867,13 @@ A handler does one thing:
   deleted or disabled can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
   the same handler.
+
+  Instead of one agent, **Agent** can be **Agent mapped to the assignee** (Jira event types only): each matching
+  event runs the agent mapped to the ticket's assignee under Jira → Settings → **Users and agents** (4.8). An
+  unassigned ticket or an unmapped assignee starts no run. Add the condition `payload.for_assignee` **equals** `true`
+  (the form offers it) so the agent starts only when the ticket is new and assigned, was reassigned, or got a comment
+  from someone other than the connection's own user — not on every edit; `payload.assignee_id` is the assignee's
+  Jira key. **Preview** says which agent would run, or why none would.
 
 **Careful with Send to agent on broad patterns.** Every matching event starts one agent run. The first scheduled Jira
 pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once per

@@ -71,9 +71,13 @@ Open `http://127.0.0.1:8184/` (or your `JIRA_MOCK_PORT`). It has no login; only 
 
 - **Agent comments**: every comment posted through the API (by Knowledge Agent), newest first, with its ticket, time,
   id and full text. The same list as JSON: `GET /mock/comments`.
-- **Ticket page** (`/mock/DEMO-3`): fields and comments, the agent's highlighted. **Edit** the summary, description or
-  status, or **add a comment as a person** (author *Jira User*). Both move the ticket's updated time, and a search
-  `ORDER BY updated DESC` lists it first.
+- **Ticket page** (`/mock/DEMO-3`): fields and comments, the agent's highlighted. **Edit** the summary, description,
+  status or **assignee** (one of the mock users, or unassigned), or **add a comment** as *Jira User* (the default) or
+  as one of the mock users. Both move the ticket's updated time, and a search `ORDER BY updated DESC` lists it first.
+- **Users**: `mock-admin` (Mock Administrator, the connection's user), `ops-bot` (Ops Bot), `docs-bot` (Docs Bot),
+  `ana` (Ana Petrović) and `marko` (Marko Ilić). DEMO-4, DEMO-8, DEMO-12 and DEMO-16 are assigned to `ops-bot`,
+  `docs-bot`, `ana` and `marko`; the other tickets whose number is divisible by 4 are unassigned, the rest belong to
+  `mock-admin`. `GET /rest/api/2/user/search?username=<text>` finds users by key, name or display name.
 - **New ticket**: the next pull records it as `jira.ticket.created`.
 - **Comment posting**: for the next 1-10 comment posts, *Fail with 500* (the worker retries after 1 and 5 minutes),
   *Refuse with 403* (fails at once) or *Save the comment but answer 500* (the retry must find the comment on the ticket
@@ -177,7 +181,7 @@ comment count, without ticket bodies or tokens.
 
 ## Mock filtering and comments
 
-The mock supports equality for `project`, `status`, `assignee`, `key` and `labels`,
+The mock supports equality for `project`, `status`, `assignee` (by user key), `key` and `labels`, `assignee is EMPTY`,
 `text ~ "words"`, and clauses joined with `AND`. Values may be double-quoted.
 Optional sorting is `ORDER BY updated DESC` or `ORDER BY updated DESC, key DESC`.
 Other JQL syntax is deliberately rejected; the real adapter forwards full JQL to
@@ -224,3 +228,35 @@ unassigned); a reassignment shows both (`payload.changes.assignee` = `{from, to,
 its assignee changed (by key), or a comment was added that is neither one of our own answers (as above) nor written
 by the connection's own Jira user. Status, label, description and other edits leave it false. Matching uses the Data
 Center user `key`: an assignee without one (Jira Cloud's `accountId`) leaves `for_assignee` false.
+
+## Users and agents
+
+Jira → Settings → **Users and agents** maps Jira users to agents for the saved connection: a ticket assigned to a
+mapped user is that agent's work. Type in **Jira user** to search (Jira's user search, `GET
+/rest/api/2/user/search?username=`, merged with the assignees already seen on pulled tickets; the token goes only to
+the configured Jira, and only key, login name and display name come back), pick a user or keep a typed user key,
+choose an **Agent** and **Add**. Each row shows the display name and key, the agent (change it in place), **Agent
+disabled** when the agent is turned off, and a remove button. A Jira user maps to one agent; an agent may have several
+users. Mapping and matching use the stable user `key`; the display name is only shown. Deleting an agent or the Jira
+connection removes its rows. The API: `GET /api/jira/user-agents`, `PUT /api/jira/user-agents/{key}` (`{agent_id,
+name}`), `DELETE /api/jira/user-agents/{key}`, `GET /api/jira/users?query=` (`{users: [{key, name, display_name}],
+warning}`; a failed Jira search still returns the seen assignees, with a warning).
+
+An event handler's **Agent** can be **Agent mapped to the assignee** (`agent_from: "assignee"`, no `agent_id`; Send
+to agent handlers for Jira event types only). For each matching event it runs the agent mapped to the ticket's current
+assignee (`payload.assignee_id`) on the event's connection, exactly like a fixed-agent run (the agent's whole access,
+the prompt, **Also post the answer as a comment on the Jira ticket**). An unassigned ticket or one assigned to an
+unmapped user is not for the handler: no run and nothing recorded. A disabled mapped agent fails the handler run with
+`Agent is disabled.`. Add the condition `payload.for_assignee` **equals** `true` (the form offers it in one click) so
+the agent starts only when the assignee has something new, not on every edit. **Preview** says which agent would run
+(`Runs <agent>`) or why none would (`No run: The ticket is not assigned.` / `No run: No agent is mapped to Jira user
+<display name> (<key>).`).
+
+### Testing with the mock
+
+1. In Jira → Settings, save the mock connection; under **Users and agents** add `ops-bot` → an agent.
+2. Add a Send to agent handler for `jira.ticket.*` with **Agent mapped to the assignee**, the condition
+   `payload.for_assignee equals true` and **Also post the answer as a comment on the Jira ticket**.
+3. Let the Jira auto pull record the tickets once, then on the control page set DEMO-3's assignee to Ops Bot and run
+   the schedule: the mapped agent answers on DEMO-3. A comment as Jira User starts another run; the agent's own
+   reply does not.
