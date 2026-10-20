@@ -21,7 +21,7 @@ there is no signal that a person should look.
   - name `Jira assignee agents`, enabled;
   - type pattern `jira.ticket.*`, condition `payload.for_assignee equals true`;
   - action `agent`, `agent_from = 'assignee'`;
-  - `reply_to_jira = true`, `after_reply = 'give_back'`;
+  - `reply_to_jira = true`, `give_back = true`;
   - a default prompt (Jinja) with the ticket key, summary, description, status, reporter and comments, asking the agent
     to work on the ticket and answer as a Jira comment.
   - created by the person saving the mapping; audited as `event_handler.created` with `{automatic: true}`.
@@ -32,9 +32,10 @@ there is no signal that a person should look.
 
 ## Hand-back
 
-- New handler setting `after_reply`: `keep` (the ticket stays assigned to the agent's Jira user) or `give_back`. Only for
-  handlers with `reply_to_jira`. Existing handlers keep `keep`; the automatic handler and new handlers created in the
-  sheet with Reply in Jira on default to `give_back`.
+- New handler setting `give_back` (boolean, one checkbox **Give the ticket back after replying**): off keeps the ticket
+  assigned to the agent's Jira user, as today. Only for handlers with `reply_to_jira` (off otherwise). Existing handlers
+  stay off; the automatic handler and new handlers created in the sheet with Reply in Jira on default to on. (Moving the
+  ticket's status is out of scope; the setting changes shape only if that is ever added.)
 - The hand-back target is decided when the reply notification is created, from the event: the previous assignee
   (`payload.changes.assignee.from_id`) when the ticket was reassigned to the agent's user, otherwise the reporter
   (`payload.reporter_id`, added to the payload next to `reporter`). Stored on the notification (`give_back_key`,
@@ -64,7 +65,7 @@ there is no signal that a person should look.
   an assignee handler exists, not removed with mappings; Create handler button path.
 - Hand-back target: reassigned to the bot → previous assignee; created assigned → reporter; neither → none.
 - Worker: comment then assign (login looked up by key); comment failure → no assignment; assignment failure → recorded
-  and retried without a second comment; `keep` → no assignment; the comment note.
+  and retried without a second comment; `give_back` off → no assignment; the comment note.
 - End to end with the mock: map `ops-bot`, create a ticket assigned to Ops Bot by Ana, pull → run → comment → ticket
   assigned to the reporter; next pull records the update and starts nothing.
-- UI: handler sheet After replying setting; Users and agents handler line and Create handler.
+- UI: handler sheet Give the ticket back checkbox; Users and agents handler line and Create handler.
