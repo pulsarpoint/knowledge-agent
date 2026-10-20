@@ -1,10 +1,11 @@
 """Administration → Schedules: create, list, edit, pause, run and delete schedules. repository-worker
-runs them (scheduler.py); this API only changes their rows."""
+runs them (scheduler.py); this API only changes their rows. Targets: the Jira pull (one per connection) and Emit event
+(each schedule its own target; the list shows the handlers that run it)."""
 
 from datetime import UTC, datetime
 from functools import partial
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
@@ -13,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.events.matching import type_matches
+from knowledge_admin.events.schedule_event import TYPE as FIRED
 from knowledge_admin.events.schedules import ScheduleError, describe, next_after, upcoming, validate
 
 FIELDS = """id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,
@@ -23,6 +26,9 @@ RUNNING = 'This schedule is already running.'
 NO_JIRA = 'Save Jira settings first.'
 DUPLICATE = 'This target already has a schedule.'
 JIRA_PULL = 'Jira auto pull'
+NO_RENAME = 'The Jira pull schedule cannot be renamed.'
+NO_NAME = 'Enter a name.'
+NO_SETTINGS = 'Emit event schedules take no settings.'
 PREVIEW_RUNS = 3
 HISTORY = 20
 
@@ -46,16 +52,33 @@ class ScheduleInput(Timetable):
     enabled: bool
     revision: int = Field(ge=1, strict=True)
     params: JiraPullParams | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class NewSchedule(Timetable):
-    target_kind: Literal['jira.pull']
+    target_kind: Literal['jira.pull', 'event.emit']
     enabled: bool
     params: JiraPullParams = JiraPullParams()
+    name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 def shown(row: dict) -> dict:
     return {**row, 'description': describe(row['cron'])}
+
+
+def kind_checked(target_kind: str, value: NewSchedule | ScheduleInput) -> None:
+    """The Jira pull schedule keeps its fixed name; an emit schedule has nothing to set but its name and timing."""
+    if target_kind == 'jira.pull' and value.name is not None:
+        raise HTTPException(400, NO_RENAME)
+    if target_kind == 'event.emit' and value.params is not None and value.params.model_dump(exclude_none=True):
+        raise HTTPException(400, NO_SETTINGS)
+
+
+def bound(handler: dict, schedule_id: UUID) -> bool:
+    """A handler runs an emit schedule when its type pattern takes schedule.fired and it checks payload.schedule_id
+    equals the schedule's id."""
+    wanted = {'field': 'payload.schedule_id', 'op': 'equals', 'value': str(schedule_id)}
+    return type_matches(handler['type_pattern'], FIRED) and wanted in handler['conditions']
 
 
 def checked(value: Timetable) -> None:
@@ -92,6 +115,15 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             rows = conn.execute(
                 f'SELECT {FIELDS} FROM ka.schedules WHERE project_id=%s ORDER BY name,created_at', (project,)
             ).fetchall()
+            handlers = conn.execute(
+                'SELECT id,name,enabled,type_pattern,conditions FROM ka.event_handlers WHERE project_id=%s ORDER BY name,id',
+                (project,),
+            ).fetchall()
+        for row in rows:
+            if row['target_kind'] == 'event.emit':
+                row['handlers'] = [
+                    {'id': h['id'], 'name': h['name'], 'enabled': h['enabled']} for h in handlers if bound(h, row['id'])
+                ]
         return {'schedules': [shown(row) for row in rows]}
 
     @router.post('/schedules/preview')
@@ -120,19 +152,29 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/schedules', status_code=201)
     def create(value: NewSchedule, request: Request) -> dict:
         checked(value)
+        kind_checked(value.target_kind, value)
+        if value.target_kind == 'event.emit' and value.name is None:
+            raise HTTPException(400, NO_NAME)
         db = database()
         with workspace(db, app) as (conn, project):
-            connection = jira_connection(conn, project)
-            if connection is None:
-                raise HTTPException(400, NO_JIRA)
+            schedule_id = uuid4()
+            if value.target_kind == 'jira.pull':
+                connection = jira_connection(conn, project)
+                if connection is None:
+                    raise HTTPException(400, NO_JIRA)
+                name, target_id = JIRA_PULL, connection['id']
+            else:
+                name, target_id = value.name, schedule_id  # an emit schedule is its own target
             row = conn.execute(
-                f"""INSERT INTO ka.schedules(project_id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,params)
-                VALUES (%s,%s,'jira.pull',%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,target_kind,target_id) DO NOTHING
+                f"""INSERT INTO ka.schedules(id,project_id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,params)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,target_kind,target_id) DO NOTHING
                 RETURNING {FIELDS}""",
                 (
+                    schedule_id,
                     project,
-                    JIRA_PULL,
-                    connection['id'],
+                    name,
+                    value.target_kind,
+                    target_id,
                     value.cron,
                     value.timezone,
                     value.enabled,
@@ -150,6 +192,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 row['id'],
                 {
                     'target_kind': value.target_kind,
+                    'name': row['name'],
                     'cron': value.cron,
                     'timezone': value.timezone,
                     'enabled': value.enabled,
@@ -184,7 +227,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with workspace(db, app) as (conn, project):
             current = conn.execute(
-                """SELECT revision,run_requested,next_run_at,params FROM ka.schedules
+                """SELECT revision,run_requested,next_run_at,params,target_kind,name FROM ka.schedules
                 WHERE id=%s AND project_id=%s FOR UPDATE""",
                 (schedule_id, project),
             ).fetchone()
@@ -192,12 +235,14 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 raise HTTPException(404, NOT_FOUND)
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
+            kind_checked(current['target_kind'], value)
             next_run = current['next_run_at'] if current['run_requested'] else first_run(value)
             params = current['params'] if value.params is None else value.params.model_dump(exclude_none=True)
+            name = value.name or current['name']
             row = conn.execute(
-                f"""UPDATE ka.schedules SET cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
+                f"""UPDATE ka.schedules SET name=%s,cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
                 revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",
-                (value.cron, value.timezone, value.enabled, next_run, Jsonb(params), schedule_id),
+                (name, value.cron, value.timezone, value.enabled, next_run, Jsonb(params), schedule_id),
             ).fetchone()
             audit(
                 conn,
@@ -205,7 +250,13 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 request,
                 'schedule.saved',
                 schedule_id,
-                {'cron': value.cron, 'timezone': value.timezone, 'enabled': value.enabled, **params},
+                {
+                    'cron': value.cron,
+                    'timezone': value.timezone,
+                    'enabled': value.enabled,
+                    **({'name': name} if value.name is not None else {}),
+                    **params,
+                },
             )
         return {'schedule': shown(row)}
 

@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.events import schedule_event
 from knowledge_admin.events.schedules import MISSING, TargetMissing, next_after
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ KEEP_RUNS = 100
 UNEXPECTED = 'The run failed unexpectedly. See the repository-worker log.'
 
 Target = Callable[[RepositoryStore, dict], tuple[str, str]]
-TARGETS: dict[str, Target] = {'jira.pull': jira_sync.auto_pull}
+TARGETS: dict[str, Target] = {'jira.pull': jira_sync.auto_pull, 'event.emit': schedule_event.fire}
 
 CLAIM = """UPDATE ka.schedules SET lease_expires_at=clock_timestamp()+interval '15 minutes', last_run_at=clock_timestamp()
     WHERE id=(SELECT id FROM ka.schedules WHERE next_run_at<=clock_timestamp()
