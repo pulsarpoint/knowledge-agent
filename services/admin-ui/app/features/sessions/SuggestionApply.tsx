@@ -19,7 +19,12 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
 
-type Note = ProposedNote & { ticked: boolean };
+/** The memory module's name rule (memory/store.py NAME, NAME_RULE). */
+const MEMORY_NAME = /^[a-z0-9][a-z0-9._/-]{0,199}$/;
+const NAME_RULE =
+  "A name is 1-200 characters of lowercase letters, digits and . _ / -, starting with a letter or digit.";
+/** A note as edited; `proposed` is the reviewer's name, which the exists check was made for. */
+type Note = ProposedNote & { ticked: boolean; proposed: string };
 /** What an apply did; `target` is null when the instructions were kept. */
 type Done = ApplyResult & { target: "agent" | "clone" | null };
 
@@ -48,7 +53,7 @@ export default function SuggestionApply({
     setSource(value);
     setInstructions(value.changes.instructions ?? value.instructions);
     setApplyInstructions(value.changes.instructions !== null);
-    setNotes(value.memory_notes.map((note) => ({ ...note, ticked: !note.exists })));
+    setNotes(value.memory_notes.map((note) => ({ ...note, ticked: !note.exists, proposed: note.name })));
   }
   useEffect(() => {
     if (!review) return;
@@ -89,8 +94,9 @@ export default function SuggestionApply({
     }
   }
   const ticked = notes.filter((note) => note.ticked);
+  const badName = (note: Note) => note.ticked && !MEMORY_NAME.test(note.name);
   const ready =
-    (applyInstructions || ticked.length > 0) && ticked.every((note) => note.name.trim() && note.content.trim());
+    (applyInstructions || ticked.length > 0) && ticked.every((note) => !badName(note) && note.content.trim());
   function edit(index: number, change: Partial<Note>) {
     setNotes((current) => current.map((note, at) => (at === index ? { ...note, ...change } : note)));
   }
@@ -242,7 +248,7 @@ export default function SuggestionApply({
                         onCheckedChange={(checked) => edit(index, { ticked: checked === true })}
                       />
                       <FieldLabel htmlFor={`apply-note-${index}`}>{`Save note ${index + 1}`}</FieldLabel>
-                      {note.exists && note.memory_id && (
+                      {note.exists && note.memory_id && note.name === note.proposed && (
                         <a
                           className="ml-auto text-sm underline"
                           href={memoryHref(note.memory_id)}
@@ -272,6 +278,17 @@ export default function SuggestionApply({
                         onChange={(event) => edit(index, { content: event.target.value })}
                       />
                     </Field>
+                    {badName(note) && (
+                      <p role="alert" className="text-sm text-destructive">{`Note ${index + 1}: ${NAME_RULE}`}</p>
+                    )}
+                    {note.exists && note.current_content !== null && (
+                      <details>
+                        <summary className="cursor-pointer text-sm text-muted-foreground">Current entry</summary>
+                        <pre className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
+                          {note.current_content}
+                        </pre>
+                      </details>
+                    )}
                     {Object.keys(note.metadata).length > 0 && (
                       <p className="text-xs text-muted-foreground">
                         {Object.entries(note.metadata)

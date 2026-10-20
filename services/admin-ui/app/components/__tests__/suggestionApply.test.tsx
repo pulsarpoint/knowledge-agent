@@ -84,6 +84,24 @@ it("an existing note is unticked and links to its entry in Memory", async () => 
   );
 });
 
+it("an invalid note name says which note and keeps Apply disabled until fixed", async () => {
+  page();
+  fireEvent.change(await screen.findByLabelText("Note 1 name"), { target: { value: "Payments Retries" } });
+  expect(screen.getByText(/^Note 1: A name is 1-200 characters/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Apply to this agent" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Note 1 name"), { target: { value: "payments/retries" } });
+  expect(screen.queryByText(/^Note 1:/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Apply to this agent" })).toBeEnabled();
+});
+
+it("an existing note shows the current entry and drops the link once renamed", async () => {
+  page();
+  expect(await screen.findByText("Payments is owned by team B.")).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText("Save note 2"));
+  fireEvent.change(screen.getByLabelText("Note 2 name"), { target: { value: "payments/owner-2026" } });
+  expect(screen.queryByRole("link", { name: "Already exists — open in Memory" })).toBeNull();
+});
+
 it("applies only the instructions when no note is ticked", async () => {
   vi.mocked(api.applyReview).mockResolvedValue({ agent_id: "clone-1", saved: [], refused: [] });
   page();
