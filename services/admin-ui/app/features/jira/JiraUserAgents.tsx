@@ -1,12 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { X } from "lucide-react";
+import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getAgents } from "~/features/agents/api";
 import {
+  createAssigneeHandler,
   deleteJiraUserAgent,
   getJiraUserAgents,
   saveJiraUserAgent,
   searchJiraUsers,
+  type AssigneeHandler,
   type JiraUser,
   type JiraUserAgent,
 } from "./api";
@@ -64,6 +67,7 @@ function AgentSelect({
  * targeting "Agent mapped to the assignee" runs it). Users are searched as you type; a typed key is accepted. */
 export default function JiraUserAgents() {
   const [rows, setRows] = useState<JiraUserAgent[] | null>(null);
+  const [handler, setHandler] = useState<AssigneeHandler | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [text, setText] = useState("");
   const [picked, setPicked] = useState<JiraUser | null>(null);
@@ -76,7 +80,10 @@ export default function JiraUserAgents() {
   useEffect(() => {
     const controller = new AbortController();
     getJiraUserAgents(controller.signal)
-      .then((result) => setRows(result.user_agents))
+      .then((result) => {
+        setRows(result.user_agents);
+        setHandler(result.handler);
+      })
       .catch((reason) => {
         if (!controller.signal.aborted) setError(message(reason, "Could not load the Jira users and agents."));
       });
@@ -110,12 +117,18 @@ export default function JiraUserAgents() {
     };
   }, [text, picked]);
 
-  async function run(action: () => Promise<{ user_agents: JiraUserAgent[] } | void>, fallback: string) {
+  async function run(
+    action: () => Promise<{ user_agents: JiraUserAgent[]; handler: AssigneeHandler | null } | void>,
+    fallback: string,
+  ) {
     setBusy(true);
     setError(null);
     try {
       const result = await action();
-      if (result) setRows(result.user_agents);
+      if (result) {
+        setRows(result.user_agents);
+        setHandler(result.handler);
+      }
       return true;
     } catch (reason) {
       setError(message(reason, fallback));
@@ -143,6 +156,10 @@ export default function JiraUserAgents() {
       await deleteJiraUserAgent(row.jira_user_key);
       setRows((current) => current?.filter((item) => item.jira_user_key !== row.jira_user_key) ?? null);
     }, "Could not remove the Jira user.");
+  const createHandler = () =>
+    run(async () => {
+      setHandler((await createAssigneeHandler()).handler);
+    }, "Could not create the handler.");
   // A row's agent stays selectable even when the agent list does not have it.
   const choices = (row: JiraUserAgent) =>
     agents.some((agent) => agent.id === row.agent_id)
@@ -162,6 +179,25 @@ export default function JiraUserAgents() {
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+      {rows === null ? null : handler ? (
+        <p className="text-sm">
+          Handled by:{" "}
+          <Link
+            className="text-primary underline underline-offset-4"
+            to={`/events/handlers?handler=${encodeURIComponent(handler.id)}`}
+          >
+            {handler.name}
+          </Link>{" "}
+          ({handler.enabled ? "enabled" : "disabled"})
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-muted-foreground">No handler runs these agents.</p>
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void createHandler()}>
+            Create handler
+          </Button>
+        </div>
       )}
       {rows === null ? null : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No Jira users are mapped to agents yet.</p>

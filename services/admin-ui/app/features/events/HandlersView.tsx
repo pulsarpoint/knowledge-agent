@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Plus, Trash2, Workflow } from "lucide-react";
+import { useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { deleteHandler, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
 import HandlerSheet from "./HandlerSheet";
@@ -31,7 +32,10 @@ const action = (handler: EventHandler) =>
       ? "Send to the assignee’s agent"
       : `Send to ${handler.agent_name ?? handler.agent_id}`;
 
+/** ?handler=<id> opens that handler (Jira → Settings → Users and agents links here). */
 export default function HandlersView() {
+  const [params, setParams] = useSearchParams();
+  const linked = params.get("handler");
   const [handlers, setHandlers] = useState<EventHandler[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EventHandler | "new" | null>(null);
@@ -45,16 +49,23 @@ export default function HandlersView() {
       .then((result) => {
         setHandlers(result.handlers);
         setError(null);
+        const opened = result.handlers.find((item) => item.id === linked);
+        if (opened) setEditing(opened);
       })
       .catch((reason) => {
         setHandlers([]);
         setError(text(reason, "Could not load handlers."));
       });
+    // Only the first load opens the linked handler.
   }, []);
 
   const sorted = (rows: EventHandler[]) => [...rows].sort((a, b) => a.name.localeCompare(b.name));
   const replace = (saved: EventHandler) =>
     setHandlers((current) => sorted([...(current ?? []).filter((item) => item.id !== saved.id), saved]));
+  function close() {
+    setEditing(null);
+    if (linked) setParams({}, { replace: true });
+  }
   async function toggle(handler: EventHandler, enabled: boolean) {
     setBusy(handler.id);
     setError(null);
@@ -187,10 +198,10 @@ export default function HandlersView() {
       <HandlerSheet
         open={editing !== null}
         handler={editing === "new" ? null : editing}
-        onClose={() => setEditing(null)}
+        onClose={close}
         onSaved={(saved) => {
           replace(saved);
-          setEditing(null);
+          close();
         }}
       />
       <AlertDialog

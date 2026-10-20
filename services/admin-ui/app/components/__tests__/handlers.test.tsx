@@ -16,6 +16,7 @@ const handler = (extra = {}) => ({
   agent_name: null,
   prompt: null,
   reply_to_jira: false,
+  give_back: false,
   revision: 1,
   created_at: "2026-10-09T10:00:00Z",
   updated_at: "2026-10-09T10:00:00Z",
@@ -139,6 +140,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
       agent_id: null,
       prompt: null,
       reply_to_jira: false,
+      give_back: false,
     }),
   );
   expect(await screen.findByText("Emit triage.requested")).toBeInTheDocument();
@@ -360,4 +362,93 @@ test("a saved assignee handler opens with the assignee target; preview names the
   target = { error: "No agent is mapped to Jira user Ana (ana)." };
   await user.click(within(sheet).getByRole("button", { name: "Preview" }));
   expect(await within(sheet).findByText("No run: No agent is mapped to Jira user Ana (ana).")).toBeInTheDocument();
+});
+
+const GIVE_BACK = "Give the ticket back after replying";
+test("Give the ticket back is offered with Reply in Jira and the assignee's agent, on by default for a new handler", async () => {
+  const user = userEvent.setup();
+  const sent: Record<string, unknown>[] = [];
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "POST /api/event-handlers": (body: unknown) => {
+      sent.push(body as Record<string, unknown>);
+      return { status: 400, body: { error: { message: "Not now" } } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
+  await user.click(screen.getByRole("option", { name: "Send to agent" }));
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  await user.click(screen.getByRole("option", { name: "Tester" }));
+  await user.click(within(sheet).getByLabelText("Also post the answer as a comment on the Jira ticket"));
+  expect(within(sheet).queryByLabelText(GIVE_BACK)).toBeNull();
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  await user.click(screen.getByRole("option", { name: "Agent mapped to the assignee" }));
+  expect(within(sheet).getByLabelText(GIVE_BACK)).toBeChecked();
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent[0]).toMatchObject({ agent_from: "assignee", reply_to_jira: true, give_back: true }));
+  await user.click(within(sheet).getByLabelText("Also post the answer as a comment on the Jira ticket"));
+  expect(within(sheet).queryByLabelText(GIVE_BACK)).toBeNull();
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent[1]).toMatchObject({ reply_to_jira: false, give_back: false }));
+});
+
+test("a saved handler keeps its Give the ticket back setting; turning it off saves false", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  const saved = handler({
+    action: "agent",
+    emit: null,
+    agent_from: "assignee",
+    prompt: "Do it",
+    reply_to_jira: true,
+    give_back: true,
+  });
+  api({
+    "GET /api/event-handlers": { handlers: [saved] },
+    ...SHEET_DATA,
+    "PUT /api/event-handlers/h-1": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { body: { handler: { ...saved, ...(body as object), revision: 2 } } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  const sheet = await screen.findByRole("dialog");
+  const box = within(sheet).getByLabelText(GIVE_BACK);
+  expect(box).toBeChecked();
+  await user.click(box);
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent).toMatchObject({ reply_to_jira: true, give_back: false, revision: 1 }));
+});
+
+test("the enabled switch keeps give_back", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  const saved = handler({ action: "agent", emit: null, agent_from: "assignee", reply_to_jira: true, give_back: true });
+  api({
+    "GET /api/event-handlers": { handlers: [saved] },
+    "PUT /api/event-handlers/h-1": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { body: { handler: { ...saved, enabled: false, revision: 2 } } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("switch", { name: "Enabled: Triage" }));
+  await waitFor(() => expect(sent).toMatchObject({ enabled: false, give_back: true }));
+});
+
+test("a handler named in the address opens in the sheet", async () => {
+  api({ "GET /api/event-handlers": { handlers: [handler()] }, ...SHEET_DATA });
+  render(
+    <MemoryRouter initialEntries={["/events/handlers?handler=h-1"]}>
+      <HandlersView />
+    </MemoryRouter>,
+  );
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Edit handler")).toBeInTheDocument();
+  expect(within(sheet).getByLabelText("Name")).toHaveValue("Triage");
 });

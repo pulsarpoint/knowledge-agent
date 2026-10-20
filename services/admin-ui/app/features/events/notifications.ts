@@ -14,6 +14,8 @@ export interface NotificationRow {
   agent_name: string | null;
   jira_status?: "pending" | "posted" | "failed" | null;
   jira_issue_key?: string | null;
+  /** Giving the ticket back after the comment: skipped when someone else took the ticket meanwhile. */
+  give_back_status?: "pending" | "done" | "failed" | "skipped" | null;
 }
 export interface NotificationDetail extends NotificationRow {
   body: string;
@@ -22,6 +24,8 @@ export interface NotificationDetail extends NotificationRow {
   jira_attempts?: number;
   jira_error?: string | null;
   jira_base_url?: string | null;
+  give_back_name?: string | null;
+  give_back_error?: string | null;
   event: { id: number; type: string; subject: string } | null;
   task: { id: string; attempts: number; created_at: string; finished_at: string | null } | null;
 }

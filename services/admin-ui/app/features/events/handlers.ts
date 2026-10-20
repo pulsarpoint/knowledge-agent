@@ -24,6 +24,9 @@ export interface HandlerDraft {
   agent_id: string | null;
   prompt: string | null;
   reply_to_jira: boolean;
+  /** After the Jira comment is posted, assign the ticket back (previous assignee, else reporter). Only with
+   * reply_to_jira and the assignee's agent. */
+  give_back: boolean;
 }
 export interface EventHandler extends HandlerDraft {
   id: string;
@@ -102,4 +105,5 @@ export const toDraft = (handler: EventHandler): HandlerDraft => ({
   agent_id: handler.agent_id,
   prompt: handler.prompt,
   reply_to_jira: handler.reply_to_jira,
+  give_back: handler.give_back,
 });

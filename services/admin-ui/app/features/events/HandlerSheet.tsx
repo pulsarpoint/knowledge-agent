@@ -41,6 +41,7 @@ interface Form {
   agent_id: string;
   prompt: string;
   reply_to_jira: boolean;
+  give_back: boolean;
 }
 
 const ASSIGNEE = "@assignee";
@@ -55,9 +56,12 @@ const BLANK: Form = {
   agent_id: "",
   prompt: "",
   reply_to_jira: false,
+  give_back: false,
 };
 /** Send to agent on a pattern like * or jira.ticket.* can run the agent many times at once (the first Jira pull records every ticket). */
 const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
+/** Give the ticket back is offered only for a Jira reply from the assignee's agent. */
+const offersGiveBack = (form: Form) => form.action === "agent" && form.agent_id === ASSIGNEE && form.reply_to_jira;
 const HELP =
   "event.id, event.source, event.type, event.subject, event.title, event.occurred_at, event.payload.<field>, event.parent_id, event.root_id, event.depth";
 
@@ -76,6 +80,7 @@ function fromHandler(handler: EventHandler): Form {
     agent_id: handler.agent_from === "assignee" ? ASSIGNEE : (handler.agent_id ?? ""),
     prompt: handler.prompt ?? "",
     reply_to_jira: handler.reply_to_jira,
+    give_back: handler.give_back,
   };
 }
 function toDraft(form: Form): HandlerDraft {
@@ -102,6 +107,7 @@ function toDraft(form: Form): HandlerDraft {
     agent_id: form.action === "agent" && form.agent_id !== ASSIGNEE ? form.agent_id || null : null,
     prompt: form.action === "agent" ? form.prompt : null,
     reply_to_jira: form.action === "agent" && form.reply_to_jira,
+    give_back: offersGiveBack(form) && form.give_back,
   };
 }
 
@@ -141,7 +147,13 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
     handler?.agent_id && !agents?.some((agent) => agent.id === handler.agent_id)
       ? [{ id: handler.agent_id, name: `${handler.agent_name ?? handler.agent_id}${agents ? " (not available)" : ""}` }]
       : [];
-  const update = (changes: Partial<Form>) => setForm((current) => ({ ...current, ...changes }));
+  // Give the ticket back clears when it stops being offered and, for a new handler, starts on when it is offered.
+  const update = (changes: Partial<Form>) =>
+    setForm((current) => {
+      const next = { ...current, ...changes };
+      const offered = offersGiveBack(next);
+      return { ...next, give_back: offered && (offersGiveBack(current) ? next.give_back : !handler) };
+    });
   const setCondition = (index: number, changes: Partial<ConditionRow>) =>
     update({ conditions: form.conditions.map((row, at) => (at === index ? { ...row, ...changes } : row)) });
   const setEmit = (field: keyof Form["emit"], value: string) => update({ emit: { ...form.emit, [field]: value } });
@@ -409,6 +421,23 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
                 </FieldDescription>
               </div>
             </Field>
+            {offersGiveBack(form) && (
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="handler-give-back"
+                  checked={form.give_back}
+                  onCheckedChange={(checked) => update({ give_back: checked === true })}
+                />
+                <div>
+                  <FieldLabel htmlFor="handler-give-back">Give the ticket back after replying</FieldLabel>
+                  <FieldDescription>
+                    After the comment is posted, the ticket is assigned to its previous assignee, else its reporter (not
+                    to a user mapped to an agent). Skipped when someone else took the ticket meanwhile. The
+                    connection&apos;s user needs the Assign Issues permission.
+                  </FieldDescription>
+                </div>
+              </Field>
+            )}
           </>
         )}
         <Alert>

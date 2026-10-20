@@ -37,6 +37,15 @@ function StatusBadge({ status }: { status: NotificationStatus }) {
   );
 }
 
+function giveBack(n: NotificationDetail): string {
+  const name = n.give_back_name ?? "";
+  if (n.give_back_status === "done") return `Assigned back to ${name}`;
+  if (n.give_back_status === "failed") return `Not assigned back to ${name}: ${n.give_back_error ?? ""}`;
+  if (n.give_back_status === "skipped") return n.give_back_error ?? "Not assigned back.";
+  if (n.jira_status !== "posted") return `Assigns back to ${name} after the comment`;
+  return n.give_back_error ? `Assigning back to ${name}… (failed: ${n.give_back_error})` : `Assigning back to ${name}…`;
+}
+
 /** Administration → Notifications: the answers agents gave to events (or why a call failed), newest first. */
 export default function NotificationsView() {
   const [params, setParams] = useSearchParams();
@@ -300,6 +309,12 @@ export default function NotificationsView() {
                           `Not posted to ${selected.jira_issue_key}: ${selected.jira_error ?? ""}`
                         )}
                       </dd>
+                    </>
+                  )}
+                  {selected.give_back_status && (
+                    <>
+                      <dt className="text-muted-foreground">Hand-back</dt>
+                      <dd>{giveBack(selected)}</dd>
                     </>
                   )}
                 </dl>

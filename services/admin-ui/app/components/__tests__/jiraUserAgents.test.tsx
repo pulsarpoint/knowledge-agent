@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import JiraUserAgents from "~/features/jira/JiraUserAgents";
 
 const row = (extra = {}) => ({
@@ -34,6 +35,12 @@ function api(routes: Record<string, Route | unknown>) {
   return fetch;
 }
 afterEach(() => vi.unstubAllGlobals());
+const view = () =>
+  render(
+    <MemoryRouter>
+      <JiraUserAgents />
+    </MemoryRouter>,
+  );
 
 test("lists Jira users with their agents and marks a disabled agent", async () => {
   api({
@@ -51,7 +58,7 @@ test("lists Jira users with their agents and marks a disabled agent", async () =
     },
     "GET /api/agents": AGENTS,
   });
-  render(<JiraUserAgents />);
+  view();
   const ops = (await screen.findByText("Ops Bot")).closest("li")!;
   expect(within(ops).getByText("ops-bot")).toBeInTheDocument();
   expect(within(ops).getByRole("combobox", { name: "Agent for Ops Bot" })).toHaveTextContent("Ops agent");
@@ -78,7 +85,7 @@ test("adds a user picked from the search with an agent", async () => {
       return { body: { user_agents: [row()] } };
     },
   });
-  render(<JiraUserAgents />);
+  view();
   await user.type(await screen.findByLabelText("Jira user"), "ops");
   await user.click(await screen.findByRole("button", { name: "Ops Bot (ops-bot)" }));
   expect(searched).toBe("/api/jira/users?query=ops");
@@ -104,7 +111,7 @@ test("a typed key is accepted and search warnings are shown", async () => {
       return { body: { user_agents: [row({ jira_user_key: "new-bot", jira_user_name: "new-bot" })] } };
     },
   });
-  render(<JiraUserAgents />);
+  view();
   await user.type(await screen.findByLabelText("Jira user"), "new-bot");
   expect(await screen.findByText("Jira user search failed: Jira rejected access")).toBeInTheDocument();
   await user.click(screen.getByRole("combobox", { name: "Agent" }));
@@ -125,7 +132,7 @@ test("changes a row's agent and removes a row", async () => {
     },
     "DELETE /api/jira/user-agents/ops-bot": () => ({ status: 204 }),
   });
-  render(<JiraUserAgents />);
+  view();
   await user.click(await screen.findByRole("combobox", { name: "Agent for Ops Bot" }));
   await user.click(screen.getByRole("option", { name: "Docs agent" }));
   await waitFor(() => expect(changed).toEqual({ agent_id: "docs", name: "Ops Bot" }));
@@ -147,10 +154,71 @@ test("a failed save shows the server's message", async () => {
     "GET /api/jira/users": { users: [], warning: null },
     "PUT /api/jira/user-agents/x": () => ({ status: 400, body: { error: { message: "Choose an existing agent" } } }),
   });
-  render(<JiraUserAgents />);
+  view();
   await user.type(await screen.findByLabelText("Jira user"), "x");
   await user.click(screen.getByRole("combobox", { name: "Agent" }));
   await user.click(screen.getByRole("option", { name: "Ops agent" }));
   await user.click(screen.getByRole("button", { name: "Add" }));
   expect(await screen.findByText("Choose an existing agent")).toBeInTheDocument();
+});
+
+const HANDLER = { id: "h-9", name: "Jira assignee agents", enabled: true };
+test("shows the handler that runs the mapped agents with a link to it", async () => {
+  api({ "GET /api/jira/user-agents": { user_agents: [row()], handler: HANDLER }, "GET /api/agents": AGENTS });
+  view();
+  expect(await screen.findByText(/Handled by:/)).toHaveTextContent("Handled by: Jira assignee agents (enabled)");
+  expect(screen.getByRole("link", { name: "Jira assignee agents" })).toHaveAttribute(
+    "href",
+    "/events/handlers?handler=h-9",
+  );
+  expect(screen.queryByRole("button", { name: "Create handler" })).toBeNull();
+});
+
+test("a disabled handler says so; saving a mapping refreshes the handler line", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/jira/user-agents": { user_agents: [], handler: { ...HANDLER, enabled: false } },
+    "GET /api/agents": AGENTS,
+    "GET /api/jira/users": { users: [], warning: null },
+    "PUT /api/jira/user-agents/ops-bot": { user_agents: [row()], handler: HANDLER },
+  });
+  view();
+  expect(await screen.findByText(/Handled by:/)).toHaveTextContent("Handled by: Jira assignee agents (disabled)");
+  await user.type(screen.getByLabelText("Jira user"), "ops-bot");
+  await user.click(screen.getByRole("combobox", { name: "Agent" }));
+  await user.click(screen.getByRole("option", { name: "Ops agent" }));
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() =>
+    expect(screen.getByText(/Handled by:/)).toHaveTextContent("Handled by: Jira assignee agents (enabled)"),
+  );
+});
+
+test("without a handler, Create handler creates it", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/jira/user-agents": { user_agents: [row()], handler: null },
+    "GET /api/agents": AGENTS,
+    "POST /api/jira/user-agents/handler": () => ({ status: 201, body: { handler: HANDLER } }),
+  });
+  view();
+  expect(await screen.findByText("No handler runs these agents.")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Create handler" }));
+  expect(await screen.findByRole("link", { name: "Jira assignee agents" })).toBeInTheDocument();
+  expect(screen.queryByText("No handler runs these agents.")).toBeNull();
+});
+
+test("a failed Create handler shows the server's message", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/jira/user-agents": { user_agents: [], handler: null },
+    "GET /api/agents": AGENTS,
+    "POST /api/jira/user-agents/handler": () => ({
+      status: 409,
+      body: { error: { message: "A handler with this name already exists." } },
+    }),
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Create handler" }));
+  expect(await screen.findByText("A handler with this name already exists.")).toBeInTheDocument();
+  expect(screen.getByText("No handler runs these agents.")).toBeInTheDocument();
 });

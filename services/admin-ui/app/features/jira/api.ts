@@ -85,16 +85,28 @@ export interface JiraUser {
   name: string | null;
   display_name: string;
 }
+/** The event handler that runs the mapped agents (the oldest one sending to the assignee's agent). */
+export interface AssigneeHandler {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+export interface JiraUserAgents {
+  user_agents: JiraUserAgent[];
+  handler: AssigneeHandler | null;
+}
 const userAgentPath = (key: string) => `/api/jira/user-agents/${encodeURIComponent(key)}`;
-export const getJiraUserAgents = (signal?: AbortSignal) =>
-  request<{ user_agents: JiraUserAgent[] }>(`/api/jira/user-agents`, { signal });
+export const getJiraUserAgents = (signal?: AbortSignal) => request<JiraUserAgents>(`/api/jira/user-agents`, { signal });
 /** `name` is the display name; empty when only a typed key is known (the server then shows the key). */
 export const saveJiraUserAgent = (key: string, agentId: string, name: string) =>
-  request<{ user_agents: JiraUserAgent[] }>(userAgentPath(key), {
+  request<JiraUserAgents>(userAgentPath(key), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: agentId, name }),
   });
+/** Create handler: the automatic Jira assignee agents handler, when none exists (409 otherwise). */
+export const createAssigneeHandler = () =>
+  request<{ handler: AssigneeHandler }>(`/api/jira/user-agents/handler`, { method: "POST" });
 export const deleteJiraUserAgent = (key: string) => request<void>(userAgentPath(key), { method: "DELETE" });
 export const searchJiraUsers = (query: string, signal?: AbortSignal) =>
   request<{ users: JiraUser[]; warning: string | null }>(`/api/jira/users?query=${encodeURIComponent(query)}`, {

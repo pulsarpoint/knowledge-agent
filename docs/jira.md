@@ -225,6 +225,26 @@ only change is new comments that are all our own answers: a comment whose id a p
 is still being posted, a comment by the connection's Jira user with exactly the text being posted. Any other new
 comment — a person's, even in the same second as ours — is recorded, together with ours.
 
+### Giving the ticket back
+
+A handler with **Agent mapped to the assignee** and **Also post the answer as a comment on the Jira ticket** can also
+**Give the ticket back after replying** (`give_back`; the API refuses it without `reply_to_jira` or with a fixed
+agent). Who gets the ticket is decided when the run's notification is written, from the event: the previous assignee
+(`payload.changes.assignee.from_id`) when the ticket was reassigned to the agent's user, otherwise the reporter
+(`payload.reporter_id`) — never a Jira user mapped to an agent (two bots would pass the ticket back and forth); when
+neither is left, the ticket stays with the agent's user. The comment then ends with `Assigned back to <display
+name>.` above the agent footer.
+
+The ticket is assigned only after the comment is posted: a failed comment keeps the ticket with the agent's user.
+Before posting, the worker reads the ticket's assignee: when someone else took the ticket meanwhile, the comment has
+no note and the hand-back is skipped (`Not assigned back: the ticket was reassigned before the reply.`). Otherwise it
+looks up the person's login (`GET /rest/api/2/user?key=<key>`) and assigns the ticket (`PUT
+/rest/api/2/issue/<key>/assignee` with `{"name": <login>}`), as the connection's user, which needs the **Assign
+Issues** permission. A failed assignment is retried on the comment's schedule (after 1 and 5 minutes) without posting
+the comment again. The notification shows the hand-back next to the comment's state: **Assigning back to <name>…**,
+**Assigned back to <name>**, **Not assigned back to <name>** with the reason, or why it was skipped. The reassignment
+comes back on the next pull as an ordinary `jira.ticket.updated`; the new assignee is not mapped, so no run starts.
+
 Every Jira event carries the assignee's Jira key next to the display name (`payload.assignee_id`, null when
 unassigned); a reassignment shows both (`payload.changes.assignee` = `{from, to, from_id, to_id}`).
 `payload.for_assignee` is true when the event is work for the ticket's assignee: the ticket is assigned and it is new,
@@ -245,6 +265,16 @@ connection removes its rows. The API: `GET /api/jira/user-agents`, `PUT /api/jir
 name}`), `DELETE /api/jira/user-agents/{key}`, `GET /api/jira/users?query=` (`{users: [{key, name, display_name}],
 warning}`; a failed Jira search still returns the seen assignees, with a warning).
 
+Saving the first mapping, when the project has no handler sending to **Agent mapped to the assignee**, also creates
+one (audited as `event_handler.created` with `automatic: true`): **Jira assignee agents**, enabled, event type
+`jira.ticket.*`, the condition `payload.for_assignee equals true`, a prompt with the ticket's key, summary, description,
+status, reporter and comments, **Also post the answer as a comment on the Jira ticket** and **Give the ticket back
+after replying**. It is an ordinary handler (edit, turn off or delete it in Events → Handlers); later mappings reuse it
+and removing mappings never removes it. The section shows `Handled by: <handler> (enabled|disabled)` with a link that
+opens the handler, or `No handler runs these agents.` with **Create handler** (the same handler; `POST
+/api/jira/user-agents/handler`, 409 when an assignee handler exists or a handler already has the name).
+`GET /api/jira/user-agents` and `PUT` return `{user_agents, handler: {id, name, enabled} | null}`.
+
 An event handler's **Agent** can be **Agent mapped to the assignee** (`agent_from: "assignee"`, no `agent_id`; Send
 to agent handlers for Jira event types only). For each matching event it runs the agent mapped to the ticket's current
 assignee (`payload.assignee_id`) on the event's connection, exactly like a fixed-agent run (the agent's whole access,
@@ -257,10 +287,11 @@ the agent starts only when the assignee has something new, not on every edit. **
 
 ### Testing with the mock
 
-1. In Jira → Settings, save the mock connection; under **Users and agents** add `ops-bot` → an agent.
-2. Let the Jira auto pull record the tickets once before adding the handler (the seeded DEMO-4 is already assigned to
-   `ops-bot`, so a handler that exists at the first pull answers on DEMO-4 too).
-3. Add a Send to agent handler for `jira.ticket.*` with **Agent mapped to the assignee**, the condition
-   `payload.for_assignee equals true` and **Also post the answer as a comment on the Jira ticket**.
-4. On the control page set DEMO-3's assignee to Ops Bot and run the schedule: the mapped agent answers on DEMO-3. A
-   comment as Jira User starts another run; the agent's own reply does not.
+1. In Jira → Settings, save the mock connection and let the Jira auto pull record the tickets once (the seeded DEMO-4
+   is already assigned to `ops-bot`, so a handler that exists at the first pull answers on DEMO-4 too).
+2. Under **Users and agents** add `ops-bot` → an agent: this creates the **Jira assignee agents** handler
+   (`Handled by: Jira assignee agents (enabled)`).
+3. On the control page set DEMO-3's assignee to Ops Bot and run the schedule: the mapped agent answers on DEMO-3 with
+   `Assigned back to <previous assignee>.` and the ticket goes back to that person (to the reporter for a ticket
+   created assigned to Ops Bot). A comment as Jira User on a ticket still with Ops Bot starts another run; the agent's
+   own reply and the hand-back do not.

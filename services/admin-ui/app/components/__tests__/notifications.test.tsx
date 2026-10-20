@@ -199,3 +199,48 @@ test("a notification without a Jira comment shows no Jira line", async () => {
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).queryByText("Jira")).toBeNull();
 });
+
+const POSTED = {
+  ...JIRA,
+  jira_status: "posted",
+  jira_issue_key: "DEMO-3",
+  jira_comment_id: "10500",
+  give_back_name: "Ana",
+};
+test.each([
+  [{ jira_status: "pending", give_back_status: "pending" }, "Assigns back to Ana after the comment"],
+  [{ give_back_status: "pending" }, "Assigning back to Ana…"],
+  [
+    { give_back_status: "pending", give_back_error: "Jira could not complete the request" },
+    "Assigning back to Ana… (failed: Jira could not complete the request)",
+  ],
+  [{ give_back_status: "done" }, "Assigned back to Ana"],
+  [
+    { give_back_status: "failed", give_back_error: "Jira refused the assignment" },
+    "Not assigned back to Ana: Jira refused the assignment",
+  ],
+  [
+    { give_back_status: "skipped", give_back_error: "Not assigned back: the ticket was reassigned before the reply." },
+    "Not assigned back: the ticket was reassigned before the reply.",
+  ],
+])("the detail shows the hand-back's state %#", async (giveBack, text) => {
+  api({
+    "/api/notifications": { notifications: [], next_offset: null },
+    "/api/notifications/3": { notification: detail(3, { ...POSTED, give_back_error: null, ...giveBack }) },
+  });
+  view("/notifications?id=3");
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Hand-back")).toBeInTheDocument();
+  expect(within(sheet).getByText(text)).toBeInTheDocument();
+});
+
+test("a notification without a hand-back shows no hand-back line", async () => {
+  api({
+    "/api/notifications": { notifications: [], next_offset: null },
+    "/api/notifications/3": { notification: detail(3, { ...POSTED, give_back_status: null, give_back_name: null }) },
+  });
+  view("/notifications?id=3");
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Posted to DEMO-3")).toBeInTheDocument();
+  expect(within(sheet).queryByText("Hand-back")).toBeNull();
+});

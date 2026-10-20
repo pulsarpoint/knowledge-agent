@@ -490,7 +490,11 @@ and search permission).
 **Users and agents** (on the Settings page, once a connection is saved) maps Jira users to agents: a ticket assigned
 to a mapped user is that agent's work. Search for a user as you type (or type a user key), choose an agent, **Add**;
 change a row's agent in place or remove it. A row whose agent is turned off says **Agent disabled**. An event handler
-with **Agent mapped to the assignee** (4.18) runs the mapped agent.
+with **Agent mapped to the assignee** (4.18) runs the mapped agent. The first mapping creates that handler when there
+is none: **Jira assignee agents** (every ticket event with new work for the assignee; the answer is posted on the
+ticket and the ticket is given back). The section shows **Handled by: Jira assignee agents (enabled)** (or
+**disabled**), which opens the handler, or **No handler runs these agents.** with **Create handler**. The handler is
+an ordinary one: edit, turn off or delete it under Events → Handlers; changing mappings never changes it.
 
 For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
@@ -886,7 +890,10 @@ A handler does one thing:
   unassigned ticket or an unmapped assignee starts no run. Add the condition `payload.for_assignee` **equals** `true`
   (the form offers it) so the agent starts only when the ticket is new and assigned, was reassigned, or got a comment
   from someone other than the connection's own user — not on every edit; `payload.assignee_id` is the assignee's
-  Jira key. **Preview** says which agent would run, or why none would.
+  Jira key. **Preview** says which agent would run, or why none would. With the answer posted on the ticket, **Give
+  the ticket back after replying** (on by default for a new handler) assigns the ticket, once the comment is posted,
+  to whoever had it before the agent's user, else to its reporter — never to a user mapped to an agent; the comment
+  ends with `Assigned back to <name>.`. It is skipped when someone else took the ticket meanwhile.
 
 **Careful with Send to agent on broad patterns.** Every matching event starts one agent run. The first scheduled Jira
 pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once per
@@ -912,7 +919,9 @@ title; **Load more** and **Refresh** work as on Events. Open a notification to r
 failed), the agent, **Open run**, which opens the run in the agent's Test tab, and **Open event**, which opens the event that
 triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
 A notification whose answer goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
-being posted or retried, or **Not posted to KEY** with the reason.
+being posted or retried, or **Not posted to KEY** with the reason. A handler that gives the ticket back adds
+**Hand-back**: **Assigned back to <name>**, **Assigning back to <name>…** (retried on failure), **Not assigned back
+to <name>** with the reason, or why it was skipped.
 Notifications from before event runs show the old task's attempts and have no **Open run**.
 
 ### 4.20 Memory
