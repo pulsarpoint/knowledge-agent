@@ -101,3 +101,16 @@ after replying**, shown when Reply in Jira is on; default on for new handlers; s
 
 - [ ] Step 1: failing vitest tests. Step 2: fail. Step 3: implement. Step 4: vitest, tsc, format:check. Step 5: commit
   `feat(admin-ui): give back after replying; the assignee handler on Users and agents`.
+
+### Task 5: Earlier runs on the same ticket
+
+**Files:** `services/admin-api/src/knowledge_admin/sessions/rows.py` (or wherever the session detail is built: for a
+session whose `event_id` is a Jira event, add `related_runs`: the other sessions whose event has the same `source='jira'`,
+`source_id` and `payload->>'issue_id'`, newest first, at most 20: `{session_id, started_at, agent_id, agent_name,
+status, event_type}`); the run page in `services/admin-ui/app/features/sessions/` (an **Earlier runs on <KEY>** list
+under the event info, links to each run); tests. No migration (the link is `agent_sessions.event_id` → `ka.events`).
+
+- [ ] Step 1: failing tests — two runs on one ticket list each other; a run on another ticket or another connection is
+  not listed; a non-Jira or non-event session has no `related_runs`; UI renders the list with links. Step 2: fail.
+  Step 3: implement. Step 4: focused, full backend suite, UI checks. Step 5: commit
+  `feat(sessions): earlier runs on the same Jira ticket`.
