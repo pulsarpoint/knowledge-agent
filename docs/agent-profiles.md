@@ -33,9 +33,9 @@ retain context until the session is closed, or closed after 24 hours without act
 restores history and running turns. New turns keep the session’s pinned configuration; use a new session after changing the agent, or test a change on a clone.
 **Add feedback** beneath a response opens an optional panel and sends the full
 configuration, whole stored conversation, selected response and your feedback
-to a separate reviewer. Saved suggestions include proposed prompt,
-configuration or memory-note changes, with links back to the relevant editor.
-Nothing is applied automatically.
+to a separate reviewer. A saved suggestion has advice, an optional replacement of the agent's instructions and up to
+10 proposed memory notes (new shared memory entries for facts learned in the conversation); it never changes the
+system prompt. **Review and apply** lets you edit and tick what to keep. Nothing is applied automatically.
 
 **System prompt.** Each agent has exactly one system prompt, a field on the **General** tab (card *System prompt*, **Save prompt** / **Discard prompt changes**, “System prompt saved.”). It is required, nonempty and at most 100,000 characters; there is no draft or history, so to try another prompt clone the agent, change the clone and **Apply to <original>**. `PUT /api/agents/{id}/prompt` saves it with the agent's revision (a stale revision returns 409 “Agent changed. Reload before saving.”). The agent wizard saves the prompt it generates the same way. Existing prompts are preserved, including any instructions describing a former specialization; edit them on General when changing the intended purpose. “When to use” records routing guidance.
 

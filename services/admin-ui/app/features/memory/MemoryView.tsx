@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router";
 import { Brain, Plus, RefreshCw, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
@@ -43,7 +44,8 @@ export default function MemoryView() {
   const [reembedding, setReembedding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [params] = useSearchParams();
+  const [openId, setOpenId] = useState<string | null>(params.get("entry"));
   /** Bumped whenever the first page is reloaded, so a Load more that started earlier is ignored. */
   const generation = useRef(0);
 

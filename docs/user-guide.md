@@ -566,10 +566,19 @@ its resources (see *Resources of a run* below). **Preview** shows the
 configuration the run would use. Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
 badge) to reopen them. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
-**Suggest improvements**, which runs a reviewer that proposes prompt and instruction changes; **Suggestions (n)** lists
-them, and **Review and apply** opens them for editing, then **Apply to this agent** or **Apply to a new clone**.
+**Suggest improvements**, which runs a reviewer that proposes instruction changes and memory notes (never system
+prompt changes); **Suggestions (n)** lists them (with the names of the proposed notes), and **Review and apply** opens
+them for editing.
 
-**Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
+**Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*: the reviewer's advice,
+**Instructions** (the current text under *Current instructions*, the proposed text to edit, and **Apply instructions**,
+ticked when the reviewer proposed a change) and **Memory notes** — facts for the shared memory every agent can search.
+Each note has a checkbox (ticked by default) and an editable name and content; a note whose name is already taken shows
+**Already exists — open in Memory** and starts unticked (edit that entry on the Memory page, or rename the note). With
+instructions ticked, **Apply to this agent** writes them into the agent (“Applied to this agent. New conversations use
+it.”) and **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged; with
+only notes ticked, **Save memory notes**. When notes were sent, the sheet lists the saved notes (each opens its Memory
+entry) and any refused names with the reason; **Done** closes it.
 
 **Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources and
 the **Content editor** role: a tool without what it needs refuses (for example `This run has no servers.`), and
@@ -930,7 +939,7 @@ delete or rename entries; only people can, on the page.
 **The page.** Administration → **Memory** lists entries with name, metadata, who saved them (agent or person) and when.
 Search by words; click a metadata badge to add it as a filter chip (click the chip to remove it); **Saved by agent**
 shows only the entries of one agent; **Load more** shows older ones. Open an entry (or **New entry**) to edit its
-**Name**, **Metadata** and **Content**, then **Save**. If an agent or another person changed the entry after you opened
+**Name**, **Metadata** and **Content**, then **Save**. A link `/memory?entry=<id>` opens that entry directly. If an agent or another person changed the entry after you opened
 it, Save says so and **Load current** brings in the latest version (your edits are replaced). **History** lists every
 earlier version and shows what restoring it would change in the current text; **Restore** makes an old version the newest as a new revision,
 so nothing is lost. **Delete** (after confirmation) removes the entry and its whole history.

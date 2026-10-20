@@ -72,6 +72,8 @@ export function getMemories(filters: MemoryFilters, offset = 0, signal?: AbortSi
 }
 export const getMemoryAgents = (signal?: AbortSignal) =>
   request<{ agents: { id: string; name: string }[] }>("/api/memories/agents", { signal });
+/** The Memory page with this entry open. */
+export const memoryHref = (id: string) => `/memory?entry=${encodeURIComponent(id)}`;
 export const getMemory = (id: string, signal?: AbortSignal) =>
   request<{ memory: MemoryEntry; versions: MemoryVersion[]; current_profile: string | null }>(`/api/memories/${id}`, {
     signal,

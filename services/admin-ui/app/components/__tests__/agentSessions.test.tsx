@@ -228,12 +228,12 @@ test("feedback on an answer asks for suggestions and they can be reviewed and ap
 test("applying a suggestion to the agent says so and reloads the agent", async () => {
   const source = {
     revision: 3,
-    system_prompt: "You operate servers.",
     instructions: "",
-    changes: { system_prompt: "Answer in one line.", instructions: null },
+    changes: { instructions: "Answer in one line." },
+    memory_notes: [],
   };
   vi.mocked(reviews.getReviewSource).mockResolvedValue(source as never);
-  vi.mocked(reviews.applyReview).mockResolvedValue({ agent_id: "ops" } as never);
+  vi.mocked(reviews.applyReview).mockResolvedValue({ agent_id: "ops", saved: [], refused: [] } as never);
   serve({ run: { ...finishedRun, reviews: [review] } as SessionDetail });
   const onAgentChanged = vi.fn();
   renderTestTab({ sessionId: "r1", onAgentChanged });
@@ -244,6 +244,14 @@ test("applying a suggestion to the agent says so and reloads the agent", async (
   fireEvent.click(sheet.getByRole("button", { name: /this agent/i }));
   expect(await screen.findByText("Applied to this agent. New conversations use it.")).toBeVisible();
   expect(onAgentChanged).toHaveBeenCalled();
+});
+
+test("a saved suggestion lists the memory notes it proposes", async () => {
+  const notes = [{ name: "disk/thresholds", content: "Alert at 90%.", metadata: {} }];
+  serve({ run: { ...finishedRun, reviews: [{ ...review, memory_notes: notes }] } as SessionDetail });
+  renderTestTab({ sessionId: "r1" });
+  fireEvent.click(await screen.findByRole("button", { name: "Suggestions (1)" }));
+  expect(await screen.findByText("Proposed memory notes: disk/thresholds")).toBeVisible();
 });
 
 test("earlier runs replace History", async () => {

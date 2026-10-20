@@ -29,6 +29,7 @@ export interface SessionReview {
   response_turn?: number | null;
   created_at: string;
   changes?: unknown;
+  memory_notes?: { name: string }[] | null;
 }
 /** A server, service or environment: the resources whose pages have chats. */
 export type ResourceType = "server" | "service" | "environment";

@@ -125,6 +125,11 @@ export default function RunSuggestions({
                   <strong>Your feedback:</strong> {review.comment}
                 </p>
                 <Markdown content={review.suggestion} />
+                {review.memory_notes?.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    {`Proposed memory notes: ${review.memory_notes.map((note) => note.name).join(", ")}`}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"

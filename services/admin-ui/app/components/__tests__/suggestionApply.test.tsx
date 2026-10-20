@@ -7,63 +7,138 @@ vi.mock("~/features/agents/reviews");
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
 const review = { id: "review-1", comment: "Be clearer", suggestion: "Be clearer.", created_at: "2026-10-08T10:00:00Z" };
+const newNote = {
+  name: "payments/deploy",
+  content: "Payments deploys from the release branch.",
+  metadata: { service: "payments" },
+  exists: false,
+  memory_id: null,
+  current_content: null,
+};
+const existingNote = {
+  name: "payments/owner",
+  content: "Payments is owned by team A.",
+  metadata: {},
+  exists: true,
+  memory_id: "m-9",
+  current_content: "Payments is owned by team B.",
+};
 const source: api.ReviewSource = {
   suggestion: "Be clearer.",
   revision: 3,
   fingerprint: "f".repeat(64),
-  changes: { system_prompt: null, instructions: "State uncertainty." },
-  system_prompt: "Use evidence.",
+  changes: { instructions: "State uncertainty." },
+  memory_notes: [newNote, existingNote],
   instructions: "Original instructions",
 };
+const sentNew = { name: newNote.name, content: newNote.content, metadata: newNote.metadata };
 const applied = vi.fn();
+const closed = vi.fn();
 function page() {
-  return render(<SuggestionApply agentId="custom" review={review} onClose={vi.fn()} onApplied={applied} />);
+  return render(<SuggestionApply agentId="custom" review={review} onClose={closed} onApplied={applied} />);
 }
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getReviewSource).mockResolvedValue(structuredClone(source));
-  vi.mocked(api.applyReview).mockResolvedValue({ agent_id: "custom" });
+  vi.mocked(api.applyReview).mockResolvedValue({ agent_id: "custom", saved: [], refused: [] });
 });
 
-it("prefills the proposed texts and applies the agent's prompt and instructions to this agent", async () => {
-  page();
-  expect(await screen.findByLabelText("Additional instructions")).toHaveValue("State uncertainty.");
-  expect(api.getReviewSource).toHaveBeenCalledWith("custom", "review-1");
-  expect(screen.getByLabelText("System prompt")).toHaveValue("Use evidence.");
-  expect(screen.queryByLabelText(/server instructions/)).toBeNull();
-  fireEvent.change(screen.getByLabelText("Additional instructions"), {
-    target: { value: "Separate facts from guesses." },
+it("has no system prompt section and applies the instructions and the ticked notes to this agent", async () => {
+  vi.mocked(api.applyReview).mockResolvedValue({
+    agent_id: "custom",
+    saved: [{ id: "m-1", name: "payments/deploy" }],
+    refused: [],
   });
+  page();
+  expect(await screen.findByLabelText("Instructions")).toHaveValue("State uncertainty.");
+  expect(api.getReviewSource).toHaveBeenCalledWith("custom", "review-1");
+  expect(screen.queryByLabelText("System prompt")).toBeNull();
+  expect(screen.queryByText(/system prompt/i)).toBeNull();
+  expect(screen.getByText("Original instructions")).toBeInTheDocument();
+  expect(screen.getByLabelText("Apply instructions")).toBeChecked();
+  fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Separate facts from guesses." } });
   fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
   await waitFor(() =>
-    expect(api.applyReview).toHaveBeenCalledWith("custom", "review-1", source, "agent", {
-      system_prompt: null,
-      instructions: "Separate facts from guesses.",
-    }),
+    expect(api.applyReview).toHaveBeenCalledWith(
+      "custom",
+      "review-1",
+      source,
+      "agent",
+      "Separate facts from guesses.",
+      [sentNew],
+    ),
   );
+  expect(await screen.findByRole("link", { name: "payments/deploy" })).toHaveAttribute("href", "/memory?entry=m-1");
+  expect(applied).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(applied).toHaveBeenCalledWith("agent", "custom");
 });
 
-it("applies to a new clone and keeps the edits when applying fails", async () => {
-  vi.mocked(api.applyReview)
-    .mockRejectedValueOnce(new Error("The agent changed since you opened the suggestion. Review it again."))
-    .mockResolvedValueOnce({ agent_id: "clone-1" });
+it("an existing note is unticked and links to its entry in Memory", async () => {
   page();
-  fireEvent.change(await screen.findByLabelText("System prompt"), { target: { value: "Answer from evidence." } });
-  fireEvent.click(screen.getByRole("button", { name: "Apply to a new clone" }));
-  expect(await screen.findByText("The agent changed since you opened the suggestion. Review it again.")).toBeVisible();
-  expect(screen.getByLabelText("System prompt")).toHaveValue("Answer from evidence.");
-  fireEvent.click(screen.getByRole("button", { name: "Apply to a new clone" }));
-  await waitFor(() => expect(applied).toHaveBeenCalledWith("clone", "clone-1"));
-  const [, , , target, changes] = vi.mocked(api.applyReview).mock.calls[1];
-  expect([target, changes.system_prompt]).toEqual(["clone", "Answer from evidence."]);
+  expect(await screen.findByLabelText("Save note 1")).toBeChecked();
+  expect(screen.getByLabelText("Save note 2")).not.toBeChecked();
+  expect(screen.getByRole("link", { name: "Already exists — open in Memory" })).toHaveAttribute(
+    "href",
+    "/memory?entry=m-9",
+  );
 });
 
-it("needs a system prompt", async () => {
+it("applies only the instructions when no note is ticked", async () => {
+  vi.mocked(api.applyReview).mockResolvedValue({ agent_id: "clone-1", saved: [], refused: [] });
   page();
-  fireEvent.change(await screen.findByLabelText("System prompt"), { target: { value: "  " } });
-  expect(screen.getByRole("button", { name: "Apply to this agent" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Apply to a new clone" })).toBeDisabled();
+  fireEvent.click(await screen.findByLabelText("Save note 1"));
+  fireEvent.click(screen.getByRole("button", { name: "Apply to a new clone" }));
+  await waitFor(() =>
+    expect(api.applyReview).toHaveBeenCalledWith("custom", "review-1", source, "clone", "State uncertainty.", []),
+  );
+  await waitFor(() => expect(applied).toHaveBeenCalledWith("clone", "clone-1"));
+});
+
+it("saves only edited notes without a target when the instructions are not applied", async () => {
+  page();
+  fireEvent.click(await screen.findByLabelText("Apply instructions"));
+  expect(screen.queryByRole("button", { name: "Apply to this agent" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply to a new clone" })).toBeNull();
+  fireEvent.change(screen.getByLabelText("Note 1 name"), { target: { value: "payments/release" } });
+  fireEvent.change(screen.getByLabelText("Note 1 content"), { target: { value: "Release branch only." } });
+  fireEvent.click(screen.getByLabelText("Save note 2"));
+  fireEvent.click(screen.getByRole("button", { name: "Save memory notes" }));
+  await waitFor(() =>
+    expect(api.applyReview).toHaveBeenCalledWith("custom", "review-1", source, "agent", null, [
+      { name: "payments/release", content: "Release branch only.", metadata: { service: "payments" } },
+      { name: existingNote.name, content: existingNote.content, metadata: {} },
+    ]),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+  expect(applied).not.toHaveBeenCalled();
+  expect(closed).toHaveBeenCalled();
+});
+
+it("shows the refused names with their message", async () => {
+  vi.mocked(api.applyReview).mockResolvedValue({
+    agent_id: "custom",
+    saved: [],
+    refused: [{ name: "payments/owner", message: "An entry named payments/owner already exists." }],
+  });
+  page();
+  fireEvent.click(await screen.findByLabelText("Save note 2"));
+  fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
+  expect(await screen.findByText("An entry named payments/owner already exists.")).toBeVisible();
+});
+
+it("needs something to apply", async () => {
+  page();
+  fireEvent.click(await screen.findByLabelText("Apply instructions"));
+  fireEvent.click(screen.getByLabelText("Save note 1"));
+  expect(screen.getByRole("button", { name: "Save memory notes" })).toBeDisabled();
+});
+
+it("does not tick Apply instructions when no change is proposed", async () => {
+  vi.mocked(api.getReviewSource).mockResolvedValue({ ...structuredClone(source), changes: { instructions: null } });
+  page();
+  expect(await screen.findByLabelText("Apply instructions")).not.toBeChecked();
+  expect(screen.getByLabelText("Instructions")).toHaveValue("Original instructions");
 });
 
 it("reloads the latest agent after a conflict, keeps the edits and applies with the new revision", async () => {
@@ -71,28 +146,27 @@ it("reloads the latest agent after a conflict, keeps the edits and applies with 
     ...structuredClone(source),
     revision: 4,
     fingerprint: "e".repeat(64),
-    system_prompt: "Use sources.",
+    instructions: "Newer instructions",
   };
   vi.mocked(api.getReviewSource)
     .mockResolvedValueOnce(structuredClone(source))
     .mockResolvedValueOnce(structuredClone(latest));
   vi.mocked(api.applyReview)
     .mockRejectedValueOnce(new ApiError("The agent changed since you opened the suggestion. Review it again.", 409))
-    .mockResolvedValueOnce({ agent_id: "custom" });
+    .mockResolvedValueOnce({ agent_id: "custom", saved: [], refused: [] });
   page();
-  fireEvent.change(await screen.findByLabelText("System prompt"), { target: { value: "Answer from evidence." } });
+  fireEvent.change(await screen.findByLabelText("Instructions"), { target: { value: "Answer from evidence." } });
+  fireEvent.click(screen.getByLabelText("Save note 1"));
   fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
   fireEvent.click(await screen.findByRole("button", { name: "Reload latest" }));
   await waitFor(() => expect(api.getReviewSource).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Reload latest" })).not.toBeInTheDocument());
-  expect(screen.queryByRole("button", { name: "Reload latest" })).not.toBeInTheDocument();
-  expect(screen.getByLabelText("System prompt")).toHaveValue("Answer from evidence.");
-  expect(screen.getByLabelText("Additional instructions")).toHaveValue("State uncertainty.");
+  expect(screen.getByLabelText("Instructions")).toHaveValue("Answer from evidence.");
+  expect(screen.getByText("Newer instructions")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
   await waitFor(() => expect(applied).toHaveBeenCalledWith("agent", "custom"));
-  const [, , sent, , changes] = vi.mocked(api.applyReview).mock.calls[1];
-  expect([sent.revision, sent.fingerprint]).toEqual([4, "e".repeat(64)]);
-  expect(changes).toEqual({ system_prompt: "Answer from evidence.", instructions: "State uncertainty." });
+  const [, , sent, , instructions] = vi.mocked(api.applyReview).mock.calls[1];
+  expect([sent.revision, sent.fingerprint, instructions]).toEqual([4, "e".repeat(64), "Answer from evidence."]);
 });
 
 it("offers Reload latest when the suggestion fails to load", async () => {
@@ -102,14 +176,14 @@ it("offers Reload latest when the suggestion fails to load", async () => {
   page();
   expect(await screen.findByText("request failed (500)")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Reload latest" }));
-  expect(await screen.findByLabelText("Additional instructions")).toHaveValue("State uncertainty.");
+  expect(await screen.findByLabelText("Instructions")).toHaveValue("State uncertainty.");
   expect(screen.queryByText("request failed (500)")).not.toBeInTheDocument();
 });
 
 it("does not offer Reload latest after other apply failures", async () => {
-  vi.mocked(api.applyReview).mockRejectedValueOnce(new ApiError("Enter a system prompt.", 422));
+  vi.mocked(api.applyReview).mockRejectedValueOnce(new ApiError("Nothing to apply.", 400));
   page();
   fireEvent.click(await screen.findByRole("button", { name: "Apply to this agent" }));
-  expect(await screen.findByText("Enter a system prompt.")).toBeVisible();
+  expect(await screen.findByText("Nothing to apply.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Reload latest" })).not.toBeInTheDocument();
 });

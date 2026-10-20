@@ -40,9 +40,9 @@ function api(handler: (url: string, init?: RequestInit) => unknown) {
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
-const view = () =>
+const view = (url = "/memory") =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>
       <MemoryView />
     </MemoryRouter>,
   );
@@ -78,6 +78,16 @@ test("searching and clicking a metadata badge filter the list", async () => {
       expect.anything(),
     ),
   );
+});
+
+test("an entry link (?entry=id) opens that entry", async () => {
+  api((url) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url === "/api/memories") return page([entry("a")]);
+    if (url === "/api/memories/id-a") return { memory: entry("a"), versions: [] };
+  });
+  view("/memory?entry=id-a");
+  expect(await screen.findByLabelText("Content")).toHaveValue("Content of a");
 });
 
 test("editing shows a conflict when the entry changed meanwhile", async () => {
