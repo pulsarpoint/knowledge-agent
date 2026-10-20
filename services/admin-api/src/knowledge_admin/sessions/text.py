@@ -3,6 +3,7 @@
 from typing import Any
 
 from knowledge_admin.capabilities import skills
+from knowledge_admin.jira.events import give_back_target
 
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
 MAX_NOTIFICATION_BODY = 200_000
@@ -46,7 +47,7 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
     its close message). Number 0 is a run closed before its first turn. Other turns and runs that no event started
     write none, and a run never gets a second one. A succeeded run whose handler replies to Jira on a Jira event marks
     the comment pending (events/jira_replies.py posts it); an empty answer is not posted (its placeholder stays
-    here)."""
+    here). A handler that gives the ticket back also stores who gets it (jira.events.give_back_target)."""
     if number > 1:
         return
     row = conn.execute(
@@ -58,16 +59,26 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
     if not succeeded and row['status'] == 'closed' and row['status_message']:
         text = row['status_message']
     body = (text if text.strip() else NO_ANSWER) if succeeded else text
+    source = conn.execute(
+        """SELECT h.give_back,e.payload FROM ka.agent_sessions s LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
+        LEFT JOIN ka.events e ON e.id=s.event_id WHERE s.id=%s""",
+        (session_id,),
+    ).fetchone()
+    target = give_back_target(source['payload'] or {}) if source['give_back'] else None
     conn.execute(
         """INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id,
-            jira_status,jira_connection_id,jira_issue_id,jira_issue_key,jira_next_attempt_at,jira_error)
+            jira_status,jira_connection_id,jira_issue_id,jira_issue_key,jira_next_attempt_at,jira_error,
+            give_back_key,give_back_name,give_back_status)
         SELECT s.project_id,'agent.response',%(status)s,left(s.title,500),%(body)s,s.event_id,s.handler_id,s.agent_id,
             s.id,j.status,
             CASE WHEN j.status='pending' THEN e.source_id END,
             CASE WHEN j.status='pending' THEN e.payload->>'issue_id' END,
             CASE WHEN j.status IS NOT NULL THEN e.subject END,
             CASE WHEN j.status='pending' THEN now() END,
-            CASE WHEN j.status='failed' THEN %(not_from_jira)s END
+            CASE WHEN j.status='failed' THEN %(not_from_jira)s END,
+            CASE WHEN j.status='pending' THEN %(give_back_key)s::text END,
+            CASE WHEN j.status='pending' THEN %(give_back_name)s::text END,
+            CASE WHEN j.status='pending' AND %(give_back_key)s::text IS NOT NULL THEN 'pending' END
         FROM ka.agent_sessions s
         LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
         LEFT JOIN ka.events e ON e.id=s.event_id
@@ -82,6 +93,8 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
             'not_from_jira': NOT_FROM_JIRA,
             'answered': succeeded and bool(text.strip()),
             'session': session_id,
+            'give_back_key': target[0] if target else None,
+            'give_back_name': target[1] if target else None,
         },
     )
 

@@ -39,12 +39,27 @@ def ticket(base_url: str, issue: dict) -> dict:
         'assignee': person(fields.get('assignee')),
         'assignee_id': (fields.get('assignee') or {}).get('key'),
         'reporter': person(fields.get('reporter')),
+        'reporter_id': (fields.get('reporter') or {}).get('key'),
         'labels': list(fields.get('labels') or []),
         'created': fields.get('created'),
         'updated': fields['updated'],
         'comments': comments,
         'comment_count': len(comments),
     }
+
+
+def give_back_target(payload: dict) -> tuple[str, str] | None:
+    """Who gets the ticket back after the agent's reply (Data Center key, display name): the previous assignee when
+    the ticket was reassigned, otherwise the reporter; never the current assignee (the agent's own Jira user)."""
+    current = payload.get('assignee_id')
+    assignee = (payload.get('changes') or {}).get('assignee') or {}
+    for key, name in (
+        (assignee.get('from_id'), assignee.get('from')),
+        (payload.get('reporter_id'), payload.get('reporter')),
+    ):
+        if key and key != current:
+            return key, name or key
+    return None
 
 
 def changes(before: dict, after: dict) -> dict:
@@ -100,9 +115,9 @@ def own_comment_ids(
         )
     }
     pending = {
-        comment_body(row['body'], row['agent_name'])
+        comment_body(row['body'], row['agent_name'], row['give_back_name'])
         for row in conn.execute(
-            """SELECT n.body,coalesce(a.name,n.agent_id,'Agent') AS agent_name
+            """SELECT n.body,coalesce(a.name,n.agent_id,'Agent') AS agent_name,n.give_back_name
             FROM ka.notifications n LEFT JOIN ka.agents a ON a.id=n.agent_id
             WHERE n.project_id=%s AND n.jira_status='pending' AND n.jira_connection_id=%s AND n.jira_issue_id=%s""",
             (project_id, connection_id, issue_id),

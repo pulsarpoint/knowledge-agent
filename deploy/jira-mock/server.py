@@ -201,6 +201,8 @@ def assignee_options(current: str = "") -> str:
 
 
 def home_html() -> str:
+    reporter_options = "".join(
+        f'<option value="{user["key"]}">{html.escape(user["displayName"])}</option>' for user in USERS.values())
     posted = "".join(comment_html(issue, comment, True) for issue, comment in agent_comments())
     rows = "".join(
         f'<tr><td><a href="/mock/{quote(issue["key"])}">{html.escape(issue["key"])}</a></td>'
@@ -228,6 +230,7 @@ for the next <input name=count type=number min=1 max=10 value=3 style="width:4em
 <p><input type=text name=summary placeholder="Summary" required maxlength=255></p>
 <p><textarea name=description rows=3 placeholder="Description (Jira wiki markup)"></textarea></p>
 <p>Assignee <select name=assignee>{assignee_options()}</select></p>
+<p>Reporter <select name=reporter>{reporter_options}</select></p>
 <button>Create</button></form></div>
 <h2>Tickets ({len(ISSUES)})</h2><table><tr><th>Key</th><th>Summary</th><th>Status</th><th>Assignee</th><th>Updated</th>
 <th>Comments</th><th>Agent</th></tr>{rows}</table>
@@ -455,13 +458,14 @@ class Handler(BaseHTTPRequestHandler):
             FAILURE.update(mode=mode, remaining=0 if mode == "normal" else int(count))
         elif path == "/mock/tickets":
             summary, assignee = form.get("summary", "").strip(), form.get("assignee", "")
-            if not 1 <= len(summary) <= 255 or assignee and assignee not in USERS:
-                self.respond(400, {"errorMessages": ["A summary of 1-255 characters and a known assignee are required"]})
+            reporter = form.get("reporter") or USERNAME
+            if not 1 <= len(summary) <= 255 or assignee and assignee not in USERS or reporter not in USERS:
+                self.respond(400, {"errorMessages": ["A summary of 1-255 characters, a known assignee and a known reporter are required"]})
                 return
             number = max(int(issue["key"].split("-")[1]) for issue in ISSUES) + 1
             created = now()
             issue = new_issue(number, summary, form.get("description", ""), 0, created, created)
-            issue["fields"]["assignee"] = USERS.get(assignee)
+            issue["fields"].update(assignee=USERS.get(assignee), reporter=USERS[reporter])
             ISSUES.append(issue)
             COMMENTS[issue["id"]] = []
             target = f"/mock/{issue['key']}"

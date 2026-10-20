@@ -15,7 +15,8 @@ from knowledge_admin.repositories import RepositoryStore
 PAGE, MAX_PAGE, MAX_OFFSET, PREVIEW = 50, 200, 100000, 200
 NOT_FOUND = 'Notification not found.'
 LISTED = f"""n.id,n.created_at,n.kind,n.status,n.title,left(n.body,{PREVIEW}) AS preview,n.event_id,n.agent_id,
-    coalesce(t.agent_name,a.name,n.agent_id) AS agent_name,n.session_id,n.jira_status,n.jira_issue_key"""
+    coalesce(t.agent_name,a.name,n.agent_id) AS agent_name,n.session_id,n.jira_status,n.jira_issue_key,
+    n.give_back_status"""
 FROM = """FROM ka.notifications n LEFT JOIN ka.agent_tasks t ON t.id=n.agent_task_id
     LEFT JOIN ka.agents a ON a.id=n.agent_id"""
 
@@ -55,7 +56,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             row = conn.execute(
                 f"""SELECT {LISTED},n.body,n.handler_id,
-                n.jira_comment_id,n.jira_attempts,n.jira_error,c.base_url AS jira_base_url,
+                n.jira_comment_id,n.jira_attempts,n.jira_error,n.give_back_name,n.give_back_error,c.base_url AS jira_base_url,
                 CASE WHEN e.id IS NULL THEN NULL ELSE jsonb_build_object('id',e.id,'type',e.type,'subject',e.subject) END AS event,
                 CASE WHEN t.id IS NULL THEN NULL ELSE jsonb_build_object('id',t.id,'attempts',t.attempts,
                     'created_at',t.created_at,'finished_at',t.finished_at) END AS task

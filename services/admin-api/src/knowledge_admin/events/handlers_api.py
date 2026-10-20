@@ -24,10 +24,11 @@ DUPLICATE = 'A handler with this name already exists.'
 NO_EVENT = 'Event not found.'
 NO_AGENT = 'Agent not found.'
 NOT_AGENT_JIRA = 'Only Send to agent handlers can post to Jira.'
+GIVE_BACK_WITHOUT_REPLY = 'Turn on Reply in Jira to give the ticket back.'
 NOT_AGENT_ASSIGNEE = 'Only Send to agent handlers can target the assignee.'
 ASSIGNEE_WITH_AGENT = 'Leave the agent empty when the handler targets the assignee.'
 NOT_JIRA_ASSIGNEE = 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'
-SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_from,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,
+SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_from,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,h.give_back,
     h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
         FROM ka.event_handler_runs r WHERE r.handler_id=h.id ORDER BY r.id DESC LIMIT 1) AS last_run
     FROM ka.event_handlers h LEFT JOIN ka.agents a ON a.id=h.agent_id"""
@@ -60,6 +61,7 @@ class HandlerDraft(BaseModel):
     agent_id: str | None = Field(default=None, max_length=200)
     prompt: str | None = Field(default=None, max_length=20000)
     reply_to_jira: bool = False
+    give_back: bool = False
 
 
 class HandlerInput(HandlerDraft):
@@ -107,6 +109,8 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         raise bad('Enter a name.')
     if draft.reply_to_jira and draft.action != 'agent':
         raise bad(NOT_AGENT_JIRA)
+    if draft.give_back and not draft.reply_to_jira:
+        raise bad(GIVE_BACK_WITHOUT_REPLY)
     assignee = draft.agent_from == 'assignee'
     if assignee and draft.action != 'agent':
         raise bad(NOT_AGENT_ASSIGNEE)
@@ -132,6 +136,7 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         'agent_id': None,
         'prompt': None,
         'reply_to_jira': draft.reply_to_jira,
+        'give_back': draft.give_back,
     }
     try:
         if draft.action == 'emit':
@@ -228,7 +233,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 with conn.transaction():
                     handler_id = conn.execute(
                         """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
-                        action,emit,agent_from,agent_id,prompt,reply_to_jira,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,created_by)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (
                             project,
                             values['name'],
@@ -241,6 +247,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             values['agent_id'],
                             values['prompt'],
                             values['reply_to_jira'],
+                            values['give_back'],
                             actor,
                         ),
                     ).fetchone()['id']
@@ -257,6 +264,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     'action': values['action'],
                     'agent_from': values['agent_from'],
                     'reply_to_jira': values['reply_to_jira'],
+                    'give_back': values['give_back'],
                 },
             )
             return {'handler': one(conn, project, handler_id)}
@@ -284,7 +292,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 with conn.transaction():
                     conn.execute(
                         """UPDATE ka.event_handlers SET name=%s,enabled=%s,type_pattern=%s,conditions=%s,action=%s,
-                        emit=%s,agent_from=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
+                        emit=%s,agent_from=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,give_back=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
                         (
                             values['name'],
                             values['enabled'],
@@ -296,6 +304,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             values['agent_id'],
                             values['prompt'],
                             values['reply_to_jira'],
+                            values['give_back'],
                             handler_id,
                         ),
                     )
@@ -313,6 +322,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     'enabled': values['enabled'],
                     'agent_from': values['agent_from'],
                     'reply_to_jira': values['reply_to_jira'],
+                    'give_back': values['give_back'],
                 },
             )
             return {'handler': one(conn, project, handler_id)}

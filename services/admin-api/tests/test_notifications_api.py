@@ -54,6 +54,7 @@ def test_rows_carry_a_preview_and_the_agent(store, tmp_path):
         'session_id',
         'jira_status',
         'jira_issue_key',
+        'give_back_status',
     }
     assert (row['preview'], row['agent_id'], row['agent_name'], row['event_id'], row['kind']) == (
         'x' * 200,
