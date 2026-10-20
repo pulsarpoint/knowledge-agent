@@ -311,6 +311,12 @@ class Handler(BaseHTTPRequestHandler):
     def api_get(self, url) -> None:
         if url.path == "/jira/rest/api/2/myself":
             self.respond(200, USERS[USERNAME])
+        elif url.path == "/jira/rest/api/2/user":
+            user = USERS.get(parse_qs(url.query).get("key", [""])[0])
+            if user:
+                self.respond(200, user)
+            else:
+                self.respond(404, {"errorMessages": ["The specified user does not exist"]})
         elif url.path == "/jira/rest/api/2/user/search":
             text = parse_qs(url.query).get("username", [""])[0].casefold()
             self.respond(200, [user for user in USERS.values()
@@ -372,6 +378,36 @@ class Handler(BaseHTTPRequestHandler):
                 self.control(url.path, {key: values[0] for key, values in parse_qs(body.decode(errors="replace")).items()})
             else:
                 self.respond(404, {"errorMessages": ["This is a local API mock, not a Jira installation"]})
+
+    def do_PUT(self) -> None:
+        url = urlsplit(self.path)
+        body = self.read_body()
+        if body is None:
+            return
+        with LOCK:
+            if match := re.fullmatch(r"/jira/rest/api/2/issue/([A-Za-z0-9_-]+)/assignee", url.path):
+                if self.authorized():
+                    self.api_assign(match[1], body)
+            else:
+                self.respond(404, {"errorMessages": ["This is a local API mock, not a Jira installation"]})
+
+    def api_assign(self, reference: str, raw: bytes) -> None:
+        """Like Jira Data Center: {"name": login} assigns, {"name": null} unassigns; 204 and the ticket is updated."""
+        issue = find_issue(reference)
+        if issue is None:
+            self.respond(404, {"errorMessages": ["Unknown mock issue"]})
+            return
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict) or "name" not in payload or payload["name"] is not None and (
+                not isinstance(payload["name"], str) or payload["name"] not in USERS):
+            self.respond(400, {"errorMessages": ["The assignee name must be an existing user name or null"]})
+            return
+        issue["fields"].update(assignee=USERS.get(payload["name"]), updated=now())
+        save()
+        self.send(204, b"", "application/json")
 
     def api_comment(self, reference: str, raw: bytes) -> None:
         issue = find_issue(reference)

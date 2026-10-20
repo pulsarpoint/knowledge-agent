@@ -28,10 +28,13 @@ def mock(tmp_path, monkeypatch):
     base = f'http://127.0.0.1:{server.server_address[1]}'
     opener = urllib.request.build_opener(NoRedirect)
 
-    def call(path, form=None, headers=AUTH):
+    def call(path, form=None, headers=AUTH, method=None, json_body=None):
         data = urllib.parse.urlencode(form).encode() if form is not None else None
+        if json_body is not None:
+            data = json.dumps(json_body).encode()
         try:
-            with opener.open(urllib.request.Request(base + path, data=data, headers=headers)) as response:
+            request = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+            with opener.open(request) as response:
                 return response.status, json.loads(response.read() or b'null')
         except urllib.error.HTTPError as error:
             return error.code, None
@@ -130,3 +133,38 @@ def test_the_control_page_offers_assignees_on_new_tickets_and_lists_them(mock):
     _, module = mock
     page = module['home_html']()
     assert '<select name=assignee>' in page and 'Ops Bot' in page and '<th>Assignee</th>' in page
+
+
+def assignee_of(call, key):
+    status, issue = call(f'/jira/rest/api/2/issue/{key}')
+    return status, issue and issue['fields']['assignee'], issue and issue['fields']['updated']
+
+
+def test_user_by_key_returns_the_user_or_404(mock):
+    call, _ = mock
+    status, user = call('/jira/rest/api/2/user?key=ana')
+    assert status == 200 and user['key'] == 'ana' and user['name'] == 'ana'
+    assert call('/jira/rest/api/2/user?key=nobody')[0] == 404
+    assert call('/jira/rest/api/2/user')[0] == 404
+    assert call('/jira/rest/api/2/user?key=ana', headers={})[0] == 401
+
+
+def test_put_assignee_assigns_unassigns_and_bumps_updated(mock):
+    call, _ = mock
+    path = '/jira/rest/api/2/issue/%s/assignee'
+    key = 'DEMO-1'
+    _, _, before = assignee_of(call, key)
+    assert call(path % key, method='PUT', json_body={'name': 'ana'}) == (204, None)
+    _, assignee, after = assignee_of(call, key)
+    assert assignee['key'] == 'ana' and after > before
+    assert call(path % key, method='PUT', json_body={'name': None}) == (204, None)
+    assert assignee_of(call, key)[1] is None
+
+
+def test_put_assignee_rejects_unknown_user_issue_and_bad_body(mock):
+    call, _ = mock
+    path = '/jira/rest/api/2/issue/%s/assignee'
+    assert call(path % 'DEMO-1', method='PUT', json_body={'name': 'nobody'})[0] == 400
+    assert call(path % 'DEMO-1', method='PUT', json_body={'other': 1})[0] == 400
+    assert call(path % 'DEMO-999', method='PUT', json_body={'name': 'ana'})[0] == 404
+    assert call(path % 'DEMO-1', method='PUT', json_body={'name': 'ana'}, headers={})[0] == 401

@@ -197,6 +197,34 @@ class JiraClient:
             raise HTTPException(502, 'Jira returned an invalid response')
         return {'id': comment_id, 'created': created}
 
+    def user_by_key(self, key: str) -> dict:
+        """The Jira Data Center user with this key (login name, display name, active flag)."""
+        return self.get('user', {'key': key})
+
+    def assign(self, issue_key: str, name: str | None) -> None:
+        """Assign the issue to the user with login `name`; None unassigns it."""
+        if time.monotonic() >= self.deadline:
+            raise HTTPException(504, 'Jira request timed out')
+        try:
+            response = self.client.put(f'issue/{issue_key}/assignee', json={'name': name})
+        except httpx.TimeoutException:
+            raise HTTPException(504, 'Jira request timed out') from None
+        except httpx.HTTPError:
+            raise HTTPException(
+                502, 'Could not reach Jira. Check the URL, network access, and TLS certificate'
+            ) from None
+        status = response.status_code
+        if status in {401, 403}:
+            raise HTTPException(403, "Jira rejected the assignment. Check the token user's Assign Issues permission")
+        if status == 404:
+            raise HTTPException(404, 'Jira issue not found, or the token user cannot see it')
+        if status == 400:
+            raise HTTPException(400, 'Jira refused the assignment')
+        if status == 429:
+            raise HTTPException(503, 'Jira is rate limiting requests. Try again later')
+        if status != 204:
+            raise HTTPException(502, 'Jira could not complete the request')
+
     def current_user(self, username: str) -> dict:
         user = self.get('myself')
         name = user.get('name')
