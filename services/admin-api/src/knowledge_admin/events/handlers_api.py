@@ -156,6 +156,35 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
     return values
 
 
+def insert(conn, project: UUID, values: dict, actor: UUID) -> UUID:
+    """Insert a handler from `stored` values; UniqueViolation when the project has a handler with that name."""
+    return conn.execute(
+        """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
+        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (
+            project,
+            values['name'],
+            values['enabled'],
+            values['type_pattern'],
+            Jsonb(values['conditions']),
+            values['action'],
+            Jsonb(values['emit']) if values['emit'] else None,
+            values['agent_from'],
+            values['agent_id'],
+            values['prompt'],
+            values['reply_to_jira'],
+            values['give_back'],
+            actor,
+        ),
+    ).fetchone()['id']
+
+
+def created(values: dict) -> dict:
+    """The `event_handler.created` audit details."""
+    return {key: values[key] for key in ('name', 'action', 'agent_from', 'reply_to_jira', 'give_back')}
+
+
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
@@ -234,42 +263,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             actor = db.actor(conn, *request_actor(request))
             try:
                 with conn.transaction():
-                    handler_id = conn.execute(
-                        """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
-                        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,created_by)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                        (
-                            project,
-                            values['name'],
-                            values['enabled'],
-                            values['type_pattern'],
-                            Jsonb(values['conditions']),
-                            values['action'],
-                            Jsonb(values['emit']) if values['emit'] else None,
-                            values['agent_from'],
-                            values['agent_id'],
-                            values['prompt'],
-                            values['reply_to_jira'],
-                            values['give_back'],
-                            actor,
-                        ),
-                    ).fetchone()['id']
+                    handler_id = insert(conn, project, values, actor)
             except psycopg.errors.UniqueViolation:
                 raise HTTPException(409, DUPLICATE) from None
-            audit(
-                conn,
-                project,
-                request,
-                'event_handler.created',
-                handler_id,
-                {
-                    'name': values['name'],
-                    'action': values['action'],
-                    'agent_from': values['agent_from'],
-                    'reply_to_jira': values['reply_to_jira'],
-                    'give_back': values['give_back'],
-                },
-            )
+            write_audit(conn, project, actor, 'event_handler.created', 'event_handler', handler_id, created(values))
             return {'handler': one(conn, project, handler_id)}
 
     @router.put('/event-handlers/{handler_id}')

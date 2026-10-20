@@ -58,7 +58,7 @@ def add_ticket(store, connection_id, number: int, assignee_id: str | None, assig
 
 def test_put_lists_changes_and_deletes_mappings(store, tmp_path):
     client, _ = setup(store, tmp_path)
-    assert client.get('/api/jira/user-agents', headers=HEADERS).json() == {'user_agents': []}
+    assert client.get('/api/jira/user-agents', headers=HEADERS).json() == {'user_agents': [], 'handler': None}
     saved = client.put(
         '/api/jira/user-agents/JIRAUSER10', headers=HEADERS, json={'name': 'Ops Bot', 'agent_id': 'ops-agent'}
     )
@@ -123,7 +123,7 @@ def test_put_validates_agent_key_and_name(store, tmp_path):
 
 def test_without_a_connection_there_are_no_mappings_to_change(store, tmp_path):
     client = _client(tmp_path, repository_store=store, jira_transport=httpx.MockTransport(jira_users([])))
-    assert client.get('/api/jira/user-agents', headers=HEADERS).json() == {'user_agents': []}
+    assert client.get('/api/jira/user-agents', headers=HEADERS).json() == {'user_agents': [], 'handler': None}
     response = client.put('/api/jira/user-agents/ana', headers=HEADERS, json={'agent_id': 'search'})
     assert response.status_code == 400
 

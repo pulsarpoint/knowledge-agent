@@ -475,8 +475,7 @@ def test_the_ticket_goes_back_to_the_reporter_and_the_hand_back_starts_nothing(t
         '/api/jira/user-agents/ops-bot', headers=HEADERS, json={'name': 'Ops Bot', 'agent_id': t.agent}
     )
     assert mapped.status_code == 200, mapped.text
-    handler = {**ASSIGNEE, 'reply_to_jira': True, 'give_back': True}
-    assert t.client.post('/api/event-handlers', headers=HEADERS, json=handler).status_code == 201
+    assert mapped.json()['handler']['name'] == 'Jira assignee agents'  # the first mapping created it
     control('/mock/tickets', {'summary': 'Help with the payment API', 'assignee': 'ops-bot', 'reporter': 'ana'})
     with t.store.connect() as conn:
         project = t.store.project(conn, 'shop')
@@ -545,8 +544,7 @@ def test_bot_to_bot_goes_back_to_the_person_and_a_ticket_taken_meanwhile_stays(t
     for key, name in (('ops-bot', 'Ops Bot'), ('docs-bot', 'Docs Bot')):
         mapped = t.client.put(f'/api/jira/user-agents/{key}', headers=HEADERS, json={'name': name, 'agent_id': t.agent})
         assert mapped.status_code == 200, mapped.text
-    handler = {**ASSIGNEE, 'reply_to_jira': True, 'give_back': True}
-    assert t.client.post('/api/event-handlers', headers=HEADERS, json=handler).status_code == 201
+    assert mapped.json()['handler']['name'] == 'Jira assignee agents'  # the first mapping created it
     control('/mock/tickets', {'summary': 'Bot to bot', 'assignee': '', 'reporter': 'ana'})
     with t.store.connect() as conn:
         project = t.store.project(conn, 'shop')

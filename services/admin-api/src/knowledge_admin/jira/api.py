@@ -17,6 +17,7 @@ from knowledge_admin.identity import request_actor
 from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.data_root import jira_folder
 from knowledge_admin.db import audit, storage, workspace
+from knowledge_admin.events import handlers_api
 from knowledge_admin.jira.client import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.jira.export import TicketExportInput, publish_ticket, ticket_markdown
@@ -28,6 +29,21 @@ SETTINGS_FIELDS = """id,base_url,username,revision,jql,(credential_id IS NOT NUL
 NO_CONNECTION = 'Save a Jira URL, username and token in Jira Settings first'
 USER_AGENT_FIELDS = """m.jira_user_key,m.jira_user_name,m.agent_id,a.name AS agent_name,a.enabled,m.updated_at"""
 UserKey = Annotated[str, Path(min_length=1, max_length=255, pattern=r'\S')]
+
+
+ASSIGNEE_HANDLER = 'Jira assignee agents'
+ASSIGNEE_PROMPT = """You are assigned the Jira ticket {{ event.payload.key }}: {{ event.payload.summary }}
+Status: {{ event.payload.status or 'unknown' }}. Reporter: {{ event.payload.reporter or 'unknown' }}.
+
+Description:
+{{ event.payload.description or 'No description.' }}
+{% for comment in event.payload.comments | default([]) %}{% if loop.first %}
+Comments:{% endif %}
+{{ comment.author }} ({{ comment.created }}):
+{{ comment.body }}
+{% endfor %}
+Work on the ticket and write your answer for the ticket: it is posted as a Jira comment."""
+HANDLER_EXISTS = 'An assignee handler already exists.'
 
 
 class UserAgentInput(BaseModel):
@@ -57,6 +73,43 @@ def merged_users(jira_users: list[dict], seen: list[dict]) -> list[dict]:
     """Jira's users first, then the seen assignees Jira did not return (one entry per key)."""
     keys = {user['key'] for user in jira_users}
     return [*jira_users, *(user for user in seen if user['key'] not in keys)]
+
+
+def assignee_handler(conn, project) -> dict | None:
+    """The handler that runs the mapped agents (the oldest one sending to the assignee's agent), or None."""
+    return conn.execute(
+        """SELECT id,name,enabled FROM ka.event_handlers WHERE project_id=%s AND agent_from='assignee'
+        ORDER BY created_at,id LIMIT 1""",
+        (project,),
+    ).fetchone()
+
+
+def create_assignee_handler(conn, project, actor) -> UUID:
+    """Create `Jira assignee agents` with its defaults, audited as automatic. Two first saves at once are kept to one
+    handler by the unique handler name: the second insert waits for the first and raises UniqueViolation."""
+    draft = handlers_api.HandlerDraft(
+        name=ASSIGNEE_HANDLER,
+        type_pattern='jira.ticket.*',
+        conditions=[handlers_api.Condition(field='payload.for_assignee', op='equals', value='true')],
+        action='agent',
+        agent_from='assignee',
+        prompt=ASSIGNEE_PROMPT,
+        reply_to_jira=True,
+        give_back=True,
+    )
+    values = handlers_api.stored(conn, draft)
+    with conn.transaction():
+        handler_id = handlers_api.insert(conn, project, values, actor)
+    audit(
+        conn,
+        project,
+        actor,
+        'event_handler.created',
+        'event_handler',
+        handler_id,
+        {**handlers_api.created(values), 'automatic': True},
+    )
+    return handler_id
 
 
 def export_folder() -> str | None:
@@ -309,11 +362,27 @@ def build_api(
             (connection,),
         ).fetchall()
 
+    def mappings(conn, project, connection: UUID | None) -> dict:
+        return {'user_agents': user_agents(conn, connection), 'handler': assignee_handler(conn, project)}
+
     @router.get('/jira/user-agents')
     def list_user_agents() -> dict:
         db = database()
         with workspace(db, app) as (conn, project):
-            return {'user_agents': user_agents(conn, connection_id(conn, project))}
+            return mappings(conn, project, connection_id(conn, project))
+
+    @router.post('/jira/user-agents/handler', status_code=201)
+    def create_handler(request: Request) -> dict:
+        """Create handler: the automatic handler on demand, when no assignee handler exists."""
+        db = database()
+        with workspace(db, app) as (conn, project):
+            if assignee_handler(conn, project) is not None:
+                raise HTTPException(409, HANDLER_EXISTS)
+            try:
+                create_assignee_handler(conn, project, db.actor(conn, *request_actor(request)))
+            except psycopg.errors.UniqueViolation:
+                raise HTTPException(409, handlers_api.DUPLICATE) from None
+            return {'handler': assignee_handler(conn, project)}
 
     @router.put('/jira/user-agents/{key}')
     def save_user_agent(key: UserKey, value: UserAgentInput, request: Request) -> dict:
@@ -343,7 +412,12 @@ def build_api(
                 row['id'],
                 {'jira_user_key': key, 'agent_id': value.agent_id},
             )
-            return {'user_agents': user_agents(conn, connection)}
+            if assignee_handler(conn, project) is None:
+                try:
+                    create_assignee_handler(conn, project, actor)
+                except psycopg.errors.UniqueViolation:
+                    pass  # another save created it meanwhile, or a handler has the name: the mapping still saves
+            return mappings(conn, project, connection)
 
     @router.delete('/jira/user-agents/{key}', status_code=204)
     def delete_user_agent(key: UserKey, request: Request) -> Response:

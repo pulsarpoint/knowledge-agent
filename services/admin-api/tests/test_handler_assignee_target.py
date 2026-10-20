@@ -243,6 +243,9 @@ def test_the_assignee_agent_answers_a_reassigned_ticket_and_a_person_comment_but
         '/api/jira/user-agents/ops-bot', headers=HEADERS, json={'name': 'Ops Bot', 'agent_id': t.agent}
     )
     assert mapped.status_code == 200, mapped.text
+    # This flow keeps the ticket with the bot: replace the automatic handler (it gives the ticket back).
+    automatic = mapped.json()['handler']['id']
+    assert t.client.delete(f'/api/event-handlers/{automatic}', headers=HEADERS).status_code == 204
     handler = t.client.post('/api/event-handlers', headers=HEADERS, json={**ASSIGNEE, 'reply_to_jira': True})
     assert handler.status_code == 201, handler.text
     with t.store.connect() as conn:
