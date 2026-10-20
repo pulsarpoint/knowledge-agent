@@ -78,7 +78,9 @@ Open `http://127.0.0.1:8184/` (or your `JIRA_MOCK_PORT`). It has no login; only 
   `ana` (Ana Petrović) and `marko` (Marko Ilić). DEMO-4, DEMO-8, DEMO-12 and DEMO-16 are assigned to `ops-bot`,
   `docs-bot`, `ana` and `marko`; the other tickets whose number is divisible by 4 are unassigned, the rest belong to
   `mock-admin`. `GET /rest/api/2/user/search?username=<text>` finds users by key, name or display name.
-- **New ticket**: the next pull records it as `jira.ticket.created`.
+- **New ticket**: a summary, a description and an **assignee** (one of the mock users, or unassigned — choose `ops-bot`
+  or `docs-bot` to hand it straight to a mapped agent); the next pull records it as `jira.ticket.created`. The ticket
+  list shows each ticket's assignee.
 - **Comment posting**: for the next 1-10 comment posts, *Fail with 500* (the worker retries after 1 and 5 minutes),
   *Refuse with 403* (fails at once) or *Save the comment but answer 500* (the retry must find the comment on the ticket
   instead of posting it again). It returns to normal afterwards.

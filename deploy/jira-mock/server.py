@@ -194,11 +194,18 @@ def agent_comments() -> list[tuple[dict, dict]]:
     return sorted(rows, key=lambda row: POSTED.index(row[1]["id"]), reverse=True)
 
 
+def assignee_options(current: str = "") -> str:
+    return '<option value="">Unassigned</option>' + "".join(
+        f'<option value="{user["key"]}"{" selected" if user["key"] == current else ""}>{html.escape(user["displayName"])}</option>'
+        for user in USERS.values())
+
+
 def home_html() -> str:
     posted = "".join(comment_html(issue, comment, True) for issue, comment in agent_comments())
     rows = "".join(
         f'<tr><td><a href="/mock/{quote(issue["key"])}">{html.escape(issue["key"])}</a></td>'
         f'<td>{html.escape(issue["fields"]["summary"])}</td><td>{html.escape(issue["fields"]["status"]["name"])}</td>'
+        f'<td>{html.escape((issue["fields"]["assignee"] or {}).get("displayName", ""))}</td>'
         f'<td>{html.escape(issue["fields"]["updated"])}</td><td>{len(COMMENTS[issue["id"]])}</td>'
         f'<td>{sum(comment["id"] in POSTED for comment in COMMENTS[issue["id"]]) or ""}</td></tr>'
         for issue in filter_issues("ORDER BY updated DESC"))
@@ -220,8 +227,9 @@ for the next <input name=count type=number min=1 max=10 value=3 style="width:4em
 <h2>New ticket</h2><div class="box"><form method=post action="/mock/tickets">
 <p><input type=text name=summary placeholder="Summary" required maxlength=255></p>
 <p><textarea name=description rows=3 placeholder="Description (Jira wiki markup)"></textarea></p>
+<p>Assignee <select name=assignee>{assignee_options()}</select></p>
 <button>Create</button></form></div>
-<h2>Tickets ({len(ISSUES)})</h2><table><tr><th>Key</th><th>Summary</th><th>Status</th><th>Updated</th>
+<h2>Tickets ({len(ISSUES)})</h2><table><tr><th>Key</th><th>Summary</th><th>Status</th><th>Assignee</th><th>Updated</th>
 <th>Comments</th><th>Agent</th></tr>{rows}</table>
 <h2>Reset</h2><form method=post action="/mock/reset"><button>Reset to the 75 original tickets</button>
 <span class="muted"> Removes every edit, new ticket and comment.</span></form>""")
@@ -234,9 +242,7 @@ def issue_html(issue: dict) -> str:
     comments = "".join(comment_html(issue, comment) for comment in COMMENTS[issue["id"]])
     key = quote(issue["key"])
     current = (fields["assignee"] or {}).get("key", "")
-    assignees = '<option value="">Unassigned</option>' + "".join(
-        f'<option value="{user["key"]}"{" selected" if user["key"] == current else ""}>{html.escape(user["displayName"])}</option>'
-        for user in USERS.values())
+    assignees = assignee_options(current)
     authors = '<option value="">Jira User</option>' + "".join(
         f'<option value="{user["key"]}">{html.escape(user["displayName"])}</option>' for user in USERS.values())
     return page(issue["key"], f"""<p><a href="/">← Jira mock</a></p>
@@ -412,13 +418,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             FAILURE.update(mode=mode, remaining=0 if mode == "normal" else int(count))
         elif path == "/mock/tickets":
-            summary = form.get("summary", "").strip()
-            if not 1 <= len(summary) <= 255:
-                self.respond(400, {"errorMessages": ["A summary of 1-255 characters is required"]})
+            summary, assignee = form.get("summary", "").strip(), form.get("assignee", "")
+            if not 1 <= len(summary) <= 255 or assignee and assignee not in USERS:
+                self.respond(400, {"errorMessages": ["A summary of 1-255 characters and a known assignee are required"]})
                 return
             number = max(int(issue["key"].split("-")[1]) for issue in ISSUES) + 1
             created = now()
             issue = new_issue(number, summary, form.get("description", ""), 0, created, created)
+            issue["fields"]["assignee"] = USERS.get(assignee)
             ISSUES.append(issue)
             COMMENTS[issue["id"]] = []
             target = f"/mock/{issue['key']}"

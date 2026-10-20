@@ -113,3 +113,20 @@ def test_comment_as_a_chosen_user_and_default_jira_user(mock):
     assert comments[0]['author']['key'] == 'ana' and comments[0]['author']['displayName'] == 'Ana Petrović'
     assert comments[1]['author']['displayName'] == 'Jira User'
     assert issue['fields']['updated'] == comments[1]['created']
+
+
+def test_a_new_ticket_can_be_created_assigned_to_a_user(mock):
+    call, _ = mock
+    assert call('/mock/tickets', {'summary': 'Check the payments API', 'assignee': 'ops-bot'})[0] == 303
+    found = call('/jira/rest/api/2/search?jql=' + urllib.parse.quote('assignee = ops-bot'))[1]
+    newest = max(found['issues'], key=lambda issue: int(issue['key'].split('-')[1]))
+    assert newest['fields']['summary'] == 'Check the payments API'
+    assert newest['fields']['assignee']['key'] == 'ops-bot'
+    assert call('/mock/tickets', {'summary': 'Nobody yet'})[0] == 303  # without an assignee: unassigned, as before
+    assert call('/mock/tickets', {'summary': 'Ghost', 'assignee': 'ghost'})[0] == 400
+
+
+def test_the_control_page_offers_assignees_on_new_tickets_and_lists_them(mock):
+    _, module = mock
+    page = module['home_html']()
+    assert '<select name=assignee>' in page and 'Ops Bot' in page and '<th>Assignee</th>' in page
