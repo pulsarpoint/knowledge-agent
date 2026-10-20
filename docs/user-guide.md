@@ -96,7 +96,7 @@ Requirements: Docker with Compose, Python 3.10+ (for the setup script). No model
 credentials are needed to start.
 
 ```sh
-make up          # generate .env secrets, build images, migrate DB, start everything
+make up          # generate .env secrets, build images, migrate DB, start everything (including the Jira mock)
 make smoke       # verify admin login, gateway isolation, search, DB migrations, Phoenix (no model calls)
 ```
 
@@ -496,7 +496,7 @@ ticket and the ticket is given back). The section shows **Handled by: Jira assig
 **disabled**), which opens the handler, or **No handler runs these agents.** with **Create handler**. The handler is
 an ordinary one: edit, turn off or delete it under Events → Handlers; changing mappings never changes it.
 
-For testing without a real Jira: `make jira-mock-up`, then URL
+For testing without a real Jira: the mock starts with `make up` (`make jira-mock-up` rebuilds only it), then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
 (75 demo tickets). Stop with `make jira-mock-down`.
 

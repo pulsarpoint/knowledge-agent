@@ -5,11 +5,11 @@ export ADMIN_USERNAME ADMIN_EMAIL
 setup:
 	python3 scripts/setup.py
 
-up: setup
-	$(COMPOSE) up -d --build --wait --wait-timeout 240
+up: setup  # the whole stack, including the Jira mock (built and started like every service)
+	$(COMPOSE) --profile jira-mock up -d --build --wait --wait-timeout 240
 
 down:
-	$(COMPOSE) down
+	$(COMPOSE) --profile jira-mock down
 
 status:
 	$(COMPOSE) ps

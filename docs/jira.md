@@ -27,7 +27,8 @@ it. A URL or username change requires re-entering the token.
 
 ## Local mock
 
-From the v3 repository:
+`make up` builds and starts the mock with the rest of the stack (and `make down` stops it). To rebuild or restart
+only the mock:
 
 ```sh
 make jira-mock-up
@@ -56,10 +57,10 @@ Atlassian account is needed to run this fixture.
 make jira-mock-down
 ```
 
-The optional `jira-mock` Compose profile has no forwarding code and makes no outgoing
+The `jira-mock` Compose profile (started by `make up`) has no forwarding code and makes no outgoing
 connections. Only the admin API (manual fetch) and the repository worker (scheduled auto pull) share its internal
 `jira-test` network. Its control page is published on `127.0.0.1` only (port `JIRA_MOCK_PORT`, default 8184, through
-its own `jira-mock-page` network). Ordinary `make up` does not start the mock on a clean stack.
+its own `jira-mock-page` network).
 The mock runs with a read-only filesystem as a non-root user; its state (edits, new tickets, comments) is saved in
 the `jira-mock-data` volume and survives a restart or rebuild. Native API tests use
 an HTTP mock transport and a disposable PostgreSQL database, separate from the
@@ -92,7 +93,7 @@ cannot open; see the comment on the control page.
 
 ### Testing answers as comments
 
-1. `make jira-mock-up`, then save the mock connection in Jira Settings (above) and fetch tickets once.
+1. `make up` (or `make jira-mock-up` for the mock alone), then save the mock connection in Jira Settings (above) and fetch tickets once.
 2. Create a Jira auto pull schedule (Administration → Schedules → New schedule → Jira tickets, with its own JQL and
    number of tickets if needed); its first run records `jira.ticket.created` for the
    tickets it pulls, before any handler exists.
