@@ -16,7 +16,8 @@ from test_test_sessions import start, tester  # noqa: F401  (fixture)
 
 PROPOSAL = {
     'suggestion': 'Cite the runbook.',
-    'changes': {'system_prompt': None, 'instructions': 'Cite sources.'},
+    'changes': {'instructions': 'Cite sources.'},
+    'memory_notes': [{'name': 'runbooks/retries', 'content': 'The runbook sets three retries.', 'metadata': {}}],
 }
 TURNS = [
     {
@@ -98,7 +99,8 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
         'Cite the runbook.',
         1,
     )
-    assert saved['changes']['instructions'] == 'Cite sources.'
+    assert saved['changes'] == {'instructions': 'Cite sources.'}
+    assert saved['memory_notes'] == PROPOSAL['memory_notes']
     config, context, kwargs = calls[0]
     assert config['id'] == 'agent-tuning'
     assert config['access']['resources'] == [] and not config['grounded']
@@ -222,3 +224,11 @@ def test_invalid_tuning_output_is_corrected_once_before_saving(chat, monkeypatch
     assert result.status_code == 200, result.text
     assert len(calls) == 2 and 'correction' in calls[1] and 'output_schema' in calls[0]
     assert result.json()['response_turn'] is None and result.json()['changes']['instructions'] == 'Cite sources.'
+
+
+def test_the_tuning_prompt_proposes_notes_and_instructions_never_the_system_prompt():
+    from knowledge_admin.sessions.review import TUNING_PROMPT
+
+    assert 'memory_notes' in TUNING_PROMPT and 'instructions' in TUNING_PROMPT
+    assert 'do not claim an automatic memory store exists' not in TUNING_PROMPT
+    assert 'system prompt is out of scope' in TUNING_PROMPT

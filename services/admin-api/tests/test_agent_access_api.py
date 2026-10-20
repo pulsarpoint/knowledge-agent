@@ -270,7 +270,7 @@ def test_a_review_writes_the_agents_instructions(world):
         give(conn, agent['id'], [('server', w.server['id'])])
         project, actor = w.project, w.store.actor(conn, 'reviewer', 'reviewer@test')
         session = add_test_session(conn, project, actor, agent['id'], a_model(conn, actor), status='waiting', turns=1)
-        review = str(add_review(conn, session, actor, changes={'system_prompt': None, 'instructions': 'Cite.'}))
+        review = str(add_review(conn, session, actor, changes={'instructions': 'Cite.'}))
     source = w.client.get(f'/api/agents/{agent["id"]}/reviews/{review}', headers=HEADERS).json()
     assert 'servers' not in source and source['instructions'] == ''
     applied = w.client.post(
@@ -280,7 +280,7 @@ def test_a_review_writes_the_agents_instructions(world):
             'target': 'agent',
             'revision': source['revision'],
             'fingerprint': source['fingerprint'],
-            'changes': {'system_prompt': None, 'instructions': 'Cite sources.'},
+            'instructions': 'Cite sources.',
         },
     )
     assert applied.status_code == 200, applied.text

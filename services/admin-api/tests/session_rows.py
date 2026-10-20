@@ -70,12 +70,18 @@ def add_review(
     changes: dict[str, Any],
     agent_config: dict[str, Any] | None = None,
     turn: int | None = None,
+    notes: list[dict[str, Any]] | None = None,
 ) -> UUID:
     """A saved tuning suggestion of a Test session, as the review endpoint stores it."""
     return conn.execute(
         """INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion,
         response_turn) VALUES (%s,%s,'Feedback',%s,'Be clearer.',%s) RETURNING id""",
-        (session_id, actor, Jsonb({'agent_config': agent_config or {}, 'changes': changes}), turn),
+        (
+            session_id,
+            actor,
+            Jsonb({'agent_config': agent_config or {}, 'changes': changes, 'memory_notes': notes or []}),
+            turn,
+        ),
     ).fetchone()['id']
 
 
