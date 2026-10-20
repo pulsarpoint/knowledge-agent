@@ -35,7 +35,8 @@ class Timetable(BaseModel):
 
 
 class JiraPullParams(BaseModel):
-    """What a jira.pull schedule fetches; a missing value keeps the stored one (or the connection's on create)."""
+    """What a jira.pull schedule fetches. On create a missing value is copied from the connection; on edit it is
+    removed, so the pull falls back to the connection's last manual fetch (then 25 tickets)."""
 
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     jql: str | None = Field(default=None, min_length=1, max_length=4000)
@@ -73,8 +74,8 @@ def jira_defaults(connection: dict) -> dict:
     return {'jql': connection['jql'], 'limit': connection['last_fetch_limit'] or DEFAULT_LIMIT}
 
 
-def merged(params: dict, change: JiraPullParams | None) -> dict:
-    return {**params, **(change.model_dump(exclude_none=True) if change else {})}
+def merged(params: dict, change: JiraPullParams) -> dict:
+    return {**params, **change.model_dump(exclude_none=True)}
 
 
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
@@ -201,7 +202,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
             next_run = current['next_run_at'] if current['run_requested'] else first_run(value)
-            params = merged(current['params'], value.params)
+            params = current['params'] if value.params is None else value.params.model_dump(exclude_none=True)
             row = conn.execute(
                 f"""UPDATE ka.schedules SET cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
                 revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",

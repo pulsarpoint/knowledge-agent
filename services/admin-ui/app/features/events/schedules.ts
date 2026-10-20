@@ -27,7 +27,7 @@ export interface ScheduleRun {
   status: RunStatus;
   message: string;
 }
-/** What a jira.pull schedule fetches; a missing value keeps the stored one. */
+/** What a jira.pull schedule fetches; a missing value falls back to the last manual fetch. */
 export interface JiraPullParams {
   jql?: string;
   limit?: number;

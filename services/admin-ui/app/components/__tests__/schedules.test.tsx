@@ -232,6 +232,24 @@ test("editor shows and saves the Jira query and number of tickets", async () => 
   );
 });
 
+test("editor saves empty query and number of tickets as the fallback", async () => {
+  const user = userEvent.setup();
+  const stored = { ...schedule, params: { jql: "project = DEMO", limit: 30 } };
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [stored] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "PUT /api/schedules/s-1": () => [200, { schedule: { ...stored, params: {}, revision: 4 } }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await user.clear(screen.getByLabelText("Jira query (JQL)"));
+  await user.clear(screen.getByLabelText("Number of tickets"));
+  expect(screen.getByText(/Leave empty to use the query of the last fetch on Jira → Tickets/)).toBeInTheDocument();
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(body(fetch, "PUT /api/schedules/s-1").params).toEqual({}));
+});
+
 test("editor previews a custom cron, shows errors under the field and saves", async () => {
   const user = userEvent.setup();
   const fetch = api({

@@ -1,9 +1,11 @@
 """Administration → Schedules: the only editor of the Jira pull schedule."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 from knowledge_admin.events import scheduler
+from knowledge_admin.jira import sync
 from knowledge_admin.events.schedules import BAD_CRON, BAD_TIMEZONE, TOO_OFTEN
 from test_api import _client
 from test_jira import setup
@@ -21,6 +23,19 @@ def enable(client, **params) -> dict:
     response = client.post('/api/schedules', headers=HEADERS, json=body)
     assert response.status_code == 201, response.text
     return response.json()['schedule']
+
+
+def jira_sync_args(store, schedule: dict) -> tuple[str, int]:
+    """The query and limit jira_sync.auto_pull uses for this schedule."""
+    calls = []
+
+    def pull_tickets(store, project, jql, limit, *args, **kwargs):
+        calls.append((jql, limit))
+        return {'fetched': 0, 'total': 0, 'events': 0}
+
+    with patch.object(sync, 'pull_tickets', pull_tickets):
+        sync.auto_pull(store, schedule)
+    return calls[0]
 
 
 def edit(client, schedule: dict, **changes):
@@ -152,8 +167,24 @@ def test_editing_without_params_keeps_the_stored_ones(store, tmp_path):
     schedule = enable(client, jql='project = AUTO', limit=40)
     again = edit(client, schedule, cron='0 * * * *').json()['schedule']
     assert again['params'] == {'jql': 'project = AUTO', 'limit': 40} and again['description'] == 'Every hour'
-    only_limit = edit(client, again, params={'limit': 10}).json()['schedule']
-    assert only_limit['params'] == {'jql': 'project = AUTO', 'limit': 10}
+
+
+def test_editing_with_empty_query_or_limit_falls_back_to_the_connection(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    schedule = enable(client, jql='project = AUTO', limit=40)
+    only_limit = edit(client, schedule, params={'limit': 10}).json()['schedule']
+    assert only_limit['params'] == {'limit': 10}
+    cleared = edit(client, only_limit, params={}).json()['schedule']
+    assert cleared['params'] == {}
+    client.post(f'/api/schedules/{schedule["id"]}/run', headers=HEADERS)
+    seen = []
+
+    def pull(store, claimed):
+        seen.append(jira_sync_args(store, claimed))
+        return 'succeeded', 'ok'
+
+    assert scheduler.run_once(store, {'jira.pull': pull}) is True
+    assert seen == [('ORDER BY updated DESC, key DESC', 25)]
 
 
 def test_jira_query_and_limit_are_checked(store, tmp_path):

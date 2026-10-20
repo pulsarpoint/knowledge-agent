@@ -12,7 +12,7 @@ export const jiraPull = (params: Record<string, unknown>): JiraPull => ({
   limit: typeof params.limit === "number" ? String(params.limit) : "",
 });
 
-/** Empty fields are left out, so the server keeps the stored value (or the last fetch's on create). */
+/** Empty fields are left out: the pull then uses the last manual fetch's query and number (then 25 tickets). */
 export function jiraPullParams(value: JiraPull): JiraPullParams {
   const jql = value.jql.trim();
   return { ...(jql ? { jql } : {}), ...(value.limit ? { limit: Number(value.limit) } : {}) };
@@ -40,7 +40,8 @@ export default function JiraPullFields({
           onChange={(event) => onChange({ ...value, jql: event.target.value })}
         />
         <FieldDescription>
-          Separate from the query on Jira → Tickets. Leave empty to use the query of the last fetch on Jira → Tickets.
+          Separate from the query on Jira → Tickets. Leave empty to use the query of the last fetch on Jira → Tickets
+          (number of tickets: the last fetch's, or 25).
         </FieldDescription>
       </Field>
       <Field className="w-40">
