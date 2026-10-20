@@ -252,7 +252,7 @@ def test_the_assignee_agent_answers_a_reassigned_ticket_and_a_person_comment_but
         """Pull DEMO-20, process the new events; the handler runs they recorded."""
         with t.store.connect() as conn:
             last = conn.execute('SELECT coalesce(max(id),0) AS id FROM ka.events').fetchone()['id']
-        jira_sync.pull_tickets(t.store, project, 'key = DEMO-20', 5, None, events=True)
+        jira_sync.pull_tickets(t.store, project, 'key = DEMO-20', 5, None)
         while event_processor.run_once(t.store):
             pass
         with t.store.connect() as conn:

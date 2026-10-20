@@ -33,8 +33,9 @@ def test_auto_pull_uses_the_query_and_limit_of_the_last_fetch(store, tmp_path):
     client, _ = setup(store, tmp_path)
     assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5}).status_code == 200
     result = auto_pull(store, a_schedule(store), transport=httpx.MockTransport(jira_response))
-    assert result == ('succeeded', 'Pulled 5 of 7 tickets · 5 new events.')
-    assert audits(store) == [{'actor_id': None, 'details': {'requested': 5, 'fetched': 5, 'total': 7, 'events': 5}}]
+    # the manual fetch already recorded the five tickets' events; unchanged tickets record none again
+    assert result == ('succeeded', 'Pulled 5 of 7 tickets · 0 new events.')
+    assert audits(store) == [{'actor_id': None, 'details': {'requested': 5, 'fetched': 5, 'total': 7, 'events': 0}}]
     tickets = client.get('/api/jira/tickets', headers=HEADERS).json()
     assert len(tickets['tickets']) == 5 and tickets['connection']['last_fetch_limit'] == 5
 
@@ -117,5 +118,5 @@ def test_auto_pull_without_params_falls_back_to_the_connection(store, tmp_path):
     assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5}).status_code == 200
     assert auto_pull(store, {**a_schedule(store), 'params': {}}, transport=httpx.MockTransport(jira_response)) == (
         'succeeded',
-        'Pulled 5 of 7 tickets · 5 new events.',
+        'Pulled 5 of 7 tickets · 0 new events.',  # the manual fetch recorded them
     )

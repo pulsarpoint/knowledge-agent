@@ -201,7 +201,7 @@ docker compose --env-file .env -f deploy/compose.yaml --profile jira-mock up -d 
 ## Answers as comments
 
 A Send to agent handler with **Also post the answer as a comment on the Jira ticket** posts the agent's answer on the
-ticket of a Jira event (events from the scheduled pull; simulated events from Events → New event cannot be answered).
+ticket of a Jira event (events recorded by a pull, manual or scheduled; simulated events from Events → New event cannot be answered).
 The answer is posted as text (Jira renders wiki markup; Markdown is not converted) with the footer
 `— <agent name> (Knowledge Agent)`, cut to 32,000 characters. Only answers are posted; a failed run is not.
 
@@ -218,7 +218,7 @@ and records the one it finds instead of posting again, so a reply is posted once
 Posting a comment moves the ticket's updated time. The pull takes each ticket's comments with the search (`fields`
 includes `comment`; when Jira sends only some, the rest come from the ticket's comment endpoint), in pages of 20
 tickets, and every Jira event carries all of them (`payload.comments`, `payload.comment_count`) and the ids of the new
-ones (`payload.changes.comments.added`). The next scheduled pull records no `jira.ticket.updated` for a ticket whose
+ones (`payload.changes.comments.added`). The next pull records no `jira.ticket.updated` for a ticket whose
 only change is new comments that are all our own answers: a comment whose id a posted reply recorded, or, while a reply
 is still being posted, a comment by the connection's Jira user with exactly the text being posted. Any other new
 comment — a person's, even in the same second as ours — is recorded, together with ours.

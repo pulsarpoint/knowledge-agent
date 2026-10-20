@@ -52,12 +52,11 @@ def pull_tickets(
     limit: int,
     actor: tuple[str, str] | None,
     transport: httpx.BaseTransport | None = None,
-    action: str = 'jira.tickets_fetched',
-    events: bool = False,
 ) -> dict:
-    """Fetch up to `limit` tickets for `jql` and replace the saved selection with them. `actor` is the signed-in
-    (subject, email), or None for the scheduler (the audit row then has no actor). With `events`, the pull also
-    records ticket events in the same transaction, so a clashing or failing pull records none."""
+    """Fetch up to `limit` tickets for `jql`, replace the saved selection with them and record their ticket events,
+    all in one transaction (a clashing or failing pull saves and records nothing). `actor` is the signed-in
+    (subject, email) of a manual Fetch, which also remembers its query and limit; None is the scheduled pull."""
+    scheduled = actor is None
     config, token = credentials(store, project_id)
     with JiraClient(config['base_url'], token, transport) as jira:
         jira.current_user(config['username'])
@@ -113,12 +112,10 @@ def pull_tickets(
                     fields['updated'],
                 ),
             )
-        new_events = (
-            jira_events.record(conn, config['project_id'], config['id'], config['base_url'], config['username'], issues)
-            if events
-            else 0
+        new_events = jira_events.record(
+            conn, config['project_id'], config['id'], config['base_url'], config['username'], issues
         )
-        if events:  # the scheduled pull keeps the manual Fetch query and limit shown on Jira → Tickets
+        if scheduled:  # the scheduled pull keeps the manual Fetch query and limit shown on Jira → Tickets
             conn.execute(
                 """UPDATE ka.jira_connections SET last_successful_sync_at=now(),last_fetch_total=%s,
                 fetch_revision=fetch_revision+1 WHERE id=%s""",
@@ -136,16 +133,9 @@ def pull_tickets(
             (
                 config['project_id'],
                 actor_id,
-                action,
+                'jira.tickets_auto_pulled' if scheduled else 'jira.tickets_fetched',
                 config['id'],
-                Jsonb(
-                    {
-                        'requested': limit,
-                        'fetched': len(issues),
-                        'total': total,
-                        **({'events': new_events} if events else {}),
-                    }
-                ),
+                Jsonb({'requested': limit, 'fetched': len(issues), 'total': total, 'events': new_events}),
             ),
         )
     return {'fetched': len(issues), 'total': total, 'events': new_events}
@@ -165,9 +155,7 @@ def auto_pull(store: RepositoryStore, schedule: dict, transport: httpx.BaseTrans
     jql = params.get('jql') or connection['jql']
     limit = params.get('limit') or connection['last_fetch_limit'] or DEFAULT_LIMIT
     try:
-        result = pull_tickets(
-            store, schedule['project_id'], jql, limit, None, transport, action='jira.tickets_auto_pulled', events=True
-        )
+        result = pull_tickets(store, schedule['project_id'], jql, limit, None, transport)
     except HTTPException as exc:
         if exc.status_code == 409 and exc.detail == FETCH_CLASH:
             return 'skipped', CLASH_SKIPPED

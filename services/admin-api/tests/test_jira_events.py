@@ -67,7 +67,7 @@ def test_first_pull_records_every_ticket_and_a_repeat_records_nothing(store, tmp
     assert len(events(store)) == 3
 
 
-def test_a_changed_ticket_records_what_changed_even_after_a_manual_fetch(store, tmp_path):
+def test_a_manual_fetch_records_what_changed(store, tmp_path):
     client, _ = setup(store, tmp_path)
     issues = copy.deepcopy(ISSUES[:2])
     auto_pull(store, a_schedule(store), transport=jira(issues))
@@ -75,16 +75,16 @@ def test_a_changed_ticket_records_what_changed_even_after_a_manual_fetch(store, 
     changed['status'] = {'id': '3', 'name': 'Done'}
     changed['labels'] = ['demo', 'agent']
     changed['updated'] = '2026-10-09T10:00:00.000+0000'
-    # The manual fetch updates the tickets table first; the scheduled pull must still notice the change.
+    # A manual fetch is the same pull: it records the change itself, and the next scheduled pull adds nothing.
     manual = _client(tmp_path, repository_store=store, jira_transport=jira(issues))
     assert (
         manual.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 2, 'jql': 'project = DEMO'}).status_code
         == 200
     )
-    assert len(events(store)) == 2  # the manual fetch records nothing
+    assert len(events(store)) == 3
     assert auto_pull(store, a_schedule(store), transport=jira(issues)) == (
         'succeeded',
-        'Pulled 2 of 2 tickets · 1 new event.',
+        'Pulled 2 of 2 tickets · 0 new events.',
     )
     update = events(store)[-1]
     assert update['type'] == 'jira.ticket.updated' and update['subject'] == issues[0]['key']

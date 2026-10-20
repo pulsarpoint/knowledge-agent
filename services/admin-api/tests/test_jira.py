@@ -262,3 +262,21 @@ def test_client_rejects_invalid_upstream_without_exposing_body(scenario):
             else:
                 client.current_user('mock-admin')
     assert error.value.status_code in {502, 504} and 'private-jira-token' not in error.value.detail
+
+
+def test_a_manual_fetch_records_ticket_events_like_the_scheduled_pull(store, tmp_path):
+    """Fetch on Jira → Tickets saves the tickets and records their events in the same transaction."""
+    client, config = setup(store, tmp_path, jira_response)
+    assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5}).status_code == 200
+    with store.connect() as conn:
+        created = conn.execute(
+            "SELECT subject FROM ka.events WHERE source='jira' AND type='jira.ticket.created' ORDER BY subject"
+        ).fetchall()
+        audit = conn.execute(
+            "SELECT details FROM ka.audit_events WHERE action='jira.tickets_fetched' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    assert len(created) == 5 and audit['details']['events'] == 5
+    # the same tickets again: nothing changed, no new events
+    assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5}).status_code == 200
+    with store.connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM ka.events WHERE source='jira'").fetchone()['n'] == 5

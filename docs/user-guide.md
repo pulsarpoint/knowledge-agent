@@ -501,9 +501,9 @@ tickets, with its own query and number of tickets (separate from the query on Ji
 number of the last manual fetch are used, or 25 tickets), how often and the time zone. **Edit** there changes them;
 **Run now** pulls at once. Jira → Tickets shows a one-line summary (off, or how often and the next pull) with a link to
 the Schedules page. Jira → Tickets always shows the tickets from the
-most recent pull, manual or automatic; its query box keeps your manual query. A failed pull is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Each scheduled pull also
-records an event for every ticket that is new or changed since its last pull (see Administration → Events); the manual
-Fetch tickets does not.
+most recent pull, manual or automatic; its query box keeps your manual query. A failed pull is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Every pull, manual Fetch
+tickets or scheduled, records an event for every ticket that is new or changed since the last event for it (see
+Administration → Events), in the same transaction as the saved tickets.
 
 ### 4.9 Skills
 
