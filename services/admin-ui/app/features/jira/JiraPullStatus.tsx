@@ -4,7 +4,7 @@ import { getSchedules, type Schedule } from "~/features/events/schedules";
 
 /** Jira → Tickets: one line about the automatic pull (the jira.pull schedule), linking to the Schedules page.
  * Renders nothing on errors. */
-export default function JiraAutoPullStatus({ refreshKey }: { refreshKey: string | null }) {
+export default function JiraPullStatus({ refreshKey }: { refreshKey: string | null }) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   useEffect(() => {
     const controller = new AbortController();

@@ -38,6 +38,11 @@ def jira_sync_args(store, schedule: dict) -> tuple[str, int]:
     return calls[0]
 
 
+def project_of(store):
+    with store.connect() as conn:
+        return conn.execute('SELECT project_id FROM ka.schedules').fetchone()['project_id']
+
+
 def edit(client, schedule: dict, **changes):
     value = {'cron': schedule['cron'], 'timezone': schedule['timezone'], 'enabled': schedule['enabled']}
     return client.put(
@@ -169,6 +174,14 @@ def test_editing_without_params_keeps_the_stored_ones(store, tmp_path):
     assert again['params'] == {'jql': 'project = AUTO', 'limit': 40} and again['description'] == 'Every hour'
 
 
+def test_a_new_schedule_without_query_follows_later_manual_fetches(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    schedule = enable(client)
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.jira_connections SET jql='project = LATER', last_fetch_limit=12")
+    assert jira_sync_args(store, {**schedule, 'project_id': project_of(store)}) == ('project = LATER', 12)
+
+
 def test_editing_with_empty_query_or_limit_falls_back_to_the_connection(store, tmp_path):
     client, _ = setup(store, tmp_path)
     schedule = enable(client, jql='project = AUTO', limit=40)
@@ -202,10 +215,7 @@ def test_jira_query_and_limit_are_checked(store, tmp_path):
         body = {**ON, 'target_kind': 'jira.pull', 'params': bad}
         assert client.post('/api/schedules', headers=HEADERS, json=body).status_code in (400, 422), bad
         assert edit(client, schedule, params=bad).status_code in (400, 422), bad
-    assert client.get('/api/schedules', headers=HEADERS).json()['schedules'][0]['params'] == {
-        'jql': 'ORDER BY updated DESC, key DESC',
-        'limit': 25,
-    }
+    assert client.get('/api/schedules', headers=HEADERS).json()['schedules'][0]['params'] == {}
 
 
 def test_the_run_uses_the_saved_query_and_limit(store, tmp_path):
@@ -222,7 +232,7 @@ def test_the_run_uses_the_saved_query_and_limit(store, tmp_path):
     assert seen == [{'jql': 'project = AUTO', 'limit': 7}]
 
 
-def test_create_jira_schedule_copies_the_connection_defaults(store, tmp_path):
+def test_create_jira_schedule_without_params_stores_none(store, tmp_path):
     client, config = setup(store, tmp_path)
     created = client.post(
         '/api/schedules',
@@ -236,7 +246,7 @@ def test_create_jira_schedule_copies_the_connection_defaults(store, tmp_path):
         and schedule['target_id'] == config['id']
         and schedule['next_run_at'] is not None
     )
-    assert schedule['params'] == {'jql': 'ORDER BY updated DESC, key DESC', 'limit': 25}
+    assert schedule['params'] == {}
     duplicate = client.post(
         '/api/schedules',
         headers=HEADERS,

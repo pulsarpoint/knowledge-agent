@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Download, FolderOutput, Ticket } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "./api";
-import JiraAutoPullStatus from "./JiraAutoPullStatus";
+import JiraPullStatus from "./JiraPullStatus";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -118,7 +118,7 @@ export default function JiraTicketsView() {
   }
   return (
     <div className="flex flex-col gap-6">
-      {data?.connection?.has_token && <JiraAutoPullStatus refreshKey={data.connection.last_successful_sync_at} />}
+      {data?.connection?.has_token && <JiraPullStatus refreshKey={data.connection.last_successful_sync_at} />}
       <form onSubmit={fetchTickets} className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <FieldGroup className="min-w-64 flex-1">

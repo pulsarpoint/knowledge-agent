@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
-from knowledge_admin.jira.sync import DEFAULT_LIMIT
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.events.schedules import ScheduleError, describe, next_after, upcoming, validate
 
@@ -35,8 +34,8 @@ class Timetable(BaseModel):
 
 
 class JiraPullParams(BaseModel):
-    """What a jira.pull schedule fetches. On create a missing value is copied from the connection; on edit it is
-    removed, so the pull falls back to the connection's last manual fetch (then 25 tickets)."""
+    """What a jira.pull schedule fetches. Only given values are stored; a missing one falls back, at each pull, to the
+    connection's last manual fetch (then 25 tickets)."""
 
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     jql: str | None = Field(default=None, min_length=1, max_length=4000)
@@ -70,14 +69,6 @@ def first_run(value: Timetable) -> datetime | None:
     return next_after(value.cron, value.timezone, datetime.now(UTC)) if value.enabled else None
 
 
-def jira_defaults(connection: dict) -> dict:
-    return {'jql': connection['jql'], 'limit': connection['last_fetch_limit'] or DEFAULT_LIMIT}
-
-
-def merged(params: dict, change: JiraPullParams) -> dict:
-    return {**params, **change.model_dump(exclude_none=True)}
-
-
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
@@ -89,7 +80,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     def jira_connection(conn, project: UUID) -> dict | None:
         return conn.execute(
-            """SELECT id,jql,last_fetch_limit FROM ka.jira_connections
+            """SELECT id FROM ka.jira_connections
             WHERE project_id=%s AND name='primary'""",
             (project,),
         ).fetchone()
@@ -146,7 +137,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     value.timezone,
                     value.enabled,
                     first_run(value),
-                    Jsonb(merged(jira_defaults(connection), value.params)),
+                    Jsonb(value.params.model_dump(exclude_none=True)),
                 ),
             ).fetchone()
             if row is None:
