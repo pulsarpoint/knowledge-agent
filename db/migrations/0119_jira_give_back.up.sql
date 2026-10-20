@@ -1,16 +1,17 @@
 BEGIN;
 SET search_path = ka, public;
 
--- 0119: a handler that replies in Jira may give the ticket back after the reply: repository-worker
--- (events/jira_replies.py) assigns it to the person who gave it to the agent (the previous assignee, else the
--- reporter; chosen when the notification is written) once the comment is posted.
+-- 0119: a handler that replies in Jira for the assignee's agent may give the ticket back after the reply:
+-- repository-worker (events/jira_replies.py) assigns it to the person who gave it to the agent (the previous assignee,
+-- else the reporter, never a mapped Jira user; chosen when the notification is written) once the comment is posted,
+-- or skips it when someone else took the ticket meanwhile.
 ALTER TABLE event_handlers ADD COLUMN give_back boolean NOT NULL DEFAULT false;
-ALTER TABLE event_handlers ADD CONSTRAINT event_handlers_give_back CHECK (NOT give_back OR reply_to_jira);
+ALTER TABLE event_handlers ADD CONSTRAINT event_handlers_give_back CHECK (NOT give_back OR (reply_to_jira AND agent_from = 'assignee'));
 
 ALTER TABLE notifications
     ADD COLUMN give_back_key text,
     ADD COLUMN give_back_name text,
-    ADD COLUMN give_back_status text CHECK (give_back_status IN ('pending', 'done', 'failed')),
+    ADD COLUMN give_back_status text CHECK (give_back_status IN ('pending', 'done', 'failed', 'skipped')),
     ADD COLUMN give_back_error text CHECK (char_length(give_back_error) <= 2000),
     ADD COLUMN give_back_attempts integer NOT NULL DEFAULT 0 CHECK (give_back_attempts >= 0),
     ADD COLUMN give_back_next_attempt_at timestamptz,

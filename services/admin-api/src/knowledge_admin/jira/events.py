@@ -48,16 +48,17 @@ def ticket(base_url: str, issue: dict) -> dict:
     }
 
 
-def give_back_target(payload: dict) -> tuple[str, str] | None:
+def give_back_target(payload: dict, mapped: set[str]) -> tuple[str, str] | None:
     """Who gets the ticket back after the agent's reply (Data Center key, display name): the previous assignee when
-    the ticket was reassigned, otherwise the reporter; never the current assignee (the agent's own Jira user)."""
+    the ticket was reassigned, otherwise the reporter; never the current assignee or a Jira user mapped to an agent
+    (`mapped`: two bots would hand the ticket to each other forever)."""
     current = payload.get('assignee_id')
     assignee = (payload.get('changes') or {}).get('assignee') or {}
     for key, name in (
         (assignee.get('from_id'), assignee.get('from')),
         (payload.get('reporter_id'), payload.get('reporter')),
     ):
-        if key and key != current:
+        if key and key != current and key not in mapped:
             return key, name or key
     return None
 
@@ -115,12 +116,17 @@ def own_comment_ids(
         )
     }
     pending = {
-        comment_body(row['body'], row['agent_name'], row['give_back_name'])
+        body
         for row in conn.execute(
             """SELECT n.body,coalesce(a.name,n.agent_id,'Agent') AS agent_name,n.give_back_name
             FROM ka.notifications n LEFT JOIN ka.agents a ON a.id=n.agent_id
             WHERE n.project_id=%s AND n.jira_status='pending' AND n.jira_connection_id=%s AND n.jira_issue_id=%s""",
             (project_id, connection_id, issue_id),
+        )
+        # with or without the note: the reply worker leaves it out when someone else took the ticket
+        for body in (
+            comment_body(row['body'], row['agent_name'], row['give_back_name']),
+            comment_body(row['body'], row['agent_name']),
         )
     }
     return {comment['id'] for comment in new if ours(comment, posted, pending, username)}

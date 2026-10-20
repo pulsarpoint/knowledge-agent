@@ -25,6 +25,7 @@ NO_EVENT = 'Event not found.'
 NO_AGENT = 'Agent not found.'
 NOT_AGENT_JIRA = 'Only Send to agent handlers can post to Jira.'
 GIVE_BACK_WITHOUT_REPLY = 'Turn on Reply in Jira to give the ticket back.'
+GIVE_BACK_NOT_ASSIGNEE = "Only handlers that send to the assignee's agent can give the ticket back."
 NOT_AGENT_ASSIGNEE = 'Only Send to agent handlers can target the assignee.'
 ASSIGNEE_WITH_AGENT = 'Leave the agent empty when the handler targets the assignee.'
 NOT_JIRA_ASSIGNEE = 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'
@@ -111,6 +112,8 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         raise bad(NOT_AGENT_JIRA)
     if draft.give_back and not draft.reply_to_jira:
         raise bad(GIVE_BACK_WITHOUT_REPLY)
+    if draft.give_back and draft.agent_from != 'assignee':
+        raise bad(GIVE_BACK_NOT_ASSIGNEE)
     assignee = draft.agent_from == 'assignee'
     if assignee and draft.action != 'agent':
         raise bad(NOT_AGENT_ASSIGNEE)

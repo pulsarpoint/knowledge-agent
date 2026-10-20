@@ -60,11 +60,13 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
         text = row['status_message']
     body = (text if text.strip() else NO_ANSWER) if succeeded else text
     source = conn.execute(
-        """SELECT h.give_back,e.payload FROM ka.agent_sessions s LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
+        """SELECT h.give_back,e.payload,
+            array(SELECT m.jira_user_key FROM ka.jira_user_agents m WHERE m.connection_id=e.source_id) AS mapped
+        FROM ka.agent_sessions s LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
         LEFT JOIN ka.events e ON e.id=s.event_id WHERE s.id=%s""",
         (session_id,),
     ).fetchone()
-    target = give_back_target(source['payload'] or {}) if source['give_back'] else None
+    target = give_back_target(source['payload'] or {}, set(source['mapped'])) if source['give_back'] else None
     conn.execute(
         """INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id,
             jira_status,jira_connection_id,jira_issue_id,jira_issue_key,jira_next_attempt_at,jira_error,
