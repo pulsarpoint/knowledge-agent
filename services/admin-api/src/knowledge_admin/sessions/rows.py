@@ -80,6 +80,27 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
         conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
     )
+    ticket = conn.execute(
+        """SELECT e.subject,e.source_id,e.payload->>'issue_id' AS issue_id FROM ka.events e
+        WHERE e.source='jira' AND e.id=(SELECT event_id FROM ka.agent_sessions WHERE id=%s)""",
+        (session_id,),
+    ).fetchone()
+    if ticket is not None:  # a run started by a Jira event: the other runs on the same ticket, newest first
+        row['ticket_key'] = ticket['subject']
+        row['related_runs'] = conn.execute(
+            """SELECT s.id AS session_id,s.created_at AS started_at,s.agent_id,coalesce(a.name,%(ad_hoc)s) AS agent_name,
+            s.status,e.type AS event_type
+            FROM ka.agent_sessions s JOIN ka.events e ON e.id=s.event_id LEFT JOIN ka.agents a ON a.id=s.agent_id
+            WHERE s.project_id=%(project)s AND s.id<>%(session)s AND e.source='jira' AND e.source_id=%(connection)s
+            AND e.payload->>'issue_id'=%(issue)s ORDER BY s.created_at DESC,s.id LIMIT 20""",
+            {
+                'ad_hoc': AD_HOC_NAME,
+                'project': project,
+                'session': session_id,
+                'connection': ticket['source_id'],
+                'issue': ticket['issue_id'],
+            },
+        ).fetchall()
     pinned_shown = row['purpose'] in ('test', 'event', 'revision') or (
         row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {})
     )  # a new-document run

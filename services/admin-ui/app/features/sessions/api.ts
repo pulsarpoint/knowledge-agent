@@ -92,7 +92,19 @@ export interface SessionSummary {
   last_activity_at: string;
   closed_at: string | null;
 }
+/** Another run on the same Jira ticket as an event run. */
+export interface RelatedRun {
+  session_id: string;
+  started_at: string;
+  agent_id: string | null;
+  agent_name: string;
+  status: SessionStatus;
+  event_type: string;
+}
 export interface SessionDetail extends SessionSummary {
+  /** Runs started by a Jira event: the ticket and the other runs on it, newest first. */
+  ticket_key?: string;
+  related_runs?: RelatedRun[];
   /** Ask agent runs: the document they revise. */
   target_document_id?: string | null;
   tool_counts?: ToolCount[];

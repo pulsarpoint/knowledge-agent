@@ -118,46 +118,66 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           </Button>
         }
         sidebar={
-          hasDraft ? (
-            <section aria-label="Draft" className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold">{draftTitle}</h2>
-              <div className="flex flex-wrap gap-2">
-                {session.draft && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setDraftOpen(true)}>
-                    Preview draft
-                  </Button>
+          <>
+            {session.related_runs && session.related_runs.length > 0 && (
+              <section aria-label={`Earlier runs on ${session.ticket_key}`} className="flex flex-col gap-2">
+                <h2 className="text-sm font-semibold">Earlier runs on {session.ticket_key}</h2>
+                <ul className="flex flex-col gap-1 text-sm">
+                  {session.related_runs.map((related) => (
+                    <li key={related.session_id}>
+                      <Link className="underline" to={`/sessions/${encodeURIComponent(related.session_id)}`}>
+                        {related.agent_name}
+                      </Link>{" "}
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(related.started_at).toLocaleString()} · {related.event_type} ·{" "}
+                        {statusLabels[related.status]}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {hasDraft && (
+              <section aria-label="Draft" className="flex flex-col gap-2">
+                <h2 className="text-sm font-semibold">{draftTitle}</h2>
+                <div className="flex flex-wrap gap-2">
+                  {session.draft && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => setDraftOpen(true)}>
+                      Preview draft
+                    </Button>
+                  )}
+                  {documentDraft?.status === "open" ? (
+                    <Button asChild size="sm">
+                      <Link to={draftPath(documentDraft)}>Open draft</Link>
+                    </Button>
+                  ) : promotedTo ? (
+                    <Button asChild size="sm">
+                      <Link to={`/documents/${encodeURIComponent(promotedTo)}`}>Open document</Link>
+                    </Button>
+                  ) : null}
+                </div>
+                {documentDraft?.status === "open" && (
+                  <p className="text-xs text-muted-foreground">
+                    Each finished turn updates this draft until someone saves it. Promote it on its page to make it the
+                    live document.
+                  </p>
                 )}
-                {documentDraft?.status === "open" ? (
-                  <Button asChild size="sm">
-                    <Link to={draftPath(documentDraft)}>Open draft</Link>
-                  </Button>
-                ) : promotedTo ? (
-                  <Button asChild size="sm">
-                    <Link to={`/documents/${encodeURIComponent(promotedTo)}`}>Open document</Link>
-                  </Button>
-                ) : null}
-              </div>
-              {documentDraft?.status === "open" && (
-                <p className="text-xs text-muted-foreground">
-                  Each finished turn updates this draft until someone saves it. Promote it on its page to make it the
-                  live document.
-                </p>
-              )}
-              {documentDraft?.status === "promoted" && (
-                <p className="text-xs text-muted-foreground">
-                  The document draft was promoted. The agent's next finished turn starts a new draft.
-                </p>
-              )}
-              {documentDraft?.status === "replaced" && (
-                <p className="text-xs text-muted-foreground">
-                  Replaced by another promoted draft. The agent's next finished turn starts a new draft.
-                </p>
-              )}
-              {documentDraft?.status === "discarded" && (
-                <p className="text-xs text-muted-foreground">The document draft was discarded.</p>
-              )}
-            </section>
-          ) : undefined
+                {documentDraft?.status === "promoted" && (
+                  <p className="text-xs text-muted-foreground">
+                    The document draft was promoted. The agent's next finished turn starts a new draft.
+                  </p>
+                )}
+                {documentDraft?.status === "replaced" && (
+                  <p className="text-xs text-muted-foreground">
+                    Replaced by another promoted draft. The agent's next finished turn starts a new draft.
+                  </p>
+                )}
+                {documentDraft?.status === "discarded" && (
+                  <p className="text-xs text-muted-foreground">The document draft was discarded.</p>
+                )}
+              </section>
+            )}
+          </>
         }
         answerActions={(turn) => (
           <Button variant="ghost" size="sm" asChild>

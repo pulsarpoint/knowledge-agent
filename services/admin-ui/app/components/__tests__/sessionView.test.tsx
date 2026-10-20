@@ -85,6 +85,52 @@ test("the session page shows the tools the session used", async () => {
   expect(screen.queryByText(/^Resources:/)).toBeNull();
 });
 
+test("a run on a Jira ticket lists the earlier runs on it, each linked to its run page", async () => {
+  const related = {
+    ...detail,
+    ticket_key: "DEMO-1",
+    related_runs: [
+      {
+        session_id: "s0",
+        started_at: "2026-10-06T09:00:00Z",
+        agent_id: "ops",
+        agent_name: "Ops agent",
+        status: "waiting",
+        event_type: "jira.ticket.created",
+      },
+    ],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => (url.includes("/events/history") ? page([]) : Response.json(related))),
+  );
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  const list = await screen.findByRole("region", { name: "Earlier runs on DEMO-1" });
+  const link = within(list).getByRole("link", { name: /Ops agent/ });
+  expect(link).toHaveAttribute("href", "/sessions/s0");
+  expect(list).toHaveTextContent("jira.ticket.created");
+});
+
+test("a run without related runs shows no earlier runs list", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url.includes("/events/history") ? page([]) : Response.json({ ...detail, ticket_key: "DEMO-1", related_runs: [] }),
+    ),
+  );
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  await screen.findByLabelText("Tools used");
+  expect(screen.queryByText(/Earlier runs on/)).toBeNull();
+});
+
 test("the session page follows the turn, sends messages, stops, previews the draft and closes", async () => {
   const posts: { url: string; body?: unknown }[] = [];
   vi.stubGlobal(
