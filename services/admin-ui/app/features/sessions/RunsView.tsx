@@ -197,7 +197,7 @@ export default function RunsView() {
                   </TableCell>
                   <TableCell>{row.agent ?? row.agent_id}</TableCell>
                   <TableCell>{row.user ?? "—"}</TableCell>
-                  <TableCell>{row.status ?? "running"}</TableCell>
+                  <TableCell>{row.status ?? "working"}</TableCell>
                   <TableCell>{row.total_tokens.toLocaleString()}</TableCell>
                   <TableCell className="max-w-xs whitespace-normal" title={toolUsageLine(row.tool_counts)}>
                     {topTools(row.tool_counts)}
