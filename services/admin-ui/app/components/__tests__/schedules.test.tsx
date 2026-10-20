@@ -410,6 +410,7 @@ test("an emit schedule shows the handlers that run it", async () => {
         schedules: [
           emit(),
           emit({ id: "e-2", name: "Nightly check", handlers: [{ id: "h-1", name: "Summary", enabled: true }] }),
+          emit({ id: "e-4", name: "Daily backup", handlers: [{ id: "h-5", name: "Paused", enabled: false }] }),
           emit({
             id: "e-3",
             name: "Weekly report",
@@ -434,6 +435,11 @@ test("an emit schedule shows the handlers that run it", async () => {
     "/events/handlers?handler=h-1",
   );
   expect(within(one).queryByRole("button", { name: "Add handler" })).toBeNull();
+  const off = screen.getByText("Daily backup").closest("tr")!;
+  expect(within(off).getByRole("link", { name: "Handled by: Paused (off)" })).toHaveAttribute(
+    "href",
+    "/events/handlers?handler=h-5",
+  );
   const several = screen.getByText("Weekly report").closest("tr")!;
   expect(within(several).getByRole("link", { name: "Handled by: 3 handlers" })).toHaveAttribute(
     "href",
@@ -462,7 +468,9 @@ test("Add handler opens the handler sheet prefilled for the schedule and saves i
   expect(within(sheet).getByLabelText("Condition 1 field")).toHaveValue("payload.schedule_id");
   expect(within(sheet).getByLabelText("Condition 1 value")).toHaveValue("e-1");
   expect(within(sheet).getByRole("combobox", { name: "Action" })).toHaveTextContent("Send to agent");
+  expect(within(sheet).queryByRole("checkbox", { name: /Jira ticket/ })).toBeNull();
   await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  expect(screen.queryByRole("option", { name: "Agent mapped to the assignee" })).toBeNull();
   await user.click(await screen.findByRole("option", { name: "Tester" }));
   await user.click(within(sheet).getByLabelText("Prompt"));
   await user.paste("Summarise yesterday.");

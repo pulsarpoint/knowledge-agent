@@ -526,6 +526,18 @@ test("schedule payload fields are suggested for conditions", async () => {
   expect(options).toEqual(expect.arrayContaining(["payload.fired_at", "payload.last_run_at", "payload.trigger"]));
 });
 
+test("only a handler that takes schedule.fired with the schedule condition gets the schedule delete text", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/event-handlers": {
+      handlers: [handler({ conditions: [{ field: "payload.schedule_id", op: "equals", value: "e-1" }] })],
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Delete Triage" }));
+  expect(screen.getByText("Its run history stays on the events.")).toBeInTheDocument();
+});
+
 test("deleting a schedule handler says the schedule keeps recording events", async () => {
   const user = userEvent.setup();
   api({
@@ -543,4 +555,49 @@ test("deleting a schedule handler says the schedule keeps recording events", asy
   expect(
     screen.getByText("Its run history stays on the events. The schedule keeps recording events."),
   ).toBeInTheDocument();
+});
+
+test("the assignee's agent and Reply in Jira are offered only for patterns that can match Jira events", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "POST /api/event-handlers": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { status: 201, body: { handler: handler() } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.type(within(sheet).getByLabelText("Name"), "Ask");
+  await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
+  await user.click(screen.getByRole("option", { name: "Send to agent" }));
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  await user.click(screen.getByRole("option", { name: "Agent mapped to the assignee" }));
+  await user.click(within(sheet).getByRole("checkbox", { name: /Jira ticket/ }));
+  expect(within(sheet).getByRole("checkbox", { name: "Give the ticket back after replying" })).toBeChecked();
+  const pattern = within(sheet).getByLabelText("Event type");
+  for (const jira of ["*", "jira.*", "jira.*.created"]) {
+    await user.clear(pattern);
+    await user.type(pattern, jira);
+    expect(within(sheet).getByRole("checkbox", { name: /Jira ticket/ })).toBeInTheDocument();
+  }
+  await user.clear(pattern);
+  await user.type(pattern, "schedule.fired");
+  expect(within(sheet).queryByRole("checkbox", { name: /Jira ticket/ })).toBeNull();
+  expect(within(sheet).queryByRole("checkbox", { name: "Give the ticket back after replying" })).toBeNull();
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  expect(screen.queryByRole("option", { name: "Agent mapped to the assignee" })).toBeNull();
+  await user.click(screen.getByRole("option", { name: "Tester" }));
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect([sent.agent_from, sent.agent_id, sent.reply_to_jira, sent.give_back]).toEqual([
+      "fixed",
+      "tester",
+      false,
+      false,
+    ]),
+  );
 });

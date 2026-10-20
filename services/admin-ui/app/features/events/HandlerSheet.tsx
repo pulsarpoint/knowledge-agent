@@ -8,6 +8,7 @@ import {
   OPERATOR_LABELS,
   SCHEDULE_FIELD,
   SCHEDULE_FIRED,
+  forJira,
   createHandler,
   getHandlerAgents,
   previewHandler,
@@ -64,7 +65,11 @@ const BLANK: Form = {
 /** Send to agent on a pattern like * or jira.ticket.* can run the agent many times at once (the first Jira pull records every ticket). */
 const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
 /** Give the ticket back is offered only for a Jira reply from the assignee's agent. */
-const offersGiveBack = (form: Form) => form.action === "agent" && form.agent_id === ASSIGNEE && form.reply_to_jira;
+/** The assignee's agent, as the agent select holds it, counts only on a Jira pattern (otherwise it is hidden). */
+const toAssignee = (form: Form) => form.action === "agent" && form.agent_id === ASSIGNEE && forJira(form.type_pattern);
+/** Reply in Jira is offered (and saved) only for Send to agent on a Jira pattern. */
+const repliesInJira = (form: Form) => form.action === "agent" && forJira(form.type_pattern) && form.reply_to_jira;
+const offersGiveBack = (form: Form) => toAssignee(form) && repliesInJira(form);
 /** Run a schedule: type schedule.fired and the one payload.schedule_id condition (other conditions stay). */
 const scheduleConditions = (form: Form, id: string): Partial<Form> => ({
   type_pattern: SCHEDULE_FIRED,
@@ -121,10 +126,10 @@ function toDraft(form: Form): HandlerDraft {
             : c.value,
     })),
     emit: form.action === "emit" ? form.emit : null,
-    agent_from: form.action === "agent" && form.agent_id === ASSIGNEE ? "assignee" : "fixed",
+    agent_from: toAssignee(form) ? "assignee" : "fixed",
     agent_id: form.action === "agent" && form.agent_id !== ASSIGNEE ? form.agent_id || null : null,
     prompt: form.action === "agent" ? form.prompt : null,
-    reply_to_jira: form.action === "agent" && form.reply_to_jira,
+    reply_to_jira: repliesInJira(form),
     give_back: offersGiveBack(form) && form.give_back,
   };
 }
@@ -191,8 +196,9 @@ function HandlerForm({
     form.type_pattern.trim() === SCHEDULE_FIRED
       ? (form.conditions.find((c) => c.field.trim() === SCHEDULE_FIELD && c.op === "equals")?.value ?? "")
       : "";
+  const jira = forJira(form.type_pattern);
   const missingForAssignee =
-    form.agent_id === ASSIGNEE && !form.conditions.some((row) => row.field.trim() === FOR_ASSIGNEE.field);
+    toAssignee(form) && !form.conditions.some((row) => row.field.trim() === FOR_ASSIGNEE.field);
   const message = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
 
   async function save(event: FormEvent) {
@@ -354,7 +360,7 @@ function HandlerForm({
           {form.action === "agent" && broad(form.type_pattern.trim()) && (
             <FieldDescription className="text-amber-700 dark:text-amber-400">
               Runs the agent once for every matching event.
-              {form.reply_to_jira &&
+              {repliesInJira(form) &&
                 " The agent also comments on every matching Jira ticket: the first scheduled pull records every ticket as created."}
             </FieldDescription>
           )}
@@ -416,16 +422,18 @@ function HandlerForm({
                       </SelectItem>
                     ))}
                   </SelectGroup>
-                  <SelectGroup>
-                    <SelectItem value={ASSIGNEE}>Agent mapped to the assignee</SelectItem>
-                  </SelectGroup>
+                  {jira && (
+                    <SelectGroup>
+                      <SelectItem value={ASSIGNEE}>Agent mapped to the assignee</SelectItem>
+                    </SelectGroup>
+                  )}
                 </SelectContent>
               </Select>
               <FieldDescription>
                 Enabled agents with fixed resources. The agent answers once, without a conversation. The answer goes to
                 Notifications.
               </FieldDescription>
-              {form.agent_id === ASSIGNEE && (
+              {toAssignee(form) && (
                 <FieldDescription>
                   Jira events only: runs the agent mapped to the ticket&apos;s assignee in Jira → Settings → Users and
                   agents. A ticket that is unassigned or assigned to an unmapped user starts no run.
@@ -459,21 +467,24 @@ function HandlerForm({
                 onChange={(e) => update({ prompt: e.target.value })}
               />
             </Field>
-            <Field orientation="horizontal">
-              <Checkbox
-                id="handler-reply-to-jira"
-                checked={form.reply_to_jira}
-                onCheckedChange={(checked) => update({ reply_to_jira: checked === true })}
-              />
-              <div>
-                <FieldLabel htmlFor="handler-reply-to-jira">
-                  Also post the answer as a comment on the Jira ticket
-                </FieldLabel>
-                <FieldDescription>
-                  Jira events only. Posted as the Jira connection&apos;s user, which needs the Add Comments permission.
-                </FieldDescription>
-              </div>
-            </Field>
+            {jira && (
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="handler-reply-to-jira"
+                  checked={form.reply_to_jira}
+                  onCheckedChange={(checked) => update({ reply_to_jira: checked === true })}
+                />
+                <div>
+                  <FieldLabel htmlFor="handler-reply-to-jira">
+                    Also post the answer as a comment on the Jira ticket
+                  </FieldLabel>
+                  <FieldDescription>
+                    Jira events only. Posted as the Jira connection&apos;s user, which needs the Add Comments
+                    permission.
+                  </FieldDescription>
+                </div>
+              </Field>
+            )}
             {offersGiveBack(form) && (
               <Field orientation="horizontal">
                 <Checkbox

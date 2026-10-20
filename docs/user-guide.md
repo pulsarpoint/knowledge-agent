@@ -822,9 +822,9 @@ schedule** creates one: choose what to run and when:
   the query and number of the last manual fetch on Jira → Tickets, or 25 tickets.
 - **Emit event**, with a **Name** (e.g. `Morning summary`); make as many as you like. Each run records one
   `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.17) and the run's result says
-  `Recorded event <id>.`. The schedule itself runs no agent: an event handler (4.18) sends the event to an agent with
+  `Recorded event <id>.` The schedule itself runs no agent: an event handler (4.18) sends the event to an agent with
   its task, and the answer goes to Notifications (4.19). The row says which handler runs it — **Handled by:
-  <name>** (opens the handler) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
+  <name>** (opens the handler; `(off)` after the name when it is switched off) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
   handler**, which opens a new handler already set up for this schedule (its name, event type `schedule.fired`, the
   condition `payload.schedule_id` equals the schedule, action Send to agent): choose the agent, write the prompt and
   save.
@@ -882,13 +882,13 @@ event also carries every comment of the ticket, whole and oldest first, in `payl
 latest one with `{{ event.payload.comments[-1].body }}`.
 
 **Running a schedule.** An Emit event schedule (4.16) records `schedule.fired` with the payload `schedule_id`,
-`name`, `fired_at` (this run), `last_run_at` (the previous successful run, empty on the first) and `trigger`
+`name`, `fired_at` (this run), `last_run_at` (the previous successful run; empty — `null` — on the first run) and `trigger`
 (`scheduled` or `manual` for Run now). Under **Event type** the form offers **Schedule: <name>** for each Emit event
 schedule: choosing one sets the type to `schedule.fired` and adds the condition `payload.schedule_id` **equals** the
 schedule's id (replacing an earlier schedule condition; it stays editable like any condition). Only handlers with that
-condition run the schedule, and the Schedules page lists them. Use Send to agent with a fixed agent (Agent mapped to
-the assignee and the Jira options are for Jira events only) and a prompt such as `Summarise what changed since {{
-event.payload.last_run_at }}.`. **Add handler** on the Schedules page opens this form already filled in.
+condition run the schedule, and the Schedules page lists them. Use Send to agent with a fixed agent (the form offers Agent
+mapped to the assignee and the Jira options only when the event type can match Jira events) and a prompt such as `Summarise what changed since {{ event.payload.last_run_at or "the last week" }}.` (the `or`
+gives the first run a fallback; without it the prompt would say `None`). **Add handler** on the Schedules page opens this form already filled in.
 
 A handler does one thing:
 

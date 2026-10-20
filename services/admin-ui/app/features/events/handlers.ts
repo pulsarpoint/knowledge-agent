@@ -82,8 +82,31 @@ export const FIELD_SUGGESTIONS = [
 /** A schedule's Emit event records this type; a handler runs a schedule through this condition field (equals its id). */
 export const SCHEDULE_FIRED = "schedule.fired";
 export const SCHEDULE_FIELD = "payload.schedule_id";
-/** A handler bound to a schedule: it checks payload.schedule_id equals some schedule's id. */
+/** Every Jira event type the connection records (targets.JIRA_TYPES on the server). */
+export const JIRA_TYPES = ["jira.ticket.created", "jira.ticket.updated"];
+
+/** As the server's matching.type_matches: `*` alone matches every type; a `*` part matches one part, a trailing `.*`
+ * one or more trailing parts. */
+export function typeMatches(pattern: string, type: string): boolean {
+  if (pattern === "*") return true;
+  const parts = pattern.split(".");
+  const expression = parts
+    .map((part, index) =>
+      part !== "*"
+        ? part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        : index === parts.length - 1
+          ? "[a-z0-9_]+(\\.[a-z0-9_]+)*"
+          : "[a-z0-9_]+",
+    )
+    .join("\\.");
+  return new RegExp(`^${expression}$`).test(type);
+}
+/** Agent mapped to the assignee, Reply in Jira and give back work only when the pattern can match a Jira event. */
+export const forJira = (pattern: string) => JIRA_TYPES.some((type) => typeMatches(pattern.trim(), type));
+
+/** A handler bound to a schedule: its type takes schedule.fired and it checks payload.schedule_id equals an id. */
 export const boundToSchedule = (handler: HandlerDraft) =>
+  typeMatches(handler.type_pattern.trim(), SCHEDULE_FIRED) &&
   handler.conditions.some((c) => c.field === SCHEDULE_FIELD && c.op === "equals");
 
 const json = (method: string, value: unknown) => ({

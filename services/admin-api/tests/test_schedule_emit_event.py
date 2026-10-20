@@ -211,10 +211,17 @@ def test_emit_schedules_need_a_name_and_take_no_params(store, tmp_path):
     value = {'cron': '0 6 * * *', 'timezone': 'UTC', 'enabled': True, 'revision': 1}
     refused = client.put(f'/api/schedules/{schedule["id"]}', headers=HEADERS, json={**value, 'params': {'limit': 3}})
     assert refused.status_code == 400 and error(refused) == 'Emit event schedules take no settings.'
-    assert client.put(f'/api/schedules/{schedule["id"]}', headers=HEADERS, json={**value, 'name': ''}).status_code in (
-        400,
-        422,
-    )
+    for name in ('', '   '):
+        blank = client.put(f'/api/schedules/{schedule["id"]}', headers=HEADERS, json={**value, 'name': name})
+        assert blank.status_code == 400 and error(blank) == 'Enter a name.', name
+
+
+def test_a_blank_emit_schedule_name_is_refused_with_enter_a_name(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    for body in [{k: v for k, v in EMIT.items() if k != 'name'}, {**EMIT, 'name': ''}, {**EMIT, 'name': '   '}]:
+        refused = client.post('/api/schedules', headers=HEADERS, json=body)
+        assert refused.status_code == 400 and error(refused) == 'Enter a name.', body
+    assert create(client, name='  Morning summary ')['name'] == 'Morning summary'
 
 
 def test_jira_pull_schedules_keep_their_name(store, tmp_path):

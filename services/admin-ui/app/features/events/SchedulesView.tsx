@@ -59,7 +59,9 @@ function HandledBy({ schedule, onAdd }: { schedule: Schedule; onAdd: () => void 
       className="text-xs underline-offset-4 hover:underline"
       to={handlers.length === 1 ? `${HANDLERS}?handler=${encodeURIComponent(only.id)}` : HANDLERS}
     >
-      {handlers.length === 1 ? `Handled by: ${only.name}` : `Handled by: ${handlers.length} handlers`}
+      {handlers.length === 1
+        ? `Handled by: ${only.name}${only.enabled ? "" : " (off)"}`
+        : `Handled by: ${handlers.length} handlers`}
     </Link>
   );
 }

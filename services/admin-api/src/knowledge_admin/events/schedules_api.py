@@ -52,14 +52,14 @@ class ScheduleInput(Timetable):
     enabled: bool
     revision: int = Field(ge=1, strict=True)
     params: JiraPullParams | None = None
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: str | None = Field(default=None, max_length=200)  # stripped; a blank one is refused with NO_NAME
 
 
 class NewSchedule(Timetable):
     target_kind: Literal['jira.pull', 'event.emit']
     enabled: bool
     params: JiraPullParams = JiraPullParams()
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: str | None = Field(default=None, max_length=200)  # stripped; a blank one is refused with NO_NAME
 
 
 def shown(row: dict) -> dict:
@@ -72,6 +72,8 @@ def kind_checked(target_kind: str, value: NewSchedule | ScheduleInput) -> None:
         raise HTTPException(400, NO_RENAME)
     if target_kind == 'event.emit' and value.params is not None and value.params.model_dump(exclude_none=True):
         raise HTTPException(400, NO_SETTINGS)
+    if target_kind == 'event.emit' and value.name == '':
+        raise HTTPException(400, NO_NAME)
 
 
 def bound(handler: dict, schedule_id: UUID) -> bool:
