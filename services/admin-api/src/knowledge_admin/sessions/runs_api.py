@@ -53,8 +53,9 @@ EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS 
       AND (%(user)s::text IS NULL OR strpos(lower(p.email), lower(%(user)s)) > 0)
       AND (%(key_prefix)s::text IS NULL OR starts_with(i.run_key, %(key_prefix)s))"""
 
-# a run without an end event is still working
-MATCHING = """FROM ({rows}) r WHERE %(status)s::text IS NULL OR coalesce(r.status, 'working')=%(status)s"""
+# a run without an end event is still working; a cancelled run was stopped like one ended with Stop
+MATCHING = """FROM ({rows}) r WHERE %(status)s::text IS NULL
+    OR CASE WHEN r.status='cancelled' THEN 'stopped' ELSE coalesce(r.status, 'working') END=%(status)s"""
 SORT_COLUMNS = {'started': 'r.started_at', 'tokens': 'r.total_tokens'}
 PAGE_SIZES = (25, 50, 100)
 

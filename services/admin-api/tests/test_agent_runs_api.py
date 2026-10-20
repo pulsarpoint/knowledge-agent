@@ -360,3 +360,21 @@ def test_expert_calls_are_paged_with_the_runs(store, tmp_path):
     ]
     assert 'call_id' not in second['runs'][0] and 'id' not in second['runs'][0]
     assert get(order='asc')['runs'][0]['call_id'] == 'e1'
+
+
+def test_stopped_includes_cancelled_runs(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_many(store, 3)  # run:2 ended stopped
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        for seq, kind, payload in (
+            (1, 'start', {'kind': 'test', 'title': 'Cancelled'}),
+            (2, 'end', {'status': 'cancelled'}),
+        ):
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                VALUES (%s,'run:cancelled',%s,%s,'search',%s)""",
+                (project, seq, kind, Jsonb(payload)),
+            )
+    rows = client.get('/api/agent-runs', headers=HEADERS, params={'status': 'stopped'}).json()['runs']
+    assert [(r['run_key'], r['status']) for r in rows] == [('run:cancelled', 'cancelled'), ('run:2', 'stopped')]

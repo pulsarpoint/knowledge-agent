@@ -33,7 +33,8 @@ export default function RunsView() {
   const value = (key: string) => params.get(key) || RUN_DEFAULTS[key] || "";
   const [sort, order, user, keyPrefix] = [value("sort"), value("order"), value("user"), value("key_prefix")];
   const page = Math.max(1, Number(value("page")) || 1);
-  const pageSize = Number(value("page_size"));
+  const pageSize = Number(value("page_size")) || 50;
+  const filtered = ["kind", "agent_id", "status", "user", "key_prefix"].some((key) => params.get(key));
   const [data, setData] = useState<RunPage | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [error, setError] = useState("");
@@ -106,6 +107,9 @@ export default function RunsView() {
             onChange={(e) => update({ agent_id: e.target.value })}
           >
             <option value="">All</option>
+            {value("agent_id") && !agents.some((agent) => agent.id === value("agent_id")) && (
+              <option value={value("agent_id")}>{value("agent_id")}</option>
+            )}
             {agents.map((agent) => (
               <option key={agent.id} value={agent.id}>
                 {agent.name}
@@ -158,7 +162,9 @@ export default function RunsView() {
         <Skeleton className="h-40 w-full" />
       ) : rows.length === 0 ? (
         <Empty className="border">
-          <EmptyDescription>{total > 0 ? "No runs on this page." : "No recorded runs yet."}</EmptyDescription>
+          <EmptyDescription>
+            {total > 0 ? "No runs on this page." : filtered ? "No runs match these filters." : "No recorded runs yet."}
+          </EmptyDescription>
         </Empty>
       ) : (
         <div className="rounded-lg border">

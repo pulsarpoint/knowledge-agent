@@ -415,3 +415,16 @@ test("changing a filter goes back to the first page", async () => {
   await waitFor(() => expect(where()).toBe("?sort=tokens&status=failed"));
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?status=failed&sort=tokens"));
 });
+
+test("no runs under filters says so; an unknown agent in the URL still shows in the select", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/agents" ? json({ agents: [] }) : json({ runs: [], total: 0, page: 1, page_size: 50 }),
+    ),
+  );
+  renderRuns("?agent_id=gone&page_size=abc");
+  expect(await screen.findByText("No runs match these filters.")).toBeVisible();
+  expect(screen.getByLabelText("Agent")).toHaveValue("gone");
+  expect(screen.getByText("Page 1 of 1 · 0 runs")).toBeVisible();
+});
