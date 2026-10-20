@@ -601,3 +601,18 @@ def test_bot_to_bot_goes_back_to_the_person_and_a_ticket_taken_meanwhile_stays(t
     assert pull_and_process() == []
     with t.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 2
+
+
+def test_a_retried_assignment_skips_a_ticket_taken_meanwhile(store, tmp_path):
+    setup(store, tmp_path)
+    nid, requests = pending(store, **ana(store)), []
+    jira_replies.run_once(store, jira(requests))
+    jira_replies.run_once(store, jira(requests, assign=500))
+    due(store, nid)
+    requests.clear()
+    assert jira_replies.run_once(store, jira(requests, assignee='marko')) is True
+    row = note(store, nid)
+    assert (row['give_back_status'], row['give_back_attempts'], row['give_back_error']) == ('skipped', 2, TAKEN)
+    assert row['give_back_next_attempt_at'] is None
+    assert methods(requests) == ['GET']  # read the assignee; no lookup, no assignment
+    assert jira_replies.run_once(store, jira(requests)) is False

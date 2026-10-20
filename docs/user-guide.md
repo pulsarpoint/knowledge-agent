@@ -569,7 +569,8 @@ choose some of the agent's experts and some of
 its resources (see *Resources of a run* below). **Preview** shows the
 configuration the run would use. Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
-badge) to reopen them. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
+badge) to reopen them. A Jira event run's page also lists **Earlier runs on <KEY>**: the other runs on the same
+ticket. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
 **Suggest improvements**, which runs a reviewer that proposes instruction changes and memory notes (never system
 prompt changes); **Suggestions (n)** lists them (with the names of the proposed notes), and **Review and apply** opens
 them for editing.

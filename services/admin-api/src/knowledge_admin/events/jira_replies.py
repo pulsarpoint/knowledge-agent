@@ -45,8 +45,9 @@ CLAIM = """WITH due AS (SELECT id FROM ka.notifications WHERE jira_status='pendi
         n.give_back_status,
         coalesce((SELECT a.name FROM ka.agents a WHERE a.id=n.agent_id),n.agent_id,'Agent') AS agent_name,
         (SELECT e.payload->>'assignee_id' FROM ka.events e WHERE e.id=n.event_id) AS event_assignee"""
-CLAIM_GIVE_BACK = """SELECT id,project_id,jira_connection_id,jira_issue_id,give_back_key,give_back_attempts
-    FROM ka.notifications WHERE give_back_status='pending' AND give_back_next_attempt_at<=now()
+CLAIM_GIVE_BACK = """SELECT id,project_id,jira_connection_id,jira_issue_id,give_back_key,give_back_attempts,
+    (SELECT e.payload->>'assignee_id' FROM ka.events e WHERE e.id=n.event_id) AS event_assignee
+    FROM ka.notifications n WHERE give_back_status='pending' AND give_back_next_attempt_at<=now()
     ORDER BY give_back_next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED"""
 
 
@@ -112,15 +113,22 @@ def post(store: RepositoryStore, row: dict, transport: httpx.BaseTransport | Non
         raise Failed(str(exc.detail), final=exc.status_code in REFUSED) from None
 
 
-def give_back(store: RepositoryStore, row: dict, transport: httpx.BaseTransport | None) -> None:
-    """Assign the ticket to the stored user: Data Center assigns by login name, looked up by the user's key."""
+def give_back(store: RepositoryStore, row: dict, transport: httpx.BaseTransport | None) -> bool:
+    """Assign the ticket to the stored user: Data Center assigns by login name, looked up by the user's key. A retry
+    first checks the ticket is still with the event's assignee: False (skipped) when someone took it meanwhile."""
     config, token = jira_access(store, row)
     try:
         with JiraClient(config['base_url'], token, transport) as client:
+            if row['give_back_attempts'] >= 1:
+                issue = client.get(f'issue/{row["jira_issue_id"]}', {'fields': 'assignee'})
+                assignee = ((issue.get('fields') or {}).get('assignee') or {}).get('key')
+                if row['event_assignee'] is None or assignee != row['event_assignee']:
+                    return False
             login = client.user_by_key(row['give_back_key']).get('name')
             if not login:  # assign(None) would unassign the ticket
                 raise Failed(NO_LOGIN, final=True)
             client.assign(row['jira_issue_id'], login)
+            return True
     except HTTPException as exc:
         raise Failed(str(exc.detail), final=exc.status_code in REFUSED) from None
 
@@ -128,7 +136,7 @@ def give_back(store: RepositoryStore, row: dict, transport: httpx.BaseTransport 
 def give_back_once(conn, store: RepositoryStore, row: dict, transport: httpx.BaseTransport | None) -> None:
     attempt = row['give_back_attempts'] + 1
     try:
-        give_back(store, row, transport)
+        assigned = give_back(store, row, transport)
     except Failed as exc:
         final = exc.final or attempt > len(RETRIES)
         conn.execute(
@@ -154,9 +162,9 @@ def give_back_once(conn, store: RepositoryStore, row: dict, transport: httpx.Bas
         )
         return
     conn.execute(
-        """UPDATE ka.notifications SET give_back_status='done',give_back_attempts=%s,give_back_error=NULL,
+        """UPDATE ka.notifications SET give_back_status=%s,give_back_attempts=%s,give_back_error=%s,
         give_back_next_attempt_at=NULL WHERE id=%s""",
-        (attempt, row['id']),
+        ('done' if assigned else 'skipped', attempt, None if assigned else TAKEN, row['id']),
     )
 
 
