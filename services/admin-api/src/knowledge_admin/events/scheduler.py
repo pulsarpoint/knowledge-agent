@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 import psycopg
 from fastapi import HTTPException
 
-from knowledge_admin.jira import sync as jira_sync
-from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.events import schedule_event
 from knowledge_admin.events.schedules import MISSING, TargetMissing, next_after
+from knowledge_admin.jira import sync as jira_sync
+from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
 

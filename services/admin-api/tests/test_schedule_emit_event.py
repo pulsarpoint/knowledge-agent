@@ -50,19 +50,31 @@ def schedule_row(store, schedule_id) -> dict:
         return conn.execute('SELECT * FROM ka.schedules WHERE id=%s', (schedule_id,)).fetchone()
 
 
-def due(store, schedule_id) -> None:
+def due(store, schedule_id):
+    """Make the schedule due; returns the slot it is due for (the firing's identity)."""
     with store.connect() as conn:
-        conn.execute("UPDATE ka.schedules SET next_run_at=now()-interval '1 minute' WHERE id=%s", (schedule_id,))
+        return conn.execute(
+            "UPDATE ka.schedules SET next_run_at=now()-interval '1 minute' WHERE id=%s RETURNING next_run_at",
+            (schedule_id,),
+        ).fetchone()['next_run_at']
+
+
+def successes(store, schedule_id) -> list:
+    with store.connect() as conn:
+        rows = conn.execute(
+            "SELECT started_at FROM ka.schedule_runs WHERE schedule_id=%s AND status='succeeded' ORDER BY id",
+            (schedule_id,),
+        ).fetchall()
+    return [r['started_at'].isoformat() for r in rows]
 
 
 def test_a_firing_records_one_event_with_the_payload(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     schedule = create(client)
-    due(store, schedule['id'])
+    fired_at = due(store, schedule['id']).isoformat()
     assert scheduler.run_once(store) is True
     [event] = schedule_events(store)
     saved = schedule_row(store, schedule['id'])
-    fired_at = saved['last_run_at'].isoformat()
     assert (event['source'], str(event['source_id']), event['type'], event['subject'], event['title']) == (
         'schedule',
         schedule['id'],
@@ -78,6 +90,7 @@ def test_a_firing_records_one_event_with_the_payload(store, tmp_path):
         'trigger': 'scheduled',
     }
     assert event['dedupe_key'] == f'schedule:{schedule["id"]}:{fired_at}' and event['status'] == 'pending'
+    assert event['occurred_at'].isoformat() == fired_at
     assert (saved['last_status'], saved['last_message']) == ('succeeded', f'Recorded event {event["id"]}.')
 
 
@@ -86,37 +99,48 @@ def test_run_now_is_manual_and_last_run_at_is_the_previous_successful_firing(sto
     schedule = create(client)
     due(store, schedule['id'])
     scheduler.run_once(store)
-    first = schedule_row(store, schedule['id'])
-    assert client.post(f'/api/schedules/{schedule["id"]}/run', headers=HEADERS).status_code == 200
+    [first_success] = successes(store, schedule['id'])
+    requested = client.post(f'/api/schedules/{schedule["id"]}/run', headers=HEADERS)
+    assert requested.status_code == 200
+    slot = schedule_row(store, schedule['id'])['next_run_at'].isoformat()
     scheduler.run_once(store)
     [_, second] = schedule_events(store)
     assert second['payload']['trigger'] == 'manual'
-    assert second['payload']['last_run_at'] == first['last_finished_at'].isoformat()
-    assert second['payload']['fired_at'] == schedule_row(store, schedule['id'])['last_run_at'].isoformat()
+    assert second['payload']['last_run_at'] == first_success
+    assert second['payload']['fired_at'] == slot
     history = client.get(f'/api/schedules/{schedule["id"]}/runs', headers=HEADERS).json()['runs']
     assert [r['trigger'] for r in history] == ['manual', 'schedule']
 
 
-def test_after_a_failed_firing_last_run_at_is_null(store, tmp_path):
+def test_last_run_at_skips_a_failed_run_and_ignores_the_current_one(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     schedule = create(client)
-    with store.connect() as conn:
-        conn.execute(
-            "UPDATE ka.schedules SET last_status='failed',last_finished_at=now()-interval '1 hour' WHERE id=%s",
-            (schedule['id'],),
-        )
+    due(store, schedule['id'])
+    scheduler.run_once(store)  # succeeds
+    [success] = successes(store, schedule['id'])
+    due(store, schedule['id'])
+    scheduler.run_once(store, {'event.emit': lambda store, s: ('failed', 'down')})
     due(store, schedule['id'])
     scheduler.run_once(store)
-    assert schedule_events(store)[0]['payload']['last_run_at'] is None
+    first, last = schedule_events(store)
+    assert first['payload']['last_run_at'] is None
+    assert last['payload']['last_run_at'] == success
+    assert schedule_row(store, schedule['id'])['last_status'] == 'succeeded'
 
 
-def test_a_repeated_call_for_the_same_firing_records_nothing_new(store, tmp_path):
+def test_a_firing_claimed_again_after_its_lease_ran_out_records_one_event(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     schedule = create(client)
     due(store, schedule['id'])
-    claimed = scheduler.claim(store)
-    first = fire(store, claimed)
-    again = fire(store, claimed)
+    stale = scheduler.claim(store)
+    first = fire(store, stale)  # the worker dies before finish
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE ka.schedules SET lease_expires_at=now()-interval '1 second' WHERE id=%s", (schedule['id'],)
+        )
+    fresh = scheduler.claim(store)
+    assert fresh is not None and fresh['last_run_at'] != stale['last_run_at']
+    again = fire(store, fresh)
     [event] = schedule_events(store)
     assert first == again == ('succeeded', f'Recorded event {event["id"]}.')
 
