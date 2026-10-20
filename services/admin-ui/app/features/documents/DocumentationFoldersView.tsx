@@ -46,13 +46,10 @@ export default function DocumentationFoldersView() {
   }, []);
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Documentation folders</h1>
-        <p className="text-muted-foreground">
-          Folders in the generated documents folder{data?.generated_folder ? ` (${data.generated_folder})` : ""}. To
-          make a folder searchable, create a collection with it in RAG → Collections.
-        </p>
-      </div>
+      <p className="text-muted-foreground">
+        Folders in the generated documents folder{data?.generated_folder ? ` (${data.generated_folder})` : ""}. To make
+        a folder searchable, create a collection with it in RAG → Collections.
+      </p>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
