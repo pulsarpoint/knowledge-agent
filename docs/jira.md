@@ -91,7 +91,8 @@ cannot open; see the comment on the control page.
 ### Testing answers as comments
 
 1. `make jira-mock-up`, then save the mock connection in Jira Settings (above) and fetch tickets once.
-2. Create a Jira auto pull schedule (Administration → Schedules); its first run records `jira.ticket.created` for the
+2. Create a Jira auto pull schedule (Administration → Schedules → New schedule → Jira tickets, with its own JQL and
+   number of tickets if needed); its first run records `jira.ticket.created` for the
    tickets it pulls, before any handler exists.
 3. Add a Send to agent handler for `jira.ticket.updated` with **Also post the answer as a comment on the Jira
    ticket**.

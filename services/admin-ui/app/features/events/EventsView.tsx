@@ -303,7 +303,7 @@ export default function EventsView() {
             <EmptyDescription>
               {filtered
                 ? "No events match these filters."
-                : "No events yet. Turn on Jira → Auto pull to record ticket changes."}
+                : "No events yet. Add a Jira tickets schedule in Administration → Schedules to record ticket changes."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

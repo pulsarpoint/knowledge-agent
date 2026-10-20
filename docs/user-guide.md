@@ -164,7 +164,7 @@ General conventions throughout the admin app:
 | Administration | Storage · Prompts · Skills · MCP servers · Agent runs · Schedules · Events · Notifications · Memory |
 | Agents | All agents |
 | LLM Settings | Models |
-| Jira | Tickets · Auto pull · Settings |
+| Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers · System map |
 | Code | Projects · Code graphs |
 | Docs | Documents · Folders |
@@ -496,10 +496,11 @@ For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
 (75 demo tickets). Stop with `make jira-mock-down`.
 
-**Auto pull.** Jira → Auto pull fetches tickets on a timetable with its own query and ticket limit (separate from the
-query on Jira → Tickets). Switch on **Pull tickets automatically**, enter the JQL and number of tickets, pick how often
-(a preset or a custom cron expression) and the time zone, check the preview of the next runs, and **Save**. The page
-shows the last pull and the next one; **Run now** pulls at once. Jira → Tickets shows a one-line summary. Jira → Tickets always shows the tickets from the
+**Auto pull.** The automatic pull is a schedule, set on Administration → Schedules (4.16): **New schedule** → Jira
+tickets, with its own query and number of tickets (separate from the query on Jira → Tickets; left empty, the query and
+number of the last manual fetch are used, or 25 tickets), how often and the time zone. **Edit** there changes them;
+**Run now** pulls at once. Jira → Tickets shows a one-line summary (off, or how often and the next pull) with a link to
+the Schedules page. Jira → Tickets always shows the tickets from the
 most recent pull, manual or automatic; its query box keeps your manual query. A failed pull is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Each scheduled pull also
 records an event for every ticket that is new or changed since its last pull (see Administration → Events); the manual
 Fetch tickets does not.
@@ -798,11 +799,14 @@ Records are kept until deleted; only administrators can see them.
 
 ### 4.16 Schedules
 
-Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull). **New schedule**
-creates one: choose what to run (today: Jira tickets, which uses the query from Jira → Auto pull) and when. **Delete**
+Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull) and is the only place
+to set it up. **New schedule** creates one: choose what to run (today: Jira tickets, with its **Jira query (JQL)** and
+**Number of tickets**, 1–200; empty fields use the query and number of the last manual fetch on Jira → Tickets, or 25
+tickets) and when. **Delete**
 removes a schedule and its history. Each row shows what
 it runs, when (in plain words and its time zone), the next run and the last result. Switch a schedule off to pause it;
-**Run now** runs it once (a paused schedule stays paused); **Edit** changes the timetable: a preset or a custom cron
+**Run now** runs it once (a paused schedule stays paused); **Edit** changes the Jira query and number of tickets and the
+timetable: a preset or a custom cron
 expression (minute, hour, day of month, month, day of week), the time zone, with a preview of the next three runs.
 Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Schedules are run by the
 `repository-worker` service; after downtime a missed schedule runs once, not once per missed time.
@@ -811,7 +815,7 @@ Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Sch
 
 Administration → Events lists what happened at your sources and what handlers made of it: Time, Source, Type,
 Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.20) and Manual. For Jira:
-every scheduled pull (Jira → Auto pull, or Run now) records **Ticket created** for a ticket it sees for the first time
+every scheduled pull (the Jira tickets schedule on Administration → Schedules, or Run now) records **Ticket created** for a ticket it sees for the first time
 and **Ticket updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type,
 summary, description). The very first pull records every ticket it fetches. Events a handler emitted have the source
 **Handler** (see 4.18).

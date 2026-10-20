@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import JiraSettingsView from "~/features/jira/JiraSettingsView";
 import JiraTicketsView from "~/features/jira/JiraTicketsView";
 import type { JiraConnection, JiraTickets } from "~/features/jira/api";
-import type { AutoPull, Schedule } from "~/features/events/schedules";
+import type { Schedule } from "~/features/events/schedules";
 
 const connection: JiraConnection = {
   id: "jira-1",
@@ -248,7 +248,7 @@ test("JQL is submitted and filtering the saved list limits bulk selection", asyn
   fireEvent.click(screen.getByRole("button", { name: "Fetch tickets" }));
   const jiraCalls = () =>
     (fetch.mock.calls as unknown as [string, RequestInit][]).filter(
-      ([url]) => !url.includes("/api/rag/") && url !== "/api/jira/auto-pull",
+      ([url]) => !url.includes("/api/rag/") && url !== "/api/schedules",
     );
   await waitFor(() => expect(jiraCalls()).toHaveLength(2));
   expect(JSON.parse(jiraCalls()[1][1].body as string).jql).toBe("project = DEMO");
@@ -387,34 +387,39 @@ const pullSchedule: Schedule = {
   params: {},
 };
 
-function ticketsApi(autoPull: AutoPull | Record<string, unknown>) {
+function ticketsApi(schedules: unknown) {
   const fetch = vi.fn(async (url: string) => {
-    if (url === "/api/jira/auto-pull") return new Response(JSON.stringify(autoPull));
+    if (url === "/api/schedules") return new Response(JSON.stringify(schedules));
     return new Response(JSON.stringify(snapshot));
   });
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
 
-test("tickets show the auto pull status and link to its settings", async () => {
-  ticketsApi({ schedule: pullSchedule, jql: "project = DEMO", limit: 10, connected: true });
+test("tickets show the auto pull status and link to the Schedules page", async () => {
+  const fetch = ticketsApi({ schedules: [pullSchedule] });
   render(
     <MemoryRouter>
       <JiraTicketsView />
     </MemoryRouter>,
   );
   expect(await screen.findByText(/Auto pull: Every 15 minutes/)).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Auto pull settings" })).toHaveAttribute("href", "/jira/auto-pull");
+  expect(screen.getByRole("link", { name: "Edit in Schedules" })).toHaveAttribute("href", "/schedules");
+  expect(fetch.mock.calls.some(([url]) => url === "/api/jira/auto-pull")).toBe(false);
 });
 
 test("tickets say when auto pull is off", async () => {
-  ticketsApi({ schedule: null, jql: "project = DEMO", limit: 10, connected: true });
-  render(
-    <MemoryRouter>
-      <JiraTicketsView />
-    </MemoryRouter>,
-  );
-  expect(await screen.findByText(/Auto pull is off/)).toBeInTheDocument();
+  for (const schedules of [[], [{ ...pullSchedule, enabled: false }]]) {
+    ticketsApi({ schedules });
+    const { unmount } = render(
+      <MemoryRouter>
+        <JiraTicketsView />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/Auto pull is off/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Edit in Schedules" })).toHaveAttribute("href", "/schedules");
+    unmount();
+  }
 });
 
 test("auto pull status stays hidden on an unexpected response", async () => {

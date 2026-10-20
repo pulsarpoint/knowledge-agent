@@ -1,4 +1,4 @@
-"""Administration → Schedules and Jira → Auto pull: create, list, edit, pause, run and delete schedules. repository-worker
+"""Administration → Schedules: create, list, edit, pause, run and delete schedules. repository-worker
 runs them (scheduler.py); this API only changes their rows."""
 
 from datetime import UTC, datetime
@@ -34,8 +34,10 @@ class Timetable(BaseModel):
     timezone: str = Field(min_length=1, max_length=100)
 
 
-class AutoPullInput(Timetable):
-    enabled: bool
+class JiraPullParams(BaseModel):
+    """What a jira.pull schedule fetches; a missing value keeps the stored one (or the connection's on create)."""
+
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     jql: str | None = Field(default=None, min_length=1, max_length=4000)
     limit: int | None = Field(default=None, ge=1, le=200, strict=True)
 
@@ -43,11 +45,13 @@ class AutoPullInput(Timetable):
 class ScheduleInput(Timetable):
     enabled: bool
     revision: int = Field(ge=1, strict=True)
+    params: JiraPullParams | None = None
 
 
 class NewSchedule(Timetable):
     target_kind: Literal['jira.pull']
     enabled: bool
+    params: JiraPullParams = JiraPullParams()
 
 
 def shown(row: dict) -> dict:
@@ -69,6 +73,10 @@ def jira_defaults(connection: dict) -> dict:
     return {'jql': connection['jql'], 'limit': connection['last_fetch_limit'] or DEFAULT_LIMIT}
 
 
+def merged(params: dict, change: JiraPullParams | None) -> dict:
+    return {**params, **(change.model_dump(exclude_none=True) if change else {})}
+
+
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
@@ -78,26 +86,12 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         actor = database().actor(conn, *request_actor(request))
         write_audit(conn, project, actor, action, 'schedule', schedule_id, details)
 
-    def jira_state(conn, project: UUID) -> tuple[dict | None, dict]:
-        connection = conn.execute(
+    def jira_connection(conn, project: UUID) -> dict | None:
+        return conn.execute(
             """SELECT id,jql,last_fetch_limit FROM ka.jira_connections
             WHERE project_id=%s AND name='primary'""",
             (project,),
         ).fetchone()
-        if connection is None:
-            return None, {'schedule': None, 'jql': None, 'limit': None, 'connected': False}
-        row = conn.execute(
-            f"""SELECT {FIELDS} FROM ka.schedules WHERE project_id=%s AND target_kind='jira.pull'
-            AND target_id=%s""",
-            (project, connection['id']),
-        ).fetchone()
-        params = row['params'] if row else {}
-        return connection, {
-            'schedule': shown(row) if row else None,
-            'jql': params.get('jql') or connection['jql'],
-            'limit': params.get('limit') or connection['last_fetch_limit'] or DEFAULT_LIMIT,
-            'connected': True,
-        }
 
     @router.get('/schedules')
     def list_schedules() -> dict:
@@ -136,7 +130,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         checked(value)
         db = database()
         with workspace(db, app) as (conn, project):
-            connection, _ = jira_state(conn, project)
+            connection = jira_connection(conn, project)
             if connection is None:
                 raise HTTPException(400, NO_JIRA)
             row = conn.execute(
@@ -151,7 +145,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     value.timezone,
                     value.enabled,
                     first_run(value),
-                    Jsonb(jira_defaults(connection)),
+                    Jsonb(merged(jira_defaults(connection), value.params)),
                 ),
             ).fetchone()
             if row is None:
@@ -167,6 +161,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     'cron': value.cron,
                     'timezone': value.timezone,
                     'enabled': value.enabled,
+                    **row['params'],
                 },
             )
         return {'schedule': shown(row)}
@@ -197,7 +192,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with workspace(db, app) as (conn, project):
             current = conn.execute(
-                """SELECT revision,run_requested,next_run_at FROM ka.schedules
+                """SELECT revision,run_requested,next_run_at,params FROM ka.schedules
                 WHERE id=%s AND project_id=%s FOR UPDATE""",
                 (schedule_id, project),
             ).fetchone()
@@ -206,10 +201,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
             next_run = current['next_run_at'] if current['run_requested'] else first_run(value)
+            params = merged(current['params'], value.params)
             row = conn.execute(
-                f"""UPDATE ka.schedules SET cron=%s,timezone=%s,enabled=%s,next_run_at=%s,
+                f"""UPDATE ka.schedules SET cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
                 revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",
-                (value.cron, value.timezone, value.enabled, next_run, schedule_id),
+                (value.cron, value.timezone, value.enabled, next_run, Jsonb(params), schedule_id),
             ).fetchone()
             audit(
                 conn,
@@ -217,7 +213,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 request,
                 'schedule.saved',
                 schedule_id,
-                {'cron': value.cron, 'timezone': value.timezone, 'enabled': value.enabled},
+                {'cron': value.cron, 'timezone': value.timezone, 'enabled': value.enabled, **params},
             )
         return {'schedule': shown(row)}
 
@@ -241,49 +237,5 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             ).fetchone()
             audit(conn, project, request, 'schedule.run_requested', schedule_id, {})
         return {'schedule': shown(row)}
-
-    @router.get('/jira/auto-pull')
-    def auto_pull() -> dict:
-        db = database()
-        with db.connect() as conn:
-            return jira_state(conn, db.project(conn, app))[1]
-
-    @router.put('/jira/auto-pull')
-    def save_auto_pull(value: AutoPullInput, request: Request) -> dict:
-        checked(value)
-        db = database()
-        with workspace(db, app) as (conn, project):
-            connection, current = jira_state(conn, project)
-            if connection is None:
-                raise HTTPException(400, NO_JIRA)
-            params = {'jql': value.jql or current['jql'], 'limit': value.limit or current['limit']}
-            schedule = conn.execute(
-                """INSERT INTO ka.schedules(project_id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,params)
-                VALUES (%s,%s,'jira.pull',%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (project_id,target_kind,target_id) DO UPDATE SET cron=EXCLUDED.cron,timezone=EXCLUDED.timezone,
-                    enabled=EXCLUDED.enabled,params=EXCLUDED.params,
-                    next_run_at=CASE WHEN schedules.run_requested THEN schedules.next_run_at ELSE EXCLUDED.next_run_at END,
-                    revision=schedules.revision+1,updated_at=now()
-                RETURNING id""",
-                (
-                    project,
-                    JIRA_PULL,
-                    connection['id'],
-                    value.cron,
-                    value.timezone,
-                    value.enabled,
-                    first_run(value),
-                    Jsonb(params),
-                ),
-            ).fetchone()
-            audit(
-                conn,
-                project,
-                request,
-                'schedule.saved',
-                schedule['id'],
-                {'cron': value.cron, 'timezone': value.timezone, 'enabled': value.enabled, **params},
-            )
-            return jira_state(conn, project)[1]
 
     return router

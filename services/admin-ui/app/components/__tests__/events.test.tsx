@@ -281,7 +281,9 @@ test("empty state", async () => {
   });
   view();
   expect(
-    await screen.findByText("No events yet. Turn on Jira → Auto pull to record ticket changes."),
+    await screen.findByText(
+      "No events yet. Add a Jira tickets schedule in Administration → Schedules to record ticket changes.",
+    ),
   ).toBeInTheDocument();
 });
 

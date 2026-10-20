@@ -1,4 +1,4 @@
-"""Administration → Schedules and the Jira auto pull card."""
+"""Administration → Schedules: the only editor of the Jira pull schedule."""
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -16,51 +16,30 @@ def error(response) -> str:
     return response.json()['error']['message']
 
 
-def enable(client) -> dict:
-    response = client.put('/api/jira/auto-pull', headers=HEADERS, json=ON)
-    assert response.status_code == 200, response.text
+def enable(client, **params) -> dict:
+    body = {**ON, 'target_kind': 'jira.pull', **({'params': params} if params else {})}
+    response = client.post('/api/schedules', headers=HEADERS, json=body)
+    assert response.status_code == 201, response.text
     return response.json()['schedule']
 
 
-def test_auto_pull_needs_jira_settings(store, tmp_path):
-    client = _client(tmp_path, repository_store=store)
-    assert client.get('/api/jira/auto-pull', headers=HEADERS).json() == {
-        'schedule': None,
-        'jql': None,
-        'limit': None,
-        'connected': False,
-    }
-    refused = client.put('/api/jira/auto-pull', headers=HEADERS, json=ON)
-    assert refused.status_code == 400 and error(refused) == 'Save Jira settings first.'
-
-
-def test_turning_auto_pull_on_creates_the_schedule(store, tmp_path):
-    client, config = setup(store, tmp_path)
-    schedule = enable(client)
-    assert (
-        schedule['name'] == 'Jira auto pull'
-        and schedule['target_kind'] == 'jira.pull'
-        and schedule['target_id'] == config['id']
+def edit(client, schedule: dict, **changes):
+    value = {'cron': schedule['cron'], 'timezone': schedule['timezone'], 'enabled': schedule['enabled']}
+    return client.put(
+        f'/api/schedules/{schedule["id"]}', headers=HEADERS, json={**value, 'revision': schedule['revision'], **changes}
     )
-    assert schedule['description'] == 'Every 15 minutes' and schedule['timezone'] == 'Europe/Belgrade'
-    assert schedule['enabled'] is True and schedule['running'] is False and schedule['next_run_at'] is not None
-    state = client.get('/api/jira/auto-pull', headers=HEADERS).json()
-    assert (
-        state['jql'] == 'ORDER BY updated DESC, key DESC'
-        and state['limit'] == 25
-        and state['schedule']['id'] == schedule['id']
-    )
-    assert [s['id'] for s in client.get('/api/schedules', headers=HEADERS).json()['schedules']] == [schedule['id']]
-    with store.connect() as conn:
-        assert (
-            conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='schedule.saved'").fetchone()['n'] == 1
-        )
 
 
-def test_turning_auto_pull_off_keeps_the_schedule_paused(store, tmp_path):
+def test_the_auto_pull_page_api_is_gone(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    assert client.get('/api/jira/auto-pull', headers=HEADERS).status_code == 404
+    assert client.put('/api/jira/auto-pull', headers=HEADERS, json=ON).status_code in (404, 405)
+
+
+def test_pausing_keeps_the_schedule(store, tmp_path):
     client, _ = setup(store, tmp_path)
     first = enable(client)
-    off = client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'enabled': False}).json()['schedule']
+    off = edit(client, first, enabled=False).json()['schedule']
     assert off['id'] == first['id'] and off['enabled'] is False and off['next_run_at'] is None and off['revision'] == 2
 
 
@@ -72,8 +51,10 @@ def test_bad_timetables_are_refused(store, tmp_path):
         ('0 * * * *', 'Mars/Base', BAD_TIMEZONE),
     ]:
         for response in [
-            client.put(
-                '/api/jira/auto-pull', headers=HEADERS, json={'enabled': True, 'cron': cron, 'timezone': timezone}
+            client.post(
+                '/api/schedules',
+                headers=HEADERS,
+                json={'target_kind': 'jira.pull', 'enabled': True, 'cron': cron, 'timezone': timezone},
             ),
             client.post('/api/schedules/preview', headers=HEADERS, json={'cron': cron, 'timezone': timezone}),
         ]:
@@ -111,7 +92,7 @@ def test_editing_checks_the_revision(store, tmp_path):
 def test_run_now_and_history(store, tmp_path):
     client, _ = setup(store, tmp_path)
     schedule = enable(client)
-    paused = client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'enabled': False}).json()['schedule']
+    paused = edit(client, schedule, enabled=False).json()['schedule']
     requested = client.post(f'/api/schedules/{paused["id"]}/run', headers=HEADERS)
     assert requested.status_code == 200
     assert datetime.fromisoformat(requested.json()['schedule']['next_run_at']) <= datetime.now(UTC) + timedelta(
@@ -146,28 +127,68 @@ def test_run_now_is_refused_while_running(store, tmp_path):
     assert busy.status_code == 409 and error(busy) == 'This schedule is already running.'
 
 
-def test_auto_pull_saves_its_own_query_and_limit(store, tmp_path):
+def test_create_saves_the_jira_query_and_limit(store, tmp_path):
     client, _ = setup(store, tmp_path)
-    saved = client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'jql': 'project = AUTO', 'limit': 40}).json()
-    assert saved['connected'] is True and saved['jql'] == 'project = AUTO' and saved['limit'] == 40
-    assert saved['schedule']['params'] == {'jql': 'project = AUTO', 'limit': 40}
-    assert client.get('/api/jira/auto-pull', headers=HEADERS).json()['jql'] == 'project = AUTO'
+    schedule = enable(client, jql='  project = AUTO  ', limit=40)
+    assert schedule['params'] == {'jql': 'project = AUTO', 'limit': 40}
+    assert client.get('/api/schedules', headers=HEADERS).json()['schedules'][0]['params'] == schedule['params']
 
 
-def test_auto_pull_without_query_keeps_the_stored_one(store, tmp_path):
+def test_editing_saves_the_jira_query_and_limit(store, tmp_path):
     client, _ = setup(store, tmp_path)
-    client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'jql': 'project = AUTO', 'limit': 40})
-    again = client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'cron': '0 * * * *'}).json()
-    assert (
-        again['schedule']['params'] == {'jql': 'project = AUTO', 'limit': 40}
-        and again['schedule']['description'] == 'Every hour'
-    )
+    schedule = enable(client)
+    saved = edit(client, schedule, params={'jql': 'project = AUTO', 'limit': 40})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['schedule']['params'] == {'jql': 'project = AUTO', 'limit': 40}
+    with store.connect() as conn:
+        details = conn.execute(
+            "SELECT details FROM ka.audit_events WHERE action='schedule.saved' ORDER BY id DESC LIMIT 1"
+        ).fetchone()['details']
+    assert details['jql'] == 'project = AUTO' and details['limit'] == 40
 
 
-def test_auto_pull_query_and_limit_are_checked(store, tmp_path):
+def test_editing_without_params_keeps_the_stored_ones(store, tmp_path):
     client, _ = setup(store, tmp_path)
-    for bad in [{'jql': ''}, {'jql': 'x' * 4001}, {'limit': 0}, {'limit': 201}, {'limit': '10'}]:
-        assert client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, **bad}).status_code in (400, 422)
+    schedule = enable(client, jql='project = AUTO', limit=40)
+    again = edit(client, schedule, cron='0 * * * *').json()['schedule']
+    assert again['params'] == {'jql': 'project = AUTO', 'limit': 40} and again['description'] == 'Every hour'
+    only_limit = edit(client, again, params={'limit': 10}).json()['schedule']
+    assert only_limit['params'] == {'jql': 'project = AUTO', 'limit': 10}
+
+
+def test_jira_query_and_limit_are_checked(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    schedule = enable(client)
+    for bad in [
+        {'jql': ''},
+        {'jql': '   '},
+        {'jql': 'x' * 4001},
+        {'limit': 0},
+        {'limit': 201},
+        {'limit': '10'},
+        {'x': 1},
+    ]:
+        body = {**ON, 'target_kind': 'jira.pull', 'params': bad}
+        assert client.post('/api/schedules', headers=HEADERS, json=body).status_code in (400, 422), bad
+        assert edit(client, schedule, params=bad).status_code in (400, 422), bad
+    assert client.get('/api/schedules', headers=HEADERS).json()['schedules'][0]['params'] == {
+        'jql': 'ORDER BY updated DESC, key DESC',
+        'limit': 25,
+    }
+
+
+def test_the_run_uses_the_saved_query_and_limit(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    schedule = enable(client, jql='project = AUTO', limit=7)
+    client.post(f'/api/schedules/{schedule["id"]}/run', headers=HEADERS)
+    seen = []
+
+    def pull(store, claimed):
+        seen.append(claimed['params'])
+        return 'succeeded', 'ok'
+
+    assert scheduler.run_once(store, {'jira.pull': pull}) is True
+    assert seen == [{'jql': 'project = AUTO', 'limit': 7}]
 
 
 def test_create_jira_schedule_copies_the_connection_defaults(store, tmp_path):

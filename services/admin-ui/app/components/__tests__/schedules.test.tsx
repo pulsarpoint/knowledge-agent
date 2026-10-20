@@ -59,9 +59,7 @@ test("lists schedules with their timetable and last result", async () => {
 test("shows the empty state", async () => {
   api({ "GET /api/schedules": () => [200, { schedules: [] }] });
   view();
-  expect(
-    await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull."),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
 });
 
 test("new schedule creates a Jira pull", async () => {
@@ -82,7 +80,27 @@ test("new schedule creates a Jira pull", async () => {
     cron: "*/15 * * * *",
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     enabled: true,
+    params: {},
   });
+});
+
+test("new Jira schedule saves its own query and number of tickets", async () => {
+  const user = userEvent.setup();
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "POST /api/schedules": () => [201, { schedule }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  const jql = screen.getByLabelText("Jira query (JQL)");
+  expect(jql).toHaveValue("");
+  expect(screen.getByText(/Leave empty to use the query of the last fetch on Jira → Tickets/)).toBeInTheDocument();
+  await user.type(jql, "  project = AUTO ");
+  await user.type(screen.getByLabelText("Number of tickets"), "40");
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Create" }));
+  await waitFor(() => expect(body(fetch, "POST /api/schedules").params).toEqual({ jql: "project = AUTO", limit: 40 }));
 });
 
 test("new schedule says when every target is taken", async () => {
@@ -104,9 +122,7 @@ test("delete asks first and removes the row", async () => {
   expect(screen.getByText("Delete schedule Jira auto pull?")).toBeInTheDocument();
   expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
-  expect(
-    await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull."),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
 
@@ -130,9 +146,7 @@ test("a double click on Delete sends one request and keeps the title", async () 
   await user.dblClick(confirm);
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   release();
-  expect(
-    await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull."),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
   expect(screen.queryByText("Delete schedule ?")).not.toBeInTheDocument();
 });
@@ -193,6 +207,31 @@ test("history lists the newest runs", async () => {
   expect(await screen.findByText(/Run now · Failed · Could not reach Jira\./)).toBeInTheDocument();
 });
 
+test("editor shows and saves the Jira query and number of tickets", async () => {
+  const user = userEvent.setup();
+  const stored = { ...schedule, params: { jql: "project = DEMO", limit: 30 } };
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [stored] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "PUT /api/schedules/s-1": () => [200, { schedule: { ...stored, revision: 4 } }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  const jql = screen.getByLabelText("Jira query (JQL)");
+  const limit = screen.getByLabelText("Number of tickets");
+  expect(jql).toHaveValue("project = DEMO");
+  expect(limit).toHaveValue(30);
+  await user.clear(jql);
+  await user.type(jql, "project = AUTO");
+  await user.clear(limit);
+  await user.type(limit, "50");
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(body(fetch, "PUT /api/schedules/s-1").params).toEqual({ jql: "project = AUTO", limit: 50 }),
+  );
+});
+
 test("editor previews a custom cron, shows errors under the field and saves", async () => {
   const user = userEvent.setup();
   const fetch = api({
@@ -225,6 +264,7 @@ test("editor previews a custom cron, shows errors under the field and saves", as
       timezone: "Europe/Belgrade",
       enabled: true,
       revision: 3,
+      params: {},
     }),
   );
   expect(await screen.findByText("0 7 * * 1-5")).toBeInTheDocument();

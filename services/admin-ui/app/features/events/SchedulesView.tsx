@@ -149,9 +149,7 @@ export default function SchedulesView() {
               <CalendarClock />
             </EmptyMedia>
             <EmptyTitle>Schedules</EmptyTitle>
-            <EmptyDescription>
-              No schedules yet. Create one with New schedule, or set up Jira → Auto pull.
-            </EmptyDescription>
+            <EmptyDescription>No schedules yet. Create one with New schedule.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       )}

@@ -93,7 +93,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const systemMap = pathname === "/system-map";
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;
-  const jiraAutoPull = pathname === "/jira/auto-pull";
   const agentPage = pathname === "/agents" || pathname.startsWith("/agents/");
   const ragPages = [
     {
@@ -182,9 +181,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                           ? "Jira Settings"
                                           : jiraTickets
                                             ? "Jira Tickets"
-                                            : jiraAutoPull
-                                              ? "Jira Auto pull"
-                                              : "Administration";
+                                            : "Administration";
   const description = promptsPage
     ? "Reusable instructions for agents, organised by tags."
     : notificationsPage
@@ -227,9 +224,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                           ? "Configure access to your Jira Data Center server and test the connection."
                                           : jiraTickets
                                             ? "Filter Jira tickets and export their content to RAG."
-                                            : jiraAutoPull
-                                              ? "Pull Jira tickets on a timetable with their own query."
-                                              : "";
+                                            : "";
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -360,14 +355,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <Link to={`/jira/tickets`}>
                     <Ticket />
                     <span>Tickets</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={jiraAutoPull}>
-                  <Link to="/jira/auto-pull">
-                    <CalendarClock />
-                    <span>Auto pull</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

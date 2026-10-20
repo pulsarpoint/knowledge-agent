@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { DEFAULT_CRON, TARGETS, browserTimeZone, createSchedule, type Schedule } from "./schedules";
 import TimetableFields, { type Timetable } from "./TimetableFields";
+import JiraPullFields, { jiraPullParams, type JiraPull } from "./JiraPullFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
@@ -25,6 +26,7 @@ export default function NewScheduleSheet({
   const [target, setTarget] = useState(free[0] ?? "");
   const [timetable, setTimetable] = useState<Timetable>({ cron: DEFAULT_CRON, timezone: browserTimeZone() });
   const [enabled, setEnabled] = useState(true);
+  const [pull, setPull] = useState<JiraPull>({ jql: "", limit: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -41,6 +43,7 @@ export default function NewScheduleSheet({
             cron: timetable.cron.trim(),
             timezone: timetable.timezone,
             enabled,
+            params: target === "jira.pull" ? jiraPullParams(pull) : {},
           })
         ).schedule,
       );
@@ -85,6 +88,7 @@ export default function NewScheduleSheet({
                   </SelectContent>
                 </Select>
               </Field>
+              {target === "jira.pull" && <JiraPullFields id="new-schedule" value={pull} onChange={setPull} />}
               <TimetableFields id="new-schedule" value={timetable} onChange={setTimetable} onProblem={setProblem} />
               <Field orientation="horizontal">
                 <Switch id="new-schedule-enabled" checked={enabled} onCheckedChange={setEnabled} />

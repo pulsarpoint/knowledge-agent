@@ -27,20 +27,16 @@ export interface ScheduleRun {
   status: RunStatus;
   message: string;
 }
+/** What a jira.pull schedule fetches; a missing value keeps the stored one. */
+export interface JiraPullParams {
+  jql?: string;
+  limit?: number;
+}
 export interface ScheduleInput {
   cron: string;
   timezone: string;
   enabled: boolean;
-}
-export interface AutoPullInput extends ScheduleInput {
-  jql: string;
-  limit: number;
-}
-export interface AutoPull {
-  schedule: Schedule | null;
-  jql: string | null;
-  limit: number | null;
-  connected: boolean;
+  params?: JiraPullParams;
 }
 
 export const PRESETS = [
@@ -76,8 +72,6 @@ export const deleteSchedule = (id: string) => request<void>(path(id), { method: 
 export const runSchedule = (id: string) => request<{ schedule: Schedule }>(`${path(id)}/run`, { method: "POST" });
 export const previewSchedule = (cron: string, timezone: string) =>
   request<{ runs: string[] }>("/api/schedules/preview", send("POST", { cron, timezone }));
-export const getAutoPull = (signal?: AbortSignal) => request<AutoPull>("/api/jira/auto-pull", { signal });
-export const saveAutoPull = (value: AutoPullInput) => request<AutoPull>("/api/jira/auto-pull", send("PUT", value));
 
 export function browserTimeZone(): string {
   try {
