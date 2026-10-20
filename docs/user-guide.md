@@ -807,7 +807,9 @@ sessions, earlier test chats, document runs and the earlier Generate documents s
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
 characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
-can also filter by user. **Full record** links lead here from each reply in an agent's Test tab and from each
+can also filter by agent, by status (Working, Completed, Failed, Stopped) and by user (part of the email, press Enter).
+Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
+/ **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Test tab and from each
 document run turn.
 Records are kept until deleted; only administrators can see them.
 

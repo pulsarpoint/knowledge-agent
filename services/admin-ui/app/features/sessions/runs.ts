@@ -59,23 +59,28 @@ export interface RunRecord {
   events: RunEvent[];
   tool_counts?: ToolCount[];
 }
-export interface RunFilters {
-  kind?: string;
-  agent_id?: string;
-  user?: string;
-  key_prefix?: string;
-  before?: number;
+/** The listing's URL search params, in request order; each has a default left out of the URL. */
+export const RUN_PARAMS = ["kind", "agent_id", "status", "user", "key_prefix", "sort", "order", "page", "page_size"];
+export const RUN_DEFAULTS: Record<string, string> = { sort: "started", order: "desc", page: "1", page_size: "50" };
+export interface RunPage {
+  runs: RunSummary[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export const runPath = (runKey: string, callId?: string) =>
   `/activity/runs/${encodeURIComponent(runKey)}${callId ? `?call=${encodeURIComponent(callId)}` : ""}`;
 
-export function getRuns(filters: RunFilters, signal?: AbortSignal) {
+/** One page of runs for the listing's search params; empty and default values are not sent. */
+export function getRuns(search: URLSearchParams, signal?: AbortSignal) {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters))
-    if (value !== undefined && value !== "") params.set(key, String(value));
+  for (const key of RUN_PARAMS) {
+    const value = search.get(key);
+    if (value && value !== RUN_DEFAULTS[key]) params.set(key, value);
+  }
   const query = params.toString();
-  return request<{ runs: RunSummary[]; next: number | null }>(`/api/agent-runs${query ? `?${query}` : ""}`, { signal });
+  return request<RunPage>(`/api/agent-runs${query ? `?${query}` : ""}`, { signal });
 }
 
 export const getRunRecord = (runKey: string, signal?: AbortSignal, callId?: string) =>

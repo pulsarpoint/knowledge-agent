@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { getRuns, runPath, topTools, toolUsageLine, type RunSummary } from "./runs";
+import { getRuns, RUN_DEFAULTS, runPath, topTools, toolUsageLine, type RunPage } from "./runs";
+import { getAgents, type AgentSummary } from "~/features/agents/api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -19,36 +20,64 @@ const KINDS: Record<string, string> = {
 // Kinds no longer produced, kept so old run records still read well; not offered in the filter.
 const RETIRED_KINDS: Record<string, string> = { claude_code: "Claude Code" };
 
+const STATUSES: Record<string, string> = {
+  working: "Working",
+  completed: "Completed",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+const SELECT = "h-9 rounded-md border bg-background px-2";
+
 export default function RunsView() {
   const [params, setParams] = useSearchParams();
-  const kind = params.get("kind") ?? "";
-  const user = params.get("user") ?? "";
-  const keyPrefix = params.get("key_prefix") ?? "";
-  const [before, setBefore] = useState<number | undefined>();
-  const [rows, setRows] = useState<RunSummary[] | null>(null);
-  const [next, setNext] = useState<number | null>(null);
+  const value = (key: string) => params.get(key) || RUN_DEFAULTS[key] || "";
+  const [sort, order, user, keyPrefix] = [value("sort"), value("order"), value("user"), value("key_prefix")];
+  const page = Math.max(1, Number(value("page")) || 1);
+  const pageSize = Number(value("page_size"));
+  const [data, setData] = useState<RunPage | null>(null);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [error, setError] = useState("");
+  const query = params.toString();
   useEffect(() => {
     const controller = new AbortController();
     setError("");
-    getRuns({ kind, user, key_prefix: keyPrefix, before }, controller.signal)
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setRows(data.runs);
-          setNext(data.next);
-        }
+    getRuns(new URLSearchParams(query), controller.signal)
+      .then((page) => {
+        if (!controller.signal.aborted) setData(page);
       })
       .catch((e) => {
         if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load runs");
       });
     return () => controller.abort();
-  }, [kind, user, keyPrefix, before]);
-  const update = (key: string, value: string) =>
+  }, [query]);
+  useEffect(() => {
+    getAgents()
+      .then((data) => setAgents(data.agents ?? []))
+      .catch(() => setAgents([]));
+  }, []);
+  /** Set search params (defaults and empty values leave the URL); anything but a page change goes back to page 1. */
+  const update = (changes: Record<string, string>) =>
     setParams((current) => {
-      if (value) current.set(key, value);
-      else current.delete(key);
+      if (!("page" in changes)) current.delete("page");
+      for (const [key, next] of Object.entries(changes)) {
+        if (next && next !== RUN_DEFAULTS[key]) current.set(key, next);
+        else current.delete(key);
+      }
       return current;
     });
+  const sortBy = (column: string) =>
+    update(column === sort ? { order: order === "desc" ? "asc" : "desc" } : { sort: column, order: "desc" });
+  const sortable = (column: string, label: string) => (
+    <TableHead aria-sort={sort === column ? (order === "desc" ? "descending" : "ascending") : undefined}>
+      <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => sortBy(column)}>
+        {label}
+        {sort === column && <span aria-hidden>{order === "desc" ? "↓" : "↑"}</span>}
+      </button>
+    </TableHead>
+  );
+  const rows = data?.runs ?? null;
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -56,12 +85,9 @@ export default function RunsView() {
           Run type
           <select
             aria-label="Run type"
-            className="h-9 rounded-md border bg-background px-2"
-            value={kind}
-            onChange={(e) => {
-              setBefore(undefined);
-              update("kind", e.target.value);
-            }}
+            className={SELECT}
+            value={value("kind")}
+            onChange={(e) => update({ kind: e.target.value })}
           >
             <option value="">All</option>
             {Object.entries(KINDS).map(([k, label]) => (
@@ -72,19 +98,54 @@ export default function RunsView() {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
+          Agent
+          <select
+            aria-label="Agent"
+            className={SELECT}
+            value={value("agent_id")}
+            onChange={(e) => update({ agent_id: e.target.value })}
+          >
+            <option value="">All</option>
+            {agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Status
+          <select
+            aria-label="Status"
+            className={SELECT}
+            value={value("status")}
+            onChange={(e) => update({ status: e.target.value })}
+          >
+            <option value="">All</option>
+            {Object.entries(STATUSES).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
           User
           <Input
+            key={user}
             aria-label="User"
-            placeholder="email"
+            placeholder="email contains"
             defaultValue={user}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") update({ user: e.currentTarget.value.trim() });
+            }}
             onBlur={(e) => {
-              setBefore(undefined);
-              update("user", e.target.value.trim());
+              if (e.target.value.trim() !== user) update({ user: e.target.value.trim() });
             }}
           />
         </label>
         {keyPrefix && (
-          <Button variant="outline" size="sm" onClick={() => update("key_prefix", "")}>
+          <Button variant="outline" size="sm" onClick={() => update({ key_prefix: "" })}>
             Clear run filter
           </Button>
         )}
@@ -97,7 +158,7 @@ export default function RunsView() {
         <Skeleton className="h-40 w-full" />
       ) : rows.length === 0 ? (
         <Empty className="border">
-          <EmptyDescription>No recorded runs yet.</EmptyDescription>
+          <EmptyDescription>{total > 0 ? "No runs on this page." : "No recorded runs yet."}</EmptyDescription>
         </Empty>
       ) : (
         <div className="rounded-lg border">
@@ -109,9 +170,9 @@ export default function RunsView() {
                 <TableHead>Agent</TableHead>
                 <TableHead>User</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Tokens</TableHead>
+                {sortable("tokens", "Tokens")}
                 <TableHead>Tools</TableHead>
-                <TableHead>Started</TableHead>
+                {sortable("started", "Started")}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -148,10 +209,40 @@ export default function RunsView() {
           </Table>
         </div>
       )}
-      {next !== null && (
-        <Button variant="outline" className="self-start" onClick={() => setBefore(next)}>
-          Older runs
-        </Button>
+      {data && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Page {page} of {pageCount} · {total.toLocaleString()} {total === 1 ? "run" : "runs"}
+          </span>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-muted-foreground">
+              Rows per page
+              <select
+                aria-label="Rows per page"
+                className="h-8 rounded-md border bg-background px-2 text-foreground"
+                value={String(pageSize)}
+                onChange={(e) => update({ page_size: e.target.value })}
+              >
+                {[25, 50, 100].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => update({ page: String(page - 1) })}>
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= pageCount}
+              onClick={() => update({ page: String(page + 1) })}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

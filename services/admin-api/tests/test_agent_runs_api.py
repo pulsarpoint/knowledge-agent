@@ -150,7 +150,7 @@ def test_expert_calls_are_listed_for_the_expert(store, tmp_path):
     seed_ended_and_renamed_calls(store)
     listing = client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'}).json()
     rows = listing['runs']
-    assert [r['call_id'] for r in rows] == ['e5', 'e4', 'e3', 'e2', 'e1'] and listing['next'] is None
+    assert [r['call_id'] for r in rows] == ['e5', 'e4', 'e3', 'e2', 'e1'] and listing['total'] == 5
     done = rows[4]
     assert done | {'started_at': None, 'id': None} == {
         'run_key': 'cc:s2:1',
@@ -190,10 +190,13 @@ def test_expert_calls_page_with_the_expert_runs(store, tmp_path):
     ).json()
     everything = get()
     assert [r.get('call_id', r['run_key']) for r in everything['runs']] == ['run:own', 'e3', 'e2', 'e1']
-    first = get(limit=3)
-    assert [r.get('call_id', r['run_key']) for r in first['runs']] == ['run:own', 'e3', 'e2'] and first['next']
-    second = get(limit=3, before=first['next'])
-    assert [r.get('call_id', r['run_key']) for r in second['runs']] == ['e1'] and second['next'] is None
+    assert everything['total'] == 4
+    first = get(page_size=25)
+    assert first['page'] == 1 and first['page_size'] == 25
+    assert [r['kind'] for r in get(status='working')['runs']] == ['test', 'expert_call']
+    assert [r.get('call_id') for r in get(status='failed')['runs']] == ['e2']
+    assert [r.get('call_id', r['run_key']) for r in get(order='asc')['runs']] == ['e1', 'e2', 'e3', 'run:own']
+    assert [r.get('call_id', r['run_key']) for r in get(sort='tokens')['runs']] == ['e1', 'run:own', 'e3', 'e2']
     assert [r['kind'] for r in get(kind='expert_call')['runs']] == ['expert_call'] * 3
     assert [r['run_key'] for r in get(kind='test')['runs']] == ['run:own']
 
@@ -262,3 +265,98 @@ def test_expert_call_includes_the_experts_subagents(store, tmp_path):
     record = client.get('/api/agent-runs/cc:s3:1', headers=HEADERS, params={'call': 'x1'}).json()
     assert [e['seq'] for e in record['events']] == [2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert record['tool_counts'] == [{'name': 'read_file', 'calls': 1}, {'name': 'run_subagent', 'calls': 1}]
+
+
+def seed_many(store, count):
+    """`count` runs run:0..run:{count-1}; run:i used i % 3 * 10 tokens; every third run is still working."""
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        alice = store.actor(conn, 'alice', 'Alice@Example.test')
+        bob = store.actor(conn, 'bob', 'bob@example.test')
+        for i in range(count):
+            key = f'run:{i}'
+            rows = [(1, 'start', {'kind': 'test', 'title': f'Run {i}', 'agent': 'Search'})]
+            rows.append((2, 'usage', {'total_tokens': i % 3 * 10}))
+            if i % 3:
+                rows.append((3, 'end', {'status': 'completed' if i % 3 == 1 else 'stopped'}))
+            for seq, kind, payload in rows:
+                conn.execute(
+                    """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                    VALUES (%s,%s,%s,%s,'search',%s,%s)""",
+                    (project, key, seq, kind, alice if i % 2 else bob, Jsonb(payload)),
+                )
+
+
+def test_runs_filter_by_status_and_user(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_many(store, 6)
+    keys = lambda **params: [
+        r['run_key'] for r in client.get('/api/agent-runs', headers=HEADERS, params=params).json()['runs']
+    ]
+    assert keys(status='working') == ['run:3', 'run:0']  # no end event yet
+    assert keys(status='completed') == ['run:4', 'run:1']
+    assert keys(status='stopped') == ['run:5', 'run:2']
+    assert keys(status='failed') == []
+    assert keys(user='alice@') == ['run:5', 'run:3', 'run:1']  # contains, case-insensitive
+    assert keys(user='EXAMPLE') == [f'run:{i}' for i in range(5, -1, -1)]
+    assert keys(user='carol') == []
+    assert client.get('/api/agent-runs', headers=HEADERS, params={'status': 'odd'}).status_code == 400
+
+
+def test_runs_sort_by_start_or_tokens(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_many(store, 6)
+    keys = lambda **params: [
+        r['run_key'] for r in client.get('/api/agent-runs', headers=HEADERS, params=params).json()['runs']
+    ]
+    assert keys() == keys(sort='started', order='desc') == [f'run:{i}' for i in range(5, -1, -1)]
+    assert keys(order='asc') == [f'run:{i}' for i in range(6)]
+    # tokens: 20 (run:2, run:5), 10 (run:1, run:4), 0 (run:0, run:3); ties by id in the same direction
+    assert keys(sort='tokens') == ['run:5', 'run:2', 'run:4', 'run:1', 'run:3', 'run:0']
+    assert keys(sort='tokens', order='asc') == ['run:0', 'run:3', 'run:1', 'run:4', 'run:2', 'run:5']
+    assert client.get('/api/agent-runs', headers=HEADERS, params={'sort': 'title'}).status_code == 400
+
+
+def test_runs_come_in_pages(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_many(store, 60)
+    get = lambda **params: client.get('/api/agent-runs', headers=HEADERS, params=params).json()
+    first = get()
+    assert (first['total'], first['page'], first['page_size'], len(first['runs'])) == (60, 1, 50, 50)
+    assert first['runs'][0]['run_key'] == 'run:59' and first['runs'][-1]['run_key'] == 'run:10'
+    second = get(page=2)
+    assert [r['run_key'] for r in second['runs']] == [f'run:{i}' for i in range(9, -1, -1)] and second['total'] == 60
+    small = get(page=3, page_size=25)
+    assert [r['run_key'] for r in small['runs']] == [f'run:{i}' for i in range(9, -1, -1)]
+    assert get(page=2, page_size=25)['runs'][0]['run_key'] == 'run:34'
+    beyond = get(page=4, page_size=25)
+    assert beyond['runs'] == [] and beyond['total'] == 60
+    assert get(status='working', page_size=25)['total'] == 20
+    for bad in ({'page_size': 10}, {'page_size': 200}, {'page': 0}):
+        assert client.get('/api/agent-runs', headers=HEADERS, params=bad).status_code == 400
+
+
+def test_expert_calls_are_paged_with_the_runs(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_expert_calls(store)
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        for i in range(30):
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                VALUES (%s,%s,1,'start','payments',%s)""",
+                (project, f'run:own:{i}', Jsonb({'kind': 'test', 'title': 'Own run', 'agent': 'Payments'})),
+            )
+    get = lambda **params: client.get(
+        '/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments', 'page_size': 25} | params
+    ).json()
+    first, second = get(), get(page=2)
+    assert first['total'] == second['total'] == 33
+    assert len(first['runs']) == 25 and first['runs'][0]['run_key'] == 'run:own:29'
+    assert [r.get('call_id', r['run_key']) for r in second['runs']] == [f'run:own:{i}' for i in range(4, -1, -1)] + [
+        'e3',
+        'e2',
+        'e1',
+    ]
+    assert 'call_id' not in second['runs'][0] and 'id' not in second['runs'][0]
+    assert get(order='asc')['runs'][0]['call_id'] == 'e1'

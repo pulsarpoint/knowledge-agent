@@ -2,6 +2,7 @@
 
 from collections import Counter
 from functools import partial
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -16,15 +17,14 @@ RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload-
         WHERE e.run_key=s.run_key AND e.kind='usage') AS total_tokens,
     (SELECT coalesce(jsonb_agg(jsonb_build_object('name', t.name, 'calls', t.calls) ORDER BY t.calls DESC, t.name), '[]'::jsonb)
         FROM (SELECT e.payload->>'name' AS name, count(*)::int AS calls FROM ka.agent_run_events e
-              WHERE e.run_key=s.run_key AND e.kind='tool_call' GROUP BY 1) t) AS tool_counts, s.id
+              WHERE e.run_key=s.run_key AND e.kind='tool_call' GROUP BY 1) t) AS tool_counts, s.id,
+    NULL::text AS call_id, NULL::text AS caller
     FROM ka.agent_run_events s LEFT JOIN ka.principals p ON p.id=s.actor_id
     WHERE s.kind='start' AND s.project_id=%(project)s
       AND (%(agent_id)s::text IS NULL OR s.agent_id=%(agent_id)s)
       AND (%(kind)s::text IS NULL OR s.payload->>'kind'=%(kind)s)
-      AND (%(user)s::text IS NULL OR p.email=%(user)s)
-      AND (%(key_prefix)s::text IS NULL OR starts_with(s.run_key, %(key_prefix)s))
-      AND (%(before)s::bigint IS NULL OR s.id < %(before)s)
-    ORDER BY s.id DESC LIMIT %(limit)s"""
+      AND (%(user)s::text IS NULL OR strpos(lower(p.email), lower(%(user)s)) > 0)
+      AND (%(key_prefix)s::text IS NULL OR starts_with(s.run_key, %(key_prefix)s))"""
 
 EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS agent, 'expert_call' AS kind,
     left(i.payload->>'task', 200) AS title, p.email AS "user", i.created_at AS started_at,
@@ -50,10 +50,13 @@ EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS 
         WHERE e.run_key=i.run_key AND e.kind='tool_result' AND e.payload->>'call_id'=i.payload->>'parent_call_id'
         ORDER BY e.seq DESC LIMIT 1) r ON true
     WHERE i.kind='input' AND i.agent_id=%(agent_id)s AND i.payload ? 'expert' AND i.project_id=%(project)s
-      AND (%(user)s::text IS NULL OR p.email=%(user)s)
-      AND (%(key_prefix)s::text IS NULL OR starts_with(i.run_key, %(key_prefix)s))
-      AND (%(before)s::bigint IS NULL OR i.id < %(before)s)
-    ORDER BY i.id DESC LIMIT %(limit)s"""
+      AND (%(user)s::text IS NULL OR strpos(lower(p.email), lower(%(user)s)) > 0)
+      AND (%(key_prefix)s::text IS NULL OR starts_with(i.run_key, %(key_prefix)s))"""
+
+# a run without an end event is still working
+MATCHING = """FROM ({rows}) r WHERE %(status)s::text IS NULL OR coalesce(r.status, 'working')=%(status)s"""
+SORT_COLUMNS = {'started': 'r.started_at', 'tokens': 'r.total_tokens'}
+PAGE_SIZES = (25, 50, 100)
 
 NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent_run_events e
     WHERE e.run_key=%s AND e.kind='tool_call' AND e.payload->>'parent_call_id'=%s AND e.payload->>'call_id' IS NOT NULL
@@ -70,34 +73,43 @@ def build_api(app_name: str, store) -> APIRouter:
     def runs(
         agent_id: str | None = None,
         kind: str | None = None,
+        status: Literal['working', 'completed', 'failed', 'stopped'] | None = None,
         user: str | None = None,
         key_prefix: str | None = None,
-        before: int | None = None,
-        limit: int = Query(50, ge=1, le=200),
+        sort: Literal['started', 'tokens'] = 'started',
+        order: Literal['desc', 'asc'] = 'desc',
+        page: int = Query(1, ge=1),
+        page_size: int = 50,
     ):
+        if page_size not in PAGE_SIZES:
+            raise HTTPException(400, 'Page size must be 25, 50 or 100.')
+        # expert calls of this agent from other agents' runs list with its own runs
+        rows = RUNS + (f' UNION ALL {EXPERT_CALLS}' if agent_id is not None and kind in (None, 'expert_call') else '')
+        matching = MATCHING.format(rows=rows)
+        direction = order.upper()
+        params = {
+            'agent_id': agent_id,
+            'kind': kind,
+            'status': status,
+            'user': user,
+            'key_prefix': key_prefix,
+            'limit': page_size,
+            'offset': (page - 1) * page_size,
+        }
         with database().connect() as conn:
-            params = {
-                'project': store.project(conn, app_name),
-                'agent_id': agent_id,
-                'kind': kind,
-                'user': user,
-                'key_prefix': key_prefix,
-                'before': before,
-                'limit': limit + 1,
-            }
-            rows = conn.execute(RUNS, params).fetchall()
-            if agent_id is not None and kind in (None, 'expert_call'):
-                rows = sorted(
-                    rows + conn.execute(EXPERT_CALLS, params).fetchall(), key=lambda row: row['id'], reverse=True
-                )
-        more = len(rows) > limit
-        rows = rows[:limit]
-        cursor = rows[-1]['id'] if more else None
+            params['project'] = store.project(conn, app_name)
+            total = conn.execute(f'SELECT count(*) AS n {matching}', params).fetchone()['n']
+            rows = conn.execute(
+                f"""SELECT r.* {matching} ORDER BY {SORT_COLUMNS[sort]} {direction}, r.id {direction}
+                LIMIT %(limit)s OFFSET %(offset)s""",
+                params,
+            ).fetchall()
         for row in rows:
             if row['kind'] != 'expert_call':
-                row.pop('id')
+                for key in ('id', 'call_id', 'caller'):
+                    row.pop(key)
             row['total_tokens'] = int(row['total_tokens'])
-        return {'runs': rows, 'next': cursor}
+        return {'runs': rows, 'total': total, 'page': page, 'page_size': page_size}
 
     @router.get('/{run_key}')
     def record(run_key: str, call: str | None = Query(None)):

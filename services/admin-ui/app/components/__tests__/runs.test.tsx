@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import RunsView from "~/features/sessions/RunsView";
 import RunRecordView from "~/features/sessions/RunRecordView";
@@ -9,7 +9,9 @@ const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
 const runs = {
-  next: null,
+  total: 1,
+  page: 1,
+  page_size: 50,
   runs: [
     {
       run_key: "run:1",
@@ -70,7 +72,7 @@ test("runs list and record show the tools each run used", async () => {
             ],
           })
         : json({
-            next: null,
+            total: 2,
             runs: [runs.runs[0], { ...runs.runs[0], run_key: "run:2", title: "Quiet run", tool_counts: [] }],
           }),
     ),
@@ -139,7 +141,7 @@ test("run types have readable names in the filter and the list", async () => {
     "fetch",
     vi.fn(async (_url: string) =>
       json({
-        next: null,
+        total: 3,
         runs: [
           { ...runs.runs[0], run_key: "cc:s1:1", kind: "native_session", title: "Payments API reference" },
           { ...runs.runs[0], run_key: "cc:s1:2", kind: "retired_kind", title: "Old session" },
@@ -181,7 +183,7 @@ test("runs list passes a key prefix from the URL", async () => {
     </MemoryRouter>,
   );
   await screen.findByText("How many retries?");
-  expect(fetchMock.mock.calls[0][0]).toContain("key_prefix=cc%3As1%3A");
+  expect(runCalls(fetchMock).at(-1)).toContain("key_prefix=cc%3As1%3A");
 });
 
 test("run record shows the full timeline", async () => {
@@ -273,7 +275,7 @@ test("an expert call row says who called it and opens only that call", async () 
     "fetch",
     vi.fn(async () =>
       json({
-        next: null,
+        total: 1,
         runs: [
           {
             ...runs.runs[0],
@@ -307,4 +309,109 @@ test("the record asks the API for one expert call when the link carries call", a
     </MemoryRouter>,
   );
   await waitFor(() => expect(fetchMock.mock.calls[0][0]).toBe("/api/agent-runs/run%3A9?call=e1"));
+});
+
+const runCalls = (fetchMock: { mock: { calls: unknown[][] } }) =>
+  fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.startsWith("/api/agent-runs"));
+function Where() {
+  const location = useLocation();
+  return <output aria-label="Location">{location.search}</output>;
+}
+function listing(total: number) {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === "/api/agents"
+      ? json({
+          agents: [
+            { id: "search", name: "Search agent" },
+            { id: "payments", name: "Payments" },
+          ],
+        })
+      : json({ ...runs, total }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+const renderRuns = (search = "") =>
+  render(
+    <MemoryRouter initialEntries={[`/activity/runs${search}`]}>
+      <RunsView />
+      <Where />
+    </MemoryRouter>,
+  );
+const where = () => screen.getByLabelText("Location").textContent;
+
+test("filters go into the URL and the request", async () => {
+  const fetchMock = listing(1);
+  renderRuns();
+  await screen.findByText("How many retries?");
+  expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs");
+  await screen.findByRole("option", { name: "Payments" });
+  fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "payments" } });
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "working" } });
+  const user = screen.getByLabelText("User");
+  fireEvent.change(user, { target: { value: " Alice " } });
+  fireEvent.keyDown(user, { key: "Enter" });
+  fireEvent.change(screen.getByLabelText("Rows per page"), { target: { value: "25" } });
+  await waitFor(() => expect(where()).toBe("?agent_id=payments&status=working&user=Alice&page_size=25"));
+  await waitFor(() =>
+    expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?agent_id=payments&status=working&user=Alice&page_size=25"),
+  );
+  expect(
+    within(screen.getByLabelText("Status"))
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["All", "Working", "Completed", "Failed", "Stopped"]);
+});
+
+test("Started and Tokens headers sort the list", async () => {
+  const fetchMock = listing(1);
+  renderRuns();
+  await screen.findByText("How many retries?");
+  const started = () => screen.getByRole("columnheader", { name: /Started/ });
+  const tokens = () => screen.getByRole("columnheader", { name: /Tokens/ });
+  expect(started()).toHaveAttribute("aria-sort", "descending");
+  expect(tokens()).not.toHaveAttribute("aria-sort");
+  expect(within(screen.getByRole("columnheader", { name: "Agent" })).queryByRole("button")).toBeNull();
+  fireEvent.click(within(started()).getByRole("button"));
+  await waitFor(() => expect(where()).toBe("?order=asc"));
+  expect(started()).toHaveAttribute("aria-sort", "ascending");
+  fireEvent.click(within(tokens()).getByRole("button"));
+  await waitFor(() => expect(where()).toBe("?sort=tokens"));
+  expect(tokens()).toHaveAttribute("aria-sort", "descending");
+  fireEvent.click(within(tokens()).getByRole("button"));
+  await waitFor(() => expect(where()).toBe("?sort=tokens&order=asc"));
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?sort=tokens&order=asc"));
+});
+
+test("the footer counts pages and runs and moves between pages", async () => {
+  const fetchMock = listing(1234);
+  renderRuns("?page=2");
+  expect(await screen.findByText("Page 2 of 25 · 1,234 runs")).toBeVisible();
+  expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?page=2");
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  await waitFor(() => expect(where()).toBe("?page=3"));
+  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  await waitFor(() => expect(where()).toBe("?page=2"));
+  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  await waitFor(() => expect(where()).toBe(""));
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs"));
+  expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+});
+
+test("the last page has no Next; one run is singular", async () => {
+  listing(1);
+  renderRuns();
+  expect(await screen.findByText("Page 1 of 1 · 1 run")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+});
+
+test("changing a filter goes back to the first page", async () => {
+  const fetchMock = listing(500);
+  renderRuns("?page=3&sort=tokens");
+  await screen.findByText("Page 3 of 10 · 500 runs");
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
+  await waitFor(() => expect(where()).toBe("?sort=tokens&status=failed"));
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?status=failed&sort=tokens"));
 });
