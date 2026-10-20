@@ -75,7 +75,16 @@ export const FIELD_SUGGESTIONS = [
   "payload.changes.priority.to",
   "payload.changes.labels.added",
   "payload.changes.labels.removed",
+  "payload.fired_at",
+  "payload.last_run_at",
+  "payload.trigger",
 ];
+/** A schedule's Emit event records this type; a handler runs a schedule through this condition field (equals its id). */
+export const SCHEDULE_FIRED = "schedule.fired";
+export const SCHEDULE_FIELD = "payload.schedule_id";
+/** A handler bound to a schedule: it checks payload.schedule_id equals some schedule's id. */
+export const boundToSchedule = (handler: HandlerDraft) =>
+  handler.conditions.some((c) => c.field === SCHEDULE_FIELD && c.op === "equals");
 
 const json = (method: string, value: unknown) => ({
   method,

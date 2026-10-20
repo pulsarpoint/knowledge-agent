@@ -452,3 +452,95 @@ test("a handler named in the address opens in the sheet", async () => {
   expect(within(sheet).getByText("Edit handler")).toBeInTheDocument();
   expect(within(sheet).getByLabelText("Name")).toHaveValue("Triage");
 });
+
+const emitSchedule = (id: string, name: string) => ({
+  id,
+  name,
+  target_kind: "event.emit",
+  target_id: id,
+  cron: "0 6 * * *",
+  description: "Every day at 06:00",
+  timezone: "UTC",
+  enabled: true,
+  next_run_at: null,
+  running: false,
+  last_run_at: null,
+  last_finished_at: null,
+  last_status: null,
+  last_message: null,
+  revision: 1,
+  params: {},
+  handlers: [],
+});
+
+test("the Schedule picker sets the type pattern and replaces the schedule condition", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "GET /api/schedules": {
+      schedules: [
+        emitSchedule("e-1", "Morning summary"),
+        emitSchedule("e-2", "Nightly check"),
+        { ...emitSchedule("s-1", "Jira auto pull"), target_kind: "jira.pull" },
+      ],
+    },
+    "POST /api/event-handlers": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { status: 201, body: { handler: handler() } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.type(within(sheet).getByLabelText("Name"), "Summary");
+  await user.click(within(sheet).getByRole("button", { name: "Add condition" }));
+  await user.type(within(sheet).getByLabelText("Condition 1 field"), "payload.trigger");
+  await user.type(within(sheet).getByLabelText("Condition 1 value"), "scheduled");
+  await user.click(await within(sheet).findByRole("combobox", { name: "Schedule" }));
+  expect(screen.queryByRole("option", { name: "Schedule: Jira auto pull" })).toBeNull();
+  await user.click(screen.getByRole("option", { name: "Schedule: Morning summary" }));
+  expect(within(sheet).getByLabelText("Event type")).toHaveValue("schedule.fired");
+  await user.click(within(sheet).getByRole("combobox", { name: "Schedule" }));
+  await user.click(screen.getByRole("option", { name: "Schedule: Nightly check" }));
+  expect(within(sheet).getByRole("combobox", { name: "Schedule" })).toHaveTextContent("Schedule: Nightly check");
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect([sent.type_pattern, sent.conditions]).toEqual([
+      "schedule.fired",
+      [
+        { field: "payload.trigger", op: "equals", value: "scheduled" },
+        { field: "payload.schedule_id", op: "equals", value: "e-2" },
+      ],
+    ]),
+  );
+});
+
+test("schedule payload fields are suggested for conditions", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const options = [...document.querySelectorAll("#handler-fields option")].map((o) => o.getAttribute("value"));
+  expect(options).toEqual(expect.arrayContaining(["payload.fired_at", "payload.last_run_at", "payload.trigger"]));
+});
+
+test("deleting a schedule handler says the schedule keeps recording events", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/event-handlers": {
+      handlers: [
+        handler({
+          type_pattern: "schedule.fired",
+          conditions: [{ field: "payload.schedule_id", op: "equals", value: "e-1" }],
+        }),
+      ],
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Delete Triage" }));
+  expect(
+    screen.getByText("Its run history stays on the events. The schedule keeps recording events."),
+  ).toBeInTheDocument();
+});

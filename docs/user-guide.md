@@ -815,13 +815,25 @@ Records are kept until deleted; only administrators can see them.
 
 ### 4.16 Schedules
 
-Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull) and is the only place
-to set it up. **New schedule** creates one: choose what to run (today: Jira tickets, with its **Jira query (JQL)** and
-**Number of tickets**, 1–200; empty fields use the query and number of the last manual fetch on Jira → Tickets, or 25
-tickets) and when. **Delete**
-removes a schedule and its history. Each row shows what
+Administration → Schedules lists everything that runs on a timetable and is the only place to set it up. **New
+schedule** creates one: choose what to run and when:
+
+- **Jira tickets** (one per project), with its **Jira query (JQL)** and **Number of tickets**, 1–200; empty fields use
+  the query and number of the last manual fetch on Jira → Tickets, or 25 tickets.
+- **Emit event**, with a **Name** (e.g. `Morning summary`); make as many as you like. Each run records one
+  `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.17) and the run's result says
+  `Recorded event <id>.`. The schedule itself runs no agent: an event handler (4.18) sends the event to an agent with
+  its task, and the answer goes to Notifications (4.19). The row says which handler runs it — **Handled by:
+  <name>** (opens the handler) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
+  handler**, which opens a new handler already set up for this schedule (its name, event type `schedule.fired`, the
+  condition `payload.schedule_id` equals the schedule, action Send to agent): choose the agent, write the prompt and
+  save.
+
+**Delete** removes a schedule and its history; the handlers of an Emit event schedule stay (they no longer match any
+event). Each row shows what
 it runs, when (in plain words and its time zone), the next run and the last result. Switch a schedule off to pause it;
-**Run now** runs it once (a paused schedule stays paused); **Edit** changes the Jira query and number of tickets and the
+**Run now** runs it once (a paused schedule stays paused); **Edit** changes the Jira query and number of tickets (or an
+Emit event schedule's name) and the
 timetable: a preset or a custom cron
 expression (minute, hour, day of month, month, day of week), the time zone, with a preview of the next three runs.
 Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Schedules are run by the
@@ -830,7 +842,7 @@ Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Sch
 ### 4.17 Events
 
 Administration → Events lists what happened at your sources and what handlers made of it: Time, Source, Type,
-Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.20) and Manual. For Jira:
+Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.20), Schedule (an Emit event schedule, 4.16) and Manual. For Jira:
 every scheduled pull (the Jira tickets schedule on Administration → Schedules, or Run now) records **Ticket created** for a ticket it sees for the first time
 and **Ticket updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type,
 summary, description). The very first pull records every ticket it fetches. Events a handler emitted have the source
@@ -858,7 +870,7 @@ shows **Created by hand**.
 
 Administration → Events → **Handlers** reacts to events. Every few seconds repository-worker takes each new event and
 runs every enabled handler whose **Event type** pattern matches (`*` for any part: `jira.ticket.*`, `jira.*.created`,
-or `*` for every event) and whose **Conditions** all hold. Conditions compare a field — `source` (`jira`, `memory`, `handler` or `manual`), `type`, `subject`,
+or `*` for every event) and whose **Conditions** all hold. Conditions compare a field — `source` (`jira`, `memory`, `schedule`, `handler` or `manual`), `type`, `subject`,
 `title` or `payload.<field>` such as `payload.status` — with **equals**, **does not equal**, **contains** (text or
 list item), **is one of** (comma-separated values), **matches regex** or **exists**. What changed in a Jira ticket is
 under `payload.changes`: a changed status, assignee, priority, type or summary is `{from, to}`, so compare
@@ -868,6 +880,15 @@ labels are `payload.changes.labels.added` and `.removed` (lists, use **contains*
 event also carries every comment of the ticket, whole and oldest first, in `payload.comments` (each `id`, `author`,
 `author_id`, `created`, `body`) and their number in `payload.comment_count`: a Send to agent message can answer the
 latest one with `{{ event.payload.comments[-1].body }}`.
+
+**Running a schedule.** An Emit event schedule (4.16) records `schedule.fired` with the payload `schedule_id`,
+`name`, `fired_at` (this run), `last_run_at` (the previous successful run, empty on the first) and `trigger`
+(`scheduled` or `manual` for Run now). Under **Event type** the form offers **Schedule: <name>** for each Emit event
+schedule: choosing one sets the type to `schedule.fired` and adds the condition `payload.schedule_id` **equals** the
+schedule's id (replacing an earlier schedule condition; it stays editable like any condition). Only handlers with that
+condition run the schedule, and the Schedules page lists them. Use Send to agent with a fixed agent (Agent mapped to
+the assignee and the Jira options are for Jira events only) and a prompt such as `Summarise what changed since {{
+event.payload.last_run_at }}.`. **Add handler** on the Schedules page opens this form already filled in.
 
 A handler does one thing:
 
@@ -911,7 +932,8 @@ that overruns fails with `Template took too long to render.` or `Template used t
 **Preview** renders the handler against a recent event without saving: it says whether the event matches (or which
 check failed) and shows the new event or prompt. A handler that fails — a template error, a disabled or deleted agent,
 a chain that is too deep — marks the event **Failed** and records why under **Handler runs**; other handlers on that
-event still run. Deleting a handler keeps its run history on the events.
+event still run. Deleting a handler keeps its run history on the events; a schedule it ran keeps recording events
+(the confirmation says so).
 
 ### 4.19 Notifications
 

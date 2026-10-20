@@ -23,6 +23,26 @@ const schedule: Schedule = {
   params: {},
 };
 
+const emit = (extra: Partial<Schedule> = {}): Schedule => ({
+  ...schedule,
+  id: "e-1",
+  name: "Morning summary",
+  target_kind: "event.emit",
+  target_id: "e-1",
+  cron: "0 6 * * *",
+  description: "Every day at 06:00",
+  last_message: "Recorded event 41.",
+  revision: 1,
+  handlers: [],
+  ...extra,
+});
+const AGENTS = { agents: [{ id: "tester", name: "Tester" }] };
+const SHEET = {
+  "GET /api/event-handlers/agents": () => [200, AGENTS] as [number, unknown],
+  "GET /api/events/facets": () => [200, { sources: [], types: [], statuses: [], handlers: [] }] as [number, unknown],
+  "GET /api/events": () => [200, { events: [], next_offset: null }] as [number, unknown],
+};
+
 function api(routes: Record<string, (init?: RequestInit) => [number, unknown]>) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${url}`;
@@ -103,12 +123,15 @@ test("new Jira schedule saves its own query and number of tickets", async () => 
   await waitFor(() => expect(body(fetch, "POST /api/schedules").params).toEqual({ jql: "project = AUTO", limit: 40 }));
 });
 
-test("new schedule says when every target is taken", async () => {
+test("a taken Jira pull leaves Emit event, which can have many schedules", async () => {
   const user = userEvent.setup();
-  api({ "GET /api/schedules": () => [200, { schedules: [schedule] }] });
+  api({
+    "GET /api/schedules": () => [200, { schedules: [schedule, emit()] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+  });
   view();
   await user.click(await screen.findByRole("button", { name: "New schedule" }));
-  expect(screen.getByText("Every target already has a schedule.")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "What to run" })).toHaveTextContent("Emit event");
 });
 
 test("delete asks first and removes the row", async () => {
@@ -348,4 +371,155 @@ test("a slow refresh that resolves after a pause does not revert the row", async
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("new schedule with Emit event sends its name and timing only", async () => {
+  const user = userEvent.setup();
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "POST /api/schedules": () => [201, { schedule: { ...emit(), handlers: undefined } }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  await user.click(screen.getByRole("combobox", { name: "What to run" }));
+  await user.click(screen.getByRole("option", { name: "Emit event" }));
+  expect(screen.queryByLabelText("Jira query (JQL)")).toBeNull();
+  const create = screen.getByRole("button", { name: "Create" });
+  await screen.findByText("Next runs");
+  expect(create).toBeDisabled();
+  await user.type(screen.getByLabelText("Name"), "  Morning summary ");
+  await user.click(create);
+  const row = (await screen.findByText("Morning summary")).closest("tr")!;
+  expect(within(row).getByText("Emit event")).toBeInTheDocument();
+  expect(within(row).getByText("No handler runs this schedule.")).toBeInTheDocument();
+  expect(body(fetch, "POST /api/schedules")).toEqual({
+    target_kind: "event.emit",
+    name: "Morning summary",
+    cron: "*/15 * * * *",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    enabled: true,
+  });
+});
+
+test("an emit schedule shows the handlers that run it", async () => {
+  api({
+    "GET /api/schedules": () => [
+      200,
+      {
+        schedules: [
+          emit(),
+          emit({ id: "e-2", name: "Nightly check", handlers: [{ id: "h-1", name: "Summary", enabled: true }] }),
+          emit({
+            id: "e-3",
+            name: "Weekly report",
+            handlers: [
+              { id: "h-2", name: "A", enabled: true },
+              { id: "h-3", name: "B", enabled: false },
+              { id: "h-4", name: "C", enabled: true },
+            ],
+          }),
+          schedule,
+        ],
+      },
+    ],
+  });
+  view();
+  const none = (await screen.findByText("Morning summary")).closest("tr")!;
+  expect(within(none).getByText("No handler runs this schedule.")).toBeInTheDocument();
+  expect(within(none).getByRole("button", { name: "Add handler" })).toBeInTheDocument();
+  const one = screen.getByText("Nightly check").closest("tr")!;
+  expect(within(one).getByRole("link", { name: "Handled by: Summary" })).toHaveAttribute(
+    "href",
+    "/events/handlers?handler=h-1",
+  );
+  expect(within(one).queryByRole("button", { name: "Add handler" })).toBeNull();
+  const several = screen.getByText("Weekly report").closest("tr")!;
+  expect(within(several).getByRole("link", { name: "Handled by: 3 handlers" })).toHaveAttribute(
+    "href",
+    "/events/handlers",
+  );
+  const jira = screen.getByText("Jira auto pull").closest("tr")!;
+  expect(within(jira).queryByText(/Handled by|No handler/)).toBeNull();
+});
+
+test("Add handler opens the handler sheet prefilled for the schedule and saves it", async () => {
+  const user = userEvent.setup();
+  let listed = [emit()];
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: listed }],
+    ...SHEET,
+    "POST /api/event-handlers": () => {
+      listed = [emit({ handlers: [{ id: "h-9", name: "Morning summary", enabled: true }] })];
+      return [201, { handler: { id: "h-9" } }];
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Add handler" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByLabelText("Name")).toHaveValue("Morning summary");
+  expect(within(sheet).getByLabelText("Event type")).toHaveValue("schedule.fired");
+  expect(within(sheet).getByLabelText("Condition 1 field")).toHaveValue("payload.schedule_id");
+  expect(within(sheet).getByLabelText("Condition 1 value")).toHaveValue("e-1");
+  expect(within(sheet).getByRole("combobox", { name: "Action" })).toHaveTextContent("Send to agent");
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  await user.click(await screen.findByRole("option", { name: "Tester" }));
+  await user.click(within(sheet).getByLabelText("Prompt"));
+  await user.paste("Summarise yesterday.");
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  expect(await screen.findByRole("link", { name: "Handled by: Morning summary" })).toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(body(fetch, "POST /api/event-handlers")).toEqual({
+    name: "Morning summary",
+    enabled: true,
+    type_pattern: "schedule.fired",
+    conditions: [{ field: "payload.schedule_id", op: "equals", value: "e-1" }],
+    action: "agent",
+    emit: null,
+    agent_from: "fixed",
+    agent_id: "tester",
+    prompt: "Summarise yesterday.",
+    reply_to_jira: false,
+    give_back: false,
+  });
+});
+
+test("deleting an emit schedule says its handlers stay", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/schedules": () => [200, { schedules: [emit()] }] });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  expect(
+    screen.getByText("Its history is deleted too. Its handlers stay; they no longer match any event."),
+  ).toBeInTheDocument();
+});
+
+test("editing an emit schedule saves its name; edits keep the handlers line", async () => {
+  const user = userEvent.setup();
+  const bound = emit({ handlers: [{ id: "h-1", name: "Summary", enabled: true }] });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [bound] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "PUT /api/schedules/e-1": () => [
+      200,
+      { schedule: { ...bound, name: "Daily digest", revision: 2, handlers: undefined } },
+    ],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  const name = screen.getByLabelText("Name");
+  expect(name).toHaveValue("Morning summary");
+  await user.clear(name);
+  await user.type(name, "Daily digest");
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Daily digest")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Handled by: Summary" })).toBeInTheDocument();
+  expect(body(fetch, "PUT /api/schedules/e-1")).toEqual({
+    name: "Daily digest",
+    cron: "0 6 * * *",
+    timezone: "Europe/Belgrade",
+    enabled: true,
+    revision: 1,
+  });
 });

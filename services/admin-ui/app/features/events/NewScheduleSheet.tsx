@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
-import { DEFAULT_CRON, TARGETS, browserTimeZone, createSchedule, type Schedule } from "./schedules";
+import { DEFAULT_CRON, EMIT, TARGETS, browserTimeZone, createSchedule, type Schedule } from "./schedules";
 import TimetableFields, { type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPullParams, type JiraPull } from "./JiraPullFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Spinner } from "~/components/ui/spinner";
@@ -22,8 +23,10 @@ export default function NewScheduleSheet({
   onClose: () => void;
   onCreated: (schedule: Schedule) => void;
 }) {
-  const free = Object.keys(TARGETS).filter((kind) => !taken.includes(kind));
-  const [target, setTarget] = useState(free[0] ?? "");
+  // The Jira pull has one schedule; Emit event can have any number.
+  const free = Object.keys(TARGETS).filter((kind) => kind === EMIT || !taken.includes(kind));
+  const [target, setTarget] = useState(free[0]);
+  const [name, setName] = useState("");
   const [timetable, setTimetable] = useState<Timetable>({ cron: DEFAULT_CRON, timezone: browserTimeZone() });
   const [enabled, setEnabled] = useState(true);
   const [pull, setPull] = useState<JiraPull>({ jql: "", limit: "" });
@@ -40,10 +43,11 @@ export default function NewScheduleSheet({
         (
           await createSchedule({
             target_kind: target,
+            ...(target === EMIT ? { name: name.trim() } : {}),
             cron: timetable.cron.trim(),
             timezone: timetable.timezone,
             enabled,
-            params: target === "jira.pull" ? jiraPullParams(pull) : {},
+            ...(target === "jira.pull" ? { params: jiraPullParams(pull) } : {}),
           })
         ).schedule,
       );
@@ -66,47 +70,58 @@ export default function NewScheduleSheet({
           <SheetTitle>New schedule</SheetTitle>
           <SheetDescription>Choose what to run and when.</SheetDescription>
         </SheetHeader>
-        {free.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Every target already has a schedule.</p>
-        ) : (
-          <form onSubmit={create} className="flex flex-col gap-4">
-            <FieldGroup>
+        <form onSubmit={create} className="flex flex-col gap-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="new-schedule-target">What to run</FieldLabel>
+              <Select value={target} onValueChange={setTarget}>
+                <SelectTrigger id="new-schedule-target" aria-label="What to run" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {free.map((kind) => (
+                      <SelectItem key={kind} value={kind}>
+                        {TARGETS[kind]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            {target === EMIT && (
               <Field>
-                <FieldLabel htmlFor="new-schedule-target">What to run</FieldLabel>
-                <Select value={target} onValueChange={setTarget}>
-                  <SelectTrigger id="new-schedule-target" aria-label="What to run" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {free.map((kind) => (
-                        <SelectItem key={kind} value={kind}>
-                          {TARGETS[kind]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <FieldLabel htmlFor="new-schedule-name">Name</FieldLabel>
+                <Input
+                  id="new-schedule-name"
+                  maxLength={200}
+                  placeholder="Morning summary"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
               </Field>
-              {target === "jira.pull" && <JiraPullFields id="new-schedule" value={pull} onChange={setPull} />}
-              <TimetableFields id="new-schedule" value={timetable} onChange={setTimetable} onProblem={setProblem} />
-              <Field orientation="horizontal">
-                <Switch id="new-schedule-enabled" checked={enabled} onCheckedChange={setEnabled} />
-                <FieldLabel htmlFor="new-schedule-enabled">Enabled</FieldLabel>
-              </Field>
-            </FieldGroup>
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
             )}
-            <SheetFooter>
-              <Button type="submit" disabled={saving || problem !== null || !timetable.cron.trim() || !target}>
-                {saving && <Spinner data-icon="inline-start" />}Create
-              </Button>
-            </SheetFooter>
-          </form>
-        )}
+            {target === "jira.pull" && <JiraPullFields id="new-schedule" value={pull} onChange={setPull} />}
+            <TimetableFields id="new-schedule" value={timetable} onChange={setTimetable} onProblem={setProblem} />
+            <Field orientation="horizontal">
+              <Switch id="new-schedule-enabled" checked={enabled} onCheckedChange={setEnabled} />
+              <FieldLabel htmlFor="new-schedule-enabled">Enabled</FieldLabel>
+            </Field>
+          </FieldGroup>
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <SheetFooter>
+            <Button
+              type="submit"
+              disabled={saving || problem !== null || !timetable.cron.trim() || (target === EMIT && !name.trim())}
+            >
+              {saving && <Spinner data-icon="inline-start" />}Create
+            </Button>
+          </SheetFooter>
+        </form>
       </SheetContent>
     </Sheet>
   );

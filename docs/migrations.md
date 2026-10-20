@@ -429,3 +429,10 @@ subagents), so per-agent tool storage goes: `ka.agent_tools` (on/off, edited usa
 `run_subagent` row behind May start subagents and a caller's `expert:<id>` choices) and `ka.tools.needs` are dropped.
 The down migration recreates both empty with their original columns and constraints (0078, 0085, 0108); the rows are
 not restored.
+
+## 0120_schedule_emit_event
+
+Schedules can emit an event: `ka.schedules.target_kind` also takes `event.emit` (`target_id` = the schedule's own id,
+so each emit schedule is its own target) and `ka.events.source` also takes `schedule`. Each firing records one
+`schedule.fired` event, deduplicated per firing. The down migration deletes `schedule` events and `event.emit`
+schedules and restores both checks.

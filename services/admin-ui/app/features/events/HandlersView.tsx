@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pencil, Plus, Trash2, Workflow } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
-import { deleteHandler, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
+import { deleteHandler, boundToSchedule, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
 import HandlerSheet from "./HandlerSheet";
 import {
   AlertDialog,
@@ -43,6 +43,7 @@ export default function HandlersView() {
   const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const deletingName = useRef("");
+  const deletingSchedule = useRef(false);
 
   useEffect(() => {
     getHandlers()
@@ -181,6 +182,7 @@ export default function HandlersView() {
                         aria-label={`Delete ${handler.name}`}
                         onClick={() => {
                           deletingName.current = handler.name;
+                          deletingSchedule.current = boundToSchedule(handler);
                           setDeleting(handler);
                         }}
                       >
@@ -213,7 +215,10 @@ export default function HandlersView() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete handler {deletingName.current}?</AlertDialogTitle>
-            <AlertDialogDescription>Its run history stays on the events.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Its run history stays on the events.
+              {deletingSchedule.current && " The schedule keeps recording events."}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>

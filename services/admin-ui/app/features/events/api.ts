@@ -76,7 +76,13 @@ export const TYPE_LABELS: Record<string, string> = {
   "jira.ticket.created": "Ticket created",
   "jira.ticket.updated": "Ticket updated",
 };
-export const SOURCE_LABELS: Record<string, string> = { jira: "Jira", handler: "Handler", manual: "Manual" };
+export const SOURCE_LABELS: Record<string, string> = {
+  jira: "Jira",
+  handler: "Handler",
+  manual: "Manual",
+  memory: "Memory",
+  schedule: "Schedule",
+};
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   queued: "Queued",
   running: "Running",

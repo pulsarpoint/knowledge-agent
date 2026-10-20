@@ -2,9 +2,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { DEFAULT_SORT, NO_FILTERS, getEventFacets, getEvents, type EventRow } from "./api";
+import { EMIT, getSchedules } from "./schedules";
 import {
   FIELD_SUGGESTIONS,
   OPERATOR_LABELS,
+  SCHEDULE_FIELD,
+  SCHEDULE_FIRED,
   createHandler,
   getHandlerAgents,
   previewHandler,
@@ -62,6 +65,21 @@ const BLANK: Form = {
 const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
 /** Give the ticket back is offered only for a Jira reply from the assignee's agent. */
 const offersGiveBack = (form: Form) => form.action === "agent" && form.agent_id === ASSIGNEE && form.reply_to_jira;
+/** Run a schedule: type schedule.fired and the one payload.schedule_id condition (other conditions stay). */
+const scheduleConditions = (form: Form, id: string): Partial<Form> => ({
+  type_pattern: SCHEDULE_FIRED,
+  conditions: [
+    ...form.conditions.filter((c) => c.field.trim() !== SCHEDULE_FIELD),
+    { field: SCHEDULE_FIELD, op: "equals", value: id },
+  ],
+});
+/** Add handler on Schedules: a Send to agent handler for that schedule; the person picks the agent and writes the task. */
+const scheduleForm = (schedule: { id: string; name: string }): Form => ({
+  ...BLANK,
+  name: schedule.name,
+  ...scheduleConditions(BLANK, schedule.id),
+  action: "agent",
+});
 const HELP =
   "event.id, event.source, event.type, event.subject, event.title, event.occurred_at, event.payload.<field>, event.parent_id, event.root_id, event.depth";
 
@@ -111,8 +129,17 @@ function toDraft(form: Form): HandlerDraft {
   };
 }
 
-function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSaved: (handler: EventHandler) => void }) {
-  const [form, setForm] = useState<Form>(handler ? fromHandler(handler) : BLANK);
+function HandlerForm({
+  handler,
+  schedule,
+  onSaved,
+}: {
+  handler: EventHandler | null;
+  schedule?: { id: string; name: string };
+  onSaved: (handler: EventHandler) => void;
+}) {
+  const [form, setForm] = useState<Form>(handler ? fromHandler(handler) : schedule ? scheduleForm(schedule) : BLANK);
+  const [schedules, setSchedules] = useState<{ id: string; name: string }[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[] | null>(null);
   const [types, setTypes] = useState<string[]>([]);
   const [recent, setRecent] = useState<EventRow[]>([]);
@@ -136,6 +163,9 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
     getEventFacets()
       .then((result) => setTypes(result.types))
       .catch(() => setTypes([]));
+    getSchedules()
+      .then((result) => setSchedules(result.schedules.filter((item) => item.target_kind === EMIT)))
+      .catch(() => setSchedules([]));
     getEvents(NO_FILTERS, DEFAULT_SORT)
       .then((result) => setRecent(result.events))
       .catch(() => setRecent([]));
@@ -157,6 +187,10 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
   const setCondition = (index: number, changes: Partial<ConditionRow>) =>
     update({ conditions: form.conditions.map((row, at) => (at === index ? { ...row, ...changes } : row)) });
   const setEmit = (field: keyof Form["emit"], value: string) => update({ emit: { ...form.emit, [field]: value } });
+  const pickedSchedule =
+    form.type_pattern.trim() === SCHEDULE_FIRED
+      ? (form.conditions.find((c) => c.field.trim() === SCHEDULE_FIELD && c.op === "equals")?.value ?? "")
+      : "";
   const missingForAssignee =
     form.agent_id === ASSIGNEE && !form.conditions.some((row) => row.field.trim() === FOR_ASSIGNEE.field);
   const message = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
@@ -218,6 +252,25 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
             ))}
           </datalist>
           <FieldDescription>Use * for any part, e.g. jira.ticket.* or jira.*.created.</FieldDescription>
+          {schedules.length > 0 && (
+            <Select
+              value={schedules.some((item) => item.id === pickedSchedule) ? pickedSchedule : ""}
+              onValueChange={(id) => update(scheduleConditions(form, id))}
+            >
+              <SelectTrigger aria-label="Schedule" className="w-full">
+                <SelectValue placeholder="Or run a schedule" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {schedules.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      Schedule: {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
         </Field>
         <FieldSet>
           <FieldLegend variant="label">Conditions</FieldLegend>
@@ -509,13 +562,16 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
   );
 }
 
+/** schedule: a new handler starts prefilled to run that Emit event schedule (Schedules → Add handler). */
 export default function HandlerSheet({
   handler,
+  schedule,
   open,
   onClose,
   onSaved,
 }: {
   handler: EventHandler | null;
+  schedule?: { id: string; name: string };
   open: boolean;
   onClose: () => void;
   onSaved: (handler: EventHandler) => void;
@@ -532,7 +588,14 @@ export default function HandlerSheet({
           <SheetTitle>{handler ? "Edit handler" : "New handler"}</SheetTitle>
           <SheetDescription>When an event matches, emit a new event or send it to an agent.</SheetDescription>
         </SheetHeader>
-        {open && <HandlerForm key={handler?.id ?? "new"} handler={handler} onSaved={onSaved} />}
+        {open && (
+          <HandlerForm
+            key={handler?.id ?? `new-${schedule?.id ?? ""}`}
+            handler={handler}
+            schedule={schedule}
+            onSaved={onSaved}
+          />
+        )}
       </SheetContent>
     </Sheet>
   );

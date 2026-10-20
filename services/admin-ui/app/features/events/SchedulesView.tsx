@@ -1,7 +1,9 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { CalendarClock, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import {
+  EMIT,
   STATUS_LABELS,
   TARGETS,
   deleteSchedule,
@@ -14,6 +16,7 @@ import {
 } from "./schedules";
 import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
+import HandlerSheet from "./HandlerSheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +38,31 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~
 const REFRESH_MS = 10_000;
 const when = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
 const text = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
+const HANDLERS = "/events/handlers";
+
+/** Which handlers run an Emit event schedule, or Add handler when none does. */
+function HandledBy({ schedule, onAdd }: { schedule: Schedule; onAdd: () => void }) {
+  const handlers = schedule.handlers ?? [];
+  if (handlers.length === 0)
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <span className="text-xs text-muted-foreground">No handler runs this schedule.</span>
+        <Button size="sm" variant="outline" onClick={onAdd}>
+          <Plus data-icon="inline-start" />
+          Add handler
+        </Button>
+      </div>
+    );
+  const [only] = handlers;
+  return (
+    <Link
+      className="text-xs underline-offset-4 hover:underline"
+      to={handlers.length === 1 ? `${HANDLERS}?handler=${encodeURIComponent(only.id)}` : HANDLERS}
+    >
+      {handlers.length === 1 ? `Handled by: ${only.name}` : `Handled by: ${handlers.length} handlers`}
+    </Link>
+  );
+}
 
 export function ScheduleStatus({ schedule }: { schedule: Schedule }) {
   if (schedule.running) return <Badge variant="secondary">Running</Badge>;
@@ -53,6 +81,8 @@ export default function SchedulesView() {
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [removing, setRemoving] = useState(false);
   const deletingName = useRef("");
+  const deletingEmit = useRef(false);
+  const [adding, setAdding] = useState<Schedule | null>(null);
   const [history, setHistory] = useState<{ id: string; runs: ScheduleRun[] | null } | null>(null);
 
   const changes = useRef(0);
@@ -79,10 +109,16 @@ export default function SchedulesView() {
     };
   }, [load]);
 
-  /** Any local change invalidates refreshes that started earlier, so they cannot bring back older rows. */
+  /** Any local change invalidates refreshes that started earlier, so they cannot bring back older rows. Only the list
+   * returns an emit schedule's handlers, so a changed row keeps the ones it had. */
   const replace = (changed: Schedule) => {
     changes.current += 1;
-    setSchedules((current) => current?.map((item) => (item.id === changed.id ? changed : item)) ?? null);
+    setSchedules(
+      (current) =>
+        current?.map((item) =>
+          item.id === changed.id ? { ...changed, handlers: changed.handlers ?? item.handlers } : item,
+        ) ?? null,
+    );
   };
   async function change(schedule: Schedule, action: () => Promise<{ schedule: Schedule }>) {
     setBusy(schedule.id);
@@ -190,7 +226,14 @@ export default function SchedulesView() {
                     />
                   </TableCell>
                   <TableCell className="font-medium">{schedule.name}</TableCell>
-                  <TableCell>{TARGETS[schedule.target_kind] ?? schedule.target_kind}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col items-start gap-1">
+                      <span>{TARGETS[schedule.target_kind] ?? schedule.target_kind}</span>
+                      {schedule.target_kind === EMIT && (
+                        <HandledBy schedule={schedule} onAdd={() => setAdding(schedule)} />
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div>{schedule.description}</div>
                     <div className="text-xs text-muted-foreground">{schedule.timezone}</div>
@@ -233,6 +276,7 @@ export default function SchedulesView() {
                         variant="ghost"
                         onClick={() => {
                           deletingName.current = schedule.name;
+                          deletingEmit.current = schedule.target_kind === EMIT;
                           setDeleting(schedule);
                         }}
                       >
@@ -289,7 +333,10 @@ export default function SchedulesView() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete schedule {deletingName.current}?</AlertDialogTitle>
-            <AlertDialogDescription>Its history is deleted too.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Its history is deleted too.
+              {deletingEmit.current && " Its handlers stay; they no longer match any event."}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
@@ -305,6 +352,16 @@ export default function SchedulesView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <HandlerSheet
+        open={adding !== null}
+        handler={null}
+        schedule={adding ?? undefined}
+        onClose={() => setAdding(null)}
+        onSaved={() => {
+          setAdding(null);
+          void load(); // the list is what knows which handlers run each schedule
+        }}
+      />
       <ScheduleEditor
         schedule={editing}
         onClose={() => setEditing(null)}

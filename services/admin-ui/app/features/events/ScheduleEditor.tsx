@@ -1,15 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
-import { saveSchedule, type Schedule } from "./schedules";
+import { EMIT, saveSchedule, type Schedule } from "./schedules";
 import TimetableFields, { type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPull, jiraPullParams, type JiraPull } from "./JiraPullFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import { FieldGroup } from "~/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Input } from "~/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Spinner } from "~/components/ui/spinner";
 
 function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (schedule: Schedule) => void }) {
+  const [name, setName] = useState(schedule.name);
   const [timetable, setTimetable] = useState<Timetable>({ cron: schedule.cron, timezone: schedule.timezone });
   const [pull, setPull] = useState<JiraPull>(() => jiraPull(schedule.params));
   const [problem, setProblem] = useState<string | null>(null);
@@ -24,11 +26,12 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
       onSaved(
         (
           await saveSchedule(schedule.id, {
+            ...(schedule.target_kind === EMIT ? { name: name.trim() } : {}),
             cron: timetable.cron.trim(),
             timezone: timetable.timezone,
             enabled: schedule.enabled,
             revision: schedule.revision,
-            params: schedule.target_kind === "jira.pull" ? jiraPullParams(pull) : {},
+            ...(schedule.target_kind === "jira.pull" ? { params: jiraPullParams(pull) } : {}),
           })
         ).schedule,
       );
@@ -42,6 +45,12 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
   return (
     <form onSubmit={save} className="flex flex-col gap-4">
       <FieldGroup>
+        {schedule.target_kind === EMIT && (
+          <Field>
+            <FieldLabel htmlFor="schedule-name">Name</FieldLabel>
+            <Input id="schedule-name" maxLength={200} value={name} onChange={(event) => setName(event.target.value)} />
+          </Field>
+        )}
         {schedule.target_kind === "jira.pull" && <JiraPullFields id="schedule" value={pull} onChange={setPull} />}
         <TimetableFields id="schedule" value={timetable} onChange={setTimetable} onProblem={setProblem} />
       </FieldGroup>
@@ -51,7 +60,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
         </Alert>
       )}
       <SheetFooter>
-        <Button type="submit" disabled={saving || problem !== null || !timetable.cron.trim()}>
+        <Button type="submit" disabled={saving || problem !== null || !timetable.cron.trim() || !name.trim()}>
           {saving && <Spinner data-icon="inline-start" />}Save
         </Button>
       </SheetFooter>

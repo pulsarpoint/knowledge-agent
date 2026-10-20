@@ -1,6 +1,12 @@
 import { request } from "~/lib/api";
 
 export type RunStatus = "succeeded" | "failed" | "skipped";
+/** A handler that runs an emit schedule: type pattern takes schedule.fired, condition payload.schedule_id equals the id. */
+export interface ScheduleHandler {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
 export interface Schedule {
   id: string;
   name: string;
@@ -18,6 +24,8 @@ export interface Schedule {
   last_message: string | null;
   revision: number;
   params: Record<string, unknown>;
+  /** Emit event schedules only, and only in the list (create and save responses leave it out). */
+  handlers?: ScheduleHandler[];
 }
 export interface ScheduleRun {
   id: number;
@@ -33,6 +41,8 @@ export interface JiraPullParams {
   limit?: number;
 }
 export interface ScheduleInput {
+  /** Emit event schedules only: the Jira pull schedule keeps its fixed name. */
+  name?: string;
   cron: string;
   timezone: string;
   enabled: boolean;
@@ -47,7 +57,8 @@ export const PRESETS = [
   { cron: "0 6 * * *", label: "Every day at 06:00" },
 ];
 export const DEFAULT_CRON = PRESETS[0].cron;
-export const TARGETS: Record<string, string> = { "jira.pull": "Jira tickets" };
+export const EMIT = "event.emit";
+export const TARGETS: Record<string, string> = { "jira.pull": "Jira tickets", [EMIT]: "Emit event" };
 export const STATUS_LABELS: Record<RunStatus, string> = {
   succeeded: "Succeeded",
   failed: "Failed",
