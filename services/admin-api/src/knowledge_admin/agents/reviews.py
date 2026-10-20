@@ -32,6 +32,11 @@ class InstructionChanges(BaseModel):
     instructions: str | None = Field(max_length=40000)
 
 
+def saved_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """A review's note is saved with source: review added to its metadata."""
+    return {**metadata, 'source': 'review'}
+
+
 class MemoryNote(BaseModel):
     """A proposed new shared memory entry; name, metadata and content follow the memory module's rules."""
 
@@ -42,7 +47,7 @@ class MemoryNote(BaseModel):
 
     @model_validator(mode='after')
     def follows_memory_rules(self) -> 'MemoryNote':
-        memory.validate(self.name, self.metadata, self.content)
+        memory.validate(self.name, saved_metadata(self.metadata), self.content)  # as it will be saved
         return self
 
 
@@ -58,6 +63,7 @@ class TuningSuggestion(BaseModel):
 REVIEW_NOT_FOUND = 'Suggestion not found for this agent.'
 AGENT_CHANGED = 'The agent changed since you opened the suggestion. Review it again.'
 INVALID_TEXT = 'Instructions cannot contain NUL characters.'
+NOTHING_TO_APPLY = 'Nothing to apply.'
 
 
 class ApplyInput(BaseModel):
@@ -133,6 +139,8 @@ def build_api(app_name, store):
         was), and save the ticked memory notes as new shared memory entries. A note whose name is taken is refused by
         name; the other notes and the instructions still apply. Notes alone skip the agent-changed check: they do not
         modify the agent."""
+        if value.instructions is None and not value.memory_notes:
+            raise HTTPException(400, NOTHING_TO_APPLY)
         if '\x00' in (value.instructions or ''):
             raise HTTPException(400, INVALID_TEXT)
         with database().connect() as conn:  # embedded before the transaction, like the memory API
@@ -163,13 +171,12 @@ def build_api(app_name, store):
             author = memory.Author(session_id=review['session_id'], actor_id=actor)
             saved, refused = [], []
             for note, (vector, profile) in zip(value.memory_notes, embedded):
-                metadata = {**note.metadata, 'source': 'review'}
                 try:
-                    entry = memory.create(conn, project, note.name, metadata, note.content, author, vector, profile)
+                    entry = memory.create(
+                        conn, project, note.name, saved_metadata(note.metadata), note.content, author, vector, profile
+                    )
                 except memory.Exists:
                     refused.append({'name': note.name, 'message': EXISTS.format(name=note.name)})
-                except memory.Invalid as error:  # e.g. source: review is one key too many
-                    refused.append({'name': note.name, 'message': str(error)})
                 else:
                     saved.append({'id': entry['id'], 'name': entry['name']})
             conn.execute(

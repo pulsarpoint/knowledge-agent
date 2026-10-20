@@ -89,7 +89,8 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
         ).fetchone()['agent_config']
         row['reviews'] = conn.execute(
             """SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes,
-            context->'memory_notes' AS memory_notes FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at,id""",
+            context->'memory_notes' AS memory_notes FROM ka.agent_session_reviews
+            WHERE session_id=%s ORDER BY created_at,id""",
             (session_id,),
         ).fetchall()
     return row

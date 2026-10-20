@@ -48,7 +48,8 @@ Rules about how the agent should behave go to changes.instructions. Facts learne
 memory_notes: the memory store exists and is shared by every agent, which reads it when it needs to (search_memory,
 get_memory). Each note must be supported by the conversation and worded as a durable fact, not a temporary
 observation. A name is lowercase letters, digits and . _ / - (for example payments/retries); metadata is optional
-text pairs such as the service or server it concerns. Notes are proposals a person verifies before saving.
+text pairs such as the service or server it concerns, at most 19 keys, each key lowercase letters, digits and _,
+starting with a letter (for example service). Notes are proposals a person verifies before saving.
 The system prompt is out of scope: never propose changes to it.
 Never claim that changes have already been made. For each recommendation identify the exact setting/tab or server,
 the observed problem and evidence, and a concrete proposed change. Preserve existing permissions unless the

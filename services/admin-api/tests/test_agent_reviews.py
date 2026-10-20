@@ -14,6 +14,7 @@ from knowledge_admin.agents.clones import NAME_TAKEN
 from knowledge_admin.agents.reviews import (
     AGENT_CHANGED,
     INVALID_TEXT,
+    NOTHING_TO_APPLY,
     REVIEW_NOT_FOUND,
     TuningSuggestion,
 )
@@ -79,6 +80,7 @@ def test_sdk_tuning_schema_still_rejects_invalid_encoded_changes(changes):
         [NOTE] * 11,  # at most 10
         [{**NOTE, 'name': 'Payments Retries'}],  # memory name rules
         [{**NOTE, 'metadata': {'Service': 'payments'}}],
+        [{**NOTE, 'metadata': {f'k{n}': 'v' for n in range(20)}}],  # 21 keys with source: review
         [{**NOTE, 'content': '  '}],
         [{**NOTE, 'extra': 1}],
         '{invalid JSON',
@@ -281,9 +283,19 @@ def test_invalid_notes_in_the_request_are_refused(store, saved_agent):
     body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
     for notes in ([NOTE] * 11, [{**NOTE, 'name': 'Bad Name'}]):
         assert apply_review(client, 'operations', review, body, notes=notes).status_code == 400
-    full = {**NOTE, 'metadata': {f'k{n}': 'v' for n in range(20)}}  # source: review makes it 21 keys
-    result = apply_review(client, 'operations', review, body, notes=[full]).json()
-    assert result['saved'] == [] and [row['name'] for row in result['refused']] == [NOTE['name']]
+    full = {**NOTE, 'metadata': {f'k{n}': 'v' for n in range(20)}}  # source: review would make it 21 keys
+    assert apply_review(client, 'operations', review, body, notes=[full]).status_code == 400
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.memories').fetchone()['n'] == 0
+
+
+def test_nothing_to_apply_is_refused(store, saved_agent):
+    client = saved_agent[0]
+    review = saved_review(store, 'operations', changes())
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    empty = apply_review(client, 'operations', review, body)
+    assert empty.status_code == 400 and empty.json()['error']['message'] == NOTHING_TO_APPLY
+    assert applied_audit(store) == []
 
 
 def test_a_suggestion_applied_to_a_new_clone_leaves_the_agent_as_it_was(store, saved_agent):
