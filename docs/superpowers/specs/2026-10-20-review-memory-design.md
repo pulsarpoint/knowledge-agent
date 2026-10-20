@@ -12,7 +12,9 @@ there is no memory store, which stopped being true when the memory module landed
 
 ## Decision (user, 2026-10-20)
 
-A review proposes **memory notes** (facts learned in the conversation) and **instruction changes** (behaviour rules).
+A review proposes **memory notes** — new entries in the shared memory (`ka.memories`, the memory module), which every
+agent reads with `search_memory`/`get_memory` when it needs them — for facts learned in the conversation, and
+**instruction changes** for behaviour rules.
 It never rewrites the system prompt.
 
 ## Suggest improvements (`sessions/review.py`)
@@ -42,7 +44,8 @@ It never rewrites the system prompt.
     the person (actor) and the reviewed session; a name that already exists is refused by name in the response
     (`An entry named <name> already exists.`) and the other notes and the instructions still apply; metadata gets
     `source: review` added;
-  - applying notes only (instructions unchanged) needs no revision/fingerprint match.
+  - saving only memory notes (instructions unchanged) skips the agent-changed check (revision/fingerprint), since the
+    agent itself is not modified; when instructions are applied too, the check applies to them as today.
 - Audit: `agent.suggestion.applied` records the instructions change and the saved memory names.
 
 ## UI (the Apply suggestions sheet and the review panel)
