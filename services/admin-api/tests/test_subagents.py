@@ -179,7 +179,9 @@ def test_a_failed_subagent_returns_a_redacted_failure_and_is_recorded():
 
     assert asyncio.run(scenario()) == [
         FAILED.format(message='SSH key [redacted] refused'),
-        FAILED.format(message='Agent execution failed (RuntimeError). Check the model connection and agent resources.'),
+        FAILED.format(
+            message='Agent execution failed (RuntimeError: [redacted]). Check the model connection and agent resources.'
+        ),
     ]
     errors = [payload for kind, payload in recorder.events if kind == 'error']
     assert [error['parent_call_id'] for error in errors] == ['s1', 's2'] and SECRET not in json.dumps(errors)

@@ -20,7 +20,7 @@ from run_helpers import post, session_row, wait_for
 from test_event_processor import a_handler, an_event
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 
-FAILED = 'Agent execution failed (RuntimeError). Check the model connection and agent resources.'
+FAILED = 'Agent execution failed (RuntimeError: boom). Check the model connection and agent resources.'
 
 
 def a_run(sessions, purpose='event'):

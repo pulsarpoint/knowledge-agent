@@ -25,7 +25,7 @@ from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
 KEY = 'bedrock-secret-token'  # the Claude connection's key: the native writer's model
-FAILED = 'Agent execution failed (RuntimeError). Check the model connection and agent resources.'
+FAILED = 'Agent execution failed (RuntimeError: boom). Check the model connection and agent resources.'
 
 
 @pytest.fixture
@@ -683,7 +683,7 @@ def test_no_credential_reaches_events_history_the_draft_or_the_status(native, ca
     assert row['draft'] is None and row['history'][-1] == {'role': 'assistant', 'content': '# Keys [redacted]'}
     assert config_error['status_message'] == 'Agent folder is unavailable: /work/[redacted]'
     assert other['status_message'] == (
-        'Agent execution failed (RuntimeError). Check the model connection and agent resources.'
+        'Agent execution failed (RuntimeError: provider said [redacted]). Check the model connection and agent resources.'
     )
     [result] = [e['payload'] for e in events(store, sid) if e['kind'] == 'tool_result']
     assert result['output'] == '[redacted] printed'
@@ -840,3 +840,22 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
     assert [a['agent_id'] for a in agents] == ['ad-hoc']
     [start_event] = [e for e in events(store, sid) if e['kind'] == 'start']
     assert start_event['payload']['agent'] == 'Ad-hoc agent'
+
+
+def test_a_failure_keeps_the_reason_redacted_and_short():
+    from agents.exceptions import ModelBehaviorError
+
+    behaviour = native_sessions.failure(ModelBehaviorError('Tool ssh_run not found in agent Ops'), [])
+    assert behaviour == (
+        'Agent execution failed (ModelBehaviorError: Tool ssh_run not found in agent Ops). The model returned a tool '
+        'call or answer the agent could not use; trying again often works.'
+    )
+    secret = 'sk-live-1234567890'
+    leaked = native_sessions.failure(RuntimeError(f'upstream said\n  key {secret} refused'), [secret])
+    assert secret not in leaked and leaked == (
+        'Agent execution failed (RuntimeError: upstream said key [redacted] refused). '
+        'Check the model connection and agent resources.'
+    )
+    long = native_sessions.failure(RuntimeError('x' * 2000), [])
+    assert len(long) <= 500 and long.startswith('Agent execution failed (RuntimeError: xxx')
+    assert long.endswith('Check the model connection and agent resources.')

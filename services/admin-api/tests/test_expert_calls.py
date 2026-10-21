@@ -319,7 +319,9 @@ def test_a_failed_expert_returns_a_redacted_failure():
         FAILED.format(name='Ledger', message='boom [redacted]'),
         FAILED.format(
             name='Ledger',
-            message='Agent execution failed (RuntimeError). Check the model connection and agent resources.',
+            message=(
+                'Agent execution failed (RuntimeError: down [redacted]). Check the model connection and agent resources.'
+            ),
         ),
     ]
     errors = [payload for kind, payload in recorder.events if kind == 'error']
@@ -332,7 +334,10 @@ def test_a_load_error_other_than_a_refusal_fails_the_call_like_a_failed_run():
     subagents, fake, _, _ = host({}, Loader(error=RuntimeError(f'cannot decrypt {SECRET}')))
     assert asyncio.run(ask(subagents, 'e1', 'Map payments')) == FAILED.format(
         name='Payments',
-        message='Agent execution failed (RuntimeError). Check the model connection and agent resources.',
+        message=(
+            'Agent execution failed (RuntimeError: cannot decrypt [redacted]). '
+            'Check the model connection and agent resources.'
+        ),
     )
     assert fake.calls == [] and subagents.started == 1  # it started, as a failed run does
 

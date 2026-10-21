@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import socket
+import traceback
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from typing import Any
@@ -195,15 +196,26 @@ class SessionEvents(RunHooks):
         return final if final.strip() else (self.texts[-1] if self.texts else '')
 
 
+CHECK_CONNECTION = 'Check the model connection and agent resources.'
+HINTS = {  # what to do about an error the Agents SDK raises, by its class name
+    'ModelBehaviorError': 'The model returned a tool call or answer the agent could not use; trying again often works.',
+    'MaxTurnsExceeded': 'The agent used all its turns; narrow the task or ask it to stop sooner.',
+}
+
+
 def failure(exc: BaseException, secrets: Iterable[str]) -> str:
     """A failed turn's message for people: one line, at most 500 characters, without credentials."""
     if isinstance(exc, InvalidTag):
         return UNREADABLE
-    if isinstance(exc, ValueError):  # configuration problems: a missing folder, a disabled agent, model or server
-        reason = ' '.join(clean_text(str(exc), secrets).split())[:500]
-        if reason:
-            return reason
-    return f'Agent execution failed ({type(exc).__name__}). Check the model connection and agent resources.'
+    reason = ' '.join(clean_text(str(exc), secrets).split())
+    if isinstance(exc, ValueError) and reason:  # configuration problems: a missing folder, a disabled agent, model
+        return reason[:500]
+    name = type(exc).__name__
+    hint = HINTS.get(name, CHECK_CONNECTION)
+    if not reason:
+        return f'Agent execution failed ({name}). {hint}'
+    room = 500 - len(f'Agent execution failed ({name}: ). {hint}')
+    return f'Agent execution failed ({name}: {reason[:room]}). {hint}'
 
 
 def grounding_of(result: Any, answer: str) -> dict[str, Any] | None:
@@ -407,7 +419,13 @@ class NativeRunner(shared.SessionRunner):
             except Exception as exc:
                 status, message = 'failed', failure(exc, secrets)
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
-                logger.warning('Agent session %s turn %s failed (%s)', self.id, number, type(exc).__name__)
+                logger.warning(  # the redacted message, and the code frames only (the raw text may hold secrets)
+                    'Agent session %s turn %s failed: %s\n%s',
+                    self.id,
+                    number,
+                    message,
+                    ''.join(traceback.format_tb(exc.__traceback__)),
+                )
             if subagents is not None:
                 # None outlives the turn with credentials or records events after it; after Stop, close() waits only
                 # for what is left of the turn's grace, so Stop takes about STOP_GRACE_SECONDS in all.
