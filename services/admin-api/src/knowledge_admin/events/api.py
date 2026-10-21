@@ -22,6 +22,7 @@ SORTS = {'time': 'occurred_at', 'source': 'source', 'type': 'type', 'subject': '
 TYPE_PATTERN = re.compile(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$')
 MAX_TEXT, MAX_PAYLOAD = 500, 100 * 1024
 MADE_BY_HAND = "dedupe_key LIKE 'manual:%%'"
+RUNS_OF_EVENT = 'SELECT 1 FROM ka.event_handler_runs h WHERE h.event_id=e.id'  # one row per handler that ran
 
 
 class NewEvent(BaseModel):
@@ -176,6 +177,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         source: str | None = Query(None, max_length=50),
         type: str | None = Query(None, max_length=100),
         status: Literal['pending', 'processed', 'failed'] | None = None,
+        handled: Literal['yes', 'no'] | None = None,
         handler_id: UUID | None = None,
         root_id: int | None = Query(None, ge=1),
         q: str | None = Query(None, max_length=200),
@@ -197,12 +199,15 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 if value:
                     where.append(f'{column}=%s')
                     values.append(value)
+            if handled:  # whether any handler ran on the event
+                where.append(f'{"" if handled == "yes" else "NOT "}EXISTS ({RUNS_OF_EVENT})')
             if q and q.strip():
                 where.append("(subject ILIKE %s ESCAPE '\\' OR title ILIKE %s ESCAPE '\\')")
                 values += [like(q.strip())] * 2
             direction = 'ASC' if order == 'asc' else 'DESC'
             rows = conn.execute(
-                f"""SELECT {LISTED} FROM ka.events WHERE {' AND '.join(where)}
+                f"""SELECT {LISTED},(SELECT count(*) FROM ({RUNS_OF_EVENT}) r)::int AS handlers
+                FROM ka.events e WHERE {' AND '.join(where)}
                 ORDER BY {SORTS[sort]} {direction},id {direction} LIMIT %s OFFSET %s""",
                 (*values, limit + 1, offset),
             ).fetchall()

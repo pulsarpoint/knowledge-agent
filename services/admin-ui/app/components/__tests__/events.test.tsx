@@ -425,3 +425,26 @@ test("an address with ?event= opens that event", async () => {
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByText(/DEMO-4/)).toBeInTheDocument();
 });
+
+test("the Handlers column counts handler runs and the Handled filter narrows the list", async () => {
+  const user = userEvent.setup();
+  api({
+    "/api/events/facets": FACETS,
+    "/api/events": {
+      events: [row(3, { handlers: 2 }), row(2, { handlers: 1 }), row(1, { handlers: 0 })],
+      next_offset: null,
+    },
+    "/api/events?handled=no": { events: [row(1, { handlers: 0 })], next_offset: null },
+  });
+  view();
+  await screen.findByText("DEMO-3");
+  const table = screen.getByRole("table");
+  expect(within(table).getByRole("columnheader", { name: "Handlers" })).toBeInTheDocument();
+  expect(within(table).getByText("2 handlers")).toBeInTheDocument();
+  expect(within(table).getByText("1 handler")).toBeInTheDocument();
+  expect(within(table).getByText("—")).toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "Handled" }));
+  await user.click(screen.getByRole("option", { name: "Not handled" }));
+  await waitFor(() => expect(screen.queryByText("DEMO-3")).toBeNull());
+  expect(screen.getByText("DEMO-1")).toBeInTheDocument();
+});

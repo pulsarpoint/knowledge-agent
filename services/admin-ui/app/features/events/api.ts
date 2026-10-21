@@ -11,6 +11,8 @@ export interface EventRow {
   occurred_at: string;
   created_at: string;
   status: EventStatus;
+  /** How many handlers ran on the event (0 when none matched). */
+  handlers?: number;
   depth: number;
   parent_id: number | null;
   root_id: number;
@@ -54,6 +56,8 @@ export interface EventFilters {
   source: string;
   type: string;
   status: string;
+  /** "yes" (a handler ran) or "no" (none did); empty for all. */
+  handled: string;
   handler: string;
   q: string;
 }
@@ -71,7 +75,7 @@ export interface EventFacets {
 export type FieldChange = { from: unknown; to: unknown } | { added: string[]; removed: string[] } | { changed: true };
 
 export const DEFAULT_SORT: EventSort = { key: "time", order: "desc" };
-export const NO_FILTERS: EventFilters = { source: "", type: "", status: "", handler: "", q: "" };
+export const NO_FILTERS: EventFilters = { source: "", type: "", status: "", handled: "", handler: "", q: "" };
 export const TYPE_LABELS: Record<string, string> = {
   "jira.ticket.created": "Ticket created",
   "jira.ticket.updated": "Ticket updated",
@@ -109,6 +113,7 @@ export function getEvents(filters: EventFilters, sort: EventSort = DEFAULT_SORT,
   if (filters.source) query.set("source", filters.source);
   if (filters.type) query.set("type", filters.type);
   if (filters.status) query.set("status", filters.status);
+  if (filters.handled) query.set("handled", filters.handled);
   if (filters.handler) query.set("handler_id", filters.handler);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (sort.key !== DEFAULT_SORT.key) query.set("sort", sort.key);

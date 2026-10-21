@@ -371,3 +371,24 @@ def test_title_is_trimmed(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     assert post(client, {**NEW, 'title': '  Hi  '}).json()['event']['title'] == 'Hi'
     assert post(client, {**NEW, 'title': '   '}).json()['event']['title'] == ''
+
+
+def test_the_list_counts_handler_runs_and_filters_on_them(store, tmp_path):
+    """`handlers` is how many handlers ran on the event; `handled=yes|no` keeps events with or without any."""
+    client = _client(tmp_path, repository_store=store)
+    quiet, once, twice = seed(store, 3)
+    with store.connect() as conn:
+        for event, count in ((once, 1), (twice, 2)):
+            for number in range(count):
+                conn.execute(
+                    """INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message)
+                    VALUES (%s,%s,%s,'succeeded','')""",
+                    (event, uuid4(), f'Handler {number}'),
+                )
+    listed = {e['id']: e['handlers'] for e in client.get('/api/events', headers=HEADERS).json()['events']}
+    assert listed == {quiet: 0, once: 1, twice: 2}
+    handled = client.get('/api/events?handled=yes', headers=HEADERS).json()['events']
+    assert sorted(e['id'] for e in handled) == sorted([once, twice])
+    not_handled = client.get('/api/events?handled=no', headers=HEADERS).json()['events']
+    assert [e['id'] for e in not_handled] == [quiet]
+    assert client.get('/api/events?handled=maybe', headers=HEADERS).status_code in {400, 422}

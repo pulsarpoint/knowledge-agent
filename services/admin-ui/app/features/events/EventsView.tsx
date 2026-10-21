@@ -47,7 +47,10 @@ const COLUMNS: { key: SortKey | null; label: string }[] = [
   { key: "subject", label: "Subject" },
   { key: null, label: "Title" },
   { key: "status", label: "Status" },
+  { key: null, label: "Handlers" },
 ];
+/** "—", "1 handler" or "3 handlers": how many handlers ran on the event. */
+export const handlersLabel = (count = 0) => (count === 0 ? "—" : count === 1 ? "1 handler" : `${count} handlers`);
 
 export function StatusBadge({ status }: { status: EventStatus }) {
   return (
@@ -151,7 +154,17 @@ export default function EventsView() {
         }
       });
     return () => controller.abort();
-  }, [filters.source, filters.type, filters.status, filters.handler, query, sort.key, sort.order, reload]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    filters.source,
+    filters.type,
+    filters.status,
+    filters.handled,
+    filters.handler,
+    query,
+    sort.key,
+    sort.order,
+    reload,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadMore() {
     if (nextOffset === null) return;
@@ -221,7 +234,9 @@ export default function EventsView() {
     });
   }
 
-  const filtered = Boolean(filters.source || filters.type || filters.status || filters.handler || filters.q.trim());
+  const filtered = Boolean(
+    filters.source || filters.type || filters.status || filters.handled || filters.handler || filters.q.trim(),
+  );
   const changes = selected ? describeChanges(selected.payload.changes) : [];
   /** The API caps the chain, so the open event may be missing from it. */
   const chain = selected
@@ -263,6 +278,18 @@ export default function EventsView() {
           value={filters.status}
           onChange={set("status")}
           options={facets.statuses.map((status) => ({ value: status, label: STATUS_LABELS[status] ?? status }))}
+        />
+        <FilterSelect
+          id="events-handled"
+          label="Handled"
+          all="Handled or not"
+          className="w-full sm:w-40"
+          value={filters.handled}
+          onChange={set("handled")}
+          options={[
+            { value: "yes", label: "Handled" },
+            { value: "no", label: "Not handled" },
+          ]}
         />
         <FilterSelect
           id="events-handler"
@@ -357,6 +384,9 @@ export default function EventsView() {
                   <TableCell>{row.title}</TableCell>
                   <TableCell>
                     <StatusBadge status={row.status} />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {handlersLabel(row.handlers)}
                   </TableCell>
                 </TableRow>
               ))}

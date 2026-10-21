@@ -850,7 +850,10 @@ summary, description). The very first pull records every ticket it fetches. Even
 
 Each event is **Pending** until the event handlers have looked at it (within a few seconds), then **Processed** — or
 **Failed** when one of its handlers failed; failed events are not retried. Events recorded before handlers existed are
-Processed. Filter by source, type, status and **Emitted by** (the handler that emitted the event), search by ticket
+Processed. **Processed** means the handlers have looked at it and none of those that matched failed — also when no
+handler matched at all. The **Handlers** column says how many handlers ran on the event (`—` when none did), and the
+**Handled** filter shows only events some handler ran on, or only those none did. Filter by source, type, status,
+Handled and **Emitted by** (the handler that emitted the event), search by ticket
 key or title, and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
 indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send
