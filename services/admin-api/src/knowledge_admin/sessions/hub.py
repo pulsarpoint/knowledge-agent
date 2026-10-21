@@ -15,6 +15,7 @@ from fastapi.encoders import jsonable_encoder
 from psycopg.rows import dict_row
 
 from knowledge_admin.documents.drafts import SESSION_DRAFT
+from knowledge_admin.sessions.rows import PENDING_WAKEUPS
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ STATE = (
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued'
         AND i.kind='message') AS queued,
     """
+    + PENDING_WAKEUPS
+    + ','
     + SESSION_DRAFT
     + """
     FROM ka.agent_sessions s WHERE s.id=%s"""

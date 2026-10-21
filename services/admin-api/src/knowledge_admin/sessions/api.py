@@ -11,6 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from psycopg.types.json import Jsonb
 
+from knowledge_admin.capabilities.wakeups import NOT_PENDING, cancel_pending
 from knowledge_admin.identity import request_actor
 from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
@@ -262,6 +263,25 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 notify_closed_before_first_turn(conn, session_id)
                 audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
+
+    @router.delete('/{session_id}/wakeups/{wakeup_id}')
+    def cancel_wakeup(session_id: UUID, wakeup_id: int, request: Request) -> dict:
+        """Cancel one of the session's pending wake-ups (the session page's Cancel; the same rule as cancel_wakeup)."""
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
+            locked(conn, project, session_id)
+            if not cancel_pending(conn, session_id, wakeup_id):
+                raise HTTPException(409, NOT_PENDING)
+            audit(
+                conn,
+                actor,
+                'generation.session.wakeup_cancelled',
+                'agent_session',
+                {'wakeup_id': wakeup_id},
+                session_id,
+            )
+            return {'id': wakeup_id, 'status': 'discarded'}
 
     @router.get('/{session_id}/events/history')
     def history(

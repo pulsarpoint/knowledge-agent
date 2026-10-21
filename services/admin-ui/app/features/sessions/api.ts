@@ -101,6 +101,13 @@ export interface RelatedRun {
   status: SessionStatus;
   event_type: string;
 }
+/** A message the agent queued to its own session for later (schedule_wakeup); the session continues at `due_at`. */
+export interface Wakeup {
+  id: number;
+  due_at: string;
+  message: string;
+  created_at: string;
+}
 export interface SessionDetail extends SessionSummary {
   /** Runs started by a Jira event: the ticket and the other runs on it, newest first. */
   ticket_key?: string;
@@ -139,6 +146,8 @@ export interface SessionDetail extends SessionSummary {
     document_id: string | null;
     status: "open" | "promoted" | "discarded" | "replaced";
   } | null;
+  /** The agent's pending wake-ups, by due time (the live state carries them too). */
+  wakeups?: Wakeup[];
   inputs: {
     seq: number;
     text: string;
@@ -163,6 +172,7 @@ export type SessionState = Pick<
   | "queued"
   | "model_calls"
   | "reasoning_tokens"
+  | "wakeups"
 >;
 export interface SessionEvent {
   id: number;
@@ -188,6 +198,8 @@ export const sendMessage = (id: string, text: string) =>
   request<{ seq: number; status: "queued"; working: boolean }>(`${session(id)}/messages`, json("POST", { text }));
 export const stopSession = (id: string) =>
   request<{ id: string; discarded: number }>(`${session(id)}/stop`, { method: "POST" });
+export const cancelWakeup = (id: string, wakeupId: number) =>
+  request<{ id: number; status: "discarded" }>(`${session(id)}/wakeups/${wakeupId}`, { method: "DELETE" });
 export const closeSession = (id: string) => request<{ id: string }>(`${session(id)}/close`, { method: "POST" });
 
 const query = (values: Record<string, string | number | undefined>) => {

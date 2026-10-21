@@ -227,6 +227,25 @@ served by the partial index `agent_run_events_expert_calls`), and `GET /api/agen
 the caller's record narrowed to that call, including the expert's own subagents. Events are not copied; tokens are
 counted once, in the caller's run.
 
+**Wake-ups (`schedule_wakeup`, `list_wakeups`, `cancel_wakeup`).** A run with a session (`config['session_id']`) can
+continue its own session later, for example to look again at a slow deployment or a ticket waiting for a reply.
+Subagents, experts and internal model calls do not get these tools. `schedule_wakeup(message, in_minutes | at)` takes
+exactly one of `in_minutes` (1 … 43,200) or `at` (an ISO time, 1 minute to 30 days ahead; without an offset it is UTC)
+and a `message` of 1 … 2,000 characters, and returns `{id, due_at}`. `list_wakeups()` returns the session's pending
+wake-ups (`{id, due_at, message}`, by due time) and `cancel_wakeup(id)` cancels one of them. Refusals (exact): `A
+session can have at most 3 pending wake-ups.`, `Choose a time between 1 minute and 30 days from now.`, `Give either
+in_minutes or at.`, `Wake-ups need a session.`, `This wake-up is not pending in this session.` (another session's,
+delivered or already cancelled). A wake-up is a queued input of the session (`kind 'wakeup'`, `not_before` its due
+time, the session's starting person as its actor; `capabilities/wakeups.py`). The session worker claims a session for
+it only once it is due, and delivers it only between turns (never as a mid-turn comment): the turn's input reads
+`Scheduled wake-up (set <ISO time>): <message>`, with the session's history, pinned access and model, like a person's
+next message. A wake-up fires once; the woken turn may schedule the next one. An event-run session continues too, but
+its Jira reply or hand-back (first turn only) is not repeated. Idle close (24 hours) skips a session with a pending
+wake-up; **Stop** keeps its wake-ups and **Close** discards them. The session page lists the pending wake-ups above the
+message box with **Cancel** (`DELETE /api/sessions/{id}/wakeups/{wakeup_id}`, the same rule as `cancel_wakeup`; audited
+as `generation.session.wakeup_cancelled`); the session detail and its live state carry them as `wakeups: [{id,
+due_at, message, created_at}]`, and the detail's `inputs` and `queued` count people's messages only.
+
 ## Clones
 
 An agent has **one configuration**: what its tabs show is what runs. There are no configuration versions, drafts or

@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PanelRight } from "lucide-react";
-import { formatTokens, statusLabels } from "./api";
+import { cancelWakeup, formatTokens, statusLabels } from "./api";
 import { toolUsageLine } from "./runs";
 import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from "./turns";
 import type { SessionRun } from "./useSessionEvents";
@@ -239,7 +239,8 @@ function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
 
 /** One run of an agent: the header (agent, type, resources, status, tokens, tools used), the main pane of turns (it
  * scrolls on its own; earlier pages load near the top; it follows new events at the bottom), the sidebar (the agents
- * in this run, then the page's sections; a drawer on narrow screens) and the message box, always on screen. The Test
+ * in this run, then the page's sections; a drawer on narrow screens) and the message box, always on screen, with the
+ * agent's pending wake-ups above it (each with Cancel). The Test
  * tab and the Generate documents session page pass their own parts as props. The sidebar lists the main agent and every
  * subagent of the loaded events; selecting one shows its own history in the main pane (the message box still talks to
  * the main agent). */
@@ -323,6 +324,23 @@ export default function RunWorkspace({
   const last = turns.at(-1);
   const turnCarries =
     session?.status === "failed" && last?.status === "failed" && last.error === session.status_message;
+  // Cancel a pending wake-up; the list drops it at once (the live state confirms it).
+  const [cancelling, setCancelling] = useState<number | null>(null);
+  async function cancel(wakeupId: number) {
+    if (!session) return;
+    setCancelling(wakeupId);
+    run.setError("");
+    try {
+      await cancelWakeup(session.id, wakeupId);
+      run.setSession(
+        (current) => current && { ...current, wakeups: (current.wakeups ?? []).filter((item) => item.id !== wakeupId) },
+      );
+    } catch (e) {
+      run.setError(e instanceof Error ? e.message : "The request failed");
+    } finally {
+      setCancelling(null);
+    }
+  }
   const canSend = !composer.busy && !composer.blockedReason && Boolean(composer.value.trim());
   const agents = (
     <div className="flex flex-col gap-4">
@@ -491,6 +509,26 @@ export default function RunWorkspace({
           </aside>
         )}
       </div>
+      {session && !closed && (session.wakeups ?? []).length > 0 && (
+        <ul aria-label="Pending wake-ups" className="flex shrink-0 flex-col gap-1 text-sm">
+          {(session.wakeups ?? []).map((wakeup) => (
+            <li key={wakeup.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 break-words text-muted-foreground">
+                Wakes up at {new Date(wakeup.due_at).toLocaleString()}: {wakeup.message}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={cancelling !== null}
+                onClick={() => void cancel(wakeup.id)}
+              >
+                Cancel
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
       <form
         aria-label="Message box"
         className="flex shrink-0 flex-col gap-2"

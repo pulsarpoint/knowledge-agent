@@ -689,6 +689,11 @@ was discarded.").
   discarded when the turn is stopped.
 - **Close session**. Sessions continue when you leave the page and close after 24 idle hours (a session idle for 5 minutes is
   paused and resumes on your next message).
+- **Wake-ups**: an agent can schedule a wake-up to continue the session later (from 1 minute to 30 days ahead, at most 3
+  pending per session), for example to check a deployment again. Each pending one is listed above the message box as
+  `Wakes up at <time>: <message>` (your local time) with **Cancel**. When it is due the session gets a new turn that starts
+  with `Scheduled wake-up`; if the agent is working then, it waits for that turn to end. A session with a pending wake-up
+  is not closed after 24 idle hours. **Stop** keeps the wake-ups; **Close session** cancels them.
 
 A turn has no time or model-call limit: it ends when the agent finishes or you press **Stop** (each model request and MCP
 connection still times out after 5 minutes). A failed or stopped turn leaves the conversation and the draft as they were.

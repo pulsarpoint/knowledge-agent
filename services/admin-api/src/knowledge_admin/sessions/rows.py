@@ -48,6 +48,12 @@ class MessageInput(BaseModel):
         return value.strip()
 
 
+# The session's pending wake-ups by due time (capabilities/wakeups.py): the detail and the live state (sessions/hub.py).
+PENDING_WAKEUPS = """(SELECT coalesce(jsonb_agg(jsonb_build_object('id',i.id,'due_at',i.not_before,'message',i.text,
+        'created_at',i.created_at) ORDER BY i.not_before,i.id),'[]') FROM ka.agent_session_inputs i
+        WHERE i.session_id=s.id AND i.kind='wakeup' AND i.status='queued') AS wakeups"""
+
+
 def _select(extra: str = '') -> str:
     return f"""SELECT s.id,s.title,s.agent_id,coalesce(a.name, '{AD_HOC_NAME}') AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
         s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.tags,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
@@ -62,6 +68,7 @@ def _select(extra: str = '') -> str:
 SUMMARY = _select()
 DETAIL = _select(
     ',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.server_id,s.target_document_id'
+    f',{PENDING_WAKEUPS}'
     # what the run was given ([{type, id}]: what the person chose, an environment rather than what it brings);
     # the same entries as sessions/run_access.given
     ",(SELECT coalesce(jsonb_agg(jsonb_build_object('type',r->>'type','id',r->>'id')),'[]') FROM"
@@ -75,7 +82,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
         raise HTTPException(404, 'Session not found.')
     row['inputs'] = conn.execute(
         """SELECT seq,text,status,turn,created_at FROM ka.agent_session_inputs
-        WHERE session_id=%s ORDER BY seq""",
+        WHERE session_id=%s AND kind='message' ORDER BY seq""",
         (session_id,),
     ).fetchall()
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(

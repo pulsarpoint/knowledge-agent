@@ -340,6 +340,62 @@ def test_queued_counts_are_person_messages_only(world, sessions):
     assert detail['queued'] == 1  # its first message, not the wake-up
 
 
+def test_the_session_detail_lists_pending_wakeups_by_due_time_and_keeps_them_out_of_inputs(world, sessions):
+    config, sid = world['config'], world['sid']
+    later = call(config, 'schedule_wakeup', message='Look again.', in_minutes=60)
+    sooner = call(config, 'schedule_wakeup', message='Check the deploy.', in_minutes=5)
+    gone = call(config, 'schedule_wakeup', message='Never mind.', in_minutes=10)
+    call(config, 'cancel_wakeup', id=gone['id'])
+    detail = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
+    assert [(w['id'], w['message']) for w in detail['wakeups']] == [
+        (sooner['id'], 'Check the deploy.'),
+        (later['id'], 'Look again.'),
+    ]
+    due = datetime.fromisoformat(detail['wakeups'][0]['due_at'])
+    assert due.replace(microsecond=0) == datetime.fromisoformat(sooner['due_at'])  # the tool rounds to seconds
+    assert all(w['created_at'] for w in detail['wakeups'])
+    assert [i['text'] for i in detail['inputs']] == ['Deploy it.']  # people's messages only
+
+
+def test_cancel_a_wakeup_from_the_session_page(world, sessions):
+    store, sid, config = world['store'], world['sid'], world['config']
+    wakeup = call(config, 'schedule_wakeup', message='Later.', in_minutes=5)
+    url = f'/api/sessions/{sid}/wakeups/{wakeup["id"]}'
+    cancelled = sessions.client.delete(url, headers=HEADERS)
+    assert cancelled.status_code == 200 and cancelled.json() == {'id': wakeup['id'], 'status': 'discarded'}
+    assert call(config, 'list_wakeups')['wakeups'] == []
+    again = sessions.client.delete(url, headers=HEADERS)  # once
+    assert again.status_code == 409 and again.json()['error']['message'] == NOT_PENDING
+    with store.connect() as conn:
+        audited = conn.execute(
+            "SELECT details FROM ka.audit_events WHERE action='generation.session.wakeup_cancelled' AND resource_id=%s",
+            (sid,),
+        ).fetchall()
+    assert [row['details'] for row in audited] == [{'wakeup_id': wakeup['id']}]
+
+
+def test_the_session_page_cancels_only_its_own_sessions_pending_wakeups(world, sessions):
+    store, config = world['store'], world['config']
+    with store.connect() as conn:
+        other = add_ad_hoc_session(
+            conn, world['project'], world['actor'], a_model(conn, world['actor']), message='Other.'
+        )
+    wakeup = call(config, 'schedule_wakeup', message='Later.', in_minutes=5)
+    with store.connect() as conn:
+        message_id = conn.execute(
+            "SELECT id FROM ka.agent_session_inputs WHERE session_id=%s AND kind='message'", (world['sid'],)
+        ).fetchone()['id']
+    for sid, wakeup_id in ((other, wakeup['id']), (world['sid'], message_id)):
+        refused = sessions.client.delete(f'/api/sessions/{sid}/wakeups/{wakeup_id}', headers=HEADERS)
+        assert refused.status_code == 409 and refused.json()['error']['message'] == NOT_PENDING
+    missing = sessions.client.delete(
+        f'/api/sessions/00000000-0000-0000-0000-000000000000/wakeups/{wakeup["id"]}', headers=HEADERS
+    )
+    assert missing.status_code == 404
+    assert [w['id'] for w in call(config, 'list_wakeups')['wakeups']] == [wakeup['id']]
+    assert [r['status'] for r in inputs(store, world['sid'])] == ['queued', 'queued']
+
+
 # --- the migration ---
 
 

@@ -170,6 +170,40 @@ def test_the_state_is_sent_only_when_it_changed(store):
     asyncio.run(scenario())
 
 
+def test_the_state_carries_the_pending_wakeups_by_due_time(store):
+    session = a_session(store)
+    wakeup = """INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text,kind,not_before)
+        SELECT id,%s,actor_id,%s,'wakeup',now()+%s::interval FROM ka.agent_sessions WHERE id=%s RETURNING id"""
+
+    async def scenario():
+        hub = await running(store)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                [(_, state)] = await take(page, 1)
+                assert state['wakeups'] == [] and state['queued'] == 0
+                await db(
+                    write,
+                    store,
+                    (wakeup, (1, 'Later.', '2 hours', session)),
+                    (wakeup, (2, 'Sooner.', '5 minutes', session)),
+                )
+                [(_, state)] = await take(page, 1)
+                assert [w['message'] for w in state['wakeups']] == ['Sooner.', 'Later.']
+                assert set(state['wakeups'][0]) == {'id', 'due_at', 'message', 'created_at'}
+                assert state['queued'] == 0  # wake-ups are not queued messages
+                await db(
+                    write,
+                    store,
+                    ("UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND seq=2", (session,)),
+                )
+                [(_, state)] = await take(page, 1)
+                assert [w['message'] for w in state['wakeups']] == ['Later.']
+        finally:
+            await hub.stop()
+
+    asyncio.run(scenario())
+
+
 def test_closed_and_deleted_sessions_end_every_subscription_and_are_forgotten(store):
     closing, deleted = a_session(store), a_session(store)
 

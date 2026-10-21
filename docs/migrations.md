@@ -454,3 +454,12 @@ duplicates keep their suffix.
 (`POST /api/sessions` with `agent_id` and `purpose: "chat"`). Like `test` and `event` it needs its agent
 (`agent_sessions_ad_hoc` is unchanged). The down migration turns chat sessions into Test sessions (`test`) and restores
 the old check.
+
+## 0123_session_wakeups
+
+Agents can continue their own session later (wake-ups, see [agents](agents.md#tools)). `ka.agent_session_inputs` gains
+`not_before timestamptz` (null: deliver as soon as possible, as before) and `kind text NOT NULL DEFAULT 'message'`
+(`agent_session_inputs_kind`: `message` or `wakeup`); `agent_session_inputs_wakeup_time` requires `not_before` for a
+wake-up, and the partial index `agent_session_inputs_wakeups` serves queued wake-ups by `not_before`. Existing inputs
+become messages. The down migration deletes every wake-up row (pending and delivered; people's messages stay) and drops
+the index, constraints and columns.

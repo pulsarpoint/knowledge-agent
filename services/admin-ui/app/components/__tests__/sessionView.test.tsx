@@ -654,3 +654,68 @@ test("a refused tool call shows as an error on that call", async () => {
   );
   expect(await screen.findByText(/not available in this run/)).toBeInTheDocument();
 });
+
+test("the session page lists pending wake-ups above the message box, cancels one and follows live updates", async () => {
+  const due = "2026-10-22T15:30:00+00:00";
+  const wakeup = (id: number, message: string, at = due) => ({
+    id,
+    due_at: at,
+    message,
+    created_at: "2026-10-22T12:00:00+00:00",
+  });
+  const deletes: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/events/history")) return page([]);
+      if (init?.method === "DELETE") {
+        deletes.push(url);
+        return Response.json({ id: 7, status: "discarded" });
+      }
+      return Response.json({ ...detail, status: "waiting", wakeups: [wakeup(7, "Check the deploy.")] });
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  const list = within(await screen.findByRole("list", { name: "Pending wake-ups" }));
+  expect(list.getByText(`Wakes up at ${new Date(due).toLocaleString()}: Check the deploy.`)).toBeVisible();
+  // above the message box
+  const box = screen.getByRole("form", { name: "Message box" });
+  expect(box.compareDocumentPosition(screen.getByRole("list", { name: "Pending wake-ups" }))).toBe(
+    Node.DOCUMENT_POSITION_PRECEDING,
+  );
+  fireEvent.click(list.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(deletes).toEqual(["/api/sessions/s1/wakeups/7"]));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Pending wake-ups" })).toBeNull());
+  const stream = await opened();
+  act(() => stream.emit("session", { ...state, status: "waiting", queued: 0, wakeups: [wakeup(8, "Look again.")] }));
+  expect(await screen.findByText(`Wakes up at ${new Date(due).toLocaleString()}: Look again.`)).toBeVisible();
+  act(() => stream.emit("session", { ...state, status: "waiting", queued: 0, wakeups: [] }));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Pending wake-ups" })).toBeNull());
+});
+
+test("a wake-up that is no longer pending shows the refusal", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/events/history")) return page([]);
+      if (init?.method === "DELETE")
+        return Response.json({ error: { message: "This wake-up is not pending in this session." } }, { status: 409 });
+      return Response.json({
+        ...detail,
+        status: "waiting",
+        wakeups: [{ id: 7, due_at: "2026-10-22T15:30:00Z", message: "Check.", created_at: "2026-10-22T12:00:00Z" }],
+      });
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  expect(await screen.findByText("This wake-up is not pending in this session.")).toBeVisible();
+});
