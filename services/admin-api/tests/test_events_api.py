@@ -102,6 +102,7 @@ def test_facets(store, tmp_path):
         'types': ['jira.ticket.created'],
         'statuses': ['pending'],
         'handlers': [{'id': str(handler), 'name': 'Triage'}],
+        'schedules': [],
     }
 
 
@@ -174,6 +175,7 @@ def test_filters_and_search(store, tmp_path):
         'types': ['jira.ticket.created', 'jira.ticket.updated'],
         'statuses': ['pending'],
         'handlers': [],
+        'schedules': [],
     }
     assert client.get('/api/events', headers=HEADERS, params={'limit': 201}).status_code == 400
 

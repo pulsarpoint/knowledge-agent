@@ -59,6 +59,8 @@ export interface EventFilters {
   /** "yes" (a handler ran) or "no" (none did); empty for all. */
   handled: string;
   handler: string;
+  /** An Emit event schedule's name: its events (source schedule, subject the name). */
+  schedule: string;
   q: string;
 }
 export type SortKey = "time" | "source" | "type" | "subject" | "status";
@@ -71,11 +73,21 @@ export interface EventFacets {
   types: string[];
   statuses: EventStatus[];
   handlers: { id: string; name: string }[];
+  /** Emit event schedules by name. */
+  schedules: string[];
 }
 export type FieldChange = { from: unknown; to: unknown } | { added: string[]; removed: string[] } | { changed: true };
 
 export const DEFAULT_SORT: EventSort = { key: "time", order: "desc" };
-export const NO_FILTERS: EventFilters = { source: "", type: "", status: "", handled: "", handler: "", q: "" };
+export const NO_FILTERS: EventFilters = {
+  source: "",
+  type: "",
+  status: "",
+  handled: "",
+  handler: "",
+  schedule: "",
+  q: "",
+};
 export const TYPE_LABELS: Record<string, string> = {
   "jira.ticket.created": "Ticket created",
   "jira.ticket.updated": "Ticket updated",
@@ -110,11 +122,12 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function getEvents(filters: EventFilters, sort: EventSort = DEFAULT_SORT, offset = 0, signal?: AbortSignal) {
   const query = new URLSearchParams();
-  if (filters.source) query.set("source", filters.source);
+  if (filters.source || filters.schedule) query.set("source", filters.schedule ? "schedule" : filters.source);
   if (filters.type) query.set("type", filters.type);
   if (filters.status) query.set("status", filters.status);
   if (filters.handled) query.set("handled", filters.handled);
   if (filters.handler) query.set("handler_id", filters.handler);
+  if (filters.schedule) query.set("subject", filters.schedule);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (sort.key !== DEFAULT_SORT.key) query.set("sort", sort.key);
   if (sort.key !== DEFAULT_SORT.key || sort.order !== DEFAULT_SORT.order) query.set("order", sort.order);

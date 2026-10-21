@@ -4,6 +4,16 @@ import { EMIT, saveSchedule, type Schedule } from "./schedules";
 import TimetableFields, { type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPull, jiraPullParams, type JiraPull } from "./JiraPullFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -17,9 +27,18 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  /** Handlers bound to the old name follow a rename (the list knows which those are). */
+  const bound = schedule.handlers?.length ?? 0;
+  const renaming = schedule.target_kind === EMIT && name.trim() !== schedule.name;
 
-  async function save(event: FormEvent) {
+  function submit(event: FormEvent) {
     event.preventDefault();
+    if (renaming && bound > 0) setConfirming(true);
+    else void save();
+  }
+  async function save() {
+    setConfirming(false);
     setSaving(true);
     setError(null);
     try {
@@ -43,7 +62,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
   }
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex flex-col gap-4">
       <FieldGroup>
         {schedule.target_kind === EMIT && (
           <Field>
@@ -64,6 +83,20 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
           {saving && <Spinner data-icon="inline-start" />}Save
         </Button>
       </SheetFooter>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rename schedule to {name.trim()}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This also updates {bound === 1 ? "1 handler" : `${bound} handlers`}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void save()}>Rename</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </form>
   );
 }

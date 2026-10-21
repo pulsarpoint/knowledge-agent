@@ -511,7 +511,7 @@ test("the Schedule picker sets the type pattern and replaces the schedule condit
       "schedule.fired",
       [
         { field: "payload.trigger", op: "equals", value: "scheduled" },
-        { field: "payload.schedule_id", op: "equals", value: "e-2" },
+        { field: "subject", op: "equals", value: "Nightly check" },
       ],
     ]),
   );
@@ -530,7 +530,7 @@ test("only a handler that takes schedule.fired with the schedule condition gets 
   const user = userEvent.setup();
   api({
     "GET /api/event-handlers": {
-      handlers: [handler({ conditions: [{ field: "payload.schedule_id", op: "equals", value: "e-1" }] })],
+      handlers: [handler({ conditions: [{ field: "subject", op: "equals", value: "Morning summary" }] })],
     },
   });
   view();
@@ -545,7 +545,7 @@ test("deleting a schedule handler says the schedule keeps recording events", asy
       handlers: [
         handler({
           type_pattern: "schedule.fired",
-          conditions: [{ field: "payload.schedule_id", op: "equals", value: "e-1" }],
+          conditions: [{ field: "subject", op: "equals", value: "Morning summary" }],
         }),
       ],
     },

@@ -70,19 +70,19 @@ const toAssignee = (form: Form) => form.action === "agent" && form.agent_id === 
 /** Reply in Jira is offered (and saved) only for Send to agent on a Jira pattern. */
 const repliesInJira = (form: Form) => form.action === "agent" && forJira(form.type_pattern) && form.reply_to_jira;
 const offersGiveBack = (form: Form) => toAssignee(form) && repliesInJira(form);
-/** Run a schedule: type schedule.fired and the one payload.schedule_id condition (other conditions stay). */
-const scheduleConditions = (form: Form, id: string): Partial<Form> => ({
+/** Run a schedule: type schedule.fired and the one subject equals <name> condition (other conditions stay). */
+const scheduleConditions = (form: Form, name: string): Partial<Form> => ({
   type_pattern: SCHEDULE_FIRED,
   conditions: [
-    ...form.conditions.filter((c) => c.field.trim() !== SCHEDULE_FIELD),
-    { field: SCHEDULE_FIELD, op: "equals", value: id },
+    ...form.conditions.filter((c) => !(c.field.trim() === SCHEDULE_FIELD && c.op === "equals")),
+    { field: SCHEDULE_FIELD, op: "equals", value: name },
   ],
 });
 /** Add handler on Schedules: a Send to agent handler for that schedule; the person picks the agent and writes the task. */
 const scheduleForm = (schedule: { id: string; name: string }): Form => ({
   ...BLANK,
   name: schedule.name,
-  ...scheduleConditions(BLANK, schedule.id),
+  ...scheduleConditions(BLANK, schedule.name),
   action: "agent",
 });
 const HELP =
@@ -260,8 +260,8 @@ function HandlerForm({
           <FieldDescription>Use * for any part, e.g. jira.ticket.* or jira.*.created.</FieldDescription>
           {schedules.length > 0 && (
             <Select
-              value={schedules.some((item) => item.id === pickedSchedule) ? pickedSchedule : ""}
-              onValueChange={(id) => update(scheduleConditions(form, id))}
+              value={schedules.some((item) => item.name === pickedSchedule) ? pickedSchedule : ""}
+              onValueChange={(name) => update(scheduleConditions(form, name))}
             >
               <SelectTrigger aria-label="Schedule" className="w-full">
                 <SelectValue placeholder="Or run a schedule" />
@@ -269,7 +269,7 @@ function HandlerForm({
               <SelectContent>
                 <SelectGroup>
                   {schedules.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
+                    <SelectItem key={item.id} value={item.name}>
                       Schedule: {item.name}
                     </SelectItem>
                   ))}

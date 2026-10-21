@@ -34,6 +34,7 @@ const FACETS = {
   types: ["jira.ticket.created", "jira.ticket.updated"],
   statuses: ["processed"],
   handlers: [],
+  schedules: [],
 };
 
 interface Call {

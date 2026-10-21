@@ -436,3 +436,14 @@ Schedules can emit an event: `ka.schedules.target_kind` also takes `event.emit` 
 so each emit schedule is its own target) and `ka.events.source` also takes `schedule`. Each firing records one
 `schedule.fired` event, deduplicated per firing. The down migration deletes `schedule` events and `event.emit`
 schedules and restores both checks.
+
+## 0121_schedule_names
+
+Handlers bind to an Emit event schedule by its name, the `subject` of its `schedule.fired` events, so
+`ka.schedules.name` is unique per project (`schedules_project_name_key`). A repeated name first gets ` (2)`, ` (3)`…
+(the oldest row keeps it; a suffix already in use is skipped). Handlers whose type pattern matches `schedule.fired`
+(`*`, `*.*`, `schedule.*`, `*.fired`, `schedule.fired`) and that check `payload.schedule_id` equals an emit schedule's
+id now check `subject` equals that schedule's (possibly renamed) name; their revision goes up. A condition naming a
+deleted schedule is left as it was. The down migration is best effort (test data): it rewrites `subject` equals an
+emit schedule's name back to `payload.schedule_id` equals its id for those handlers and drops the constraint; renamed
+duplicates keep their suffix.

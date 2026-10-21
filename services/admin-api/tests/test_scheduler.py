@@ -101,12 +101,14 @@ def test_failures_are_recorded_and_the_schedule_moves_on(store):
     def gone(store, schedule):
         raise TargetMissing()
 
-    for target, message in [
-        (jira_down, 'Could not reach Jira. Check the URL, network access, and TLS certificate'),
-        (broken, scheduler.UNEXPECTED),
-        (gone, MISSING),
-    ]:
-        schedule = a_schedule(store)
+    for number, (target, message) in enumerate(
+        [
+            (jira_down, 'Could not reach Jira. Check the URL, network access, and TLS certificate'),
+            (broken, scheduler.UNEXPECTED),
+            (gone, MISSING),
+        ]
+    ):
+        schedule = a_schedule(store, name=f'Pull {number}')  # names are unique per project
         assert scheduler.run_once(store, {'jira.pull': target}) is True
         saved = row(store, schedule)
         assert (saved['last_status'], saved['last_message']) == ('failed', message)

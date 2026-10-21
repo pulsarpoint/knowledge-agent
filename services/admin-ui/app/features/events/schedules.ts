@@ -1,7 +1,7 @@
 import { request } from "~/lib/api";
 
 export type RunStatus = "succeeded" | "failed" | "skipped";
-/** A handler that runs an emit schedule: type pattern takes schedule.fired, condition payload.schedule_id equals the id. */
+/** A handler that runs an emit schedule: type pattern takes schedule.fired, condition subject equals the name. */
 export interface ScheduleHandler {
   id: string;
   name: string;
@@ -75,8 +75,9 @@ const path = (id: string) => `/api/schedules/${encodeURIComponent(id)}`;
 export const getSchedules = (signal?: AbortSignal) => request<{ schedules: Schedule[] }>("/api/schedules", { signal });
 export const getScheduleRuns = (id: string, signal?: AbortSignal) =>
   request<{ runs: ScheduleRun[] }>(`${path(id)}/runs`, { signal });
+/** handlers_updated: a rename rewrites the subject condition of the handlers bound to the old name. */
 export const saveSchedule = (id: string, value: ScheduleInput & { revision: number }) =>
-  request<{ schedule: Schedule }>(path(id), send("PUT", value));
+  request<{ schedule: Schedule; handlers_updated: number }>(path(id), send("PUT", value));
 export const createSchedule = (value: ScheduleInput & { target_kind: string }) =>
   request<{ schedule: Schedule }>("/api/schedules", send("POST", value));
 export const deleteSchedule = (id: string) => request<void>(path(id), { method: "DELETE" });

@@ -152,7 +152,7 @@ def test_a_handler_bound_to_the_schedule_starts_one_run_and_ignores_other_schedu
         t.store,
         name='Morning summary',
         type_pattern='schedule.fired',
-        conditions=Jsonb([{'field': 'payload.schedule_id', 'op': 'equals', 'value': mine['id']}]),
+        conditions=Jsonb([{'field': 'subject', 'op': 'equals', 'value': 'Morning summary'}]),
         action='agent',
         emit=None,
         agent_id=t.agent,
@@ -180,7 +180,7 @@ def test_create_edit_and_delete_an_emit_schedule(store, tmp_path):
     schedule = create(client)
     assert schedule['target_id'] == schedule['id'] and schedule['target_kind'] == 'event.emit'
     assert schedule['name'] == 'Morning summary' and schedule['params'] == {} and schedule['next_run_at'] is not None
-    second = create(client, name='Morning summary')  # each emit schedule is its own target
+    second = create(client, name='Evening summary')  # each emit schedule is its own target
     assert second['id'] != schedule['id']
     saved = client.put(
         f'/api/schedules/{schedule["id"]}',
@@ -245,14 +245,12 @@ def test_the_list_shows_the_handlers_bound_to_each_emit_schedule(store, tmp_path
     schedule, other = create(client), create(client, name='Nightly check')
     assert listed(client, schedule)['handlers'] == []
 
-    def bound(name, schedule_id=schedule['id'], **values):
+    def bound(name, schedule_name='Morning summary', **values):
         return a_handler(
             store,
             name=name,
             type_pattern=values.pop('type_pattern', 'schedule.fired'),
-            conditions=Jsonb(
-                [{'field': 'payload.schedule_id', 'op': 'equals', 'value': schedule_id}, *values.pop('more', [])]
-            ),
+            conditions=Jsonb([{'field': 'subject', 'op': 'equals', 'value': schedule_name}, *values.pop('more', [])]),
             **values,
         )
 
@@ -263,8 +261,14 @@ def test_the_list_shows_the_handlers_bound_to_each_emit_schedule(store, tmp_path
     )
     disabled = bound('Paused', enabled=False)
     bound('Wrong type', type_pattern='jira.ticket.*')
-    bound('Other schedule', schedule_id=other['id'])
+    bound('Other schedule', schedule_name='Nightly check')
     a_handler(store, name='No condition', type_pattern='schedule.fired')
+    a_handler(  # the old binding by id no longer counts
+        store,
+        name='By id',
+        type_pattern='schedule.fired',
+        conditions=Jsonb([{'field': 'payload.schedule_id', 'op': 'equals', 'value': schedule['id']}]),
+    )
     assert listed(client, schedule)['handlers'] == [
         {'id': str(wildcard['id']), 'name': 'Any schedule', 'enabled': True},
         {'id': str(disabled['id']), 'name': 'Paused', 'enabled': False},
@@ -273,7 +277,7 @@ def test_the_list_shows_the_handlers_bound_to_each_emit_schedule(store, tmp_path
     assert [h['name'] for h in listed(client, other)['handlers']] == ['Other schedule']
     client.delete(f'/api/schedules/{schedule["id"]}', headers=HEADERS)
     with store.connect() as conn:  # deleting a schedule leaves its handlers
-        assert conn.execute('SELECT count(*) AS n FROM ka.event_handlers').fetchone()['n'] == 6
+        assert conn.execute('SELECT count(*) AS n FROM ka.event_handlers').fetchone()['n'] == 7
 
 
 def test_the_migration_allows_emit_schedules_and_schedule_events_and_down_removes_them(store):

@@ -180,6 +180,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         handled: Literal['yes', 'no'] | None = None,
         handler_id: UUID | None = None,
         root_id: int | None = Query(None, ge=1),
+        subject: str | None = Query(None, max_length=500),
         q: str | None = Query(None, max_length=200),
         sort: Literal['time', 'source', 'type', 'subject', 'status'] = 'time',
         order: Literal['asc', 'desc'] = 'desc',
@@ -195,6 +196,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 ('status', status),
                 ('handler_id', handler_id),
                 ('root_id', root_id),
+                ('subject', subject),
             ):
                 if value:
                     where.append(f'{column}=%s')
@@ -227,11 +229,16 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             handlers = conn.execute(
                 'SELECT id,name FROM ka.event_handlers WHERE project_id=%s ORDER BY name', (project,)
             ).fetchall()
+            schedules = conn.execute(
+                "SELECT name FROM ka.schedules WHERE project_id=%s AND target_kind='event.emit' ORDER BY name",
+                (project,),
+            ).fetchall()
             return {
                 'sources': distinct('source'),
                 'types': distinct('type'),
                 'statuses': distinct('status'),
                 'handlers': handlers,
+                'schedules': [row['name'] for row in schedules],  # Emit event schedules: their events' subject
             }
 
     @router.get('/events/{event_id}')

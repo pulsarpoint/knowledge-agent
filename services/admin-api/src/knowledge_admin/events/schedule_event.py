@@ -1,6 +1,6 @@
 """The event.emit schedule target: each firing records one schedule.fired event, which the event processor routes to
-handlers like any event (a handler runs a schedule through its type pattern and the condition payload.schedule_id
-equals <id>)."""
+handlers like any event (a handler runs a schedule through its type pattern and the condition subject equals the
+schedule's name; payload.schedule_id is for reference)."""
 
 from datetime import datetime
 

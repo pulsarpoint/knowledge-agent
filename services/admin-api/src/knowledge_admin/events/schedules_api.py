@@ -1,12 +1,14 @@
 """Administration → Schedules: create, list, edit, pause, run and delete schedules. repository-worker
 runs them (scheduler.py); this API only changes their rows. Targets: the Jira pull (one per connection) and Emit event
-(each schedule its own target; the list shows the handlers that run it)."""
+(each schedule its own target; a handler runs it by checking the event's subject equals the schedule's name, so names
+are unique per project and a rename rewrites that condition on its handlers; the list shows the handlers that run it)."""
 
 from datetime import UTC, datetime
 from functools import partial
 from typing import Literal
 from uuid import UUID, uuid4
 
+import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,6 +31,7 @@ JIRA_PULL = 'Jira auto pull'
 NO_RENAME = 'The Jira pull schedule cannot be renamed.'
 NO_NAME = 'Enter a name.'
 NO_SETTINGS = 'Emit event schedules take no settings.'
+TAKEN = 'A schedule with this name already exists.'
 PREVIEW_RUNS = 3
 HISTORY = 20
 
@@ -76,11 +79,18 @@ def kind_checked(target_kind: str, value: NewSchedule | ScheduleInput) -> None:
         raise HTTPException(400, NO_NAME)
 
 
-def bound(handler: dict, schedule_id: UUID) -> bool:
-    """A handler runs an emit schedule when its type pattern takes schedule.fired and it checks payload.schedule_id
-    equals the schedule's id."""
-    wanted = {'field': 'payload.schedule_id', 'op': 'equals', 'value': str(schedule_id)}
-    return type_matches(handler['type_pattern'], FIRED) and wanted in handler['conditions']
+def subject_is(name: str) -> dict:
+    return {'field': 'subject', 'op': 'equals', 'value': name}
+
+
+def bound(handler: dict, name: str) -> bool:
+    """A handler runs an emit schedule when its type pattern takes schedule.fired and it checks the subject equals the
+    schedule's name."""
+    return type_matches(handler['type_pattern'], FIRED) and subject_is(name) in handler['conditions']
+
+
+def renamed(conditions: list[dict], old: str, new: str) -> list[dict]:
+    return [subject_is(new) if condition == subject_is(old) else condition for condition in conditions]
 
 
 def checked(value: Timetable) -> None:
@@ -103,6 +113,19 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         actor = database().actor(conn, *request_actor(request))
         write_audit(conn, project, actor, action, 'schedule', schedule_id, details)
 
+    def rebind(conn, project: UUID, old: str, new: str) -> int:
+        """Point the handlers bound to the old name at the new one; how many changed."""
+        handlers = conn.execute(
+            'SELECT id,type_pattern,conditions FROM ka.event_handlers WHERE project_id=%s FOR UPDATE', (project,)
+        ).fetchall()
+        changed = [h for h in handlers if bound(h, old)]
+        for h in changed:
+            conn.execute(
+                """UPDATE ka.event_handlers SET conditions=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
+                (Jsonb(renamed(h['conditions'], old, new)), h['id']),
+            )
+        return len(changed)
+
     def jira_connection(conn, project: UUID) -> dict | None:
         return conn.execute(
             """SELECT id FROM ka.jira_connections
@@ -124,7 +147,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         for row in rows:
             if row['target_kind'] == 'event.emit':
                 row['handlers'] = [
-                    {'id': h['id'], 'name': h['name'], 'enabled': h['enabled']} for h in handlers if bound(h, row['id'])
+                    {'id': h['id'], 'name': h['name'], 'enabled': h['enabled']}
+                    for h in handlers
+                    if bound(h, row['name'])
                 ]
         return {'schedules': [shown(row) for row in rows]}
 
@@ -167,23 +192,26 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 name, target_id = JIRA_PULL, connection['id']
             else:
                 name, target_id = value.name, schedule_id  # an emit schedule is its own target
-            row = conn.execute(
-                f"""INSERT INTO ka.schedules(id,project_id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,params)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,target_kind,target_id) DO NOTHING
-                RETURNING {FIELDS}""",
-                (
-                    schedule_id,
-                    project,
-                    name,
-                    value.target_kind,
-                    target_id,
-                    value.cron,
-                    value.timezone,
-                    value.enabled,
-                    first_run(value),
-                    Jsonb(value.params.model_dump(exclude_none=True)),
-                ),
-            ).fetchone()
+            try:
+                row = conn.execute(
+                    f"""INSERT INTO ka.schedules(id,project_id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,params)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,target_kind,target_id) DO NOTHING
+                    RETURNING {FIELDS}""",
+                    (
+                        schedule_id,
+                        project,
+                        name,
+                        value.target_kind,
+                        target_id,
+                        value.cron,
+                        value.timezone,
+                        value.enabled,
+                        first_run(value),
+                        Jsonb(value.params.model_dump(exclude_none=True)),
+                    ),
+                ).fetchone()
+            except psycopg.errors.UniqueViolation:  # the target conflict is skipped above, so this is the name
+                raise HTTPException(409, TAKEN) from None
             if row is None:
                 raise HTTPException(409, DUPLICATE)
             audit(
@@ -241,11 +269,16 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             next_run = current['next_run_at'] if current['run_requested'] else first_run(value)
             params = current['params'] if value.params is None else value.params.model_dump(exclude_none=True)
             name = value.name or current['name']
-            row = conn.execute(
-                f"""UPDATE ka.schedules SET name=%s,cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
-                revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",
-                (name, value.cron, value.timezone, value.enabled, next_run, Jsonb(params), schedule_id),
-            ).fetchone()
+            try:
+                row = conn.execute(
+                    f"""UPDATE ka.schedules SET name=%s,cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
+                    revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",
+                    (name, value.cron, value.timezone, value.enabled, next_run, Jsonb(params), schedule_id),
+                ).fetchone()
+            except psycopg.errors.UniqueViolation:
+                raise HTTPException(409, TAKEN) from None
+            # older events keep the old subject; the handlers follow the new name
+            moved = rebind(conn, project, current['name'], name) if name != current['name'] else 0
             audit(
                 conn,
                 project,
@@ -257,10 +290,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     'timezone': value.timezone,
                     'enabled': value.enabled,
                     **({'name': name} if value.name is not None else {}),
+                    **({'handlers_updated': moved} if moved else {}),
                     **params,
                 },
             )
-        return {'schedule': shown(row)}
+        return {'schedule': shown(row), 'handlers_updated': moved}
 
     @router.post('/schedules/{schedule_id}/run')
     def run_now(schedule_id: UUID, request: Request) -> dict:

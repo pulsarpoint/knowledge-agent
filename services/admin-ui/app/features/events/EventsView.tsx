@@ -107,7 +107,13 @@ export default function EventsView() {
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<EventRow[] | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [facets, setFacets] = useState<EventFacets>({ sources: [], types: [], statuses: [], handlers: [] });
+  const [facets, setFacets] = useState<EventFacets>({
+    sources: [],
+    types: [],
+    statuses: [],
+    handlers: [],
+    schedules: [],
+  });
   const [selected, setSelected] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -160,6 +166,7 @@ export default function EventsView() {
     filters.status,
     filters.handled,
     filters.handler,
+    filters.schedule,
     query,
     sort.key,
     sort.order,
@@ -235,7 +242,13 @@ export default function EventsView() {
   }
 
   const filtered = Boolean(
-    filters.source || filters.type || filters.status || filters.handled || filters.handler || filters.q.trim(),
+    filters.source ||
+    filters.type ||
+    filters.status ||
+    filters.handled ||
+    filters.handler ||
+    filters.schedule ||
+    filters.q.trim(),
   );
   const changes = selected ? describeChanges(selected.payload.changes) : [];
   /** The API caps the chain, so the open event may be missing from it. */
@@ -299,6 +312,15 @@ export default function EventsView() {
           value={filters.handler}
           onChange={set("handler")}
           options={facets.handlers.map((handler) => ({ value: handler.id, label: handler.name }))}
+        />
+        <FilterSelect
+          id="events-schedule"
+          label="Schedule"
+          all="All schedules"
+          className="w-full sm:w-44"
+          value={filters.schedule}
+          onChange={set("schedule")}
+          options={facets.schedules.map((name) => ({ value: name, label: name }))}
         />
         <Field className="w-full sm:w-56">
           <FieldLabel htmlFor="events-search">Ticket or title</FieldLabel>

@@ -465,8 +465,8 @@ test("Add handler opens the handler sheet prefilled for the schedule and saves i
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByLabelText("Name")).toHaveValue("Morning summary");
   expect(within(sheet).getByLabelText("Event type")).toHaveValue("schedule.fired");
-  expect(within(sheet).getByLabelText("Condition 1 field")).toHaveValue("payload.schedule_id");
-  expect(within(sheet).getByLabelText("Condition 1 value")).toHaveValue("e-1");
+  expect(within(sheet).getByLabelText("Condition 1 field")).toHaveValue("subject");
+  expect(within(sheet).getByLabelText("Condition 1 value")).toHaveValue("Morning summary");
   expect(within(sheet).getByRole("combobox", { name: "Action" })).toHaveTextContent("Send to agent");
   expect(within(sheet).queryByRole("checkbox", { name: /Jira ticket/ })).toBeNull();
   await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
@@ -481,7 +481,7 @@ test("Add handler opens the handler sheet prefilled for the schedule and saves i
     name: "Morning summary",
     enabled: true,
     type_pattern: "schedule.fired",
-    conditions: [{ field: "payload.schedule_id", op: "equals", value: "e-1" }],
+    conditions: [{ field: "subject", op: "equals", value: "Morning summary" }],
     action: "agent",
     emit: null,
     agent_from: "fixed",
@@ -521,6 +521,11 @@ test("editing an emit schedule saves its name; edits keep the handlers line", as
   await user.type(name, "Daily digest");
   await screen.findByText("Next runs");
   await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("This also updates 1 handler.")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Rename" }));
   expect(await screen.findByText("Daily digest")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Handled by: Summary" })).toBeInTheDocument();
   expect(body(fetch, "PUT /api/schedules/e-1")).toEqual({
@@ -530,4 +535,37 @@ test("editing an emit schedule saves its name; edits keep the handlers line", as
     enabled: true,
     revision: 1,
   });
+});
+
+test("a rename asks first only when handlers are bound, and says how many", async () => {
+  const user = userEvent.setup();
+  const two = [
+    { id: "h-1", name: "Summary", enabled: true },
+    { id: "h-2", name: "Digest", enabled: false },
+  ];
+  const lone = emit({ id: "e-2", name: "Nightly check" });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [emit({ handlers: two }), lone] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "PUT /api/schedules/e-2": () => [200, { schedule: { ...lone, name: "Late check", revision: 2 } }],
+  });
+  view();
+  const [first, second] = await screen.findAllByRole("button", { name: "Edit" });
+  await user.click(first);
+  await user.clear(screen.getByLabelText("Name"));
+  await user.type(screen.getByLabelText("Name"), "Daily digest");
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("This also updates 2 handlers.")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await user.click(second);
+  await user.clear(screen.getByLabelText("Name"));
+  await user.type(screen.getByLabelText("Name"), "Late check");
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Late check")).toBeInTheDocument();
+  expect(screen.queryByText(/This also updates/)).toBeNull();
+  expect(body(fetch, "PUT /api/schedules/e-2").name).toBe("Late check");
 });

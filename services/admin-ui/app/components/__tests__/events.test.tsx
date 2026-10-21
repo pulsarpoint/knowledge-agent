@@ -24,6 +24,7 @@ const FACETS = {
   types: ["jira.ticket.created", "jira.ticket.updated"],
   statuses: ["failed", "processed"],
   handlers: [{ id: "h-1", name: "Triage" }],
+  schedules: ["Morning summary", "Nightly check"],
 };
 const detail = (id: number, extra = {}) => ({
   ...row(id),
@@ -276,7 +277,7 @@ test("a run shows its status, Open run and Open notification; an older task keep
 
 test("empty state", async () => {
   api({
-    "/api/events/facets": { sources: [], types: [], statuses: [], handlers: [] },
+    "/api/events/facets": { sources: [], types: [], statuses: [], handlers: [], schedules: [] },
     "/api/events": { events: [], next_offset: null },
   });
   view();
@@ -447,4 +448,23 @@ test("the Handlers column counts handler runs and the Handled filter narrows the
   await user.click(screen.getByRole("option", { name: "Not handled" }));
   await waitFor(() => expect(screen.queryByText("DEMO-3")).toBeNull());
   expect(screen.getByText("DEMO-1")).toBeInTheDocument();
+});
+
+test("the Schedule filter lists emit schedules and asks for their events by subject", async () => {
+  const user = userEvent.setup();
+  const fetch = api({
+    "/api/events/facets": FACETS,
+    "/api/events": { events: [row(2)], next_offset: null },
+    "/api/events?source=schedule&subject=Morning+summary": {
+      events: [row(5, { source: "schedule", subject: "Morning summary" })],
+      next_offset: null,
+    },
+  });
+  view();
+  await screen.findByText("DEMO-2");
+  await user.click(screen.getByRole("combobox", { name: "Schedule" }));
+  expect(screen.getByRole("option", { name: "Nightly check" })).toBeInTheDocument();
+  await user.click(screen.getByRole("option", { name: "Morning summary" }));
+  expect(await within(await screen.findByRole("table")).findByText("Morning summary")).toBeInTheDocument();
+  expect(fetch.mock.calls.some(([url]) => url === "/api/events?source=schedule&subject=Morning+summary")).toBe(true);
 });

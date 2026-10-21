@@ -820,20 +820,22 @@ schedule** creates one: choose what to run and when:
 
 - **Jira tickets** (one per project), with its **Jira query (JQL)** and **Number of tickets**, 1–200; empty fields use
   the query and number of the last manual fetch on Jira → Tickets, or 25 tickets.
-- **Emit event**, with a **Name** (e.g. `Morning summary`); make as many as you like. Each run records one
+- **Emit event**, with a **Name** (e.g. `Morning summary`; names are unique in the project, a name in use is refused
+  with `A schedule with this name already exists.`); make as many as you like. Each run records one
   `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.17) and the run's result says
   `Recorded event <id>.` The schedule itself runs no agent: an event handler (4.18) sends the event to an agent with
   its task, and the answer goes to Notifications (4.19). The row says which handler runs it — **Handled by:
   <name>** (opens the handler; `(off)` after the name when it is switched off) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
   handler**, which opens a new handler already set up for this schedule (its name, event type `schedule.fired`, the
-  condition `payload.schedule_id` equals the schedule, action Send to agent): choose the agent, write the prompt and
+  condition `subject` equals the schedule's name, action Send to agent): choose the agent, write the prompt and
   save.
 
 **Delete** removes a schedule and its history; the handlers of an Emit event schedule stay (they no longer match any
 event). Each row shows what
 it runs, when (in plain words and its time zone), the next run and the last result. Switch a schedule off to pause it;
 **Run now** runs it once (a paused schedule stays paused); **Edit** changes the Jira query and number of tickets (or an
-Emit event schedule's name) and the
+Emit event schedule's name — renaming it also rewrites the `subject` condition of the handlers that run it, after
+asking `This also updates <n> handler(s).`; earlier events keep the old name as their subject) and the
 timetable: a preset or a custom cron
 expression (minute, hour, day of month, month, day of week), the time zone, with a preview of the next three runs.
 Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Schedules are run by the
@@ -853,7 +855,8 @@ Each event is **Pending** until the event handlers have looked at it (within a f
 Processed. **Processed** means the handlers have looked at it and none of those that matched failed — also when no
 handler matched at all. The **Handlers** column says how many handlers ran on the event (`—` when none did), and the
 **Handled** filter shows only events some handler ran on, or only those none did. Filter by source, type, status,
-Handled and **Emitted by** (the handler that emitted the event), search by ticket
+Handled, **Emitted by** (the handler that emitted the event) and **Schedule** (an Emit event schedule: its events,
+source Schedule with the schedule's name as subject), search by ticket
 key or title, and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
 indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send
@@ -884,12 +887,13 @@ event also carries every comment of the ticket, whole and oldest first, in `payl
 `author_id`, `created`, `body`) and their number in `payload.comment_count`: a Send to agent message can answer the
 latest one with `{{ event.payload.comments[-1].body }}`.
 
-**Running a schedule.** An Emit event schedule (4.16) records `schedule.fired` with the payload `schedule_id`,
+**Running a schedule.** An Emit event schedule (4.16) records `schedule.fired` with the schedule's name as subject
+and title and the payload `schedule_id` (for reference),
 `name`, `fired_at` (this run), `last_run_at` (the previous successful run; empty — `null` — on the first run) and `trigger`
 (`scheduled` or `manual` for Run now). Under **Event type** the form offers **Schedule: <name>** for each Emit event
-schedule: choosing one sets the type to `schedule.fired` and adds the condition `payload.schedule_id` **equals** the
-schedule's id (replacing an earlier schedule condition; it stays editable like any condition). Only handlers with that
-condition run the schedule, and the Schedules page lists them. Use Send to agent with a fixed agent (the form offers Agent
+schedule: choosing one sets the type to `schedule.fired` and adds the condition `subject` **equals** the
+schedule's name (replacing an earlier `subject` equals condition; it stays editable like any condition). Only handlers
+with that condition run the schedule, and the Schedules page lists them; renaming the schedule updates the condition. Use Send to agent with a fixed agent (the form offers Agent
 mapped to the assignee and the Jira options only when the event type can match Jira events) and a prompt such as `Summarise what changed since {{ event.payload.last_run_at or "the last week" }}.` (the `or`
 gives the first run a fallback; without it the prompt would say `None`). **Add handler** on the Schedules page opens this form already filled in.
 
