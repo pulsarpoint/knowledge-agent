@@ -8,6 +8,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+from knowledge_admin.events.matching import type_matches
 from knowledge_admin.events.schedules_api import bound
 from test_api import _client
 from test_event_processor import a_handler
@@ -18,6 +19,7 @@ from test_schedule_emit_event import EMIT, create, error, listed
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0121_schedule_names.up.sql', '0121_schedule_names.down.sql'
 TAKEN = 'A schedule with this name already exists.'
+RESERVED = 'This name is reserved for the Jira pull schedule.'
 
 
 def subject(name: str) -> dict:
@@ -71,15 +73,29 @@ def test_names_are_unique_on_create_and_rename(store, tmp_path):
         conn.execute("UPDATE ka.schedules SET name='Morning summary' WHERE id=%s", (nightly['id'],))
 
 
-def test_a_jira_pull_schedule_cannot_take_a_name_in_use(store, tmp_path):
+def test_an_emit_schedule_cannot_take_the_jira_pull_name(store, tmp_path):
     client, _ = setup(store, tmp_path)
-    create(client, name='Jira auto pull')
-    taken = client.post(
+    for name in ('Jira auto pull', ' jira AUTO pull '):
+        refused = client.post('/api/schedules', headers=HEADERS, json={**EMIT, 'name': name})
+        assert refused.status_code == 400 and error(refused) == RESERVED, name
+    schedule = create(client)
+    renamed = edit(client, schedule, name='JIRA AUTO PULL')
+    assert renamed.status_code == 400 and error(renamed) == RESERVED
+    pull = client.post(
         '/api/schedules',
         headers=HEADERS,
         json={'target_kind': 'jira.pull', 'cron': '0 * * * *', 'timezone': 'UTC', 'enabled': True},
     )
-    assert taken.status_code == 409 and error(taken) == TAKEN
+    assert pull.status_code == 201 and pull.json()['schedule']['name'] == 'Jira auto pull'
+
+
+def test_the_migration_pattern_list_is_every_pattern_that_takes_schedule_fired():
+    sql = (MIGRATIONS / UP).read_text()
+    listed = set(sql.split('h.type_pattern IN (')[1].split(')')[0].replace("'", '').replace(' ', '').split(','))
+    candidates = ['*', '*.*', '*.*.*', 'schedule.*', '*.fired', 'schedule.fired', 'schedule.fired.*', 'schedule.*.*']
+    candidates += ['*.fired.*', '*.*.fired', 'jira.*', 'jira.ticket.*', 'schedule.ran', '*.ran', 'schedule', 'fired']
+    assert {p for p in candidates if type_matches(p, 'schedule.fired')} == listed
+    assert listed == {'*', '*.*', 'schedule.*', '*.fired', 'schedule.fired'}
 
 
 def test_renaming_rewrites_the_bound_handlers_and_leaves_the_others(store, tmp_path):

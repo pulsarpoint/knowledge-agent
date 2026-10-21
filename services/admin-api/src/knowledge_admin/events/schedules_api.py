@@ -32,6 +32,7 @@ NO_RENAME = 'The Jira pull schedule cannot be renamed.'
 NO_NAME = 'Enter a name.'
 NO_SETTINGS = 'Emit event schedules take no settings.'
 TAKEN = 'A schedule with this name already exists.'
+RESERVED = 'This name is reserved for the Jira pull schedule.'
 PREVIEW_RUNS = 3
 HISTORY = 20
 
@@ -77,6 +78,8 @@ def kind_checked(target_kind: str, value: NewSchedule | ScheduleInput) -> None:
         raise HTTPException(400, NO_SETTINGS)
     if target_kind == 'event.emit' and value.name == '':
         raise HTTPException(400, NO_NAME)
+    if target_kind == 'event.emit' and value.name and value.name.casefold() == JIRA_PULL.casefold():
+        raise HTTPException(400, RESERVED)  # the Jira pull cannot be renamed, so its name stays free for it
 
 
 def subject_is(name: str) -> dict:
@@ -116,7 +119,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def rebind(conn, project: UUID, old: str, new: str) -> int:
         """Point the handlers bound to the old name at the new one; how many changed."""
         handlers = conn.execute(
-            'SELECT id,type_pattern,conditions FROM ka.event_handlers WHERE project_id=%s FOR UPDATE', (project,)
+            'SELECT id,type_pattern,conditions FROM ka.event_handlers WHERE project_id=%s ORDER BY id FOR UPDATE',
+            (project,),
         ).fetchall()
         changed = [h for h in handlers if bound(h, old)]
         for h in changed:

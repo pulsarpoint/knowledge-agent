@@ -821,7 +821,8 @@ schedule** creates one: choose what to run and when:
 - **Jira tickets** (one per project), with its **Jira query (JQL)** and **Number of tickets**, 1–200; empty fields use
   the query and number of the last manual fetch on Jira → Tickets, or 25 tickets.
 - **Emit event**, with a **Name** (e.g. `Morning summary`; names are unique in the project, a name in use is refused
-  with `A schedule with this name already exists.`); make as many as you like. Each run records one
+  with `A schedule with this name already exists.`, and `Jira auto pull` — in any case — is kept for the Jira tickets
+  schedule); make as many as you like. Each run records one
   `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.17) and the run's result says
   `Recorded event <id>.` The schedule itself runs no agent: an event handler (4.18) sends the event to an agent with
   its task, and the answer goes to Notifications (4.19). The row says which handler runs it — **Handled by:
@@ -893,7 +894,8 @@ and title and the payload `schedule_id` (for reference),
 (`scheduled` or `manual` for Run now). Under **Event type** the form offers **Schedule: <name>** for each Emit event
 schedule: choosing one sets the type to `schedule.fired` and adds the condition `subject` **equals** the
 schedule's name (replacing an earlier `subject` equals condition; it stays editable like any condition). Only handlers
-with that condition run the schedule, and the Schedules page lists them; renaming the schedule updates the condition. Use Send to agent with a fixed agent (the form offers Agent
+with that condition run the schedule, and the Schedules page lists them; renaming the schedule updates the condition. A handler left over from a deleted schedule runs again when a
+schedule takes that name. Use Send to agent with a fixed agent (the form offers Agent
 mapped to the assignee and the Jira options only when the event type can match Jira events) and a prompt such as `Summarise what changed since {{ event.payload.last_run_at or "the last week" }}.` (the `or`
 gives the first run a fallback; without it the prompt would say `None`). **Add handler** on the Schedules page opens this form already filled in.
 
