@@ -107,4 +107,5 @@ def load(
         config = {**config, 'access': access, 'project_id': str(project_id)}
     config.pop('record', None)
     config['experts'] = []  # an expert never calls experts
+    config['expert'] = True  # an expert's call: no session tools (wake-ups; agents/runner.instructions_and_tools)
     return config, load_credentials(store, config)

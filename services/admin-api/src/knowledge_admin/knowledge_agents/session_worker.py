@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable
 from contextlib import suppress
+from datetime import UTC
 from typing import Any
 from uuid import UUID
 
@@ -64,9 +65,21 @@ def scrub(value: Any, secrets: list[str]) -> Any:
     return value
 
 
+DUE = 'i.not_before IS NULL OR i.not_before<=now()'  # a queued input that may be delivered now (a wake-up once due)
+WAKEUP = 'Scheduled wake-up (set {set_at}): {message}'
+
+
+def turn_text(item: dict) -> str:
+    """An input as the turn reads it: a person's message as sent; a wake-up says when the agent set it."""
+    if item['kind'] != 'wakeup':
+        return item['text']
+    return WAKEUP.format(set_at=item['created_at'].astimezone(UTC).isoformat(timespec='seconds'), message=item['text'])
+
+
 def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int) -> list[dict]:
-    """Close idle sessions, renew this worker's leases, then claim sessions that need a worker: a queued message,
-    or a turn left `working` by a worker that stopped (that turn is recorded as failed)."""
+    """Close idle sessions, renew this worker's leases, then claim sessions that need a worker: a queued message or
+    a due wake-up (a future one does not count), or a turn left `working` by a worker that stopped (that turn is
+    recorded as failed)."""
     with store.connect() as conn:
         close_idle(conn)
         conn.execute(
@@ -77,12 +90,12 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
         if free <= 0:
             return []
         rows = conn.execute(
-            """WITH picked AS (
+            f"""WITH picked AS (
                 SELECT s.id,s.status AS previous FROM ka.agent_sessions s
                 WHERE s.status<>'closed' AND (s.lease_expires_at IS NULL OR s.lease_expires_at<now())
                   AND NOT s.id=ANY(%s::uuid[])
                   AND (s.status='working' OR EXISTS (SELECT 1 FROM ka.agent_session_inputs i
-                       WHERE i.session_id=s.id AND i.status='queued'))
+                       WHERE i.session_id=s.id AND i.status='queued' AND ({DUE})))
                 ORDER BY s.created_at,s.id LIMIT %s FOR UPDATE OF s SKIP LOCKED)
             UPDATE ka.agent_sessions s SET worker_id=%s,lease_expires_at=now()+%s*interval '1 second',
                 status=CASE WHEN s.status='working' THEN 'failed' ELSE s.status END,
@@ -90,7 +103,8 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                 stop_requested_at=CASE WHEN s.status='working' THEN NULL ELSE s.stop_requested_at END
             FROM picked WHERE s.id=picked.id
             RETURNING s.*,picked.previous,coalesce((SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id), %s) AS agent_name,
-                EXISTS (SELECT 1 FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued""",
+                EXISTS (SELECT 1 FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued'
+                  AND ({DUE})) AS queued""",
             (active, free, worker_id, LEASE_SECONDS, INTERRUPTED, AD_HOC_NAME),
         ).fetchall()
         for row in rows:
@@ -158,8 +172,8 @@ class SessionRunner:
                 await asyncio.to_thread(self.release)
 
     def next_turn(self):
-        """Deliver every queued message as the next turn, once; CLOSED when the session is closed, LOST when this worker
-        no longer holds its lease."""
+        """Deliver every queued message and due wake-up as the next turn, once; CLOSED when the session is closed, LOST
+        when this worker no longer holds its lease."""
         with self.store.connect() as conn:
             row = conn.execute(
                 """SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
@@ -171,7 +185,7 @@ class SessionRunner:
             if not row['owned']:
                 return LOST
             number = row['turns'] + 1
-            inputs = self._deliver(conn, number)
+            inputs = self._deliver(conn, number, wakeups=True)
             if not inputs:
                 return None
             conn.execute(
@@ -179,14 +193,14 @@ class SessionRunner:
                 stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
                 (number, self.id),
             )
-            return number, '\n\n'.join(item['text'] for item in inputs)
+            return number, '\n\n'.join(turn_text(item) for item in inputs)
 
     def queued_comments(self, number: int, on_delivered: Callable[[Any, list[dict]], None] | None = None) -> list[str]:
         """Messages queued while turn `number` runs, marked delivered to that turn once; none when the session is closed,
         no longer this worker's (lease), not running that turn, or the user pressed Stop (a message sent after Stop stays
         queued and becomes the next turn). For delivery inside a running turn.
         `on_delivered(conn, inputs)` (their id and text) runs in the same transaction, such as recording them, so a
-        message is never delivered without it."""
+        message is never delivered without it. Wake-ups are never comments: a due one waits for the next turn."""
         with self.store.connect() as conn:
             row = conn.execute(
                 """SELECT status,turns,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
@@ -201,7 +215,7 @@ class SessionRunner:
                 or row['stop_requested_at'] is not None
             ):
                 return []
-            inputs = self._deliver(conn, number)
+            inputs = self._deliver(conn, number, wakeups=False)
             if inputs:
                 conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (self.id,))
                 if on_delivered is not None:
@@ -223,13 +237,13 @@ class SessionRunner:
                 (self.id, ids, number),
             )
 
-    def _deliver(self, conn, number: int) -> list[dict]:
-        """Mark every queued message of this session delivered to turn `number`; the caller holds the session row lock
-        and has checked the lease."""
+    def _deliver(self, conn, number: int, *, wakeups: bool) -> list[dict]:
+        """Mark every queued message of this session (and, with `wakeups`, every due wake-up) delivered to turn
+        `number`; the caller holds the session row lock and has checked the lease."""
         inputs = conn.execute(
-            """SELECT id,text FROM ka.agent_session_inputs WHERE session_id=%s AND status='queued'
-            ORDER BY seq""",
-            (self.id,),
+            f"""SELECT id,text,kind,created_at FROM ka.agent_session_inputs i WHERE session_id=%s AND status='queued'
+            AND ({DUE}) AND (%s OR kind='message') ORDER BY seq""",
+            (self.id, wakeups),
         ).fetchall()
         if inputs:
             conn.execute(

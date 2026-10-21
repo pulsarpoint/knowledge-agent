@@ -52,7 +52,8 @@ def _select(extra: str = '') -> str:
     return f"""SELECT s.id,s.title,s.agent_id,coalesce(a.name, '{AD_HOC_NAME}') AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
         s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.tags,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
         coalesce(s.lease_expires_at > now(), false) AS worker_active,
-        (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
+        (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued'
+        AND i.kind='message') AS queued,
         s.created_at,s.last_activity_at,s.closed_at,{SESSION_DRAFT}{extra}
         FROM ka.agent_sessions s LEFT JOIN ka.agents a ON a.id=s.agent_id JOIN ka.llm_models m ON m.id=s.model_id
         LEFT JOIN ka.document_details d ON d.id=s.document_id"""

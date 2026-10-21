@@ -87,6 +87,9 @@ ARGS = {
     'update_memory': {'name': 'x', 'content': 'y', 'revision': 1},
     'run_subagent': {'task': 'look', 'resources': {'server_ids': ['s1']}},
     'load_skill': {'name': 'inspect'},
+    'schedule_wakeup': {'message': 'Check the deploy.', 'in_minutes': 30},
+    'list_wakeups': {},
+    'cancel_wakeup': {'id': 1},
 }
 
 NOT_EDITOR = access_rules.NOT_EDITOR
@@ -155,6 +158,9 @@ EXPECTED = {
     'update_memory': ALWAYS,
     'run_subagent': row(NOT_SERVER, **some(WITH_SERVER, None)),
     'load_skill': row(NOT_SKILL, skill=None),
+    'schedule_wakeup': ALWAYS,  # a session's own wake-ups; the time is checked in test_wakeups
+    'list_wakeups': ALWAYS,
+    'cancel_wakeup': ALWAYS,
 }
 
 

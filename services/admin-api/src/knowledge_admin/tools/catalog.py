@@ -23,6 +23,7 @@ from knowledge_admin.capabilities import (  # noqa: F401
     skills,
     ssh,
     subagents,
+    wakeups,
 )
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.shell import client as shell  # noqa: F401
@@ -32,6 +33,7 @@ from knowledge_admin.tools.registry import REGISTRY, Tool
 Group = Literal['code', 'documents', 'servers', 'inventory', 'memory', 'agents']
 GROUPS = typing.get_args(Group)
 SUBAGENT = 'run_subagent'
+WAKEUPS = frozenset({'schedule_wakeup', 'list_wakeups', 'cancel_wakeup'})  # a session turn's own tools
 
 
 @dataclass(frozen=True)

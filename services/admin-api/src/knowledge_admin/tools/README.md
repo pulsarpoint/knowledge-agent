@@ -38,6 +38,13 @@ finds the host in the run context (`context['subagents']`) and the call id in `c
 the subagent gets every tool but `run_subagent`, the parent's MCP servers, no experts, and the parent's access
 narrowed with content editor off.
 
+`schedule_wakeup`, `list_wakeups`, `cancel_wakeup` (`capabilities/wakeups.py`; group `agents`) queue, list and cancel
+messages to the run's own session (`config['session_id']`) for later: an input with kind `wakeup` and `not_before`
+(migration 0123), at most 3 pending per session, 1 minute to 30 days ahead. The session worker delivers a due one as the
+next turn (`Scheduled wake-up (set <time>): <message>`), never as a comment inside a running turn. Offered only in a
+session turn (`catalog.WAKEUPS`): not in a subagent's run, an expert's call (`config['expert']`, set by
+`experts.load`) or an internal call.
+
 `load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
 name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this
 run.`). The run's instructions list its skills by name and description only (`skills.section`, used by

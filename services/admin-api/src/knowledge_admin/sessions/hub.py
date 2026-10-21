@@ -31,7 +31,8 @@ CONNECT_TIMEOUT = 5
 STATE = (
     """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.model_calls,s.reasoning_tokens,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
-    (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
+    (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued'
+        AND i.kind='message') AS queued,
     """
     + SESSION_DRAFT
     + """

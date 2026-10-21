@@ -1,15 +1,15 @@
-"""What the model is given: every catalog tool with its built-in description (run_subagent only with the turn's
-Subagents host) and every tool of the run's MCP servers, whatever the agent's old tool rows say; no Tool notes."""
+"""What the model is given: every catalog tool with its built-in description (run_subagent and the wake-up tools only
+with the turn's Subagents host) and every tool of the run's MCP servers, whatever the agent's old tool rows say; no Tool notes."""
 
 import asyncio
 
 from access_helpers import entry
 from agents import Runner
 from knowledge_admin.agents.runner import agent, get_prompt
-from knowledge_admin.tools.catalog import CATALOG
+from knowledge_admin.tools.catalog import CATALOG, WAKEUPS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
-EVERY = {name for name in CATALOG if name != 'run_subagent'}  # no Subagents host in these runs
+EVERY = {name for name in CATALOG if name != 'run_subagent'} - WAKEUPS  # no Subagents host in these runs
 
 
 def rows(cfg, on: dict[str, str | None], mcp: dict[str, tuple[str, str | None]] = {}):

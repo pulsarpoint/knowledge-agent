@@ -142,5 +142,23 @@
     "group": "agents",
     "label": "Load a skill",
     "summary": "Get the full instructions of a skill listed in the agent's instructions."
+  },
+  {
+    "name": "schedule_wakeup",
+    "group": "agents",
+    "label": "Schedule a wake-up",
+    "summary": "Continue this session later with a message to itself."
+  },
+  {
+    "name": "list_wakeups",
+    "group": "agents",
+    "label": "List wake-ups",
+    "summary": "This session's pending wake-ups."
+  },
+  {
+    "name": "cancel_wakeup",
+    "group": "agents",
+    "label": "Cancel a wake-up",
+    "summary": "Cancel a pending wake-up of this session."
   }
 ]

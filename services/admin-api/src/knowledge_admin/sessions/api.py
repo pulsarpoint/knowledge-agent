@@ -66,10 +66,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(404, 'Session not found.')
         return row
 
-    def discard(conn, session_id: UUID) -> int:
+    def discard(conn, session_id: UUID, *, wakeups: bool) -> int:
+        """Discard the session's queued messages and, with `wakeups`, its pending wake-ups (Close; Stop keeps them)."""
         return conn.execute(
-            "UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND status='queued'",
-            (session_id,),
+            """UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND status='queued'
+            AND (%s OR kind='message')""",
+            (session_id, wakeups),
         ).rowcount
 
     @router.get('')
@@ -240,7 +242,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['status'] != 'working':
                 raise HTTPException(409, NOTHING_TO_STOP)
             conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (session_id,))
-            discarded = discard(conn, session_id)
+            discarded = discard(conn, session_id, wakeups=False)
             audit(conn, actor, 'generation.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
             return {'id': session_id, 'discarded': discarded}
 
@@ -256,7 +258,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     WHERE id=%s""",
                     (session_id,),
                 )
-                discard(conn, session_id)
+                discard(conn, session_id, wakeups=True)
                 notify_closed_before_first_turn(conn, session_id)
                 audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}

@@ -1391,5 +1391,91 @@
     },
     "summary": "Get the full instructions of a skill listed in the agent's instructions.",
     "usage": "Get the full instructions of a skill listed under Skills in your instructions. Call it once per skill, before following the skill."
+  },
+  {
+    "group": "agents",
+    "label": "Schedule a wake-up",
+    "name": "schedule_wakeup",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Wake up at this ISO time, such as 2026-10-22T15:30:00Z, 1 minute to 30 days ahead.",
+          "title": "At"
+        },
+        "in_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Wake up in this many minutes, 1-43200 (30 days). Give this or at.",
+          "title": "In Minutes"
+        },
+        "message": {
+          "description": "What to remind yourself of when you wake up.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "in_minutes",
+        "at"
+      ],
+      "title": "ScheduleWakeup",
+      "type": "object"
+    },
+    "summary": "Continue this session later with a message to itself.",
+    "usage": "Continue this session later: at the time you choose, this session gets a new turn with your message (it starts with \"Scheduled wake-up\"), with the whole conversation so far. Use it to look again at something slow, such as a deployment or a reply you are waiting for. A wake-up fires once; when woken you may schedule the next one. At most 3 pending wake-ups per session."
+  },
+  {
+    "group": "agents",
+    "label": "List wake-ups",
+    "name": "list_wakeups",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "title": "ListWakeups",
+      "type": "object"
+    },
+    "summary": "This session's pending wake-ups.",
+    "usage": "List this session's pending wake-ups: id, when each is due and its message."
+  },
+  {
+    "group": "agents",
+    "label": "Cancel a wake-up",
+    "name": "cancel_wakeup",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The wake-up id from schedule_wakeup or list_wakeups.",
+          "title": "Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "CancelWakeup",
+      "type": "object"
+    },
+    "summary": "Cancel a pending wake-up of this session.",
+    "usage": "Cancel one of this session's pending wake-ups."
   }
 ]

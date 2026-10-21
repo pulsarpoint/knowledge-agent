@@ -36,7 +36,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp, skills
 from knowledge_admin.capabilities.files import available_documents, mounted
-from knowledge_admin.tools.catalog import CATALOG, SUBAGENT
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, WAKEUPS
 from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references
@@ -282,13 +282,17 @@ def instructions_and_tools(
     """(instructions, catalog tools, expert tools, selected MCP servers) of a run of this configuration: what
     create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
     what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. Every catalog tool with
-    its built-in usage text (run_subagent only with subagents, as in create_agent); what a tool may do is decided by
-    its check against the run's access object. tools False: none at all (an internal LLM call, not an agent run)."""
+    its built-in usage text (run_subagent only with subagents, as in create_agent; the wake-up tools only with subagents
+    and not in an expert's call, config['expert']); what a tool may do is decided by its check against the run's access
+    object. tools False: none at all (an internal LLM call, not an agent run)."""
     prompt = get_prompt(config)
     selected_mcp = mcp.selected_servers(config)
     if not tools:
         return prompt, [], [], []
-    offered = [function_tool(spec, spec.usage) for spec in CATALOG.values() if subagents or spec.name != SUBAGENT]
+    withheld = set() if subagents else {SUBAGENT}
+    if not subagents or config.get('expert'):  # wake-ups: only the session turn's own run (not a subagent or an expert)
+        withheld |= WAKEUPS
+    offered = [function_tool(spec, spec.usage) for spec in CATALOG.values() if spec.name not in withheld]
     # only in a session turn, never inside an expert or a subagent
     experts = [expert_tool(entry) for entry in config.get('experts', [])] if subagents else []
     return prompt, offered, experts, selected_mcp

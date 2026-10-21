@@ -516,6 +516,7 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(nar
     given = {**NO_RESOURCES, 'code_project_ids': [s.repo], 'server_ids': [s.host['id']]}
     config, credentials = load(s.store, project, entry, given)
     assert config['experts'] == [] and 'record' not in config
+    assert config['expert'] is True  # no wake-up tools in an expert's call
     assert [p['name'] for p in of(config, 'code_project')] == ['Payments API']
     assert of(config, 'collection') == []  # its access object holds only what it was given
     # its access object, built as a run start builds it: what it was given, no content editor
