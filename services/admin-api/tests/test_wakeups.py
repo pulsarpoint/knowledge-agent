@@ -12,6 +12,7 @@ import pytest
 from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.wakeups import (
+    cancel_pending,
     check_schedule_wakeup,
     due_time,
 )
@@ -98,6 +99,13 @@ def test_due_time_takes_either_in_minutes_or_at_within_one_minute_and_thirty_day
     assert due_time(NOW, 5, '2026-10-22T13:00:00Z') == EITHER
 
 
+def test_far_out_of_range_times_get_the_range_refusal_not_an_overflow():
+    assert due_time(NOW, 10**10, None) == OUT_OF_RANGE
+    assert due_time(NOW, -(10**10), None) == OUT_OF_RANGE
+    assert due_time(NOW, None, '9999-12-31T23:59:59-23:59') == OUT_OF_RANGE
+    assert due_time(NOW, None, '0001-01-01T00:00:00+23:59') == OUT_OF_RANGE
+
+
 def test_check_schedule_wakeup_refuses_what_due_time_refuses():
     access = {'resources': [], 'roles': {}}
     assert check_schedule_wakeup(access, message='x', in_minutes=30, now=NOW) is None
@@ -181,6 +189,19 @@ def test_cancel_refuses_another_sessions_and_a_delivered_wakeup(world):
     runner = runner_of(store)
     assert runner.next_turn()[0] == 1
     assert call(config, 'cancel_wakeup', id=mine['id']) == {'refused': NOT_PENDING}
+
+
+def test_cancel_takes_the_session_row_lock_as_delivery_does(world):
+    store, sid, config = world['store'], world['sid'], world['config']
+    wakeup = call(config, 'schedule_wakeup', message='Later.', in_minutes=5)
+    with store.connect() as holder:  # a delivery in progress holds the session row
+        holder.execute('SELECT 1 FROM ka.agent_sessions WHERE id=%s FOR UPDATE', (sid,))
+        with pytest.raises(psycopg.errors.LockNotAvailable), store.connect() as conn:
+            conn.execute("SET LOCAL lock_timeout='100ms'")
+            cancel_pending(conn, sid, wakeup['id'])
+    with store.connect() as conn:
+        assert cancel_pending(conn, sid, wakeup['id']) is True
+        assert cancel_pending(conn, sid, wakeup['id']) is False
 
 
 def test_a_closed_session_takes_no_wakeups(world):
