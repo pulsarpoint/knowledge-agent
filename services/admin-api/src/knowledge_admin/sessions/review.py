@@ -24,8 +24,9 @@ from knowledge_admin.knowledge_agents.session_worker import run_key
 NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 SESSION_NOT_FOUND = 'Session not found.'
 
-NOT_A_TEST = 'Suggestions are for Test and event sessions only.'
+NOT_A_TEST = 'Suggestions are for Test, event and chat sessions only.'
 CONVERSATIONS = ('test', 'event')  # sessions shown and reviewed in the agent's Test tab
+REVIEWED = (*CONVERSATIONS, 'chat')  # and a saved agent's chat (Run agent on the Agents page), not in the Test tab
 REVIEW_BUSY = 'Wait for the agent to finish before asking for suggestions.'
 NO_TURNS = 'Run at least one message before requesting tuning suggestions.'
 NO_RESPONSE = 'Response not found in this session.'
@@ -120,7 +121,7 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
             ).fetchone()
             if session is None:
                 raise HTTPException(404, SESSION_NOT_FOUND)
-            if session['purpose'] not in CONVERSATIONS:
+            if session['purpose'] not in REVIEWED:
                 raise HTTPException(400, NOT_A_TEST)
             if session['status'] in ('starting', 'working'):
                 raise HTTPException(409, REVIEW_BUSY)

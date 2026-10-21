@@ -15,7 +15,7 @@ test("agent deletion sends revision and explicit confirmation and accepts 204", 
 test("an agent is deleted with its history only when asked, and its history reads as a short list", async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url.endsWith("/history")
-      ? Response.json({ test_chats: 2, documentation_sessions: 1, run_records: 1 })
+      ? Response.json({ test_chats: 2, chats: 0, documentation_sessions: 1, run_records: 1 })
       : new Response(null, { status: 204 }),
   );
   vi.stubGlobal("fetch", fetchMock);
@@ -30,5 +30,6 @@ test("an agent is deleted with its history only when asked, and its history read
   const history = await getAgentHistory("custom");
   expect(fetchMock.mock.lastCall?.[0]).toBe("/api/agents/custom/history");
   expect(describeHistory(history)).toBe("2 test chats, 1 documentation session, 1 run record");
-  expect(describeHistory({ test_chats: 0, documentation_sessions: 0, run_records: 0 })).toBe("");
+  expect(describeHistory({ test_chats: 0, chats: 0, documentation_sessions: 0, run_records: 0 })).toBe("");
+  expect(describeHistory({ test_chats: 0, chats: 1, documentation_sessions: 0, run_records: 0 })).toBe("1 chat");
 });

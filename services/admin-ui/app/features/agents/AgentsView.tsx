@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react-router";
-import { ArrowRight, Copy, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, Copy, Play, Sparkles, Trash2 } from "lucide-react";
 import AgentWizard from "./AgentWizard";
+import RunAgentDialog from "./RunAgentDialog";
 import { toast } from "sonner";
 import { cloneAgent } from "./clones";
 import { countsSummary, deleteAgent, describeHistory, getAgentHistory, getAgents, type AgentSummary } from "./api";
@@ -29,6 +30,8 @@ export default function AgentsView() {
   const [agents, setAgents] = useState<AgentSummary[]>();
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  // Run agent: the agent to start a chat with ('' when picked in the dialog); null while the dialog is closed.
+  const [running, setRunning] = useState<string | null>(null);
   const [removing, setRemoving] = useState<AgentSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -124,11 +127,20 @@ export default function AgentsView() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <Button onClick={() => setCreating(true)} disabled={creating}>
-          <Sparkles data-icon="inline-start" />
-          New agent
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setRunning("")} disabled={!agents}>
+            <Play data-icon="inline-start" />
+            Run agent
+          </Button>
+          <Button onClick={() => setCreating(true)} disabled={creating}>
+            <Sparkles data-icon="inline-start" />
+            New agent
+          </Button>
+        </div>
       </div>
+      {running !== null && agents && (
+        <RunAgentDialog agents={agents} agentId={running} onClose={() => setRunning(null)} />
+      )}
       {creating && (
         <section aria-label="New agent" className="flex flex-col gap-3">
           <AgentWizard onClose={() => setCreating(false)} onCreated={(id) => navigate(`/agents/${id}`)} />
@@ -186,6 +198,16 @@ export default function AgentsView() {
                     <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "Enabled" : "Disabled"}</Badge>
                   </TableCell>
                   <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={!a.enabled}
+                      aria-label={`Run ${a.name}`}
+                      title={a.enabled ? "Run" : "Enable the agent to run it"}
+                      onClick={() => setRunning(a.id)}
+                    >
+                      <Play />
+                    </Button>
                     <Button variant="ghost" size="icon" asChild>
                       <Link to={`/agents/${a.id}`} aria-label={`Open ${a.name}`}>
                         <ArrowRight />

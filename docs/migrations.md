@@ -447,3 +447,10 @@ id now check `subject` equals that schedule's (possibly renamed) name; their rev
 deleted schedule is left as it was. The down migration is best effort (test data): it rewrites `subject` equals an
 emit schedule's name back to `payload.schedule_id` equals its id for those handlers and drops the constraint; renamed
 duplicates keep their suffix.
+
+## 0122_chat_sessions
+
+`ka.agent_sessions.purpose` also takes `chat`: a saved agent's chat started with **Run agent** on the Agents page
+(`POST /api/sessions` with `agent_id` and `purpose: "chat"`). Like `test` and `event` it needs its agent
+(`agent_sessions_ad_hoc` is unchanged). The down migration turns chat sessions into Test sessions (`test`) and restores
+the old check.

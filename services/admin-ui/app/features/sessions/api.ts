@@ -11,7 +11,7 @@ const json = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 
-export type SessionPurpose = "documents" | "test" | "event" | "resource" | "revision";
+export type SessionPurpose = "documents" | "test" | "event" | "resource" | "revision" | "chat";
 export type SessionStatus = "starting" | "working" | "waiting" | "stopped" | "failed" | "closed";
 export const statusLabels: Record<SessionStatus, string> = {
   starting: "Starting",
@@ -347,6 +347,8 @@ export interface StartInput {
   /** Tags the run gets besides its resource's (the backend adds that one), e.g. `proposals`. */
   tags?: string[];
   agent_id?: string;
+  /** A saved agent's run from Run agent on the Agents page (a chat session); omitted: a Test session. */
+  purpose?: "chat";
   message: string;
   model_id?: string;
   prompt_id?: string | null;

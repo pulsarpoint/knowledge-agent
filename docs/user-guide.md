@@ -554,6 +554,14 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
 
+**Run an agent.** **Run** (the play button) on an agent's row, or **Run agent** next to **New agent**, opens the *Run
+agent* dialog: the agent (preselected from the row; from the top button choose one of the enabled agents — a disabled
+agent's **Run** is off), the **First message** (required) and its resources — every resource of the agent unless you
+narrow them with **Choose resources**, the same settings sheet as the Test tab's. **Start** starts a chat session and
+opens its session page (`/sessions/<id>`), where you send further messages, **Stop** a turn and **Close session**. A
+chat is not listed on the agent's Test tab; its turns are **Chat** runs in Agent runs (4.15), and it can be reviewed
+with **Suggest improvements** through the API like a Test session.
+
 **Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the test chats and other history deleted with it), or keep it as an alternative.
 
 **Test tab.** The Test tab is the same chat as **Ask agent**. Type a message and send it: it starts a Test run, which the
@@ -631,7 +639,8 @@ changes.
 on. Saving the agent's settings changes what runs next.
 
 
-Removing an agent that has history (test chats, documentation sessions or run records of earlier test chats) lists that
+Removing an agent that has history (test chats, chats started with **Run agent**, documentation sessions or run records
+of earlier test chats) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
 documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
 (a Test or document session that is starting or working) cannot be removed; stop that work or wait for
@@ -806,7 +815,8 @@ sessions, earlier test chats, document runs and the earlier Generate documents s
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
+characters. The run type filter offers **Test session** (Test tab turns), **Chat** (turns of chats started with **Run agent**
+on the Agents page), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
 can also filter by agent, by status (Working, Completed, Failed, Stopped) and by user (part of the email, press Enter).
 Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
 / **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Test tab and from each

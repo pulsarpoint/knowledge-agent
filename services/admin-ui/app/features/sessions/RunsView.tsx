@@ -14,6 +14,7 @@ const KINDS: Record<string, string> = {
   test: "Agent test",
   test_session: "Test session",
   event_session: "Event session",
+  chat_session: "Chat",
   event_task: "Event task",
   native_session: "Native session",
 };

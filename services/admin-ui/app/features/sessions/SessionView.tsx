@@ -83,7 +83,11 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     ) : session.agent_id ? (
       <Link
         className="underline"
-        to={`/agents/${encodeURIComponent(session.agent_id)}?view=test&session_id=${encodeURIComponent(session.id)}`}
+        to={
+          session.purpose === "chat" // a Run agent chat is not in the agent's Test tab
+            ? `/agents/${encodeURIComponent(session.agent_id)}`
+            : `/agents/${encodeURIComponent(session.agent_id)}?view=test&session_id=${encodeURIComponent(session.id)}`
+        }
       >
         the agent
       </Link>

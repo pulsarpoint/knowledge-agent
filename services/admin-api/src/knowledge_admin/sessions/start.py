@@ -4,6 +4,7 @@ every run; where it is started from is a label (started_from), and what it may u
 
 import hashlib
 import re
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -157,6 +158,9 @@ class StartedFrom(BaseModel):
         return None
 
 
+CHAT_PURPOSE = 'Only a saved agent chat takes a purpose.'
+
+
 def resource_tag(kind: str, resource_id) -> str:
     """The tag of a run started from a resource: servers/<id>, services/<id> or environments/<id>."""
     return f'{RESOURCE_TYPES[kind]}/{resource_id}'
@@ -166,11 +170,13 @@ class StartInput(BaseModel):
     """What a start panel sends: the first message, the model and prompt, facts from where it starts (context), what
     the run may use (resources, experts; every run gets every tool), whether it may change content (content_editor:
     an ad-hoc run asks for the role, as the Propose wizard does; a saved agent's request may only switch its own off)
-    and where it was started from (a label for lists)."""
+    and where it was started from (a label for lists). A saved agent's run is a Test session unless purpose is chat
+    (Run agent on the Agents page)."""
 
     model_config = ConfigDict(extra='forbid')
     agent_id: str | None = None
     started_from: StartedFrom | None = None
+    purpose: Literal['chat'] | None = None
     message: str = Field(max_length=20000)
     model_id: UUID | None = None
     prompt_id: UUID | None = None
@@ -190,6 +196,8 @@ class StartInput(BaseModel):
             setattr(self, name, value.strip())
         if not self.message:
             raise ValueError('Enter a message')
+        if self.purpose is not None and (self.agent_id is None or self.started_from is not None):
+            raise ValueError(CHAT_PURPOSE)
         if self.agent_id is None:
             if self.started_from is None:
                 raise ValueError('Choose what the agent starts from.')
@@ -540,7 +548,8 @@ def start_run(
 ) -> UUID:
     """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
     a new document → documents, a server, service or environment → resource (tagged with it; server_id for a server),
-    a saved agent → test, or `purpose` for a saved agent, as an event handler starts it with its event and handler),
+    a saved agent → test or the request's purpose (chat), or `purpose` for a saved agent, as an event handler starts it
+    with its event and handler),
     its tags (the request's and its resource's), its first input, and audit it. POST /api/sessions and the
     event processor share it. The title is the message's first line unless one is given (an event run's names its event)."""
     if value.agent_id is None and (purpose, event_id, handler_id, title) != (None, None, None, None):
@@ -564,7 +573,7 @@ def start_run(
                 actor,
                 model['id'],
                 title,
-                purpose or 'test',
+                purpose or value.purpose or 'test',
                 tags,
                 Jsonb(snapshot),
                 Jsonb(pinned),

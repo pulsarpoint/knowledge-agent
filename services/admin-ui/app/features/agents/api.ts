@@ -119,12 +119,15 @@ export const deleteAgent = (id: string, revision: number, withHistory = false) =
  * the Test tab ran sessions. */
 export interface AgentHistory {
   test_chats: number;
+  /** Chats started with Run agent on the Agents page. */
+  chats: number;
   documentation_sessions: number;
   run_records: number;
 }
 export const getAgentHistory = (id: string) => request<AgentHistory>(path(id) + "/history");
 const HISTORY_LABELS: [keyof AgentHistory, string, string][] = [
   ["test_chats", "test chat", "test chats"],
+  ["chats", "chat", "chats"],
   ["documentation_sessions", "documentation session", "documentation sessions"],
   ["run_records", "run record", "run records"],
 ];

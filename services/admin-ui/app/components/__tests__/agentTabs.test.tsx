@@ -86,7 +86,12 @@ beforeEach(() => {
     skill: [],
     mcp_server: [],
   });
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, documentation_sessions: 0, run_records: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({
+    test_chats: 0,
+    chats: 0,
+    documentation_sessions: 0,
+    run_records: 0,
+  });
 });
 function Detail() {
   const { id } = useParams();
@@ -185,7 +190,12 @@ test("agent removal requires confirmation and preserves the record on conflicts"
 
 test("an agent with history lists it and is deleted with it only on the destructive action", async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, documentation_sessions: 1, run_records: 3 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({
+    test_chats: 2,
+    chats: 0,
+    documentation_sessions: 1,
+    run_records: 3,
+  });
   vi.mocked(profiles.deleteAgent).mockResolvedValue(undefined);
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
@@ -208,8 +218,8 @@ test("an agent with history lists it and is deleted with it only on the destruct
 test("a delete refused because history appeared meanwhile shows that history", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory)
-    .mockResolvedValueOnce({ test_chats: 0, documentation_sessions: 0, run_records: 0 })
-    .mockResolvedValue({ test_chats: 1, documentation_sessions: 0, run_records: 1 });
+    .mockResolvedValueOnce({ test_chats: 0, chats: 0, documentation_sessions: 0, run_records: 0 })
+    .mockResolvedValue({ test_chats: 1, chats: 0, documentation_sessions: 0, run_records: 1 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error("This agent has sessions or run history."));
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
@@ -225,7 +235,12 @@ const WORKING =
 
 test("a delete refused because the agent is working says so and keeps the dialog open", async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, documentation_sessions: 1, run_records: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({
+    test_chats: 0,
+    chats: 0,
+    documentation_sessions: 1,
+    run_records: 0,
+  });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
@@ -240,8 +255,8 @@ test("a delete refused because the agent is working says so and keeps the dialog
 test("a working agent whose history appeared meanwhile keeps the working message next to the history", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory)
-    .mockResolvedValueOnce({ test_chats: 0, documentation_sessions: 0, run_records: 0 })
-    .mockResolvedValue({ test_chats: 0, documentation_sessions: 1, run_records: 0 });
+    .mockResolvedValueOnce({ test_chats: 0, chats: 0, documentation_sessions: 0, run_records: 0 })
+    .mockResolvedValue({ test_chats: 0, chats: 0, documentation_sessions: 1, run_records: 0 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
