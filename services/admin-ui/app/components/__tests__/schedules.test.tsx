@@ -39,7 +39,8 @@ const emit = (extra: Partial<Schedule> = {}): Schedule => ({
 const AGENTS = { agents: [{ id: "tester", name: "Tester" }] };
 const SHEET = {
   "GET /api/event-handlers/agents": () => [200, AGENTS] as [number, unknown],
-  "GET /api/events/facets": () => [200, { sources: [], types: [], statuses: [], handlers: [] }] as [number, unknown],
+  "GET /api/events/facets": () =>
+    [200, { sources: [], types: ["schedule.fired"], statuses: [], handlers: [] }] as [number, unknown],
   "GET /api/events": () => [200, { events: [], next_offset: null }] as [number, unknown],
 };
 
@@ -464,7 +465,7 @@ test("Add handler opens the handler sheet prefilled for the schedule and saves i
   await user.click(await screen.findByRole("button", { name: "Add handler" }));
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByLabelText("Name")).toHaveValue("Morning summary");
-  expect(within(sheet).getByLabelText("Event type")).toHaveValue("schedule.fired");
+  expect(within(sheet).getByRole("combobox", { name: "Event type" })).toHaveTextContent("Schedule fired");
   expect(within(sheet).getByLabelText("Condition 1 field")).toHaveValue("subject");
   expect(within(sheet).getByLabelText("Condition 1 value")).toHaveValue("Morning summary");
   expect(within(sheet).getByRole("combobox", { name: "Action" })).toHaveTextContent("Send to agent");

@@ -20,6 +20,16 @@ PAGE, MAX_PAGE, MAX_OFFSET, MAX_CHAIN = 50, 200, 100000, 200
 NOT_FOUND = 'Event not found.'
 SORTS = {'time': 'occurred_at', 'source': 'source', 'type': 'type', 'subject': 'subject', 'status': 'status'}
 TYPE_PATTERN = re.compile(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$')
+# Types the system itself records (jira/events.py, schedule_event.py, memory/store.py): offered to handlers before they have happened.
+RECORDED_TYPES = (
+    'jira.ticket.created',
+    'jira.ticket.updated',
+    'schedule.fired',
+    'memory.saved',
+    'memory.updated',
+    'memory.restored',
+    'memory.deleted',
+)
 MAX_TEXT, MAX_PAYLOAD = 500, 100 * 1024
 MADE_BY_HAND = "dedupe_key LIKE 'manual:%%'"
 RUNS_OF_EVENT = 'SELECT 1 FROM ka.event_handler_runs h WHERE h.event_id=e.id'  # one row per handler that ran
@@ -235,7 +245,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             ).fetchall()
             return {
                 'sources': distinct('source'),
-                'types': distinct('type'),
+                'types': sorted({*distinct('type'), *RECORDED_TYPES}),
                 'statuses': distinct('status'),
                 'handlers': handlers,
                 'schedules': [row['name'] for row in schedules],  # Emit event schedules: their events' subject

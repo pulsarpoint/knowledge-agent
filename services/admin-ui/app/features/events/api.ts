@@ -91,7 +91,23 @@ export const NO_FILTERS: EventFilters = {
 export const TYPE_LABELS: Record<string, string> = {
   "jira.ticket.created": "Ticket created",
   "jira.ticket.updated": "Ticket updated",
+  "schedule.fired": "Schedule fired",
+  "memory.saved": "Memory saved",
+  "memory.updated": "Memory updated",
+  "memory.restored": "Memory restored",
+  "memory.deleted": "Memory deleted",
 };
+const GROUP_LABELS: Record<string, string> = { "jira.ticket": "Jira ticket", memory: "memory", schedule: "schedule" };
+/** The "All … events" patterns for the types: one prefix.* per type prefix (everything but the last part), sorted. */
+export function typeGroups(types: string[]): { pattern: string; label: string }[] {
+  const prefixes = new Set(
+    types.filter((type) => type.includes(".")).map((type) => type.slice(0, type.lastIndexOf("."))),
+  );
+  return [...prefixes].sort().map((prefix) => ({
+    pattern: `${prefix}.*`,
+    label: `All ${GROUP_LABELS[prefix] ?? `${prefix}.*`} events`,
+  }));
+}
 export const SOURCE_LABELS: Record<string, string> = {
   jira: "Jira",
   handler: "Handler",

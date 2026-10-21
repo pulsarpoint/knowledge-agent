@@ -65,9 +65,20 @@ const view = () =>
     </MemoryRouter>,
   );
 afterEach(() => vi.unstubAllGlobals());
+/** Pick Custom pattern… in the Event type select and return the revealed pattern input. */
+async function customPattern(user: ReturnType<typeof userEvent.setup>, sheet: HTMLElement) {
+  await user.click(within(sheet).getByRole("combobox", { name: "Event type" }));
+  await user.click(screen.getByRole("option", { name: "Custom pattern…" }));
+  return within(sheet).getByLabelText("Event type pattern");
+}
 const SHEET_DATA = {
   "GET /api/event-handlers/agents": { agents: [{ id: "tester", name: "Tester" }] },
-  "GET /api/events/facets": { sources: ["jira"], types: ["jira.ticket.updated"], statuses: [], handlers: [] },
+  "GET /api/events/facets": {
+    sources: ["jira"],
+    types: ["jira.ticket.created", "jira.ticket.updated", "memory.saved", "schedule.fired"],
+    statuses: [],
+    handlers: [],
+  },
   "GET /api/events": EVENTS,
 };
 
@@ -273,11 +284,12 @@ test("a broad Send to agent pattern warns that each matching event runs the agen
     ),
   ).toBeInTheDocument();
   expect(within(sheet).getByText(warning)).toBeInTheDocument(); // jira.ticket.*
-  await user.clear(within(sheet).getByLabelText("Event type"));
-  await user.type(within(sheet).getByLabelText("Event type"), "jira.ticket.updated");
+  const input = await customPattern(user, sheet);
+  await user.clear(input);
+  await user.type(input, "jira.ticket.updated");
   expect(within(sheet).queryByText(warning)).toBeNull();
-  await user.clear(within(sheet).getByLabelText("Event type"));
-  await user.type(within(sheet).getByLabelText("Event type"), "*");
+  await user.clear(input);
+  await user.type(input, "*");
   expect(within(sheet).getByText(warning)).toBeInTheDocument();
 });
 
@@ -293,8 +305,9 @@ test("the broad-pattern warning adds that the agent comments on every matching t
   expect(within(sheet).queryByText(comments)).toBeNull();
   await user.click(within(sheet).getByLabelText("Also post the answer as a comment on the Jira ticket"));
   expect(within(sheet).getByText(comments)).toBeInTheDocument();
-  await user.clear(within(sheet).getByLabelText("Event type"));
-  await user.type(within(sheet).getByLabelText("Event type"), "jira.ticket.updated");
+  const input = await customPattern(user, sheet);
+  await user.clear(input);
+  await user.type(input, "jira.ticket.updated");
   expect(within(sheet).queryByText(comments)).toBeNull();
 });
 
@@ -501,7 +514,7 @@ test("the Schedule picker sets the type pattern and replaces the schedule condit
   await user.click(await within(sheet).findByRole("combobox", { name: "Schedule" }));
   expect(screen.queryByRole("option", { name: "Schedule: Jira auto pull" })).toBeNull();
   await user.click(screen.getByRole("option", { name: "Schedule: Morning summary" }));
-  expect(within(sheet).getByLabelText("Event type")).toHaveValue("schedule.fired");
+  expect(within(sheet).getByRole("combobox", { name: "Event type" })).toHaveTextContent("Schedule fired");
   await user.click(within(sheet).getByRole("combobox", { name: "Schedule" }));
   await user.click(screen.getByRole("option", { name: "Schedule: Nightly check" }));
   expect(within(sheet).getByRole("combobox", { name: "Schedule" })).toHaveTextContent("Schedule: Nightly check");
@@ -578,7 +591,7 @@ test("the assignee's agent and Reply in Jira are offered only for patterns that 
   await user.click(screen.getByRole("option", { name: "Agent mapped to the assignee" }));
   await user.click(within(sheet).getByRole("checkbox", { name: /Jira ticket/ }));
   expect(within(sheet).getByRole("checkbox", { name: "Give the ticket back after replying" })).toBeChecked();
-  const pattern = within(sheet).getByLabelText("Event type");
+  const pattern = await customPattern(user, sheet);
   for (const jira of ["*", "jira.*", "jira.*.created"]) {
     await user.clear(pattern);
     await user.type(pattern, jira);
@@ -600,4 +613,72 @@ test("the assignee's agent and Reply in Jira are offered only for patterns that 
       false,
     ]),
   );
+});
+
+test("the Event type select lists Any event, groups, labelled types and Custom pattern; an exact type saves", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "POST /api/event-handlers": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { status: 201, body: { handler: handler() } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.type(within(sheet).getByLabelText("Name"), "Mem");
+  await user.click(within(sheet).getByRole("combobox", { name: "Event type" }));
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(
+    expect.arrayContaining([
+      "Any event",
+      "All Jira ticket events",
+      "All memory events",
+      "All schedule events",
+      "Ticket created",
+      "Ticket updated",
+      "Memory saved",
+      "Schedule fired",
+      "Custom pattern…",
+    ]),
+  );
+  await user.click(screen.getByRole("option", { name: "Memory saved" }));
+  expect(within(sheet).queryByLabelText("Event type pattern")).toBeNull();
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent.type_pattern).toBe("memory.saved"));
+});
+
+test("Custom pattern shows the input and saves what is typed", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "POST /api/event-handlers": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { status: 201, body: { handler: handler() } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.type(within(sheet).getByLabelText("Name"), "Created");
+  const input = await customPattern(user, sheet);
+  expect(within(sheet).getByText(/jira\.\*\.created/)).toBeInTheDocument();
+  await user.clear(input);
+  await user.type(input, "jira.*.created");
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent.type_pattern).toBe("jira.*.created"));
+});
+
+test("a saved pattern that is not in the list opens as Custom pattern", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/event-handlers": { handlers: [handler({ type_pattern: "jira.*.created" })] }, ...SHEET_DATA });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByRole("combobox", { name: "Event type" })).toHaveTextContent("Custom pattern…");
+  expect(within(sheet).getByLabelText("Event type pattern")).toHaveValue("jira.*.created");
 });

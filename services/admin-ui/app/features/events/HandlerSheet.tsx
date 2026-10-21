@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { DEFAULT_SORT, NO_FILTERS, getEventFacets, getEvents, type EventRow } from "./api";
+import { DEFAULT_SORT, NO_FILTERS, TYPE_LABELS, getEventFacets, getEvents, typeGroups, type EventRow } from "./api";
 import { EMIT, getSchedules } from "./schedules";
 import {
   FIELD_SUGGESTIONS,
@@ -49,6 +49,8 @@ interface Form {
 }
 
 const ASSIGNEE = "@assignee";
+const ANY_EVENT = "*";
+const CUSTOM = "@custom";
 const FOR_ASSIGNEE: ConditionRow = { field: "payload.for_assignee", op: "equals", value: "true" };
 const BLANK: Form = {
   name: "",
@@ -147,6 +149,7 @@ function HandlerForm({
   const [schedules, setSchedules] = useState<{ id: string; name: string }[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[] | null>(null);
   const [types, setTypes] = useState<string[]>([]);
+  const [customPattern, setCustomPattern] = useState(false);
   const [recent, setRecent] = useState<EventRow[]>([]);
   const [previewEvent, setPreviewEvent] = useState("");
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -196,6 +199,12 @@ function HandlerForm({
     form.type_pattern.trim() === SCHEDULE_FIRED
       ? (form.conditions.find((c) => c.field.trim() === SCHEDULE_FIELD && c.op === "equals")?.value ?? "")
       : "";
+  const groups = typeGroups(types);
+  const listed =
+    form.type_pattern === ANY_EVENT ||
+    groups.some((g) => g.pattern === form.type_pattern) ||
+    types.includes(form.type_pattern);
+  const custom = customPattern || !listed;
   const jira = forJira(form.type_pattern);
   const missingForAssignee =
     toAssignee(form) && !form.conditions.some((row) => row.field.trim() === FOR_ASSIGNEE.field);
@@ -246,18 +255,48 @@ function HandlerForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="handler-pattern">Event type</FieldLabel>
-          <Input
-            id="handler-pattern"
-            list="handler-types"
-            value={form.type_pattern}
-            onChange={(e) => update({ type_pattern: e.target.value })}
-          />
-          <datalist id="handler-types">
-            {["*", "jira.ticket.*", ...types].map((type) => (
-              <option key={type} value={type} />
-            ))}
-          </datalist>
-          <FieldDescription>Use * for any part, e.g. jira.ticket.* or jira.*.created.</FieldDescription>
+          <Select
+            value={custom ? CUSTOM : form.type_pattern}
+            onValueChange={(value) => {
+              if (!value) return; // Radix reports "" while the value is not among the items yet
+              setCustomPattern(value === CUSTOM);
+              if (value !== CUSTOM) update({ type_pattern: value });
+            }}
+          >
+            <SelectTrigger id="handler-pattern" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value={ANY_EVENT}>Any event</SelectItem>
+                {groups.map((group) => (
+                  <SelectItem key={group.pattern} value={group.pattern}>
+                    {group.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                {types.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {TYPE_LABELS[type] ?? type}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectItem value={CUSTOM}>Custom pattern…</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {custom && (
+            <>
+              <Input
+                aria-label="Event type pattern"
+                value={form.type_pattern}
+                onChange={(e) => update({ type_pattern: e.target.value })}
+              />
+              <FieldDescription>Use * for any part, e.g. jira.ticket.* or jira.*.created.</FieldDescription>
+            </>
+          )}
           {schedules.length > 0 && (
             <Select
               value={schedules.some((item) => item.name === pickedSchedule) ? pickedSchedule : ""}

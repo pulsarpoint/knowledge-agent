@@ -99,7 +99,15 @@ def test_facets(store, tmp_path):
         ).fetchone()['id']
     assert client.get('/api/events/facets', headers=HEADERS).json() == {
         'sources': ['jira'],
-        'types': ['jira.ticket.created'],
+        'types': [
+            'jira.ticket.created',
+            'jira.ticket.updated',
+            'memory.deleted',
+            'memory.restored',
+            'memory.saved',
+            'memory.updated',
+            'schedule.fired',
+        ],
         'statuses': ['pending'],
         'handlers': [{'id': str(handler), 'name': 'Triage'}],
         'schedules': [],
@@ -172,7 +180,15 @@ def test_filters_and_search(store, tmp_path):
     assert client.get('/api/events', headers=HEADERS, params={'source': 'jira'}).json()['events'] != []
     assert client.get('/api/events/facets', headers=HEADERS).json() == {
         'sources': ['jira'],
-        'types': ['jira.ticket.created', 'jira.ticket.updated'],
+        'types': [
+            'jira.ticket.created',
+            'jira.ticket.updated',
+            'memory.deleted',
+            'memory.restored',
+            'memory.saved',
+            'memory.updated',
+            'schedule.fired',
+        ],
         'statuses': ['pending'],
         'handlers': [],
         'schedules': [],
@@ -394,3 +410,18 @@ def test_the_list_counts_handler_runs_and_filters_on_them(store, tmp_path):
     not_handled = client.get('/api/events?handled=no', headers=HEADERS).json()['events']
     assert [e['id'] for e in not_handled] == [quiet]
     assert client.get('/api/events?handled=maybe', headers=HEADERS).status_code in {400, 422}
+
+
+def test_facet_types_merge_recorded_types_with_seen_ones(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    types = client.get('/api/events/facets', headers=HEADERS).json()['types']
+    assert types == sorted(types) and 'schedule.fired' in types and 'memory.saved' in types
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        for type in ('custom.thing', 'memory.saved'):
+            conn.execute(
+                "INSERT INTO ka.events(project_id,source,type,subject,dedupe_key,payload,occurred_at) VALUES (%s,'manual',%s,'s',%s,'{}',now())",
+                (project, type, f'manual:{type}'),
+            )
+    merged = client.get('/api/events/facets', headers=HEADERS).json()['types']
+    assert merged == sorted({*types, 'custom.thing'}) and merged.count('memory.saved') == 1
