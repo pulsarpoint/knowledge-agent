@@ -44,7 +44,10 @@ def test_preview_is_exactly_what_start_pins(ask):
     assert preview.json()['config'] == pinned
     assert preview.json()['first_message'] == ask.body['message']
     assert 'tools' not in pinned and pinned['experts'] == []  # every run gets every tool
-    assert pinned['access']['roles'] == {'content_editor': True}  # a revision is a writing run
+    assert pinned['access']['roles'] == {
+        'content_editor': True,
+        'inventory_editor': False,
+    }  # a revision is a writing run
     assert 'You revise documents.' in pinned['system_prompt']['content']
     assert '# Context\n\nDocument: Payments runbook' in pinned['system_prompt']['content']
     assert '## Backup' not in pinned['system_prompt']['content']  # no document text or outline is appended

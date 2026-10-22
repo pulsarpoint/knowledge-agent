@@ -108,13 +108,17 @@ test("an existing run: GET debug shows Instructions with Copy, Prompt, Tools, Re
   ]);
   const roles = screen.getByRole("region", { name: "Roles" });
   expect(within(roles).getByText("Content editor: off")).toBeInTheDocument();
+  expect(within(roles).getByText("Inventory editor: off")).toBeInTheDocument(); // an older run without the role
   expect(within(screen.getByRole("region", { name: "Model" })).getByText("GPT")).toBeInTheDocument();
   expect(calls.map((call) => call.key)).toEqual(["GET /api/sessions/r1/debug"]);
 });
 
 test("a run with no resources says so; a writing run is a content editor", async () => {
   api({
-    "GET /api/sessions/r1/debug": () => [200, { ...view, access: { resources: [], roles: { content_editor: true } } }],
+    "GET /api/sessions/r1/debug": () => [
+      200,
+      { ...view, access: { resources: [], roles: { content_editor: true, inventory_editor: true } } },
+    ],
   });
   render(
     <MemoryRouter>
@@ -124,6 +128,7 @@ test("a run with no resources says so; a writing run is a content editor", async
   const resources = await screen.findByRole("region", { name: "Resources" });
   expect(within(resources).getByText("None.")).toBeInTheDocument();
   expect(screen.getByText("Content editor: on")).toBeInTheDocument();
+  expect(screen.getByText("Inventory editor: on")).toBeInTheDocument();
 });
 
 test("what the start left out is said above the instructions", async () => {

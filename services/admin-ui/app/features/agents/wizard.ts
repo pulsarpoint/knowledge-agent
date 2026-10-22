@@ -20,7 +20,7 @@ export interface AgentProposal {
   instructions: string;
   model_id: string | null;
   enabled: boolean;
-  access: { resources: WizardReference[]; roles: { content_editor: boolean } };
+  access: { resources: WizardReference[]; roles: { content_editor: boolean; inventory_editor?: boolean } };
 }
 export interface WizardOptions {
   prompt: string;

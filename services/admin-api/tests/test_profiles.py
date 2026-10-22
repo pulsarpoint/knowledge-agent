@@ -21,7 +21,7 @@ def wizard_payload(name, **overrides):
         'instructions': '',
         'model_id': None,
         'enabled': True,
-        'access': {'resources': [], 'roles': {'content_editor': False}},
+        'access': {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}},
         **overrides,
     }
 
@@ -49,7 +49,7 @@ def test_catalog_creation_and_independent_prompts(store, tmp_path):
     second = create(client, 'Documentation')
     assert first['id'] != second['id'] and 'kind' not in first
     assert first['model_id'] is None and first['instructions'] == ''
-    assert first['access'] == {'resources': [], 'roles': {'content_editor': False}}
+    assert first['access'] == {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}}
     assert (first['system_prompt'], second['system_prompt']) == (
         'Instructions for Payments.',
         'Instructions for Documentation.',
@@ -78,7 +78,10 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
         headers=HEADERS,
         json={'name': 'review', 'description': 'Review procedures', 'instructions': 'Inspect retries.'},
     ).json()
-    code = {'resources': [{'type': 'code_project', 'id': repository['id']}], 'roles': {'content_editor': False}}
+    code = {
+        'resources': [{'type': 'code_project', 'id': repository['id']}],
+        'roles': {'content_editor': False, 'inventory_editor': False},
+    }
     response = update(client, first, access=code)
     assert response.status_code == 200, response.text
     first = response.json()
@@ -146,7 +149,10 @@ def test_skills_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(st
     ]
 
     def access(*ids):
-        return {'resources': [{'type': 'skill', 'id': i} for i in ids], 'roles': {'content_editor': False}}
+        return {
+            'resources': [{'type': 'skill', 'id': i} for i in ids],
+            'roles': {'content_editor': False, 'inventory_editor': False},
+        }
 
     first = update(client, first, access=access(*skills)).json()
     second = update(client, second, access=access(skills[0])).json()
@@ -178,7 +184,10 @@ def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_
             "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'runbooks') RETURNING id",
             (store.project(conn, 'shop'),),
         ).fetchone()['id']
-    access = {'resources': [{'type': 'collection', 'id': str(collection)}], 'roles': {'content_editor': False}}
+    access = {
+        'resources': [{'type': 'collection', 'id': str(collection)}],
+        'roles': {'content_editor': False, 'inventory_editor': False},
+    }
     payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'instructions')}
     updated = client.put(
         f'/api/agents/{agent["id"]}', headers=HEADERS, json={**payload, 'access': access, 'documents_grounded': True}

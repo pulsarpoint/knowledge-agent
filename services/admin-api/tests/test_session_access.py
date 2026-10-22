@@ -60,7 +60,7 @@ def test_a_server_run_is_given_its_server_and_the_services_deployed_on_it(world)
             entry('server', server, 'web-1', 'Shop front end'),
             entry('service', world.nginx, 'nginx', 'Front proxy for the shop', f'via server {server}'),
         ],
-        'roles': {'content_editor': False},
+        'roles': {'content_editor': False, 'inventory_editor': False},
     }
 
 
@@ -73,7 +73,7 @@ def test_a_service_run_is_given_its_service_its_code_and_its_servers(world):
         entry('code_project', world.shop, 'Shop', '', via, folder_paths=[]),
         entry('server', world.server['id'], 'web-1', 'Shop front end', via),
     ]
-    assert access['roles'] == {'content_editor': False}
+    assert access['roles'] == {'content_editor': False, 'inventory_editor': False}
 
 
 def test_an_environment_run_is_given_the_environment_and_what_it_contains(world):
@@ -92,12 +92,12 @@ def test_an_environment_run_is_given_the_environment_and_what_it_contains(world)
 def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
     ssh_ready(world)
     plain, _ = stored(world.store, start(world, {'server_id': world.server['id']}))
-    assert plain['roles'] == {'content_editor': False}
+    assert plain['roles'] == {'content_editor': False, 'inventory_editor': False}
     wizard, _ = stored(
         world.store,
         start(world, {'server_id': world.server['id']}, content_editor=True, tags=['proposals']),
     )
-    assert wizard['roles'] == {'content_editor': True}
+    assert wizard['roles'] == {'content_editor': True, 'inventory_editor': False}
     new, config = stored(
         world.store,
         start(
@@ -119,7 +119,7 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
                 'built_for': [],
             }
         ],
-        'roles': {'content_editor': True},
+        'roles': {'content_editor': True, 'inventory_editor': False},
     }
     with world.store.connect() as conn:
         live = conn.execute("SELECT id FROM ka.live_documents WHERE title='web-1 overview'").fetchone()['id']
@@ -133,7 +133,7 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
     )
     assert revision == {
         'resources': [{**entry('document', live, 'web-1 overview', ''), 'editable': True}],
-        'roles': {'content_editor': True},
+        'roles': {'content_editor': True, 'inventory_editor': False},
     }
 
 
@@ -143,7 +143,7 @@ def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(an
     access, config = stored(a.store, session['id'])
     assert access == {
         'resources': [entry('code_project', a.app, 'App', '', folder_paths=[str(a.root / 'app')])],
-        'roles': {'content_editor': False},
+        'roles': {'content_editor': False, 'inventory_editor': False},
     }
     assert config['access'] == access
     everything, _ = stored(a.store, agent_start(a)['id'])  # nothing picked: everything it has
@@ -231,6 +231,7 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     access, config = stored(world.store, sid)
     names = [(item['type'], item['name'], item['source']) for item in access['resources']]
     assert names == [('code_project', 'Shop', 'given'), ('server', 'web-1', 'given'), ('service', 'nginx', 'given')]
+    # migrated access is as the migration wrote it (no inventory_editor: off)
     assert access['roles'] == {'content_editor': False} and config['access'] == access
 
 
@@ -295,3 +296,22 @@ def test_the_session_detail_returns_what_the_run_was_given(world):
     ).json()
     assert session['given_resources'] == [{'type': 'environment', 'id': str(world.environment)}]
     assert 'run_resources' not in session and 'chosen_resources' not in session
+
+
+def test_an_ad_hoc_run_is_never_an_inventory_editor(world):
+    ssh_ready(world)
+    plain, _ = stored(world.store, start(world, {'server_id': world.server['id']}))
+    wizard, _ = stored(world.store, start(world, {'server_id': world.server['id']}, content_editor=True))
+    assert plain['roles']['inventory_editor'] is False and wizard['roles']['inventory_editor'] is False
+    off, _ = stored(world.store, start(world, {'server_id': world.server['id']}, inventory_editor=False))
+    assert off['roles']['inventory_editor'] is False
+    body = {
+        'started_from': {'server_id': world.server['id']},
+        'model_id': world.model,
+        'system_prompt': 'You answer.',
+        'message': 'Is it alive?',
+        'inventory_editor': True,
+    }
+    refused = world.client.post('/api/sessions', headers=HEADERS, json=body)
+    assert refused.status_code == 400, refused.text
+    assert refused.json()['error']['message'] == 'Only a saved agent may change the inventory.'

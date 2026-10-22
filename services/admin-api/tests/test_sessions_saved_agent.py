@@ -104,6 +104,7 @@ def test_nothing_can_be_added_to_a_saved_agent(agent):
         ({'expert_ids': [other_expert]}, f'This expert is not available: {other_expert}.'),
         ({'subagents': True}, 'Extra inputs are not permitted'),
         ({'content_editor': True}, 'A run cannot make a saved agent a content editor.'),
+        ({'inventory_editor': True}, 'A run cannot make a saved agent an inventory editor.'),
         ({'model_id': agent.other_model}, 'A saved agent uses its own model and prompt.'),
         ({'system_prompt': 'Be someone else.'}, 'A saved agent uses its own model and prompt.'),
         (
@@ -237,3 +238,30 @@ def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_i
         'server_ids': [],
         'deployment_ids': [],
     }
+
+
+def test_a_saved_agents_inventory_editor_role_is_copied_and_may_only_be_switched_off(agent, ask):
+    def roles(**body):
+        response = start(agent.client, '/preview', agent_id=agent.id, resources={'server_ids': [agent.web]}, **body)
+        assert response.status_code == 200, response.text
+        return response.json()['config']['access']['roles']
+
+    assert roles() == {'content_editor': False, 'inventory_editor': False}  # no inventory_editor key: off
+    with ask.s.store.connect() as conn:
+        conn.execute(
+            """UPDATE ka.agents SET access=jsonb_set(access,'{roles}','{"inventory_editor":true}') WHERE id=%s""",
+            (agent.id,),
+        )
+    assert roles() == {'content_editor': False, 'inventory_editor': True}
+    assert roles(inventory_editor=True) == {'content_editor': False, 'inventory_editor': True}
+    assert roles(inventory_editor=False) == {'content_editor': False, 'inventory_editor': False}
+    created = start(agent.client, agent_id=agent.id, resources={'server_ids': [agent.web]})
+    assert created.status_code == 201, created.text
+    with ask.s.store.connect() as conn:
+        session_id = created.json()['id']
+        access = conn.execute('SELECT access FROM ka.agent_sessions WHERE id=%s', (session_id,)).fetchone()['access']
+        details = conn.execute(
+            "SELECT details FROM ka.audit_events WHERE action='agent_run.created' AND resource_id::text=%s",
+            (session_id,),
+        ).fetchone()['details']
+    assert access['roles']['inventory_editor'] is True and details['inventory_editor'] is True

@@ -208,6 +208,28 @@ test("General switches Content editor and saves Instructions", async () => {
   );
 });
 
+test("General switches Inventory editor under Content editor", async () => {
+  const user = userEvent.setup();
+  open("/agents/search");
+  const inventory = await screen.findByRole("switch", { name: "Inventory editor" });
+  expect(inventory).not.toBeChecked();
+  expect(
+    screen.getByText("Lets this agent add and change servers, services, deployments, connections and relations."),
+  ).toBeVisible();
+  const switches = screen.getAllByRole("switch").map((item) => item.getAttribute("id"));
+  expect(switches.indexOf("agent-inventory-editor")).toBe(switches.indexOf("agent-content-editor") + 1);
+  await user.click(inventory);
+  await user.click(screen.getByRole("button", { name: "Save details" }));
+  await waitFor(() =>
+    expect(profiles.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "search",
+        access: { resources: [], roles: { content_editor: false, inventory_editor: true } },
+      }),
+    ),
+  );
+});
+
 test("General keeps resources saved on the Resources tab meanwhile", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({

@@ -66,13 +66,13 @@ def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]
 def subagent_access(parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
     """The parent's access narrowed (access.narrow, never widened) to what the subagent is given: the given resources
     (None: all of the parent's but its documents and skills, which a subagent never gets) and the parent's MCP servers;
-    content editor off (a subagent never changes content)."""
+    content editor and inventory editor off (a subagent never changes content or the inventory)."""
     if resources is None:
         picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
     else:
         picked = picks(resources)
     picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server']
-    return access_rules.narrow(dict(parent), picked, ['content_editor'])
+    return access_rules.narrow(dict(parent), picked, ['content_editor', 'inventory_editor'])
 
 
 def referenced_credentials(config: Mapping[str, Any], credentials: Mapping[str, str]) -> dict[str, str]:
@@ -239,8 +239,9 @@ class Subagents:
         if self.root.started >= MAX_PER_TURN:
             raise ValueError(LIMIT)
         self.root.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
-        editor = access_rules.is_content_editor(context['config']['access'])  # the expert: only if its caller is too
-        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources, editor))
+        caller = context['config']['access']  # the expert has a role only if its caller has it too
+        editor, inventory = access_rules.is_content_editor(caller), access_rules.is_inventory_editor(caller)
+        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources, editor, inventory))
         try:
             config, credentials = await asyncio.shield(load)
         except asyncio.CancelledError:

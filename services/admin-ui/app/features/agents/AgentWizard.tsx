@@ -434,7 +434,9 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                           id="wizard-content-editor"
                           checked={proposal.access.roles.content_editor}
                           onCheckedChange={(content_editor) =>
-                            edit({ access: { ...proposal.access, roles: { content_editor } } })
+                            edit({
+                              access: { ...proposal.access, roles: { ...proposal.access.roles, content_editor } },
+                            })
                           }
                         />
                         <FieldContent>

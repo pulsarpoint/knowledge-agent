@@ -198,7 +198,8 @@ def build_api(app_name, store):
                 'api_key_ref': {'id': model_id} if model.api_key else None,
             },
             'grounded': False,
-            'access': {'resources': [], 'roles': {'content_editor': False}},  # every config that runs tools has one
+            # every config that runs tools has one
+            'access': {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}},
         }
         schema = AgentProposal.model_json_schema()
         # The designer chooses the agent's model only among models that fit an agent.

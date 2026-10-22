@@ -144,7 +144,7 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
             instructions='',
         )
         reviewer.pop('record', None)
-        reviewer['access'] = {'resources': [], 'roles': {'content_editor': False}}
+        reviewer['access'] = {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}}
         reviewer['grounded'] = False
         credentials = await asyncio.to_thread(load_credentials, db, reviewer)
         # the reviewer reads what the agent was given, never a connection (access.listing: its PUBLIC fields)

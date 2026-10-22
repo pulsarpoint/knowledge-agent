@@ -19,7 +19,7 @@ from test_repositories import HEADERS
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0113_agent_access.up.sql', '0113_agent_access.down.sql'
 DROP_UP, DROP_DOWN = '0114_drop_agent_resource_tables.up.sql', '0114_drop_agent_resource_tables.down.sql'
-EMPTY = {'resources': [], 'roles': {'content_editor': False}}
+EMPTY = {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}}
 
 
 def run(conn, name: str) -> None:
@@ -190,7 +190,7 @@ def test_a_saved_agent_run_is_given_its_whole_access_with_children(world):
             entry('service', w.nginx, 'nginx', 'Front proxy for the shop'),
             entry('code_project', w.shop, 'Shop', '', folder_paths=[]),
         ],
-        'roles': {'content_editor': False},
+        'roles': {'content_editor': False, 'inventory_editor': False},
     }
     picked = start(w, agent, resources={'service_ids': [str(w.nginx)]})  # a subset: its children come with it
     assert picked.status_code == 201, picked.text
@@ -293,11 +293,17 @@ def test_the_content_editor_role_comes_from_the_agent(world):
     with w.store.connect() as conn:
         give(conn, agent, [('service', w.nginx)])
     off = start(w, agent)
-    assert off.status_code == 201 and stored_access(w, off.json()['id'])['roles'] == {'content_editor': False}
+    assert off.status_code == 201 and stored_access(w, off.json()['id'])['roles'] == {
+        'content_editor': False,
+        'inventory_editor': False,
+    }
     with w.store.connect() as conn:
         give(conn, agent, [('service', w.nginx)], content_editor=True)
     on = start(w, agent)
-    assert on.status_code == 201 and stored_access(w, on.json()['id'])['roles'] == {'content_editor': True}
+    assert on.status_code == 201 and stored_access(w, on.json()['id'])['roles'] == {
+        'content_editor': True,
+        'inventory_editor': False,
+    }
 
 
 def test_a_deleted_resource_in_the_access_is_skipped(world):
@@ -399,7 +405,7 @@ def test_an_expert_is_a_content_editor_only_when_it_and_its_caller_are(world):
         with w.store.connect() as conn:
             give(conn, expert, [('service', w.nginx)], content_editor=own)
         config, _ = experts.load(w.store, w.project, offered, None, caller)
-        assert config['access']['roles'] == {'content_editor': expected}, (own, caller)
+        assert config['access']['roles'] == {'content_editor': expected, 'inventory_editor': False}, (own, caller)
 
 
 # --- 0114 ----------------------------------------------------------------------------------------------------------

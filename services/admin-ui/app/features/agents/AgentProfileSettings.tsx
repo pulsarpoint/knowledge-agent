@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { CONTENT_EDITOR_HELP, EXPERT_HELP, saveAgent, type AgentProfile } from "./api";
+import { CONTENT_EDITOR_HELP, EXPERT_HELP, INVENTORY_EDITOR_HELP, saveAgent, type AgentProfile } from "./api";
 import { codeCompatible, getLlmSettings, type ModelProfile } from "~/features/llm/api";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -185,12 +185,26 @@ export default function AgentProfileSettings({
                     disabled={busy}
                     checked={draft.access.roles.content_editor}
                     onCheckedChange={(content_editor) =>
-                      change({ access: { ...draft.access, roles: { content_editor } } })
+                      change({ access: { ...draft.access, roles: { ...draft.access.roles, content_editor } } })
                     }
                   />
                   <div>
                     <FieldLabel htmlFor="agent-content-editor">Content editor</FieldLabel>
                     <FieldDescription>{CONTENT_EDITOR_HELP}</FieldDescription>
+                  </div>
+                </Field>
+                <Field orientation="horizontal">
+                  <Switch
+                    id="agent-inventory-editor"
+                    disabled={busy}
+                    checked={Boolean(draft.access.roles.inventory_editor)}
+                    onCheckedChange={(inventory_editor) =>
+                      change({ access: { ...draft.access, roles: { ...draft.access.roles, inventory_editor } } })
+                    }
+                  />
+                  <div>
+                    <FieldLabel htmlFor="agent-inventory-editor">Inventory editor</FieldLabel>
+                    <FieldDescription>{INVENTORY_EDITOR_HELP}</FieldDescription>
                   </div>
                 </Field>
                 <Field orientation="horizontal">

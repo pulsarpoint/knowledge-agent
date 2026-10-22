@@ -72,7 +72,7 @@ def test_refusal_texts_are_exact():
 def test_narrow_none_keeps_agent_list_and_roles():
     agent = run_access(True)
     out = access.narrow(agent, None)
-    assert out == agent
+    assert out == {**agent, 'roles': {'content_editor': True, 'inventory_editor': False}}  # a missing role: off
     assert out is not agent
 
 
@@ -152,3 +152,21 @@ def test_is_content_editor():
     assert access.is_content_editor(run_access(True))
     assert not access.is_content_editor(run_access(False))
     assert not access.is_content_editor({'resources': []})
+
+
+def test_is_inventory_editor():
+    assert access.is_inventory_editor({'resources': [], 'roles': {'inventory_editor': True}})
+    assert not access.is_inventory_editor({'resources': [], 'roles': {'inventory_editor': False}})
+    assert not access.is_inventory_editor(run_access(True))  # an agent without the key: off
+    assert not access.is_inventory_editor({'resources': []})
+
+
+def test_narrow_keeps_the_inventory_editor_role_only_switched_off():
+    both = {**run_access(True), 'roles': {'content_editor': True, 'inventory_editor': True}}
+    assert access.narrow(both, None)['roles'] == {'content_editor': True, 'inventory_editor': True}
+    assert access.narrow(both, None, ['inventory_editor'])['roles'] == {
+        'content_editor': True,
+        'inventory_editor': False,
+    }
+    assert access.narrow(run_access(True), None)['roles'] == {'content_editor': True, 'inventory_editor': False}
+    assert access.narrow({'resources': []}, None)['roles'] == {'content_editor': False, 'inventory_editor': False}

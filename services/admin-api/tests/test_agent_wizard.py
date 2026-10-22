@@ -44,7 +44,7 @@ def wizard(store, saved_agent):
                 {'type': 'skill', 'id': skill['id']},
                 {'type': 'mcp_server', 'id': mcp['id']},
             ],
-            'roles': {'content_editor': False},
+            'roles': {'content_editor': False, 'inventory_editor': False},
         },
     }
     return client, catalog, proposal, ssh
@@ -116,8 +116,18 @@ def test_wizard_roundtrip_every_resource(store, wizard):
 @pytest.mark.parametrize(
     'change',
     [
-        {'access': {'resources': [{'type': 'collection', 'id': str(uuid4())}], 'roles': {'content_editor': False}}},
-        {'access': {'resources': [{'type': 'printer', 'id': str(uuid4())}], 'roles': {'content_editor': False}}},
+        {
+            'access': {
+                'resources': [{'type': 'collection', 'id': str(uuid4())}],
+                'roles': {'content_editor': False, 'inventory_editor': False},
+            }
+        },
+        {
+            'access': {
+                'resources': [{'type': 'printer', 'id': str(uuid4())}],
+                'roles': {'content_editor': False, 'inventory_editor': False},
+            }
+        },
         {'model_id': str(uuid4())},
         {'system_prompt': ' '},
         {'all_repositories': True},
@@ -239,7 +249,7 @@ BLANK = {
     'instructions': '',
     'model_id': None,
     'enabled': True,
-    'access': {'resources': [], 'roles': {'content_editor': False}},
+    'access': {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}},
 }
 
 
@@ -278,7 +288,10 @@ def test_proposal_rejects_an_unknown_resource_type(wizard):
     _, _, proposal, _ = wizard
     from pydantic import ValidationError
 
-    unknown = {'resources': [{'type': 'printer', 'id': str(uuid4())}], 'roles': {'content_editor': False}}
+    unknown = {
+        'resources': [{'type': 'printer', 'id': str(uuid4())}],
+        'roles': {'content_editor': False, 'inventory_editor': False},
+    }
     with pytest.raises(ValidationError, match="'server'"):
         AgentProposal.model_validate({**proposal, 'access': unknown})
 
@@ -289,7 +302,10 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
 
     async def run(config, task, **kwargs):
         calls.append(json.loads(task))
-        invented = {'resources': [{'type': 'server', 'id': str(uuid4())}], 'roles': {'content_editor': False}}
+        invented = {
+            'resources': [{'type': 'server', 'id': str(uuid4())}],
+            'roles': {'content_editor': False, 'inventory_editor': False},
+        }
         output = {**proposal, 'access': invented} if len(calls) == 1 else proposal
         return SimpleNamespace(final_output=AgentProposal.model_validate(output))
 

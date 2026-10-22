@@ -99,7 +99,7 @@ def test_debug_shows_the_instructions_and_tools_the_runner_sends(world):
         ('server', 'web-1', 'given'),
         ('service', 'nginx', f'via server {world.server["id"]}'),
     ]
-    assert shown['access']['roles'] == {'content_editor': False}
+    assert shown['access']['roles'] == {'content_editor': False, 'inventory_editor': False}
 
 
 def test_the_preview_shows_the_same_before_the_run_starts(world):
@@ -146,7 +146,7 @@ def test_a_library_prompt_and_its_version_and_a_wizard_prompt(world):
     assert edited['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': None}
     wizard = debug(world, start(world, tags=['proposals'], content_editor=True))
     assert wizard['prompt_source'] == 'wizard' and wizard['prompt'] is None
-    assert wizard['access']['roles'] == {'content_editor': True}
+    assert wizard['access']['roles'] == {'content_editor': True, 'inventory_editor': False}
 
 
 def test_secrets_never_show(world):
