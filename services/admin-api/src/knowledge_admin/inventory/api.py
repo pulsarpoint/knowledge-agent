@@ -20,7 +20,7 @@ from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as documents
 from knowledge_admin.documents.store import ENTRY_COLUMNS, Provenance
 from knowledge_admin.identity import request_actor
-from knowledge_admin.inventory import assets, store
+from knowledge_admin.inventory import assets, model, store
 from knowledge_admin.inventory.rules import Invalid
 from knowledge_admin.repositories import RepositoryStore
 
@@ -141,6 +141,15 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
     def environment_servers(environment_id: UUID) -> dict:
         return read(
             lambda conn, project_id: {'servers': store.list_servers(conn, project_id, environment_id=environment_id)},
+            ('environment', environment_id),
+        )
+
+    @router.get('/environments/{environment_id}/model')
+    def environment_model(environment_id: UUID) -> dict:
+        """The environment model (inventory/model.py): servers with deployments, services, connections, external hosts
+        and relations; nothing secret."""
+        return read(
+            lambda conn, project_id: model.build_model(**store.load_model_rows(conn, project_id, environment_id)),
             ('environment', environment_id),
         )
 

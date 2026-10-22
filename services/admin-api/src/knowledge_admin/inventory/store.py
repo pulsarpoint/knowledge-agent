@@ -158,6 +158,26 @@ def list_relations(conn, project_id: UUID, service_id: UUID | None = None) -> li
     ).fetchall()
 
 
+def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
+    """The rows model.build_model takes: the environment (NotFound when it is not in the project) and the project's
+    servers, services, deployments (with their environment's name), connections, relations and code projects."""
+    return {
+        'environment': get(conn, project_id, 'environment', environment_id),
+        'servers': list_servers(conn, project_id),
+        'services': list_services(conn, project_id),
+        'deployments': conn.execute(
+            f"""SELECT d.*,e.name AS environment_name FROM ({DEPLOYMENT} WHERE x.project_id=%s) d
+            JOIN ka.environments e ON e.id=d.environment_id ORDER BY d.runtime_name,d.id""",
+            (project_id,),
+        ).fetchall(),
+        'connections': list_connections(conn, project_id),
+        'relations': list_relations(conn, project_id),
+        'code_projects': conn.execute(
+            'SELECT id,name FROM ka.repositories WHERE project_id=%s ORDER BY lower(name),id', (project_id,)
+        ).fetchall(),
+    }
+
+
 def get(conn, project_id: UUID, kind: str, item_id: UUID) -> dict:
     """One item of the project; NotFound when it is not there."""
     row = conn.execute(f'{KINDS[kind]["read"]} WHERE x.id=%s AND x.project_id=%s', (item_id, project_id)).fetchone()
