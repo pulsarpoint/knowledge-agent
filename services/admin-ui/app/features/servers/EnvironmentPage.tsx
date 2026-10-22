@@ -5,12 +5,13 @@ import { getEnvironment, type EnvironmentAsset } from "./environments";
 import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
+import EnvironmentWorkspace from "./EnvironmentWorkspace";
 import { environmentMapPath } from "./inventoryMap";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One environment: its Info (description, the services and servers deployed in it, its documents) and its Chats
+/** One environment: its Info (the header, the workspace of its servers and services, its documents) and its Chats
  * (ResourceChats). */
 export default function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
@@ -63,41 +64,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
               System map
             </Link>
           </div>
-          <div className="grid gap-6 md:grid-cols-2">
-            <section aria-label="Services" className="flex flex-col gap-2">
-              <h2 className="text-lg font-semibold">Services</h2>
-              {environment.services.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No services are deployed in this environment.</p>
-              ) : (
-                <ul className="flex flex-col gap-1">
-                  {environment.services.map((service) => (
-                    <li key={service.id} className="text-sm">
-                      <Link className="underline" to={`/services/${encodeURIComponent(service.id)}`}>
-                        {service.name}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            <section aria-label="Servers" className="flex flex-col gap-2">
-              <h2 className="text-lg font-semibold">Servers</h2>
-              {environment.servers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No servers have deployments in this environment.</p>
-              ) : (
-                <ul className="flex flex-col gap-1">
-                  {environment.servers.map((server) => (
-                    <li key={server.id} className="text-sm">
-                      <Link className="underline" to={`/servers/${encodeURIComponent(server.id)}`}>
-                        {server.name}
-                      </Link>
-                      <span className="text-muted-foreground"> · {server.hostname}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
+          <EnvironmentWorkspace environmentId={environmentId} />
           <EntryDocuments
             entry={{ kind: "environment", id: environmentId, name: environment.name }}
             onChanged={() => setVersion((value) => value + 1)}

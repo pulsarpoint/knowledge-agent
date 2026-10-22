@@ -445,13 +445,26 @@ agent to have.
 
 ### 4.6 Environments
 
-`/environments` — named environments such as `prod` or `staging`. An environment has a name and a description; what
-is in it comes from deployments: a service or server is in an environment when one of its deployments is (add
-deployments on the Services page). A service deployed in two environments is in both.
+`/environments` — named environments such as `prod` or `staging`. An environment has a name and a description, its
+member servers, and the deployments of services on them. A server is in an environment when it is added to it or has
+a deployment there; it stays a member (empty) when its last deployment there is removed. A service is in an
+environment when one of its deployments is; a service deployed in two environments is in both.
 
-- The list shows each environment with the number of services and servers deployed in it: filter, **Map** (the System
-  map rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is deployed in it.
-- An environment's page (`/environments/:id`) lists its services and servers and links to its **System map**.
+- The list shows each environment with the number of services and servers in it: filter, **Map** (the System map
+  rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
+- An environment's page (`/environments/:id`) keeps its header (description, **System map**, Propose, Proposals) and
+  its documents and chats; its Info tab is a **workspace** of three columns:
+  - **Servers**: the member servers, each with its number of services ("no services" for an empty member), **Edit**
+    and **Remove from environment** (refused with "Remove the deployments on this server in this environment first."
+    while it has deployments there). **Add server** picks a server that is not in the environment yet, or creates a
+    new one (name, hostname, description).
+  - **Services on** the selected server: its deployments in this environment. **Add service** picks a recorded service
+    or creates a new one (name, type, role, owner, description), plus the deployment on this server: runtime, runtime
+    name, port, version, log location.
+  - The selected **service**: its deployment here and a link to its page.
+- The selection is in the URL (`?server=<id>&service=<id>`), so links, reload and Back keep it; a server or service
+  that is no longer in the environment selects nothing. Narrow screens show one column at a time, with a back link to
+  the previous one. The workspace reloads after every change.
 - An environment with deployments cannot be deleted: remove or move its deployments first.
 
 ### 4.7 Services

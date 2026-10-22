@@ -41,3 +41,88 @@ export const deleteEnvironment = (id: string, revision: number) =>
   request<{ id: string }>(`/api/environments/${encodeURIComponent(id)}?revision=${revision}`, {
     method: "DELETE",
   });
+
+/** A deployment in the environment model: on its server, with its service's name. */
+export interface ModelDeployment {
+  id: string;
+  service_id: string;
+  service_name: string;
+  runtime: string;
+  runtime_name: string;
+  port: number | null;
+  version: string;
+  log_location: string;
+  revision: number;
+}
+/** A member server and its deployments in the environment (none for an empty member). */
+export interface ModelServer {
+  id: string;
+  name: string;
+  hostname: string;
+  description: string;
+  tags: string[];
+  revision: number;
+  deployments: ModelDeployment[];
+}
+export interface ModelService {
+  id: string;
+  name: string;
+  service_type: string;
+  service_role: string;
+  description: string;
+  owner: string;
+  revision: number;
+}
+export interface ModelConnection {
+  id: string;
+  from_deployment_id: string;
+  to_deployment_id: string | null;
+  to_host: string | null;
+  to_service_id: string | null;
+  to_service_name: string | null;
+  port: number | null;
+  protocol: string;
+  description: string;
+  revision: number;
+  /** The end in another environment, when there is one. */
+  outside?: { deployment_id: string; environment: string; server: string; service: string };
+}
+export interface ModelRelation {
+  id: string;
+  kind: "depends_on" | "part_of" | "built_from";
+  from_service_id: string;
+  from_service: string | null;
+  to_service_id: string | null;
+  to_service: string | null;
+  to_code_project_id: string | null;
+  to_code_project: string | null;
+  description: string;
+  revision: number;
+}
+/** One environment as GET /environments/{id}/model reads it (admin-api inventory/model.py). */
+export interface EnvironmentModel {
+  environment: { id: string; name: string; description: string; revision: number };
+  servers: ModelServer[];
+  services: ModelService[];
+  connections: ModelConnection[];
+  relations: ModelRelation[];
+  external: { host: string; ports: number[] }[];
+  external_services: {
+    id: string;
+    name: string;
+    address: string | null;
+    description: string;
+    revision: number;
+    ports: number[];
+  }[];
+}
+const membership = (environmentId: string, serverId: string) =>
+  `/api/environments/${encodeURIComponent(environmentId)}/servers/${encodeURIComponent(serverId)}`;
+export const getEnvironmentModel = (id: string, signal?: AbortSignal) =>
+  request<EnvironmentModel>(`/api/environments/${encodeURIComponent(id)}/model`, { signal });
+/** Puts the server in the environment (also when it is there already). */
+export const addServerToEnvironment = (environmentId: string, serverId: string) =>
+  request<void>(membership(environmentId, serverId), { method: "PUT" });
+/** Takes the server out of the environment; refused while it has deployments there. */
+export const removeServerFromEnvironment = (environmentId: string, serverId: string) =>
+  request<void>(membership(environmentId, serverId), { method: "DELETE" });

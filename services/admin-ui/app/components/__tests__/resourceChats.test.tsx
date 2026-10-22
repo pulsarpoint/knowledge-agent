@@ -344,7 +344,7 @@ test("the service page shows the service's information and its chats", async () 
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/services/v1/proposals");
 });
 
-test("the environment page shows the environment's services and servers, and its chats", async () => {
+test("the environment page shows its workspace of servers and services, and its chats", async () => {
   api({
     "GET /api/environments/e1": () => [
       200,
@@ -359,17 +359,54 @@ test("the environment page shows the environment's services and servers, and its
         servers: [{ id: "s1", name: "web-1", hostname: "10.0.0.7" }],
       },
     ],
+    "GET /api/environments/e1/model": () => [
+      200,
+      {
+        environment: { id: "e1", name: "Production", description: "Live", revision: 1 },
+        servers: [
+          {
+            id: "s1",
+            name: "web-1",
+            hostname: "10.0.0.7",
+            description: "",
+            tags: [],
+            revision: 1,
+            deployments: [
+              {
+                id: "d1",
+                service_id: "v1",
+                service_name: "payments",
+                runtime: "docker",
+                runtime_name: "payments",
+                port: 8000,
+                version: "",
+                log_location: "",
+                revision: 1,
+              },
+            ],
+          },
+        ],
+        services: [],
+        connections: [],
+        relations: [],
+        external: [],
+        external_services: [],
+      },
+    ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
     "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
   });
   render(
-    <MemoryRouter initialEntries={["/environments/e1"]}>
+    <MemoryRouter initialEntries={["/environments/e1?server=s1"]}>
       <EnvironmentPage environmentId="e1" />
     </MemoryRouter>,
   );
   expect(await screen.findByRole("heading", { name: "Production", level: 1 })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "payments" })).toHaveAttribute("href", "/services/v1");
-  expect(screen.getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/servers/s1");
+  const servers = within(await screen.findByRole("region", { name: "Servers" }));
+  expect(servers.getByRole("button", { name: /^web-1/ })).toHaveAttribute("aria-pressed", "true");
+  const services = within(screen.getByRole("region", { name: "Services on web-1" }));
+  expect(services.getByRole("button", { name: /^payments/ })).toBeInTheDocument();
+  expect(services.getByRole("link", { name: "10.0.0.7" })).toHaveAttribute("href", "/servers/s1");
   expect(await screen.findByRole("region", { name: "Chats" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/environments/e1/proposals");
 });
