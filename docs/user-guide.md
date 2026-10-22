@@ -452,8 +452,13 @@ environment when one of its deployments is; a service deployed in two environmen
 
 - The list shows each environment with the number of services and servers in it: filter, **Map** (the System map
   rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
-- An environment's page (`/environments/:id`) keeps its header (description, **System map**, Propose, Proposals) and
-  its documents and chats; its Info tab is a **workspace** of three columns:
+- An environment's page (`/environments/:id`) has a header (name, description, **System map**, **Proposals**; **Chat**,
+  **New chat** and **Propose** on the right; Chat opens the agent chat beside the page) and three tabs, the open one kept
+  in the URL (`?view=documents` or `?view=chats`; none: Workspace):
+  - **Documents**: the environment's own inventory document and documents (a server's or service's documents are in
+    its column of the workspace);
+  - **Chats**: the earlier chats about the environment;
+  - **Workspace**, of three columns:
   - **Servers**: the member servers, each with its number of services ("no services" for an empty member), **Edit**
     and **Remove from environment** (refused with "Remove the deployments on this server in this environment first."
     while it has deployments there). **Add server** picks a server that is not in the environment yet, or creates a

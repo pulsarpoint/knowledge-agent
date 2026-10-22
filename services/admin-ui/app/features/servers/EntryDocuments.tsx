@@ -16,7 +16,16 @@ import { Button } from "~/components/ui/button";
  * inventory document when it has none; its document list (its and its direct children's documents: title, tags (each a
  * link to the Documents list filtered by it), short description, and the child's name for a child's document); and Connections and documents
  * (the entry sheet) to change its links. */
-export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; onChanged?: () => void }) {
+export default function EntryDocuments({
+  entry,
+  onChanged,
+  ownOnly = false,
+}: {
+  entry: MapEntry;
+  onChanged?: () => void;
+  /** Only the entry's own documents, not its children's (the environment page: each server and service shows its own). */
+  ownOnly?: boolean;
+}) {
   const [documents, setDocuments] = useState<Documents | null>(null);
   const [editing, setEditing] = useState(false);
   const [version, setVersion] = useState(0);
@@ -30,7 +39,7 @@ export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; 
     return () => controller.abort();
   }, [entry.kind, entry.id, version]);
   const inventory = documents?.inventory_document ?? null;
-  const list = documents?.documents ?? [];
+  const list = (documents?.documents ?? []).filter((item) => !ownOnly || item.resource.id === entry.id);
   return (
     <section aria-label="Documents" className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">

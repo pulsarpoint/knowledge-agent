@@ -488,8 +488,64 @@ test("the environment page shows its workspace of servers and services, and its 
   const services = within(screen.getByRole("region", { name: "Services on web-1" }));
   expect(services.getByRole("button", { name: /^payments/ })).toBeInTheDocument();
   expect(services.getByRole("link", { name: "10.0.0.7" })).toHaveAttribute("href", "/servers/s1");
-  expect(await screen.findByRole("region", { name: "Chats" })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Chats" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Documents" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/environments/e1/proposals");
+  await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
+  expect(await screen.findByText("No chats yet. Start one with Chat or New chat.")).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Servers" })).not.toBeInTheDocument();
+});
+
+test("the environment's Documents tab lists only the environment's own documents and is kept in the URL", async () => {
+  const doc = (id: string, title: string, resource: { id: string; name: string }) => ({
+    id,
+    title,
+    tags: [],
+    description_short: "",
+    resource: { kind: "environment", ...resource },
+  });
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      {
+        id: "e1",
+        name: "Production",
+        description: "",
+        revision: 1,
+        created_at: at,
+        updated_at: at,
+        services: [],
+        servers: [],
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [
+      200,
+      {
+        inventory_document: null,
+        documents: [
+          doc("x1", "Release process", { id: "e1", name: "Production" }),
+          doc("x2", "Web host notes", { id: "s1", name: "web-1" }),
+        ],
+      },
+    ],
+    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+  });
+  let location = "";
+  function Where() {
+    location = useLocation().search;
+    return null;
+  }
+  render(
+    <MemoryRouter initialEntries={["/environments/e1?view=documents"]}>
+      <EnvironmentPage environmentId="e1" />
+      <Where />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "Release process" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Web host notes" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "Workspace" }));
+  expect(location).toBe("");
 });
 
 test("routes: resource pages and their proposals; the discovery run route is gone", () => {

@@ -8,17 +8,14 @@ import EntryDocuments from "./EntryDocuments";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
 import { environmentMapPath } from "./inventoryMap";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One environment: its Info (the header, the workspace of its servers and services, its documents) and its Chats
- * (ResourceChats). */
+/** One environment: a header (name, description, System map, Proposals; Propose and Chat on the right) and tabs:
+ * Workspace (its servers and services), Documents (the environment's own) and Chats (ResourceChats). */
 export default function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
-  // Bumped by a workspace change: the documents list (with its servers' documents) is read again.
-  const [documents, setDocuments] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,38 +48,37 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
       <Skeleton className="h-60" />
     );
   const id = encodeURIComponent(environmentId);
+  const entry = { kind: "environment" as const, id: environmentId, name: environment.name };
   return (
     <ResourceChats
       wide
       resource={{ type: "environment", id: environmentId, name: environment.name }}
       info={
-        <>
-          <div className="flex flex-col gap-1">
-            {back}
-            <h1 className="break-words text-2xl font-semibold">{environment.name}</h1>
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {environment.description || "No description"}
-            </p>
-            <Link className="self-start text-sm underline" to={environmentMapPath(environmentId)}>
+        <div className="flex flex-col gap-1">
+          {back}
+          <h1 className="break-words text-2xl font-semibold">{environment.name}</h1>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+            {environment.description || "No description"}
+          </p>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <Link className="underline" to={environmentMapPath(environmentId)}>
               System map
             </Link>
+            <Link className="underline" to={`/environments/${id}/proposals`}>
+              Proposals
+            </Link>
           </div>
-          <EnvironmentWorkspace environmentId={environmentId} onChanged={() => setDocuments((value) => value + 1)} />
-          <EntryDocuments
-            key={documents}
-            entry={{ kind: "environment", id: environmentId, name: environment.name }}
-            onChanged={() => setVersion((value) => value + 1)}
-          />
-        </>
+        </div>
       }
-      actions={
-        <>
-          <ProposeWizard resource={{ type: "environment", id: environmentId, name: environment.name }} />
-          <Button asChild size="sm" variant="link">
-            <Link to={`/environments/${id}/proposals`}>Proposals</Link>
-          </Button>
-        </>
-      }
+      pages={[
+        { value: "workspace", label: "Workspace", content: <EnvironmentWorkspace environmentId={environmentId} /> },
+        {
+          value: "documents",
+          label: "Documents",
+          content: <EntryDocuments entry={entry} ownOnly onChanged={() => setVersion((value) => value + 1)} />,
+        },
+      ]}
+      actions={<ProposeWizard resource={{ type: "environment", id: environmentId, name: environment.name }} />}
     />
   );
 }

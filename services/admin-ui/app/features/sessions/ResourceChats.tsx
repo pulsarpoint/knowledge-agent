@@ -9,7 +9,14 @@ import AgentChat from "./AgentChat";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+
+/** One tab of a resource page laid out in tabs (`pages`). */
+export interface ResourcePage {
+  value: string;
+  label: string;
+  content: ReactNode;
+}
 
 export interface ChatResource {
   type: ResourceType;
@@ -20,13 +27,16 @@ export interface ChatResource {
 /** A server's, service's or environment's page: its Info (from the page) and its Chats (the runs tagged with it, open first),
  * with Chat (the latest open chat, else a new one), New chat and the page's actions. The chat panel is hidden until one of
  * those is clicked; `?chat=<id>` opens that chat (a chat of another resource is refused by the chat itself) and follows the
- * shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs Info / Chat. */
+ * shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs Info / Chat.
+ * With `pages`, `info` is the page's header (Chat, New chat and the actions beside it) and the page is laid out in tabs:
+ * the given pages, then Chats; `?view=<value>` keeps the open tab (none: the first). */
 export default function ResourceChats({
   resource,
   info,
   actions,
   blockedReason = null,
   wide = false,
+  pages,
 }: {
   resource: ChatResource;
   info: ReactNode;
@@ -34,6 +44,7 @@ export default function ResourceChats({
   blockedReason?: string | null;
   /** The page needs the full width even with the chat closed (the environment workspace). */
   wide?: boolean;
+  pages?: ResourcePage[];
 }) {
   const [params, setParams] = useSearchParams();
   const chat = params.get("chat");
@@ -112,6 +123,72 @@ export default function ResourceChats({
     setChat(null);
   };
 
+  const view =
+    pages?.some((page) => page.value === params.get("view")) || params.get("view") === "chats"
+      ? params.get("view")!
+      : (pages?.[0]?.value ?? "");
+  const setView = (value: string) =>
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value === pages?.[0]?.value) next.delete("view");
+        else next.set("view", value);
+        return next;
+      },
+      { replace: true },
+    );
+  const buttons = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button type="button" size="sm" variant="outline" aria-pressed={open} onClick={show}>
+        <MessageSquare data-icon="inline-start" />
+        Chat
+      </Button>
+      <Button type="button" size="sm" variant="outline" onClick={newChat}>
+        <Plus data-icon="inline-start" />
+        New chat
+      </Button>
+      {actions}
+    </div>
+  );
+  const chatList = (
+    <>
+      {listFailed && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Could not load the chats.{" "}
+            <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {runs !== null && runs.length === 0 && (
+        <p className="text-sm text-muted-foreground">No chats yet. Start one with Chat or New chat.</p>
+      )}
+      {runs !== null && runs.length > 0 && (
+        <ul className="flex flex-col divide-y rounded-lg border">
+          {runs.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                aria-current={open && item.id === chat ? "true" : undefined}
+                onClick={() => pick(item.id)}
+                className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50 aria-[current]:bg-muted"
+              >
+                <span className="min-w-0 break-words font-medium">{item.title}</span>
+                <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {(item.tags ?? []).includes("proposals") && <Badge variant="secondary">proposals</Badge>}
+                  <span>{statusLabels[item.status]}</span>
+                  <span>{new Date(item.last_activity_at).toLocaleString()}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {open && (
@@ -130,57 +207,45 @@ export default function ResourceChats({
           data-testid="resource-info"
           className={cn("min-w-0 flex-col gap-6", open && tab === "chat" ? "hidden 2xl:flex" : "flex")}
         >
-          {info}
-          <section aria-label="Chats" className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Chats</h2>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" size="sm" variant="outline" aria-pressed={open} onClick={show}>
-                  <MessageSquare data-icon="inline-start" />
-                  Chat
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={newChat}>
-                  <Plus data-icon="inline-start" />
-                  New chat
-                </Button>
-                {actions}
+          {pages ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">{info}</div>
+                {buttons}
               </div>
-            </div>
-            {listFailed && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  Could not load the chats.{" "}
-                  <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
-                    Retry
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            )}
-            {runs !== null && runs.length === 0 && (
-              <p className="text-sm text-muted-foreground">No chats yet. Start one with Chat or New chat.</p>
-            )}
-            {runs !== null && runs.length > 0 && (
-              <ul className="flex flex-col divide-y rounded-lg border">
-                {runs.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      aria-current={open && item.id === chat ? "true" : undefined}
-                      onClick={() => pick(item.id)}
-                      className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50 aria-[current]:bg-muted"
-                    >
-                      <span className="min-w-0 break-words font-medium">{item.title}</span>
-                      <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        {(item.tags ?? []).includes("proposals") && <Badge variant="secondary">proposals</Badge>}
-                        <span>{statusLabels[item.status]}</span>
-                        <span>{new Date(item.last_activity_at).toLocaleString()}</span>
-                      </span>
-                    </button>
-                  </li>
+              <Tabs value={view} onValueChange={setView}>
+                <TabsList aria-label="Page">
+                  {pages.map((page) => (
+                    <TabsTrigger key={page.value} value={page.value}>
+                      {page.label}
+                    </TabsTrigger>
+                  ))}
+                  <TabsTrigger value="chats">Chats</TabsTrigger>
+                </TabsList>
+                {pages.map((page) => (
+                  <TabsContent key={page.value} value={page.value} className="min-w-0">
+                    {page.content}
+                  </TabsContent>
                 ))}
-              </ul>
-            )}
-          </section>
+                <TabsContent value="chats">
+                  <section aria-label="Chats" className="flex flex-col gap-2">
+                    {chatList}
+                  </section>
+                </TabsContent>
+              </Tabs>
+            </>
+          ) : (
+            <>
+              {info}
+              <section aria-label="Chats" className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-lg font-semibold">Chats</h2>
+                  {buttons}
+                </div>
+                {chatList}
+              </section>
+            </>
+          )}
         </div>
         {open && (
           <div
