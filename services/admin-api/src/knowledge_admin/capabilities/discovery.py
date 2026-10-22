@@ -33,12 +33,12 @@ SERVICES = 'SELECT id,name FROM ka.services WHERE project_id=%s'
 CODE_PROJECTS = 'SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL'
 SERVICE_BY_NAME = 'SELECT id,name,revision FROM ka.services WHERE project_id=%s AND lower(name)=lower(%s)'
 # What a proposed connection can reach: the project's deployments (with their service, server and environment names)
-# and its external services.
+# and its services (an external one is a target itself).
 TARGET_DEPLOYMENTS = """SELECT d.id,d.port,d.environment_id,s.name AS service,v.name AS server,e.name AS environment
     FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id JOIN ka.servers v ON v.id=d.server_id
     JOIN ka.environments e ON e.id=d.environment_id WHERE d.project_id=%s ORDER BY lower(v.name),lower(e.name),d.id"""
-EXTERNAL_SERVICES = (
-    "SELECT id,name FROM ka.services WHERE project_id=%s AND service_type='external' ORDER BY lower(name)"
+TARGET_SERVICES = (
+    'SELECT id,name,service_type::text AS service_type FROM ka.services WHERE project_id=%s ORDER BY lower(name)'
 )
 PENDING_SERVICE = """SELECT id,number FROM ka.discovery_proposals WHERE session_id=%s AND kind='service' AND status='pending'
     AND lower(payload->>'name')=lower(%s)
@@ -68,7 +68,7 @@ def resolve_environment(environments: list[dict], existing: list[dict], given: s
     )
 
 
-def _connection(wanted: dict, deployments: list[dict], external: list[dict], environment_id) -> dict:
+def _connection(wanted: dict, deployments: list[dict], services: list[dict], environment_id) -> dict:
     found = {'to_deployment_id': None, 'to_service_id': None, 'to_host': None}
     port = wanted.get('port')
     name, server, host = (wanted.get(key) or '' for key in ('to_service', 'to_server', 'to_host'))
@@ -80,15 +80,21 @@ def _connection(wanted: dict, deployments: list[dict], external: list[dict], env
             raise ValueError(f'A connection to an external host needs a port ({label}).')
     else:
         name = name.strip()
-        service = next((item for item in external if item['name'].lower() == name.lower()), None)
+        service = next((item for item in services if item['name'].lower() == name.lower()), None)
+        external = service is not None and service['service_type'] == 'external'
         runs = [item for item in deployments if item['service'].lower() == name.lower()]
-        if service is not None and not server.strip():
+        if external and not server.strip():
             found['to_service_id'], label = str(service['id']), service['name']
-        elif not runs:
-            known = sorted(
-                {item['service'] for item in deployments} | {item['name'] for item in external}, key=str.lower
-            )
+        elif service is None:
+            known = sorted({item['name'] for item in services}, key=str.lower)
             raise ValueError(f'No service named {name}. Known services: {", ".join(known) or "none"}.')
+        elif not runs and external:
+            raise ValueError(f'Service {service["name"]} is external and runs on no server; leave to_server empty.')
+        elif not runs:
+            raise ValueError(
+                f'Service {service["name"]} has no deployment to connect to. Connect to one of its deployments once '
+                'it is deployed, or mark it external if someone else runs it.'
+            )
         else:
             service_name = runs[0]['service']
             servers = sorted({item['server'] for item in runs}, key=str.lower)
@@ -124,14 +130,14 @@ def _connection(wanted: dict, deployments: list[dict], external: list[dict], env
 
 
 def resolve_connections(
-    connections: list[dict], deployments: list[dict], external: list[dict], environment_id
+    connections: list[dict], deployments: list[dict], services: list[dict], environment_id
 ) -> list[dict]:
     """The proposal's connections with their targets as ids and a label. A target is a host (`to_host`, with a port),
-    an external service by name, or a deployment of a service by name (`deployments`: {id, service, server,
-    environment_id, environment, port}): on `to_server` when given; in the proposal's environment (`environment_id`)
+    an external service by name (`services`: {id, name, service_type}, the project's services), or a deployment of a
+    service by name (`deployments`: {id, service, server, environment_id, environment, port}): on `to_server` when given; in the proposal's environment (`environment_id`)
     when it runs there, else in any; refused when that leaves more than one server. A deployment target without a port
     takes the deployment's port."""
-    return [_connection(item, deployments, external, environment_id) for item in connections]
+    return [_connection(item, deployments, services, environment_id) for item in connections]
 
 
 def _entries(conn, query: str, project, names: list[str], what: str) -> list[dict[str, str]]:
@@ -239,7 +245,7 @@ def _propose_service(config: dict[str, Any], value: dict[str, Any]) -> str:
         connections = resolve_connections(
             value['connections'],
             conn.execute(TARGET_DEPLOYMENTS, (project,)).fetchall(),
-            conn.execute(EXTERNAL_SERVICES, (project,)).fetchall(),
+            conn.execute(TARGET_SERVICES, (project,)).fetchall(),
             deployment['environment_id'],
         )
         match = conn.execute(SERVICE_BY_NAME, (project, value['name'])).fetchone()

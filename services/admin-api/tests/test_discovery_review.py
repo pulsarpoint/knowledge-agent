@@ -748,3 +748,26 @@ def test_an_identical_existing_connection_is_not_duplicated(run):
     with world.store.connect() as conn:
         relations = inventory.list_relations(conn, world.project, service_id=world.nginx)
     assert sorted(row['kind'] for row in relations) == ['built_from', 'part_of']
+
+
+@pytest.mark.parametrize(
+    'target, message',
+    [
+        ('connection', 'Choose an existing service to connect to in this project'),
+        ('part_of', 'Choose an existing service to relate to in this project'),
+    ],
+)
+def test_an_external_or_part_of_target_deleted_meanwhile_rolls_back(run, target, message):
+    world, sid, config = run
+    with world.store.connect() as conn:
+        gone = inventory.create_service(conn, world.project, {'name': 'Stripe', 'service_type': 'external'}, {})
+    extra = (
+        {'connections': [{'to_service': 'Stripe', 'port': 443}]} if target == 'connection' else {'part_of': ['Stripe']}
+    )
+    propose(config, 'propose_service', **REDIS, **extra)
+    [proposal] = listed(world, sid)
+    with world.store.connect() as conn:
+        conn.execute('DELETE FROM ka.services WHERE id=%s', (gone['id'],))
+    refused = decide(world, proposal, 'accept')
+    assert refused.status_code == 400 and refused.json()['error']['message'] == message
+    assert service(world, 'redis') is None and listed(world, sid)[0]['status'] == 'pending'

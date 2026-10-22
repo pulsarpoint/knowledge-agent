@@ -234,6 +234,15 @@ def test_text_with_null_characters_is_refused_in_every_proposal_field():
 PROD, STAGING = str(uuid4()), str(uuid4())
 
 
+def services(*names, external=()):
+    return [{'id': str(uuid4()), 'name': name, 'service_type': 'unclassified'} for name in names] + [
+        {'id': str(uuid4()), 'name': name, 'service_type': 'external'} for name in external
+    ]
+
+
+POSTGRES = services('postgres')
+
+
 def deployment(service, server, environment_id, environment, port=5432):
     return {
         'id': str(uuid4()),
@@ -247,7 +256,7 @@ def deployment(service, server, environment_id, environment, port=5432):
 
 def test_a_connection_to_a_service_on_one_server_takes_its_deployment_and_port():
     db1 = deployment('postgres', 'db-1', PROD, 'prod')
-    [resolved] = resolve_connections([{'to_service': 'Postgres'}], [db1], [], PROD)
+    [resolved] = resolve_connections([{'to_service': 'Postgres'}], [db1], POSTGRES, PROD)
     assert resolved == {
         'to_deployment_id': db1['id'],
         'to_service_id': None,
@@ -262,27 +271,31 @@ def test_a_connection_to_a_service_on_one_server_takes_its_deployment_and_port()
 def test_a_service_on_two_servers_needs_to_server():
     db1, db2 = deployment('postgres', 'db-1', PROD, 'prod'), deployment('postgres', 'db-2', PROD, 'prod')
     with pytest.raises(ValueError, match=r'postgres runs on several servers \(db-1, db-2\)\. Give to_server'):
-        resolve_connections([{'to_service': 'postgres'}], [db2, db1], [], PROD)
-    [resolved] = resolve_connections([{'to_service': 'postgres', 'to_server': 'DB-2'}], [db1, db2], [], PROD)
+        resolve_connections([{'to_service': 'postgres'}], [db2, db1], POSTGRES, PROD)
+    [resolved] = resolve_connections([{'to_service': 'postgres', 'to_server': 'DB-2'}], [db1, db2], POSTGRES, PROD)
     assert resolved['to_deployment_id'] == db2['id'] and resolved['label'] == 'postgres @ db-2 (prod)'
     with pytest.raises(ValueError, match=r'postgres does not run on db-3\. It runs on: db-1, db-2\.'):
-        resolve_connections([{'to_service': 'postgres', 'to_server': 'db-3'}], [db1, db2], [], PROD)
+        resolve_connections([{'to_service': 'postgres', 'to_server': 'db-3'}], [db1, db2], POSTGRES, PROD)
 
 
 def test_the_proposals_environment_comes_first_then_any_environment():
     prod, staging = deployment('postgres', 'db-1', PROD, 'prod'), deployment('postgres', 'db-2', STAGING, 'staging')
     assert (
-        resolve_connections([{'to_service': 'postgres'}], [prod, staging], [], STAGING)[0]['to_deployment_id']
+        resolve_connections([{'to_service': 'postgres'}], [prod, staging], POSTGRES, STAGING)[0]['to_deployment_id']
         == (staging['id'])
     )
     other = str(uuid4())
     with pytest.raises(ValueError, match=r'several servers \(db-1, db-2\)'):
-        resolve_connections([{'to_service': 'postgres'}], [prod, staging], [], other)
-    assert resolve_connections([{'to_service': 'postgres'}], [prod], [], None)[0]['label'] == 'postgres @ db-1 (prod)'
+        resolve_connections([{'to_service': 'postgres'}], [prod, staging], POSTGRES, other)
+    assert (
+        resolve_connections([{'to_service': 'postgres'}], [prod], POSTGRES, None)[0]['label']
+        == 'postgres @ db-1 (prod)'
+    )
 
 
 def test_external_services_hosts_and_unknown_names():
-    stripe = {'id': str(uuid4()), 'name': 'Stripe'}
+    known = services('postgres', 'mysql-old', external=('Stripe',))
+    stripe = known[-1]
     db1 = deployment('postgres', 'db-1', PROD, 'prod')
     external, host = resolve_connections(
         [
@@ -290,7 +303,7 @@ def test_external_services_hosts_and_unknown_names():
             {'to_host': 'API.Example.com.', 'port': 443},
         ],
         [db1],
-        [stripe],
+        known,
         PROD,
     )
     assert external == {
@@ -303,14 +316,28 @@ def test_external_services_hosts_and_unknown_names():
         'description': 'Payments',
     }
     assert (host['to_host'], host['label'], host['port']) == ('api.example.com', 'api.example.com', 443)
-    with pytest.raises(ValueError, match=r'No service named mysql\. Known services: postgres, Stripe\.'):
-        resolve_connections([{'to_service': 'mysql'}], [db1], [stripe], PROD)
+    with pytest.raises(ValueError, match=r'No service named mysql\. Known services: mysql-old, postgres, Stripe\.'):
+        resolve_connections([{'to_service': 'mysql'}], [db1], known, PROD)
+    with pytest.raises(
+        ValueError,
+        match=r'^Service mysql-old has no deployment to connect to\. Connect to one of its deployments once it is '
+        r'deployed, or mark it external if someone else runs it\.$',
+    ):
+        resolve_connections([{'to_service': 'MySQL-old'}], [db1], known, PROD)
+    with pytest.raises(
+        ValueError, match=r'^Service Stripe is external and runs on no server; leave to_server empty\.$'
+    ):
+        resolve_connections([{'to_service': 'stripe', 'to_server': 'db-1'}], [db1], known, PROD)
+    # an external service someone recorded a deployment of is reached on that server
+    pay = deployment('Stripe', 'gw-1', PROD, 'prod', port=443)
+    [resolved] = resolve_connections([{'to_service': 'stripe', 'to_server': 'gw-1'}], [pay], known, PROD)
+    assert resolved['to_deployment_id'] == pay['id']
     with pytest.raises(ValueError, match='A connection to an external host needs a port'):
-        resolve_connections([{'to_host': 'api.example.com'}], [], [], PROD)
+        resolve_connections([{'to_host': 'api.example.com'}], [], POSTGRES, PROD)
     with pytest.raises(ValueError, match='Give to_service or to_host'):
-        resolve_connections([{'to_service': 'postgres', 'to_host': 'x.example'}], [db1], [], PROD)
+        resolve_connections([{'to_service': 'postgres', 'to_host': 'x.example'}], [db1], POSTGRES, PROD)
     with pytest.raises(ValueError, match='Give to_service or to_host'):
-        resolve_connections([{}], [db1], [], PROD)
+        resolve_connections([{}], [db1], POSTGRES, PROD)
 
 
 def test_a_proposal_stores_its_resolved_connections_and_part_of(run):
