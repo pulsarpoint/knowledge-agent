@@ -18,11 +18,12 @@ export interface Deployment {
   deployed_version: string;
   revision: number;
 }
-/** A network connection from a deployment to another deployment or to an external host. */
+/** A network connection from a deployment to another deployment, an external service or an external host. */
 export interface Connection {
   id: string;
   from_deployment_id: string;
   to_deployment_id: string | null;
+  to_service_id: string | null;
   to_host: string | null;
   port: number | null;
   protocol: string;

@@ -12,6 +12,7 @@ const asset = (id: string, name: string): ServiceAsset => ({
   name,
   description: "",
   owner: "",
+  address: null,
   revision: 1,
   service_type: "custom",
   service_role: "application",
@@ -190,6 +191,11 @@ test("the workspace's Add service reloads the model and selects the service", as
       };
       return [201, saved(body)];
     },
+    // The service column.
+    "GET /api/services/v1/deployments": () => [200, { deployments: [] }],
+    "GET /api/services/v1/connections": () => [200, { connections: [] }],
+    "GET /api/services/v1/relations": () => [200, { relations: [] }],
+    "GET /api/inventory/service/v1/documents": () => [200, { inventory_document: null, documents: [] }],
   });
   render(
     <MemoryRouter initialEntries={["/environments/e1?server=s1"]}>

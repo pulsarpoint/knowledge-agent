@@ -306,31 +306,32 @@ test("New chat starts a run from the resource that may not change content and op
   expect(await within(chats).findByRole("button", { name: /Is it up\?/ })).toBeInTheDocument();
 });
 
-test("the service page shows the service's information and its chats", async () => {
+test("the service page shows the service's information in the service panel, and its chats", async () => {
+  const service = {
+    id: "v1",
+    name: "payments",
+    description: "Takes payments",
+    service_type: "custom",
+    service_role: "application",
+    owner: "",
+    address: null,
+    revision: 1,
+    created_at: at,
+    updated_at: at,
+    repositories: [],
+    deployments: [],
+    dependencies: [],
+    dependents: [],
+    environments: [],
+  };
   api({
     ...base(),
-    "GET /api/services/v1/context": () => [
-      200,
-      {
-        service: {
-          id: "v1",
-          name: "payments",
-          description: "Takes payments",
-          service_type: "custom",
-          service_role: "application",
-          owner: "",
-          revision: 1,
-          created_at: at,
-          updated_at: at,
-          repositories: [],
-          deployments: [],
-          dependencies: [],
-          dependents: [],
-          environments: [],
-        },
-      },
-    ],
+    "GET /api/services/v1/context": () => [200, { service }],
     "GET /api/inventory/service/v1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/services": () => [200, { services: [service] }],
+    "GET /api/services/v1/deployments": () => [200, { deployments: [] }],
+    "GET /api/services/v1/connections": () => [200, { connections: [] }],
+    "GET /api/services/v1/relations": () => [200, { relations: [] }],
   });
   render(
     <MemoryRouter initialEntries={["/services/v1"]}>
@@ -338,7 +339,12 @@ test("the service page shows the service's information and its chats", async () 
     </MemoryRouter>,
   );
   expect(await screen.findByRole("heading", { name: "payments", level: 1 })).toBeInTheDocument();
-  expect(screen.getByText("Takes payments")).toBeInTheDocument();
+  expect(await screen.findByText("Takes payments")).toBeInTheDocument();
+  const panel = within(screen.getByRole("region", { name: "payments" }));
+  expect(panel.getByRole("region", { name: "Runs on" })).toHaveTextContent("No deployment recorded.");
+  expect(panel.getByRole("region", { name: "Connections" })).toBeInTheDocument();
+  expect(panel.getByRole("region", { name: "Relations" })).toBeInTheDocument();
+  expect(panel.getByRole("region", { name: "Code projects" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
   expect(await screen.findByRole("region", { name: "Chats" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/services/v1/proposals");

@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import type { EnvironmentModel } from "./environments";
+import { serviceAsset, serviceDeployment } from "~/lib/__tests__/serviceFixture";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
 
 const deployment = (id: string, service_id: string, service_name: string, port: number | null) => ({
@@ -37,6 +38,27 @@ function model(): EnvironmentModel {
     external: [],
     external_services: [],
   };
+}
+
+/** The service column's reads for the services on app-1. */
+function column(): Record<string, (body: any) => [number, unknown]> {
+  const place = (id: string) => ({ ...serviceDeployment(id, "prod", "app-1"), server_id: "s1", environment_id: "e1" });
+  const services = [serviceAsset("v1", "payments-api", [place("d1")]), serviceAsset("v2", "nginx", [place("d2")])];
+  const routes: Record<string, (body: any) => [number, unknown]> = { "GET /api/services": () => [200, { services }] };
+  for (const [service, item] of [
+    ["v1", deployment("d1", "v1", "payments-api", 8000)],
+    ["v2", deployment("d2", "v2", "nginx", 80)],
+  ] as const) {
+    const saved = { ...item, server_id: "s1", environment_id: "e1", deployed_version: item.version };
+    routes[`GET /api/services/${service}/deployments`] = () => [200, { deployments: [saved] }];
+    routes[`GET /api/services/${service}/connections`] = () => [200, { connections: [] }];
+    routes[`GET /api/services/${service}/relations`] = () => [200, { relations: [] }];
+    routes[`GET /api/inventory/service/${service}/documents`] = () => [
+      200,
+      { inventory_document: null, documents: [] },
+    ];
+  }
+  return routes;
 }
 
 function api(routes: Record<string, (body: any) => [number, unknown]>) {
@@ -81,7 +103,7 @@ test("the servers column lists the members; an empty member says no services", a
 
 test("clicking a server selects it; clicking a service selects it; other params stay", async () => {
   const user = userEvent.setup();
-  api({ "GET /api/environments/e1/model": () => [200, model()] });
+  api({ "GET /api/environments/e1/model": () => [200, model()], ...column() });
   show("?chat=r1");
   await user.click(await screen.findByRole("button", { name: /^app-1/ }));
   expect(where()).toBe("?chat=r1&server=s1");
@@ -92,7 +114,7 @@ test("clicking a server selects it; clicking a service selects it; other params 
   ]);
   await user.click(services.getByRole("button", { name: /^payments-api/ }));
   expect(where()).toBe("?chat=r1&server=s1&service=v1");
-  const service = within(screen.getByRole("region", { name: "payments-api" }));
+  const service = within(await screen.findByRole("region", { name: "payments-api" }));
   expect(service.getByText(/docker · payments-api · :8000 · 1\.4/)).toBeInTheDocument();
   // Another server drops the service.
   await user.click(screen.getByRole("button", { name: /^cache-1/ }));
@@ -104,7 +126,7 @@ test("clicking a server selects it; clicking a service selects it; other params 
 
 test("the selection comes from the URL; back links step to the previous column", async () => {
   const user = userEvent.setup();
-  api({ "GET /api/environments/e1/model": () => [200, model()] });
+  api({ "GET /api/environments/e1/model": () => [200, model()], ...column() });
   show("?server=s1&service=v2");
   expect(await screen.findByRole("region", { name: "nginx" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Back to services on app-1" }));
@@ -174,4 +196,19 @@ test("Remove from environment of an empty member reloads and clears the selectio
   );
   expect(screen.queryByRole("button", { name: /^cache-1/ })).not.toBeInTheDocument();
   expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2);
+});
+
+test("column 3 is the service panel; a change there reloads the workspace", async () => {
+  const user = userEvent.setup();
+  const calls = api({
+    "GET /api/environments/e1/model": () => [200, model()],
+    ...column(),
+    "DELETE /api/deployments/d1?revision=1": () => [200, { id: "d1" }],
+  });
+  show("?server=s1&service=v1");
+  const service = within(await screen.findByRole("region", { name: "payments-api" }));
+  expect(service.getByRole("region", { name: "Connections" })).toBeInTheDocument();
+  expect(service.getByRole("link", { name: "Service page" })).toHaveAttribute("href", "/services/v1");
+  await user.click(service.getByRole("button", { name: "Remove the deployment here" }));
+  await vi.waitFor(() => expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2));
 });

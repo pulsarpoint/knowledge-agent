@@ -78,6 +78,7 @@ function ConnectionForm({
     const saved = await onSubmit({
       from_deployment_id: source,
       to_deployment_id: external ? null : target,
+      to_service_id: null,
       to_host: external ? host.trim() : null,
       port: port === "" ? null : Number(port),
       protocol: protocol.trim(),

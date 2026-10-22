@@ -24,6 +24,8 @@ export interface ServiceInput {
   name: string;
   description: string;
   owner: string;
+  /** Where an external service is reached; optional. */
+  address?: string | null;
 }
 /** A deployment as the services list shows it: with its environment's name and its server. */
 export interface ServiceDeployment {
@@ -46,6 +48,7 @@ export interface ServiceAsset {
   name: string;
   description: string;
   owner: string;
+  address: string | null;
   revision: number;
   created_at: string;
   updated_at: string;

@@ -45,6 +45,7 @@ const service: ServiceAsset = {
   name: "Payments",
   description: "Handles payments",
   owner: "Backend",
+  address: null,
   revision: 3,
   created_at: "2026-09-08T10:00:00Z",
   updated_at: "2026-09-08T10:00:00Z",
@@ -262,7 +263,14 @@ test("create saves the service, then a built_from relation per code project", as
     [
       "POST",
       "/api/services",
-      { name: "Payments", service_type: "custom", service_role: "application", owner: "", description: "" },
+      {
+        name: "Payments",
+        service_type: "custom",
+        service_role: "application",
+        owner: "",
+        description: "",
+        address: "",
+      },
     ],
     ["POST", "/api/relations", built("repo-0")],
     ["POST", "/api/relations", built("repo-1")],
@@ -292,6 +300,7 @@ test("edit loads deployments and relations, updates only what changed and remove
         service_role: "application",
         description: "Handles payments",
         owner: "Backend",
+        address: "",
         revision: 3,
       },
     ],
@@ -306,6 +315,7 @@ test("removing a saved deployment asks first, naming it and its connections, the
     id,
     from_deployment_id: from,
     to_deployment_id: to,
+    to_service_id: null,
     to_host: null,
     port: 5432,
     protocol: "tcp",
@@ -515,13 +525,15 @@ test("empty environment inventory explains how to add one", async () => {
   expect(screen.getByRole("link", { name: "Environments page" })).toHaveAttribute("href", "/environments");
 });
 
-test("service classification loads saved values and submits changed type and role", async () => {
+test("service classification loads saved values and submits changed type and role; Address only for external", async () => {
   const fetch = setup([postgres]);
   await userEvent.click(await screen.findByRole("button", { name: "Edit PostgreSQL" }));
   expect(screen.getByRole("combobox", { name: "Service type" })).toHaveTextContent("Built-in software");
   expect(screen.getByRole("combobox", { name: "Primary role" })).toHaveTextContent("Database");
   await userEvent.click(screen.getByRole("combobox", { name: "Service type" }));
+  expect(screen.queryByLabelText("Address (optional)")).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("option", { name: "External service" }));
+  await userEvent.type(screen.getByLabelText("Address (optional)"), "db.example.com");
   await userEvent.click(screen.getByRole("combobox", { name: "Primary role" }));
   await userEvent.click(screen.getByRole("option", { name: "Proxy" }));
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -536,6 +548,7 @@ test("service classification loads saved values and submits changed type and rol
         service_role: "proxy",
         description: "Stores application data",
         owner: "Backend",
+        address: "db.example.com",
         revision: 3,
       },
     ],

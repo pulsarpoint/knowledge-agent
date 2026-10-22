@@ -8,29 +8,18 @@ import {
   getEnvironmentModel,
   removeServerFromEnvironment,
   type EnvironmentModel,
-  type ModelDeployment,
   type ModelServer,
 } from "./environments";
 import AddServerDialog from "./AddServerDialog";
 import AddServiceDialog from "./AddServiceDialog";
 import ServerForm from "./ServerForm";
+import ServicePanel from "./ServicePanel";
 import { RowAction, RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
 const count = (n: number) => (n === 0 ? "no services" : n === 1 ? "1 service" : `${n} services`);
-
-/** How a deployment reads: "docker · payments · :8000 · 1.4". */
-export const deploymentText = (deployment: ModelDeployment) =>
-  [
-    deployment.runtime,
-    deployment.runtime_name,
-    deployment.port === null ? "" : `:${deployment.port}`,
-    deployment.version,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 
 /** The environment's workspace: its servers, the services on the selected server, and the selected service. The
  * selection lives in the URL (`?server=&service=`); an id that is no longer in the environment selects nothing. Narrow
@@ -220,12 +209,18 @@ export default function EnvironmentWorkspace({ environmentId }: { environmentId:
               <ChevronLeft data-icon="inline-start" />
               Back to services on {server.name}
             </Button>
-            <ServiceColumn deployment={deployment} />
+            <ServicePanel
+              key={deployment.service_id}
+              serviceId={deployment.service_id}
+              environmentId={environmentId}
+              serverId={server.id}
+              onChanged={reload}
+            />
           </div>
         ) : (
-          <p className="hidden text-sm text-muted-foreground md:block">
-            {server ? "Choose a service to see its details." : ""}
-          </p>
+          server && (
+            <p className="hidden text-sm text-muted-foreground md:block">Choose a service to see its details.</p>
+          )
         )}
       </div>
 
@@ -264,21 +259,5 @@ export default function EnvironmentWorkspace({ environmentId }: { environmentId:
         />
       )}
     </div>
-  );
-}
-
-/** The selected service (column 3). For now its name and its deployment here; the service panel replaces it. */
-function ServiceColumn({ deployment }: { deployment: ModelDeployment }) {
-  return (
-    <section aria-label={deployment.service_name} className="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
-      <h2 className="break-words text-lg font-semibold">{deployment.service_name}</h2>
-      <p className="text-sm">
-        <span className="text-muted-foreground">Deployment here: </span>
-        {deploymentText(deployment) || "no details"}
-      </p>
-      <Link className="self-start text-sm underline" to={`/services/${encodeURIComponent(deployment.service_id)}`}>
-        Service page
-      </Link>
-    </section>
   );
 }

@@ -116,6 +116,7 @@ test("connections and relations read in words", () => {
     id: "c1",
     from_deployment_id: "d1",
     to_deployment_id: "d2",
+    to_service_id: null,
     to_host: null,
     port: 5432,
     protocol: "postgres",

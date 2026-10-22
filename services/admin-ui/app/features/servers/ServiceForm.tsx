@@ -159,6 +159,7 @@ export default function ServiceForm({
   const [serviceRole, setServiceRole] = useState<ServiceRole>(service?.service_role ?? "application");
   const [description, setDescription] = useState(service?.description ?? "");
   const [owner, setOwner] = useState(service?.owner ?? "");
+  const [address, setAddress] = useState(service?.address ?? "");
   // What is saved: the service, its deployments and relations (null while they load).
   const [saved, setSaved] = useState(service ? { id: service.id, revision: service.revision } : null);
   const [savedDeployments, setSavedDeployments] = useState<Deployment[] | null>(service ? null : []);
@@ -260,7 +261,14 @@ export default function ServiceForm({
     let savedNow = savedDeployments;
     let relationsNow = savedRelations;
     try {
-      const fields = { name, service_type: serviceType, service_role: serviceRole, description, owner };
+      const fields = {
+        name,
+        service_type: serviceType,
+        service_role: serviceRole,
+        description,
+        owner,
+        address: serviceType === "external" ? address.trim() : "",
+      };
       const item = saved
         ? await updateItem<{ id: string; revision: number }>("services", saved.id, saved.revision, fields)
         : await createItem<{ id: string; revision: number }>("services", fields);
@@ -403,6 +411,19 @@ export default function ServiceForm({
                 outside this system.
               </FieldDescription>
             </Field>
+            {serviceType === "external" && (
+              <Field>
+                <FieldLabel htmlFor="service-address">Address (optional)</FieldLabel>
+                <Input
+                  id="service-address"
+                  maxLength={253}
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  placeholder="api.stripe.com"
+                />
+                <FieldDescription>Where the external service is reached: a hostname or IP address.</FieldDescription>
+              </Field>
+            )}
             <Field>
               <FieldLabel htmlFor="service-role">Primary role</FieldLabel>
               <Select

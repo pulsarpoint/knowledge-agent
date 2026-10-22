@@ -27,6 +27,7 @@ const connection = {
   id: "c1",
   from_deployment_id: "d-api",
   to_deployment_id: "d-pg",
+  to_service_id: null,
   to_host: null,
   port: 5432,
   protocol: "postgres",
@@ -154,6 +155,7 @@ test("adds a connection to another deployment with the target's port prefilled",
     expect(posted).toEqual({
       from_deployment_id: "d-api",
       to_deployment_id: "d-pg",
+      to_service_id: null,
       to_host: null,
       port: 5432,
       protocol: "postgres",
@@ -188,6 +190,7 @@ test("adds a connection to an external host", async () => {
     expect(posted).toEqual({
       from_deployment_id: "d-api",
       to_deployment_id: null,
+      to_service_id: null,
       to_host: "smtp.example.com",
       port: 587,
       protocol: "smtp",
@@ -222,6 +225,7 @@ test("edits a connection, shows a conflict and reloads, and removes it with its 
   expect(put).toEqual({
     from_deployment_id: "d-api",
     to_deployment_id: "d-pg",
+    to_service_id: null,
     to_host: null,
     port: 5432,
     protocol: "postgres",

@@ -4,13 +4,12 @@ import { ApiError } from "~/lib/api";
 import { getService, type ServiceAsset } from "./services";
 import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
-import ServiceDetails from "./ServiceDetails";
-import EntryDocuments from "./EntryDocuments";
+import ServicePanel from "./ServicePanel";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One service: its Info (the saved details the services list shows, its documents) and its Chats (ResourceChats). */
+/** One service: its Info (the service panel, as in the environment workspace) and its Chats (ResourceChats). */
 export default function ServicePage({ serviceId }: { serviceId: string }) {
   const [service, setService] = useState<ServiceAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,11 +54,7 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
             {back}
             <h1 className="break-words text-2xl font-semibold">{service.name}</h1>
           </div>
-          <ServiceDetails service={service} />
-          <EntryDocuments
-            entry={{ kind: "service", id: serviceId, name: service.name }}
-            onChanged={() => setVersion((value) => value + 1)}
-          />
+          <ServicePanel serviceId={serviceId} onChanged={() => setVersion((value) => value + 1)} />
         </>
       }
       actions={
