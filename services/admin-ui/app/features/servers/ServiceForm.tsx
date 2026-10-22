@@ -11,10 +11,12 @@ import {
   applyChange,
   createItem,
   deploymentChanges,
+  getServiceConnections,
   getServiceDeployments,
   getServiceRelations,
   relationChanges,
   updateItem,
+  type Connection,
   type Deployment,
   type DeploymentRow,
   type Relation,
@@ -22,7 +24,17 @@ import {
   type RelationValue,
 } from "./inventory";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
-import { Button } from "~/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
+import { Button, buttonVariants } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
   Field,
@@ -160,6 +172,10 @@ export default function ServiceForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The saved deployments' connections (to count what removing a deployment takes with it), and the removals waiting
+  // for the person to confirm them.
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [removals, setRemovals] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (!service) return;
@@ -167,9 +183,11 @@ export default function ServiceForm({
     Promise.all([
       getServiceDeployments(service.id, controller.signal),
       getServiceRelations(service.id, controller.signal),
+      getServiceConnections(service.id, controller.signal),
     ])
-      .then(([{ deployments }, { relations }]) => {
+      .then(([{ deployments }, { relations }, { connections }]) => {
         if (controller.signal.aborted) return;
+        setConnections(connections);
         setSavedDeployments(deployments);
         setSavedRelations(relations);
         setDeployments(deployments.map(deploymentRow));
@@ -207,6 +225,16 @@ export default function ServiceForm({
   function updateDeployment(key: string, changes: Partial<DeploymentRow>) {
     setDeployments((rows) => rows.map((row) => (row.key === key ? { ...row, ...changes } : row)));
   }
+  /** "payments-api on app-1 (prod) and its 2 connections": a saved deployment and what removing it removes. */
+  function removal(deployment: Deployment) {
+    const server = servers.find((item) => item.id === deployment.server_id)?.name ?? "its server";
+    const environment = environments.find((item) => item.id === deployment.environment_id)?.name ?? "its environment";
+    const label = `${deployment.runtime_name || name.trim() || "this service"} on ${server} (${environment})`;
+    const count = connections.filter(
+      (c) => c.from_deployment_id === deployment.id || c.to_deployment_id === deployment.id,
+    ).length;
+    return count === 0 ? label : `${label} and its ${count} connection${count === 1 ? "" : "s"}`;
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (savedDeployments === null || savedRelations === null) return;
@@ -219,6 +247,14 @@ export default function ServiceForm({
       setError("Choose an environment for each deployment.");
       return;
     }
+    const kept = new Set(deployments.map((row) => row.id));
+    const removed = savedDeployments.filter((deployment) => !kept.has(deployment.id));
+    if (removed.length) setRemovals(removed.map(removal));
+    else await save();
+  }
+  async function save() {
+    if (savedDeployments === null || savedRelations === null) return;
+    setRemovals(null);
     setSaving(true);
     let rows = deployments;
     let savedNow = savedDeployments;
@@ -649,6 +685,44 @@ export default function ServiceForm({
           </Button>
         </div>
       </form>
+      <AlertDialog
+        open={removals !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemovals(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="break-words">
+              {removals?.length === 1 ? `Remove ${removals[0]}?` : `Remove ${removals?.length} deployments?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Saving deletes {removals?.length === 1 ? "this deployment" : "these deployments"} and every connection to
+              or from {removals?.length === 1 ? "it" : "them"}, including connections other services made. This cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {removals && removals.length > 1 && (
+            <ul className="list-disc pl-5 text-sm">
+              {removals.map((text) => (
+                <li key={text}>{text}</li>
+              ))}
+            </ul>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              onClick={(event) => {
+                event.preventDefault();
+                void save();
+              }}
+            >
+              Remove and save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {serverForm && (
         <ServerForm
           onClose={() => setServerForm(false)}

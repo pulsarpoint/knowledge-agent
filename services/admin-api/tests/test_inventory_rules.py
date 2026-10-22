@@ -125,6 +125,8 @@ def test_connection_to_a_deployment_or_a_host():
         'description': '',
     }
     assert rules.connection({'from_deployment_id': A, 'to_host': '::1', 'port': 1})['to_host'] == '::1'
+    with pytest.raises(Invalid, match='without a zone id'):
+        rules.connection({'from_deployment_id': A, 'to_host': 'fe80::1%eth0', 'port': 1})
 
 
 @pytest.mark.parametrize(

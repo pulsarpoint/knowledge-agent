@@ -458,7 +458,7 @@ deployments on the Services page). A service deployed in two environments is in 
   deployments is recorded as connections on the System map.
 - **Where it runs**: **Add deployment** — server, **environment** (required), runtime/manager, container/unit name,
   port, deployed version, log location. **Register server** opens the server form inline. Removing a saved deployment
-  also removes its connections.
+  also removes its connections: Save first asks, naming each deployment and how many connections it takes with it.
 
 **Save** writes the service, then each changed deployment and relation through the inventory API (one request each).
 If one of them is refused (for example a duplicate deployment, or someone changed the service meanwhile), the form

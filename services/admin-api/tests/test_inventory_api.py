@@ -173,6 +173,11 @@ def test_deployments_connections_and_their_list_reads(client, store, world):
     assert connection['port'] == 5432  # the target deployment's port
     external = made(client, 'connections', from_deployment_id=db['id'], to_host='Backup.Example.', port=873)
     assert external['to_host'] == 'backup.example' and external['protocol'] == 'tcp'
+    zoned = {'from_deployment_id': db['id'], 'to_host': 'fe80::1%eth0', 'port': 873}
+    assert error(client.post('/api/connections', headers=HEADERS, json=zoned)) == (
+        400,
+        'Enter an IP address without a zone id (%…)',
+    )  # the rules refuse it, not the database's check
     ids = lambda response: [item['id'] for item in response.json()['connections']]
     assert ids(client.get(f'/api/services/{world["db"]["id"]}/connections', headers=HEADERS)) == [
         connection['id'],

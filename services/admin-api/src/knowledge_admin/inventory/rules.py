@@ -99,6 +99,8 @@ def host(value) -> str:
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > 253:
         raise Invalid('Enter an IP address or hostname of 1–253 characters')
     value = value.strip()
+    if '%' in value:  # an IPv6 zone id names an interface of one host, not an address others can reach
+        raise Invalid('Enter an IP address without a zone id (%…)')
     try:
         return str(ipaddress.ip_address(value))
     except ValueError:

@@ -39,16 +39,15 @@ def _names(rows) -> str:
     return ', '.join(row['name'] for row in rows) or 'none'
 
 
-def resolve_environment(environments: list[dict], given: str | None) -> dict[str, Any]:
-    """The deployment's environment: one of the server's environments (the only one when none is given); a free-text
-    name when the server is in no environment."""
+def resolve_environment(environments: list[dict], existing: list[dict], given: str | None) -> dict[str, Any]:
+    """The deployment's environment. A given name is any existing environment of the project (`existing`), or a new
+    one, created when the proposal is accepted. Without a name: the server's only environment (`environments`, those
+    of its deployments)."""
     names = _names(environments)
     if given:
-        if not environments:
-            return {'environment_id': None, 'environment': given}
-        found = next((item for item in environments if item['name'].lower() == given.lower()), None)
+        found = next((item for item in existing if item['name'].lower() == given.strip().lower()), None)
         if found is None:
-            raise ValueError(f"Choose one of this server's environments: {names}.")
+            return {'environment_id': None, 'environment': given}
         return {'environment_id': str(found['id']), 'environment': found['name']}
     if len(environments) == 1:
         return {'environment_id': str(environments[0]['id']), 'environment': environments[0]['name']}
@@ -152,7 +151,8 @@ def _propose_service(config: dict[str, Any], value: dict[str, Any]) -> str:
         project = session['project_id']
         environments = inventory.list_environments(conn, project, server_id=server['id'])
         deployment = {key: value['deployment'][key] for key in DEPLOYMENT_FIELDS}
-        deployment.update(resolve_environment(environments, value['deployment']['environment']))
+        existing = inventory.list_environments(conn, project)
+        deployment.update(resolve_environment(environments, existing, value['deployment']['environment']))
         depends_on = _entries(conn, SERVICES, project, value['depends_on'], 'services')
         built_from = _entries(conn, CODE_PROJECTS, project, value['built_from'], 'code projects')
         if any(item['name'].lower() == value['name'].lower() for item in depends_on):
@@ -238,7 +238,7 @@ class DeploymentProposal(Proposal):
     environment: str | None = Field(
         None,
         max_length=100,
-        description="One of the server's environments; leave it empty when the server is in exactly one.",
+        description="The environment's name: an existing environment, or a new one created when the proposal is accepted; leave it empty when the server is in exactly one.",
     )
     runtime: str = Field('', max_length=80, description='How it runs, for example systemd, docker or cron.')
     runtime_name: str = Field('', max_length=200, description='The unit, container or process name.')

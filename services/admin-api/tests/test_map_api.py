@@ -63,7 +63,7 @@ def test_a_removed_placement_is_not_found_and_bad_input_is_refused(client):
     assert client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 4}).status_code == 400
 
 
-def test_relations_and_search(client):
+def test_relations(client):
     server, production, api = setup(client)
     worker = client.post('/api/services', headers=HEADERS, json={'name': 'worker'}).json()['id']
     relation = {'from_service_id': api, 'kind': 'depends_on', 'to_service_id': worker}
@@ -72,9 +72,4 @@ def test_relations_and_search(client):
     assert [(e['from'], e['to'], e['type']) for e in view['edges']] == [
         (f'service:{api}', f'service:{worker}', 'depends_on')
     ]
-    hits = client.get('/api/map/search', headers=HEADERS, params={'q': 'wor'}).json()['entries']
-    assert hits == [{'entry_kind': 'service', 'entry_id': worker, 'name': 'worker'}]
-    assert (
-        client.get('/api/map/search', headers=HEADERS, params={'q': 'p', 'kind': 'server'}).json()['entries'][0]['name']
-        == 'prod-1'
-    )
+    assert client.get('/api/map/search', headers=HEADERS, params={'q': 'wor'}).status_code == 404

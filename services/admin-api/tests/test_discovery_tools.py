@@ -85,18 +85,24 @@ def test_unknown_names_and_self_dependencies_are_refused_with_the_valid_names(ru
 
 def test_the_environment_rules():
     production, staging = {'id': uuid4(), 'name': 'Production'}, {'id': uuid4(), 'name': 'Staging'}
-    assert resolve_environment([production], None) == {
+    existing = [production, staging]
+    assert resolve_environment([production], existing, None) == {
         'environment_id': str(production['id']),
         'environment': 'Production',
     }
-    assert resolve_environment([production, staging], 'staging')['environment'] == 'Staging'
+    assert resolve_environment([production, staging], existing, 'staging')['environment'] == 'Staging'
+    # any existing environment, also one the server has no deployment in yet
+    assert resolve_environment([production], existing, 'staging') == {
+        'environment_id': str(staging['id']),
+        'environment': 'Staging',
+    }
+    # a new name is created when the proposal is accepted
+    assert resolve_environment([production], existing, 'qa') == {'environment_id': None, 'environment': 'qa'}
     with pytest.raises(ValueError, match=r'several environments \(Production, Staging\)'):
-        resolve_environment([production, staging], None)
-    with pytest.raises(ValueError, match="Choose one of this server's environments: Production."):
-        resolve_environment([production], 'qa')
+        resolve_environment([production, staging], existing, None)
     with pytest.raises(ValueError, match='in no environment'):
-        resolve_environment([], None)
-    assert resolve_environment([], 'lab') == {'environment_id': None, 'environment': 'lab'}
+        resolve_environment([], existing, None)
+    assert resolve_environment([], existing, 'lab') == {'environment_id': None, 'environment': 'lab'}
 
 
 def test_documents_attach_to_the_server_a_service_or_a_proposed_service(run):

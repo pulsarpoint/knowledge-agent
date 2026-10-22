@@ -6,7 +6,7 @@ import type { EnvironmentAsset } from "~/features/servers/environments";
 import type { Repository } from "~/features/codeProjects/api";
 import type { ServerAsset } from "~/features/servers/api";
 import type { ServiceAsset } from "~/features/servers/services";
-import type { Deployment, Relation } from "~/features/servers/inventory";
+import type { Connection, Deployment, Relation } from "~/features/servers/inventory";
 
 const repos: Repository[] = ["API", "Shared"].map((name, index) => ({
   id: `repo-${index}`,
@@ -113,6 +113,7 @@ function setup(
     onDelete?: () => Promise<Response>;
     deployments?: Deployment[];
     relations?: Relation[];
+    connections?: Connection[];
     fail?: (url: string, init: RequestInit) => Response | undefined;
   } = {},
 ) {
@@ -140,25 +141,27 @@ function setup(
           ? { deployments: options.deployments ?? [] }
           : url.endsWith("/relations")
             ? { relations: options.relations ?? [] }
-            : url.endsWith("/repositories")
-              ? { repositories: options.noRepositories ? [] : repos }
-              : url.endsWith("/storage")
-                ? {
-                    locations: [
-                      {
-                        id: "code",
-                        container_path: "/work/data/sources/code",
-                        host_path: "/opt/ka/sources/code",
-                        variable: "CODE_FOLDER",
-                        status: "available",
-                      },
-                    ],
-                  }
-                : url.endsWith("/servers")
-                  ? { servers: [server] }
-                  : url.endsWith("/environments")
-                    ? { environments: options.noEnvironments ? [] : environments }
-                    : { services },
+            : url.endsWith("/connections")
+              ? { connections: options.connections ?? [] }
+              : url.endsWith("/repositories")
+                ? { repositories: options.noRepositories ? [] : repos }
+                : url.endsWith("/storage")
+                  ? {
+                      locations: [
+                        {
+                          id: "code",
+                          container_path: "/work/data/sources/code",
+                          host_path: "/opt/ka/sources/code",
+                          variable: "CODE_FOLDER",
+                          status: "available",
+                        },
+                      ],
+                    }
+                  : url.endsWith("/servers")
+                    ? { servers: [server] }
+                    : url.endsWith("/environments")
+                      ? { environments: options.noEnvironments ? [] : environments }
+                      : { services },
       ),
     );
   });
@@ -298,12 +301,35 @@ test("edit loads deployments and relations, updates only what changed and remove
   await waitFor(() => expect(screen.getByRole("button", { name: "Edit Payments" })).toBeEnabled());
 });
 
-test("removing a saved deployment deletes it with its revision", async () => {
-  const fetch = setup([service], { deployments: [savedDeployment] });
+test("removing a saved deployment asks first, naming it and its connections, then deletes it", async () => {
+  const connection = (id: string, from: string, to: string): Connection => ({
+    id,
+    from_deployment_id: from,
+    to_deployment_id: to,
+    to_host: null,
+    port: 5432,
+    protocol: "tcp",
+    description: "",
+    revision: 1,
+  });
+  const fetch = setup([service], {
+    deployments: [savedDeployment],
+    connections: [connection("c1", "deployment-1", "pg"), connection("c2", "worker", "deployment-1")],
+  });
   fireEvent.click(await screen.findByRole("button", { name: "Edit Payments" }));
-  expect(await screen.findByText(/Removing a saved deployment also removes its network connections/)).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Remove deployment 1" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Remove deployment 1" }));
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(
+    within(dialog).getByRole("heading", {
+      name: "Remove payments-api on App host (production) and its 2 connections?",
+    }),
+  ).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(writes(fetch)).toEqual([]); // nothing is saved without confirming
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove and save" }));
   await screen.findByRole("status");
   expect(writes(fetch).slice(1)).toEqual([["DELETE", "/api/deployments/deployment-1?revision=2", undefined]]);
 });

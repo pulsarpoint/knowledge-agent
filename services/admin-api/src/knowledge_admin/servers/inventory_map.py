@@ -300,14 +300,3 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         'boundary': sorted(boundary.values(), key=lambda node: (node['name'].lower(), node['id'])),
         'edges': sorted(rolled, key=lambda edge: (edge['from'], edge['to'], edge['type'])),
     }
-
-
-def search(inventory: Inventory, q: str, kind: str | None, limit: int) -> list[dict]:
-    needle = q.strip().lower()
-    hits = [
-        (key, data)
-        for key, data in inventory.entries.items()
-        if (kind is None or key[0] == kind) and needle in data['name'].lower()
-    ]
-    hits.sort(key=lambda hit: (hit[1]['name'].lower(), hit[0][0], str(hit[0][1])))
-    return [{'entry_kind': key[0], 'entry_id': key[1], 'name': data['name']} for key, data in hits[:limit]]

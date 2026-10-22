@@ -664,7 +664,7 @@
                   "type": "null"
                 }
               ],
-              "description": "One of the server's environments; leave it empty when the server is in exactly one.",
+              "description": "The environment's name: an existing environment, or a new one created when the proposal is accepted; leave it empty when the server is in exactly one.",
               "title": "Environment"
             },
             "log_location": {
@@ -758,7 +758,7 @@
                   "type": "null"
                 }
               ],
-              "description": "One of the server's environments; leave it empty when the server is in exactly one.",
+              "description": "The environment's name: an existing environment, or a new one created when the proposal is accepted; leave it empty when the server is in exactly one.",
               "title": "Environment"
             },
             "log_location": {

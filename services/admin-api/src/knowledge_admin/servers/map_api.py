@@ -1,4 +1,4 @@
-"""Environments → System map: views of the inventory (inventory_map.py) as JSON, Mermaid, D2 or SVG, and entry search."""
+"""Environments → System map: views of the inventory (inventory_map.py) as JSON, Mermaid, D2 or SVG."""
 
 from typing import Literal
 
@@ -6,7 +6,6 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 
 from knowledge_admin.servers import inventory_map, system_graph_render
-from knowledge_admin.events.templates import has_nul
 from knowledge_admin.repositories import RepositoryStore
 
 SVG_HEADERS = {
@@ -47,15 +46,5 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             return Response(system_graph_render.svg(text, layout), media_type='image/svg+xml', headers=SVG_HEADERS)
         except system_graph_render.RenderError as exc:
             raise HTTPException(exc.status, str(exc)) from None
-
-    @router.get('/map/search')
-    def search(
-        q: str = Query('', max_length=200),
-        kind: Literal['service', 'server', 'environment', 'code_project'] | None = None,
-        limit: int = Query(50, ge=1, le=200),
-    ) -> dict:
-        if has_nul(q):
-            raise HTTPException(400, 'Remove the NUL character from the search.')
-        return {'entries': inventory_map.search(inventory(), q, kind, limit)}
 
     return router

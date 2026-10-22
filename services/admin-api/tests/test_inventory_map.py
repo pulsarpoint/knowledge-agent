@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from knowledge_admin.servers.inventory_map import Inventory, ViewError, build_view, search
+from knowledge_admin.servers.inventory_map import Inventory, ViewError, build_view
 
 E = {name: uuid4() for name in ('production', 'staging', 'prod-1', 'spare', 'api', 'worker', 'db', 'code', 'old-code')}
 # deployments: api on prod-1 in production and in staging, worker on prod-1 in staging, db on spare in production
@@ -184,16 +184,10 @@ def test_connections_between_the_same_services_count_each_connection():
     )
 
 
-def test_unknown_root_and_search():
+def test_unknown_root():
     with pytest.raises(ViewError) as missing:
         build_view(inventory(), 'infrastructure', f'server:{E["staging"]}:{E["spare"]}', 1)
     assert (missing.value.status, str(missing.value)) == (404, 'Node not found.')
-    hits = search(inventory(), 'PRO', None, 10)
-    assert [(h['entry_kind'], h['name']) for h in hits] == [
-        ('server', 'prod-1'),
-        ('environment', 'production'),
-    ]  # by name
-    assert [h['name'] for h in search(inventory(), 'a', 'service', 10)] == ['api']
 
 
 def test_documents_come_with_every_placement():
