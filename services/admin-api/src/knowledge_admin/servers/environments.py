@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage, workspace
+from knowledge_admin.inventory import assets
 from knowledge_admin.repositories import RepositoryStore
 
 
@@ -45,18 +46,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def list_environments() -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project_id):
-            rows = conn.execute(
-                'SELECT * FROM ka.environment_assets WHERE project_id=%s ORDER BY lower(name),id', (project_id,)
-            ).fetchall()
+            rows = assets.environment_assets(conn, project_id)
         return {'environments': rows}
 
     @router.get('/environments/{environment_id}')
     def get_environment(environment_id: UUID) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project_id):
-            environment = conn.execute(
-                'SELECT * FROM ka.environment_assets WHERE id=%s AND project_id=%s', (environment_id, project_id)
-            ).fetchone()
+            environment = next(iter(assets.environment_assets(conn, project_id, environment_id)), None)
             if environment is None:
                 raise HTTPException(404, 'Environment not found')
         return environment
@@ -133,9 +130,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     )
                 changed_services = previous_services ^ set(value.service_ids)
                 conn.execute('UPDATE ka.services SET revision=revision+1 WHERE id=ANY(%s)', (list(changed_services),))
-                environment = conn.execute(
-                    'SELECT * FROM ka.environment_assets WHERE id=%s', (environment_id,)
-                ).fetchone()
+                [environment] = assets.environment_assets(conn, project_id, environment_id)
                 conn.execute(
                     """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                     VALUES (%s,%s,%s,'environment',%s,%s)""",

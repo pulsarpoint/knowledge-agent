@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from knowledge_admin.inventory import store as inventory
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -63,14 +64,16 @@ def test_a_removed_placement_is_not_found_and_bad_input_is_refused(client):
     assert client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 4}).status_code == 400
 
 
-def test_links_and_search(client):
+def test_relations_and_search(client, store):
     server, production, api = setup(client)
     worker = client.post('/api/services', headers=HEADERS, json={'name': 'worker'}).json()['id']
-    client.post(
-        '/api/inventory/links',
-        headers=HEADERS,
-        json={'from': {'kind': 'service', 'id': api}, 'to': {'kind': 'service', 'id': worker}, 'kind': 'depends_on'},
-    )
+    with store.connect() as conn:
+        inventory.create_relation(
+            conn,
+            store.project(conn, 'shop'),
+            {'from_service_id': api, 'kind': 'depends_on', 'to_service_id': worker},
+            {'actor_id': None},
+        )
     view = client.get('/api/map/view/services', headers=HEADERS).json()
     assert [(e['from'], e['to'], e['type']) for e in view['edges']] == [
         (f'service:{api}', f'service:{worker}', 'depends_on')

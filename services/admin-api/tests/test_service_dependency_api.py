@@ -61,7 +61,7 @@ def test_both_directions_create_edit_remove_and_preserve_other_relationships(sto
     # Editing the reverse side updates the same row without replacing its identity/timestamps.
     with store.connect() as conn:
         original = conn.execute(
-            "SELECT created_at FROM ka.inventory_links WHERE kind='depends_on' AND from_service_id=%s AND to_service_id=%s",
+            "SELECT created_at FROM ka.service_relations WHERE kind='depends_on' AND from_service_id=%s AND to_service_id=%s",
             (UUID(payments), UUID(postgres)),
         ).fetchone()
     response = client.put(
@@ -84,7 +84,7 @@ def test_both_directions_create_edit_remove_and_preserve_other_relationships(sto
     with store.connect() as conn:
         assert (
             conn.execute(
-                "SELECT created_at FROM ka.inventory_links WHERE kind='depends_on' AND from_service_id=%s AND to_service_id=%s",
+                "SELECT created_at FROM ka.service_relations WHERE kind='depends_on' AND from_service_id=%s AND to_service_id=%s",
                 (UUID(payments), UUID(postgres)),
             ).fetchone()
             == original
@@ -123,7 +123,7 @@ def test_both_directions_create_edit_remove_and_preserve_other_relationships(sto
     )
     with store.connect() as conn:
         links = conn.execute(
-            "SELECT from_service_id,to_service_id FROM ka.inventory_links WHERE kind='depends_on'"
+            "SELECT from_service_id,to_service_id FROM ka.service_relations WHERE kind='depends_on'"
         ).fetchall()
         assert links == [{'from_service_id': UUID(reporting), 'to_service_id': UUID(postgres)}]
 

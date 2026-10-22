@@ -4,9 +4,9 @@ same way (run_access).
 What the run holds: a saved agent's run its agent's access entries (get_agent_config), an ad-hoc run what it was
 picked (each checked: check_picks), each loaded with what the tools need (config.resource_entries: a server its
 connection, a code project its folders and graph, a collection its paths). What it was given is narrowed out of that
-with access.narrow; the children of what it was given are loaded when it does not hold them (bring: an environment its
-services and servers; a service its code projects and the servers it is deployed on; a server the services deployed on
-it) and added by access.expand, each 'via <type> <id>' of its direct parent. Skills and MCP servers are not picked:
+with access.narrow; the children of what it was given are loaded when it does not hold them (bring: an environment the
+services and servers deployed in it; a service its code projects (built_from) and the servers it is deployed on; a
+server the services deployed on it) and added by access.expand, each 'via <type> <id>' of its direct parent. Skills and MCP servers are not picked:
 always given."""
 
 from collections.abc import Iterable, Mapping
@@ -46,12 +46,13 @@ FOUND = {
     'service': 'SELECT id,name,true AS usable FROM ka.services WHERE project_id=%s AND id=ANY(%s)',
     'environment': 'SELECT id,name,true AS usable FROM ka.environments WHERE project_id=%s AND id=ANY(%s)',
 }
-# What services and environments bring: only usable code projects (not archived) and servers (SSH allowed).
-ENVIRONMENT_SERVICES = """SELECT es.service_id AS id FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
-    WHERE es.project_id=%s AND es.environment_id=ANY(%s) ORDER BY lower(s.name),s.id"""
-ENVIRONMENT_SERVERS = """SELECT es.server_id AS id FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
-    WHERE es.project_id=%s AND es.environment_id=ANY(%s) AND s.ssh_allowed ORDER BY lower(s.name),s.id"""
-SERVICE_CODE = """SELECT r.id FROM ka.inventory_links l JOIN ka.repositories r ON r.id=l.to_code_project_id
+# What services and environments bring: only usable code projects (not archived) and servers (SSH allowed). An
+# environment holds what is deployed in it; a service's code projects are its built_from relations.
+ENVIRONMENT_SERVICES = """SELECT s.id FROM ka.services s WHERE s.project_id=%s AND EXISTS (SELECT 1
+    FROM ka.service_deployments d WHERE d.service_id=s.id AND d.environment_id=ANY(%s)) ORDER BY lower(s.name),s.id"""
+ENVIRONMENT_SERVERS = """SELECT s.id FROM ka.servers s WHERE s.project_id=%s AND s.ssh_allowed AND EXISTS (SELECT 1
+    FROM ka.service_deployments d WHERE d.server_id=s.id AND d.environment_id=ANY(%s)) ORDER BY lower(s.name),s.id"""
+SERVICE_CODE = """SELECT r.id FROM ka.service_relations l JOIN ka.repositories r ON r.id=l.to_code_project_id
     WHERE l.kind='built_from' AND r.project_id=%s AND l.from_service_id=ANY(%s) AND r.archived_at IS NULL
     ORDER BY lower(r.name),r.id"""
 # The services deployed on one server (a server run reads them; they are its children in the run's access).

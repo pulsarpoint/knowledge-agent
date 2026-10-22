@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage, workspace
+from knowledge_admin.inventory import assets
 from knowledge_admin.inventory import store as inventory
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.servers.services import ServerInput, ServiceInput
@@ -64,8 +65,8 @@ def save_service(
     original_links = {
         (row['from_id'], row['to_id']): row['description']
         for row in conn.execute(
-            """SELECT from_id,to_id,description FROM ka.inventory_links
-            WHERE kind='depends_on' AND (from_id=%s OR to_id=%s)""",
+            """SELECT from_service_id AS from_id,to_service_id AS to_id,description FROM ka.service_relations
+            WHERE kind='depends_on' AND (from_service_id=%s OR to_service_id=%s)""",
             (service_id, service_id),
         )
     }
@@ -157,7 +158,7 @@ def save_service(
     # Unlisted code projects lose their link; listed ones keep theirs (and its description and attributes). With
     # keep_archived_links the links to archived code projects stay (the form cannot list those, so a proposal must not drop them).
     conn.execute(
-        """DELETE FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s
+        """DELETE FROM ka.service_relations WHERE kind='built_from' AND from_service_id=%s
         AND NOT (to_code_project_id=ANY(%s))"""
         + (
             """ AND NOT EXISTS (SELECT 1 FROM ka.repositories r WHERE r.id=to_code_project_id AND r.archived_at IS NOT NULL)"""
@@ -168,9 +169,9 @@ def save_service(
     )
     for repository_id in value.repository_ids:
         conn.execute(
-            """INSERT INTO ka.inventory_links(project_id,from_service_id,to_code_project_id,kind)
-            VALUES (%s,%s,%s,'built_from') ON CONFLICT (from_id,to_id,kind) DO NOTHING""",
-            (project_id, service_id, repository_id),
+            """INSERT INTO ka.service_relations(project_id,from_service_id,to_code_project_id,kind,created_by)
+            VALUES (%s,%s,%s,'built_from',%s) ON CONFLICT ON CONSTRAINT service_relations_once DO NOTHING""",
+            (project_id, service_id, repository_id, actor_id),
         )
     conn.execute(
         'DELETE FROM ka.environment_services WHERE service_id=%s AND NOT (environment_id=ANY(%s))',
@@ -224,16 +225,16 @@ def save_service(
     }
     for source, target in original_links.keys() - links.keys():
         conn.execute(
-            """DELETE FROM ka.inventory_links WHERE kind='depends_on'
+            """DELETE FROM ka.service_relations WHERE kind='depends_on'
             AND from_service_id=%s AND to_service_id=%s""",
             (source, target),
         )
     for source, target in changed_pairs & links.keys():
         conn.execute(
-            """INSERT INTO ka.inventory_links(project_id,from_service_id,to_service_id,kind,description)
-            VALUES (%s,%s,%s,'depends_on',%s) ON CONFLICT (from_id,to_id,kind)
-            DO UPDATE SET description=EXCLUDED.description, revision=inventory_links.revision+1""",
-            (project_id, source, target, links[source, target]),
+            """INSERT INTO ka.service_relations(project_id,from_service_id,to_service_id,kind,description,created_by)
+            VALUES (%s,%s,%s,'depends_on',%s,%s) ON CONFLICT ON CONSTRAINT service_relations_once
+            DO UPDATE SET description=EXCLUDED.description, revision=service_relations.revision+1""",
+            (project_id, source, target, links[source, target], actor_id),
         )
     changed_related_ids = {other for pair in changed_pairs for other in pair} - {service_id}
     conn.execute('UPDATE ka.services SET revision=revision+1 WHERE id=ANY(%s)', (list(changed_related_ids),))
@@ -271,18 +272,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def list_services() -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project_id):
-            rows = conn.execute(
-                'SELECT * FROM ka.service_assets WHERE project_id=%s ORDER BY lower(name), id', (project_id,)
-            ).fetchall()
+            rows = assets.service_assets(conn, project_id)
         return {'services': rows}
 
     @router.get('/services/{service_id}/context')
     def service_context(service_id: UUID) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project_id):
-            asset = conn.execute(
-                'SELECT * FROM ka.service_assets WHERE id=%s AND project_id=%s', (service_id, project_id)
-            ).fetchone()
+            asset = next(iter(assets.service_assets(conn, project_id, service_id)), None)
             if asset is None:
                 raise HTTPException(404, 'Service not found')
         return {
@@ -342,9 +339,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             related_ids = [
                 row['id']
                 for row in conn.execute(
-                    """SELECT to_id AS id FROM ka.inventory_links
-                WHERE kind='depends_on' AND from_id=%s UNION SELECT from_id FROM ka.inventory_links
-                WHERE kind='depends_on' AND to_id=%s""",
+                    """SELECT to_service_id AS id FROM ka.service_relations
+                WHERE kind='depends_on' AND from_service_id=%s UNION SELECT from_service_id FROM ka.service_relations
+                WHERE kind='depends_on' AND to_service_id=%s""",
                     (service_id, service_id),
                 )
             ]

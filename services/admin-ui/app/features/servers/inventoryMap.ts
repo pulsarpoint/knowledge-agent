@@ -61,19 +61,21 @@ export interface ViewNode {
   internal_edges: number;
   documents: GraphDocument[];
 }
+/** A node outside the view: an entry, or an external host a connection reaches (not an entry: nothing to open). */
 export interface BoundaryNode {
   id: string;
   name: string;
-  kind: EntryKind;
-  entry_kind: EntryKind;
+  kind: EntryKind | "external_host";
+  entry_kind: EntryKind | "external_host";
   entry_id: string;
 }
+/** An edge: connections ("connects_to") or service relations, with the ids of the connections or relations drawn. */
 export interface ViewEdge {
   from: string;
   to: string;
-  type: LinkKind;
+  type: LinkKind | "part_of";
   count: number;
-  link_ids: string[];
+  ids: string[];
 }
 export interface Crumb {
   id: string;

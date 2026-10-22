@@ -79,17 +79,9 @@ def sessions(store, tmp_path, monkeypatch):
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Payments')", (service, project))
         for project_id in (repo, worker):
             conn.execute(
-                "INSERT INTO ka.inventory_links(project_id,from_service_id,to_code_project_id,kind) VALUES (%s,%s,%s,'built_from')",
+                "INSERT INTO ka.service_relations(project_id,from_service_id,to_code_project_id,kind) VALUES (%s,%s,%s,'built_from')",
                 (project, service, project_id),
             )
-        conn.execute(
-            'INSERT INTO ka.environment_services(project_id,environment_id,service_id) VALUES (%s,%s,%s)',
-            (project, environment, service),
-        )
-        conn.execute(
-            'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
-            (project, environment, server['id']),
-        )
         conn.execute(
             """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,
             runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'payments-api',8080)""",

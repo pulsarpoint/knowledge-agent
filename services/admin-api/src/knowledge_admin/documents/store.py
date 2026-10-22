@@ -74,7 +74,7 @@ SNAPSHOT_KEYS = {
 # A link row's resource id and display name (deployments: service / server / environment, as in snapshots).
 RESOURCE_ID = 'COALESCE(r.environment_id,r.service_id,r.server_id,r.code_project_id,r.deployment_id)'
 RESOURCE_NAME = """COALESCE(e.name,s.name,h.name,c.name,
-    ds.name || ' / ' || dh.name || ' / ' || COALESCE(de.name,d.environment))"""
+    ds.name || ' / ' || dh.name || ' / ' || de.name)"""
 RESOURCE_JOINS = """LEFT JOIN ka.environments e ON e.id=r.environment_id
     LEFT JOIN ka.services s ON s.id=r.service_id LEFT JOIN ka.servers h ON h.id=r.server_id
     LEFT JOIN ka.repositories c ON c.id=r.code_project_id
@@ -125,10 +125,10 @@ def build_snapshot(
             (project, chosen['server_ids']),
         ).fetchall(),
         'deployments': conn.execute(
-            """SELECT d.id,d.service_id,d.server_id,COALESCE(e.name,d.environment) AS environment,d.runtime_name,
-            s.name || ' / ' || h.name || ' / ' || COALESCE(e.name,d.environment) AS name
+            """SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
+            s.name || ' / ' || h.name || ' / ' || e.name AS name
             FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id JOIN ka.servers h ON h.id=d.server_id
-            LEFT JOIN ka.environments e ON e.id=d.environment_id
+            JOIN ka.environments e ON e.id=d.environment_id
             WHERE d.project_id=%s AND d.id=ANY(%s) ORDER BY d.id FOR SHARE OF d""",
             (project, chosen['deployment_ids']),
         ).fetchall(),
@@ -652,18 +652,19 @@ ENTRY_TABLES = {
     'code_project': 'repositories',
 }
 # A resource's direct children whose documents its list shows, in group order: (type, query of {id, name} by the
-# resource's id), each by name. The relations get_resource's links use.
+# resource's id), each by name: an environment what is deployed in it, a server its deployed services, a service its
+# code projects (built_from) and the servers it is deployed on.
 CHILDREN = {
     'environment': (
         (
             'service',
-            """SELECT s.id,s.name FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
-            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id""",
+            """SELECT s.id,s.name FROM ka.services s
+            WHERE s.id IN (SELECT service_id FROM ka.service_deployments WHERE environment_id=%s) ORDER BY lower(s.name),s.id""",
         ),
         (
             'server',
-            """SELECT s.id,s.name FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
-            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id""",
+            """SELECT h.id,h.name FROM ka.servers h
+            WHERE h.id IN (SELECT server_id FROM ka.service_deployments WHERE environment_id=%s) ORDER BY lower(h.name),h.id""",
         ),
     ),
     'server': (
@@ -677,7 +678,7 @@ CHILDREN = {
         (
             'code_project',
             """SELECT r.id,r.name FROM ka.repositories r WHERE r.archived_at IS NULL AND r.id IN (SELECT to_code_project_id
-            FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s) ORDER BY lower(r.name),r.id""",
+            FROM ka.service_relations WHERE kind='built_from' AND from_service_id=%s) ORDER BY lower(r.name),r.id""",
         ),
         (
             'server',

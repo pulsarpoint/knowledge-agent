@@ -185,3 +185,19 @@ def test_real_render_keeps_hostile_labels(layout):
     svg = render.svg(render.d2(view), layout).decode()
     texts = {html.unescape(text) for text in re.findall(r'<text[^>]*>(.*?)</text>', svg)}
     assert set(names) <= texts and 'calls ×2' in texts
+
+
+def test_relations_are_drawn_dashed_and_connections_solid():
+    view = {
+        **VIEW,
+        'boundary': [],
+        'edges': [
+            {'from': 'events', 'to': 'store', 'type': 'connects_to', 'count': 1, 'ids': ['a']},
+            {'from': 'events', 'to': 'store', 'type': 'depends_on', 'count': 1, 'ids': ['b']},
+        ],
+    }
+    assert render.d2(view).splitlines()[-2:] == [
+        'n1 -> n3: "connects to"',
+        'n1 -> n3: "depends on" {style.stroke-dash: 3}',
+    ]
+    assert render.mermaid(view).splitlines()[-2:] == ['  n1 -->|"connects to"| n3', '  n1 -.->|"depends on"| n3']

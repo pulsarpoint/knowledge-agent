@@ -19,6 +19,7 @@ from knowledge_admin.documents import store as lifecycle
 from knowledge_admin.documents.api import document_slug, export_conflict
 from knowledge_admin.documents.drafts import DraftContent
 from knowledge_admin.documents.store import Provenance
+from knowledge_admin.inventory import store as inventory
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.servers.service_api import save_service
 from knowledge_admin.servers.services import DeploymentInput, ServiceDependencyInput, ServiceInput
@@ -181,15 +182,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             access = server_row(conn, project, server_id)
             server = conn.execute('SELECT * FROM ka.server_assets WHERE id=%s', (server_id,)).fetchone()
-            environments = conn.execute(
-                """SELECT e.id,e.name FROM ka.environment_servers es JOIN ka.environments e
-                ON e.id=es.environment_id WHERE es.server_id=%s ORDER BY lower(e.name)""",
-                (server_id,),
-            ).fetchall()
+            environments = [
+                {'id': e['id'], 'name': e['name']}
+                for e in inventory.list_environments(conn, project, server_id=server_id)
+            ]
             deployments = conn.execute(
-                """SELECT d.id,d.service_id,s.name AS service_name,COALESCE(e.name,d.environment) AS environment,
+                """SELECT d.id,d.service_id,s.name AS service_name,e.name AS environment,
                 d.runtime,d.runtime_name,d.port,d.deployed_version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
-                LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
+                JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
                 ORDER BY lower(s.name),environment,d.runtime_name""",
                 (server_id,),
             ).fetchall()
@@ -290,7 +290,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         repositories = [
             item['to_code_project_id']
             for item in conn.execute(
-                """SELECT l.to_code_project_id FROM ka.inventory_links l
+                """SELECT l.to_code_project_id FROM ka.service_relations l
             JOIN ka.repositories r ON r.id=l.to_code_project_id AND r.archived_at IS NULL
             WHERE l.kind='built_from' AND l.from_service_id=%s ORDER BY l.to_code_project_id""",
                 (current['id'],),
@@ -301,7 +301,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             links['dependencies'] = [
                 ServiceDependencyInput(service_id=item['to_service_id'], description=item['description'])
                 for item in conn.execute(
-                    """SELECT to_service_id,description FROM ka.inventory_links
+                    """SELECT to_service_id,description FROM ka.service_relations
                                          WHERE kind='depends_on' AND from_service_id=%s ORDER BY to_service_id""",
                     (current['id'],),
                 )

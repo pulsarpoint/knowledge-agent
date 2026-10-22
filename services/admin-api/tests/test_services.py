@@ -68,7 +68,7 @@ def test_service_assets_link_multiple_repositories_and_server_deployments(store,
     with store.connect() as conn:
         assert (
             conn.execute(
-                "SELECT count(*) AS n FROM ka.inventory_links WHERE kind='built_from' AND to_code_project_id=%s",
+                "SELECT count(*) AS n FROM ka.service_relations WHERE kind='built_from' AND to_code_project_id=%s",
                 (second,),
             ).fetchone()['n']
             == 2
@@ -324,7 +324,7 @@ def test_delete_service_removes_links_but_preserves_shared_assets_and_audits(sto
         assert conn.execute('SELECT * FROM ka.repositories WHERE id=%s', (repository_id,)).fetchone() == repository
         assert (
             conn.execute(
-                "SELECT 1 FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s", (UUID(service_id),)
+                "SELECT 1 FROM ka.service_relations WHERE kind='built_from' AND from_service_id=%s", (UUID(service_id),)
             ).fetchone()
             is None
         )

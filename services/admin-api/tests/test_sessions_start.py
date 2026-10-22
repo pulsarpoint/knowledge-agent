@@ -129,10 +129,6 @@ def test_options_say_what_each_service_and_environment_brings(ask, keyless):
             VALUES (%s,%s,%s,'Staging',%s,'gateway',8080)""",
             (project, gateway, ask.web['id'], staging),
         )
-        conn.execute(
-            'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
-            (project, staging, ask.web['id']),
-        )
     options = ask.s.client.get(f'/api/sessions/options?document_id={ask.document["id"]}', headers=HEADERS).json()
     flags = {
         item['name']: (item['brings_code'], item['brings_servers'])

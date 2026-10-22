@@ -238,17 +238,26 @@ export default function SystemMapView() {
               <ul className="flex flex-col gap-1">
                 {graph!.boundary.map((node) => {
                   const count = edgeCount(node.id);
+                  const links = `${count} ${count === 1 ? "link" : "links"}`;
+                  if (node.entry_kind === "external_host")
+                    return (
+                      <li key={node.id} className="flex min-w-0 flex-col">
+                        <span className="truncate text-sm">{node.name}</span>
+                        <span className="text-muted-foreground text-xs">{`external host · ${links}`}</span>
+                      </li>
+                    );
+                  const entryKind = node.entry_kind;
                   return (
                     <li key={node.id} className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 flex-col">
                         <button
                           type="button"
                           className="truncate text-left text-sm underline-offset-4 hover:underline"
-                          onClick={() => setEntry({ kind: node.entry_kind, id: node.entry_id, name: node.name })}
+                          onClick={() => setEntry({ kind: entryKind, id: node.entry_id, name: node.name })}
                         >
                           {node.name}
                         </button>
-                        <span className="text-muted-foreground text-xs">{`${ENTRY_LABELS[node.entry_kind]} · ${count} ${count === 1 ? "link" : "links"}`}</span>
+                        <span className="text-muted-foreground text-xs">{`${ENTRY_LABELS[entryKind]} · ${links}`}</span>
                       </div>
                       <Button
                         size="icon"

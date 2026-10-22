@@ -1,8 +1,10 @@
 """Environments → System map, computed from the inventory on every request — nothing about the map is stored. Two views:
-infrastructure (environment › server › service, from memberships and deployments) and services (services and code
-projects, flat). Links (ka.inventory_links) are drawn between the nodes that show their entries; each node lists the
-live documents linked to its entry (ka.document_resources). A view shows one node's
-inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every link up to the
+infrastructure (environment › server › service, from deployments: a server sits in the environments of its
+deployments, a service node is its deployments on one server in one environment) and services (services and code
+projects, flat). Infrastructure edges are connections between the deployment nodes; the services view draws service
+relations and the connections rolled up to the services. A connection to an external host ends on a boundary node for
+that host. Each node lists the live documents linked to its entry (ka.document_resources). A view shows one node's
+inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every edge up to the
 nodes shown (graph in graph)."""
 
 from collections import defaultdict
@@ -13,8 +15,8 @@ import networkx as nx
 
 VIEWS = ('infrastructure', 'services')
 ENTRY_KINDS = ('service', 'server', 'environment', 'code_project')
-VIEW_LINKS = {'infrastructure': {'connects_to'}, 'services': {'depends_on', 'built_from', 'connects_to'}}
-MAX_DEPTH, MAX_VISIBLE, MAX_LINK_IDS = 3, 500, 20
+EXTERNAL = 'external_host'  # the kind of an external host's node
+MAX_DEPTH, MAX_VISIBLE, MAX_EDGE_IDS = 3, 500, 20
 TOP = 'top'
 NOT_FOUND = 'Node not found.'
 TOO_MANY = 'Too many nodes; choose a deeper root or a smaller depth.'
@@ -31,10 +33,11 @@ class ViewError(Exception):
 @dataclass
 class Inventory:
     entries: dict[Key, dict]  # name, description (archived code projects left out)
-    environment_servers: set[tuple[UUID, UUID]] = field(default_factory=set)  # (environment, server)
-    environment_services: set[tuple[UUID, UUID]] = field(default_factory=set)  # (environment, service)
-    deployments: set[tuple[UUID, UUID, UUID | None]] = field(default_factory=set)  # (service, server, environment)
-    links: list[dict] = field(default_factory=list)  # id, kind, from: Key, to: Key
+    deployments: dict[UUID, tuple[UUID, UUID, UUID]] = field(
+        default_factory=dict
+    )  # id → (service, server, environment)
+    connections: list[dict] = field(default_factory=list)  # id, from (deployment), to (deployment) or host
+    relations: list[dict] = field(default_factory=list)  # id, kind, from: Key, to: Key
     documents: dict[Key, list[dict]] = field(default_factory=dict)  # live documents linked to the entry
 
 
@@ -65,29 +68,33 @@ def load(conn, project: UUID) -> Inventory:
         )
     return Inventory(
         entries=entries,
-        environment_servers={
-            (r['environment_id'], r['server_id'])
-            for r in conn.execute(
-                'SELECT environment_id,server_id FROM ka.environment_servers WHERE project_id=%s', (project,)
-            )
-        },
-        environment_services={
-            (r['environment_id'], r['service_id'])
-            for r in conn.execute(
-                'SELECT environment_id,service_id FROM ka.environment_services WHERE project_id=%s', (project,)
-            )
-        },
         deployments={
-            (r['service_id'], r['server_id'], r['environment_id'])
+            r['id']: (r['service_id'], r['server_id'], r['environment_id'])
             for r in conn.execute(
-                'SELECT service_id,server_id,environment_id FROM ka.service_deployments WHERE project_id=%s', (project,)
+                'SELECT id,service_id,server_id,environment_id FROM ka.service_deployments WHERE project_id=%s',
+                (project,),
             )
         },
-        links=[
-            {'id': r['id'], 'kind': r['kind'], 'from': (r['from_kind'], r['from_id']), 'to': (r['to_kind'], r['to_id'])}
+        connections=[
+            {'id': r['id'], 'from': r['from_deployment_id'], 'to': r['to_deployment_id'], 'host': r['to_host']}
             for r in conn.execute(
-                """SELECT id,kind,from_kind,from_id,to_kind,to_id FROM ka.inventory_links
-                   WHERE project_id=%s ORDER BY id""",
+                """SELECT id,from_deployment_id,to_deployment_id,to_host FROM ka.connections
+                WHERE project_id=%s ORDER BY id""",
+                (project,),
+            )
+        ],
+        relations=[
+            {
+                'id': r['id'],
+                'kind': r['kind'],
+                'from': ('service', r['from_service_id']),
+                'to': ('service', r['to_service_id'])
+                if r['to_service_id'] is not None
+                else ('code_project', r['to_code_project_id']),
+            }
+            for r in conn.execute(
+                """SELECT id,kind,from_service_id,to_service_id,to_code_project_id FROM ka.service_relations
+                WHERE project_id=%s ORDER BY id""",
                 (project,),
             )
         ],
@@ -99,86 +106,82 @@ def node_id(kind: str, entry: UUID, *where: UUID | None) -> str:
     return ':'.join([kind, *(TOP if place is None else str(place) for place in where), str(entry)])
 
 
-def placements(inventory: Inventory, view: str) -> tuple[nx.DiGraph, dict[Key, list[str]]]:
-    """The view's containment tree (edges parent → child; node attributes entry, environment, name, description) and the
-    map nodes that show each entry."""
-    tree, shown = nx.DiGraph(), defaultdict(list)
+def external_id(host: str) -> str:
+    return f'{EXTERNAL}:{host}'
+
+
+def placements(inventory: Inventory, view: str) -> nx.DiGraph:
+    """The view's containment tree: edges parent → child; node attributes entry, environment, name, description."""
+    tree = nx.DiGraph()
 
     def add(node: str, entry: Key, parent: str | None, environment: UUID | None) -> None:
         tree.add_node(node, entry=entry, environment=environment, **inventory.entries[entry])
         if parent is not None:
             tree.add_edge(parent, node)
-        shown[entry].append(node)
 
-    known = inventory.entries  # rows are read a moment apart: skip anything whose entry was not read
     if view == 'services':
         for kind, entry in inventory.entries:
             if kind in ('service', 'code_project'):
                 add(node_id(kind, entry), (kind, entry), None, None)
-        return tree, shown
+        return tree
 
+    known = inventory.entries  # rows are read a moment apart: skip anything whose entry was not read
     for kind, entry in inventory.entries:
         if kind == 'environment':
             add(node_id('environment', entry), ('environment', entry), None, entry)
-    homes: dict[UUID, set] = defaultdict(set)  # server → environments it is placed in (None = top level)
     deployments = sorted(
-        (
+        {
             d
-            for d in inventory.deployments
-            if ('service', d[0]) in known
-            and ('server', d[1]) in known
-            and (d[2] is None or ('environment', d[2]) in known)
-        ),
+            for d in inventory.deployments.values()
+            if ('service', d[0]) in known and ('server', d[1]) in known and ('environment', d[2]) in known
+        },
         key=str,
     )
-    for environment, server in inventory.environment_servers:
-        if ('environment', environment) in known:
-            homes[server].add(environment)
+    homes: dict[UUID, set] = defaultdict(set)  # server → the environments of its deployments
     for _, server, environment in deployments:
         homes[server].add(environment)
     for kind, server in inventory.entries:
         if kind == 'server':
-            for environment in homes[server] or {None}:
+            for environment in homes[server] or {None}:  # a server with no deployment sits at the top level
                 parent = None if environment is None else node_id('environment', environment)
                 add(node_id('server', server, environment), ('server', server), parent, environment)
-    deployed = set()
     for service, server, environment in deployments:
         node = node_id('service', service, environment, server)
         if node not in tree:  # several runtimes of one service on one server are one node
             add(node, ('service', service), node_id('server', server, environment), environment)
-        deployed.add((environment, service))
-    for environment, service in inventory.environment_services:
-        if (
-            (environment, service) not in deployed
-            and ('service', service) in known
-            and ('environment', environment) in known
-        ):
-            add(
-                node_id('service', service, environment),
-                ('service', service),
-                node_id('environment', environment),
-                environment,
-            )
-    return tree, shown
+    return tree
 
 
-def link_edges(inventory: Inventory, view: str, tree: nx.DiGraph, shown: dict[Key, list[str]]) -> list[dict]:
-    """One edge per pair of nodes showing a link's ends. When both ends are shown in a common environment (or both at the
-    top level) only those pairs are drawn, so a link never crosses from one environment's copy to another's."""
+def view_edges(inventory: Inventory, view: str, tree: nx.DiGraph) -> list[dict]:
+    """The view's edges {id, from_id, to_id, type}: infrastructure, each connection between the nodes of its
+    deployments; services, each relation and each connection between the services of its deployments. A connection
+    to an external host ends on that host's node (not in the tree)."""
+
+    def deployment_node(deployment: UUID | None) -> str | None:
+        if deployment not in inventory.deployments:
+            return None
+        service, server, environment = inventory.deployments[deployment]
+        if view == 'services':
+            return node_id('service', service)
+        return node_id('service', service, environment, server)
+
     edges = []
-    for link in inventory.links:
-        if link['kind'] not in VIEW_LINKS[view]:
-            continue
-        starts, ends = shown.get(link['from'], []), shown.get(link['to'], [])
-        pairs = [(a, b) for a in starts for b in ends if tree.nodes[a]['environment'] == tree.nodes[b]['environment']]
-        for a, b in pairs or [(a, b) for a in starts for b in ends]:
-            edges.append({'id': link['id'], 'from_id': a, 'to_id': b, 'type': link['kind']})
+    for connection in inventory.connections:
+        start = deployment_node(connection['from'])
+        end = deployment_node(connection['to']) if connection['host'] is None else external_id(connection['host'])
+        if start in tree and (end in tree or connection['host'] is not None):
+            edges.append({'id': connection['id'], 'from_id': start, 'to_id': end, 'type': 'connects_to'})
+    if view == 'services':
+        for relation in inventory.relations:
+            start, end = node_id(*relation['from']), node_id(*relation['to'])
+            if start in tree and end in tree:
+                edges.append({'id': relation['id'], 'from_id': start, 'to_id': end, 'type': relation['kind']})
     return edges
 
 
 def build_view(inventory: Inventory, view: str, root: str | None, depth: int) -> dict:
-    tree, shown_by_entry = placements(inventory, view)
-    edges = link_edges(inventory, view, tree, shown_by_entry)
+    tree = placements(inventory, view)
+    edges = view_edges(inventory, view, tree)
 
     def order(node: str) -> tuple:
         return tree.nodes[node]['name'].lower(), node
@@ -198,6 +201,9 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         return ids[::-1]
 
     def about(node: str) -> dict:
+        if node not in tree:  # an external host
+            host = node.removeprefix(f'{EXTERNAL}:')
+            return {'id': node, 'name': host, 'kind': EXTERNAL, 'entry_kind': EXTERNAL, 'entry_id': host}
         data = tree.nodes[node]
         kind, entry = data['entry']
         return {'id': node, 'name': data['name'], 'kind': kind, 'entry_kind': kind, 'entry_id': entry}
@@ -239,6 +245,12 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
             common += 1
         return target[common] if common < len(target) else None
 
+    def drawn_as(node: str) -> str | None:
+        """The visible node an edge end is drawn as: its own or folding node, else outside (an external host always)."""
+        if node in representative:
+            return representative[node]
+        return node if node not in tree else outside(node)
+
     def ancestor_of(upper: str, lower: str) -> bool:
         while lower is not None and lower in rows:
             lower = rows[lower]['parent_id']
@@ -251,8 +263,7 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         start, end = edge['from_id'], edge['to_id']
         if start not in representative and end not in representative:
             continue
-        a = representative[start] if start in representative else outside(start)
-        b = representative[end] if end in representative else outside(end)
+        a, b = drawn_as(start), drawn_as(end)
         if a is None or b is None or a == b:
             rows[a if a is not None and a in rows else b]['internal_edges'] += 1
             continue
@@ -262,12 +273,12 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         for end_id in (a, b):
             if end_id not in rows and end_id not in boundary:
                 boundary[end_id] = about(end_id)
-        # a link drawn between several placements rolls up once: count distinct links, not drawn pairs
+        # an edge drawn between several placements rolls up once: count distinct connections and relations
         grouped.setdefault((a, b, edge['type']), set()).add(edge['id'])
     if len(rows) + len(boundary) > MAX_VISIBLE:
         raise ViewError(422, TOO_MANY)
     rolled = [
-        {'from': a, 'to': b, 'type': kind, 'count': len(ids), 'link_ids': sorted(ids, key=str)[:MAX_LINK_IDS]}
+        {'from': a, 'to': b, 'type': kind, 'count': len(ids), 'ids': sorted(ids, key=str)[:MAX_EDGE_IDS]}
         for (a, b, kind), ids in grouped.items()
     ]
     nodes = []

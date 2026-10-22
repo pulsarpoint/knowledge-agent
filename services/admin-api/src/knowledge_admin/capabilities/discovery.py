@@ -15,6 +15,7 @@ from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.document_tools import Proposal
 from knowledge_admin.capabilities.inventory import connect
 from knowledge_admin.documents.store import INVENTORY_TAG, INVENTORY_TAGGED
+from knowledge_admin.inventory import store as inventory
 from knowledge_admin.tools.registry import tool
 
 NOT_DISCOVERY = 'The proposal tools work only in a run started from a server, service or environment.'
@@ -149,11 +150,7 @@ def _propose_service(config: dict[str, Any], value: dict[str, Any]) -> str:
         if server['type'] != 'server':
             raise ValueError(NOT_FROM_SERVER)
         project = session['project_id']
-        environments = conn.execute(
-            """SELECT e.id,e.name FROM ka.environment_servers es JOIN ka.environments e
-            ON e.id=es.environment_id WHERE es.server_id=%s ORDER BY lower(e.name)""",
-            (server['id'],),
-        ).fetchall()
+        environments = inventory.list_environments(conn, project, server_id=server['id'])
         deployment = {key: value['deployment'][key] for key in DEPLOYMENT_FIELDS}
         deployment.update(resolve_environment(environments, value['deployment']['environment']))
         depends_on = _entries(conn, SERVICES, project, value['depends_on'], 'services')

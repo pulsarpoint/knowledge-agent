@@ -45,7 +45,7 @@ const inside = {
   breadcrumb: [{ id: "environment:p", name: "production", kind: "environment" }],
   nodes: [node("server:p:s1", "prod-1", "server")],
   boundary: [{ id: "server:top:s", name: "spare", kind: "server", entry_kind: "server", entry_id: "s" }],
-  edges: [{ from: "server:p:s1", to: "server:top:s", type: "connects_to", count: 2, link_ids: ["l1", "l2"] }],
+  edges: [{ from: "server:p:s1", to: "server:top:s", type: "connects_to", count: 2, ids: ["l1", "l2"] }],
 };
 const services = { view: "services", depth: 1, root: null, breadcrumb: [], boundary: [], edges: [], nodes: [] };
 
@@ -115,6 +115,33 @@ test("opens an environment, lists what its links reach outside, and goes back wi
     within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Infrastructure" }),
   );
   await waitFor(() => expect(where()).toBe("?map=infrastructure"));
+});
+
+test("an external host outside is listed as text, not as an entry to open", async () => {
+  const host = "external_host:smtp.example.com";
+  api({
+    [TOP]: {
+      json: {
+        ...top,
+        boundary: [
+          {
+            id: host,
+            name: "smtp.example.com",
+            kind: "external_host",
+            entry_kind: "external_host",
+            entry_id: "smtp.example.com",
+          },
+        ],
+        edges: [{ from: "environment:p", to: host, type: "connects_to", count: 1, ids: ["c1"] }],
+      },
+    },
+    [TOP_SVG]: { text: "<svg/>" },
+  });
+  view();
+  const outside = within(await screen.findByRole("region", { name: "Outside" }));
+  expect(await outside.findByText("smtp.example.com")).toBeInTheDocument();
+  expect(outside.getByText("external host · 1 link")).toBeInTheDocument();
+  expect(outside.queryByRole("button")).toBeNull();
 });
 
 test("switches to the services map and explains an empty map", async () => {

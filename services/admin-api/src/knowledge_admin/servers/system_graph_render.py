@@ -11,6 +11,7 @@ SVG_TIMEOUT = 20
 MAX_ERROR = 2000
 SHAPES = {'database': 'cylinder', 'table': 'cylinder', 'queue': 'queue', 'person': 'person', 'actor': 'person'}
 MERMAID_SHAPES = {'cylinder': ('[(', ')]')}
+RELATIONS = ('depends_on', 'part_of', 'built_from')  # service relations: drawn dashed, connections solid
 MERMAID_ESCAPES = {'#': '#35;', '"': '#34;', '<': '#60;', '>': '#62;', '&': '#38;', '`': '#96;'}
 
 
@@ -78,7 +79,8 @@ def d2(view: dict) -> str:
             lines.append(f'  {key[node["id"]]}: {d2_string(node["name"])} {{style.stroke-dash: 4}}')
         lines.append('}')
     for edge in view['edges']:
-        lines.append(f'{where[edge["from"]]} -> {where[edge["to"]]}: {d2_string(_label(edge))}')
+        style = ' {style.stroke-dash: 3}' if edge['type'] in RELATIONS else ''
+        lines.append(f'{where[edge["from"]]} -> {where[edge["to"]]}: {d2_string(_label(edge))}{style}')
     return ''.join(line + '\n' for line in lines)
 
 
@@ -104,7 +106,8 @@ def mermaid(view: dict) -> str:
         lines += [f'    {key[node["id"]]}[{mermaid_string(node["name"])}]' for node in view['boundary']]
         lines.append('  end')
     for edge in view['edges']:
-        lines.append(f'  {key[edge["from"]]} -->|{mermaid_string(_label(edge))}| {key[edge["to"]]}')
+        arrow = '-.->' if edge['type'] in RELATIONS else '-->'
+        lines.append(f'  {key[edge["from"]]} {arrow}|{mermaid_string(_label(edge))}| {key[edge["to"]]}')
     if view['boundary']:
         lines.append('  classDef boundary stroke-dasharray: 4 4')
         lines.append('  class ' + ','.join(key[node['id']] for node in view['boundary']) + ' boundary')

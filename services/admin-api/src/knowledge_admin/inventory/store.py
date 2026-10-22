@@ -107,8 +107,14 @@ def list_services(conn, project_id: UUID, environment_id: UUID | None = None) ->
     ).fetchall()
 
 
-def list_environments(conn, project_id: UUID) -> list[dict]:
-    return conn.execute(f'{ENVIRONMENT} WHERE x.project_id=%s ORDER BY lower(x.name),x.id', (project_id,)).fetchall()
+def list_environments(conn, project_id: UUID, server_id: UUID | None = None) -> list[dict]:
+    """Environments, or the environments the server has a deployment in."""
+    return conn.execute(
+        f"""{ENVIRONMENT} WHERE x.project_id=%(p)s AND (%(s)s::uuid IS NULL OR EXISTS
+        (SELECT 1 FROM ka.service_deployments d WHERE d.environment_id=x.id AND d.server_id=%(s)s))
+        ORDER BY lower(x.name),x.id""",
+        {'p': project_id, 's': server_id},
+    ).fetchall()
 
 
 def list_deployments(

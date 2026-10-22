@@ -106,20 +106,31 @@ def test_a_service_has_its_fields_servers_code_projects_and_documents(world):
     assert [document['title'] for document in found['documents']] == ['nginx runbook', 'web-1 overview']
 
 
-def test_a_service_lists_its_connections(world):
+def test_a_service_lists_its_connections_with_port_and_protocol(world):
     with world.store.connect() as conn:
+        db = conn.execute(
+            "INSERT INTO ka.services(project_id,name) VALUES (%s,'db') RETURNING id", (world.project,)
+        ).fetchone()['id']
+        deployments = [
+            conn.execute("""SELECT id FROM ka.service_deployments WHERE service_id=%s""", (world.nginx,)).fetchone()[
+                'id'
+            ],
+            conn.execute(
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,
+                runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'db',5432) RETURNING id""",
+                (world.project, db, world.server['id'], world.environment),
+            ).fetchone()['id'],
+        ]
         conn.execute(
-            """INSERT INTO ka.inventory_links(project_id,from_service_id,to_server_id,kind,description)
-            VALUES (%s,%s,%s,'connects_to','Health checks')""",
-            (world.project, world.nginx, world.server['id']),
+            """INSERT INTO ka.connections(project_id,from_deployment_id,to_deployment_id,port,protocol,description)
+            VALUES (%s,%s,%s,5432,'postgres','Orders')""",
+            (world.project, *deployments),
         )
     found = get(given(world), 'service', world.nginx)
     [connection] = [item for item in found['links'] if item['relation'] == 'connects_to']
-    assert (connection['type'], connection['id'], connection['description']) == (
-        'server',
-        world.server['id'],
-        'Health checks',
-    )
+    assert (connection['type'], connection['id'], connection['name']) == ('service', str(db), 'db')
+    assert (connection['port'], connection['protocol'], connection['description']) == (5432, 'postgres', 'Orders')
+    assert (connection['from_server'], connection['to_server']) == ('web-1', 'web-1')
 
 
 def test_an_environment_has_its_services_and_servers(world):

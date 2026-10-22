@@ -8,7 +8,9 @@ from test_api import _client
 from test_repositories import HEADERS
 
 
-def test_membership_round_trip_from_either_form_and_stale_edit_protection(store, tmp_path):
+def test_membership_alone_puts_nothing_in_an_environment_and_stale_edits_are_refused(store, tmp_path):
+    """A service or server is in an environment when one of its deployments is (0125): selected environments without
+    a deployment there are not its environments."""
     client = _client(tmp_path, repository_store=store)
     dev = client.post('/api/environments', headers=HEADERS, json={'name': 'Dev'}).json()
     prod = client.post('/api/environments', headers=HEADERS, json={'name': 'Production'}).json()
@@ -16,36 +18,14 @@ def test_membership_round_trip_from_either_form_and_stale_edit_protection(store,
         '/api/services', headers=HEADERS, json={'name': 'API', 'environment_ids': [dev['id'], prod['id']]}
     ).json()
     url = f'/api/services/{service["id"]}'
-    asset = client.get(url + '/context', headers=HEADERS).json()['service']
-    assert {e['id'] for e in asset['environments']} == {dev['id'], prod['id']}
+    assert client.get(url + '/context', headers=HEADERS).json()['service']['environments'] == []
     current_dev = client.get(f'/api/environments/{dev["id"]}', headers=HEADERS).json()
-    assert current_dev['services'] == [{'id': service['id'], 'name': 'API'}]
-    assert current_dev['revision'] == 2
+    assert current_dev['services'] == [] and current_dev['revision'] == 2
     stale = client.put(f'/api/environments/{dev["id"]}', headers=HEADERS, json={'name': 'Dev', 'revision': 1})
     assert stale.status_code == 409
-    other = client.post(
-        '/api/services', headers=HEADERS, json={'name': 'Worker', 'environment_ids': [dev['id']]}
-    ).json()
-    assert len(client.get(f'/api/environments/{dev["id"]}', headers=HEADERS).json()['services']) == 2
-    # Omitting the selection preserves it; explicitly clearing it removes only this service's links.
     assert client.put(url, headers=HEADERS, json={'name': 'Renamed', 'revision': 1}).status_code == 200
-    assert len(client.get(url + '/context', headers=HEADERS).json()['service']['environments']) == 2
     assert (
-        client.put(url, headers=HEADERS, json={'name': 'Renamed', 'revision': 2, 'environment_ids': []}).status_code
-        == 200
-    )
-    current_dev = client.get(f'/api/environments/{dev["id"]}', headers=HEADERS).json()
-    assert current_dev['services'] == [{'id': other['id'], 'name': 'Worker'}]
-    assert (
-        client.put(
-            f'/api/environments/{dev["id"]}',
-            headers=HEADERS,
-            json={'name': 'Dev', 'revision': current_dev['revision'], 'service_ids': [service['id'], other['id']]},
-        ).status_code
-        == 200
-    )
-    assert (
-        client.put(url, headers=HEADERS, json={'name': 'Stale', 'revision': 3, 'environment_ids': []}).status_code
+        client.put(url, headers=HEADERS, json={'name': 'Stale', 'revision': 1, 'environment_ids': []}).status_code
         == 409
     )
 

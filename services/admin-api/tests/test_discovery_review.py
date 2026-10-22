@@ -387,7 +387,7 @@ def test_an_update_ignores_archived_code_projects(run):
     with world.store.connect() as conn:  # the link to the archived code project stays
         assert (
             conn.execute(
-                "SELECT 1 FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s AND to_code_project_id=%s",
+                "SELECT 1 FROM ka.service_relations WHERE kind='built_from' AND from_service_id=%s AND to_code_project_id=%s",
                 (world.nginx, world.shop),
             ).fetchone()
             is not None

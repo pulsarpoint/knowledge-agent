@@ -295,11 +295,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     'SELECT id,name,hostname FROM ka.servers WHERE project_id=%s ORDER BY lower(name),id', (project,)
                 ).fetchall(),
                 'deployments': conn.execute(
-                    """SELECT d.id,d.service_id,d.server_id,COALESCE(e.name,d.environment) AS environment,d.runtime_name,
-                    s.name || ' / ' || h.name || ' / ' || COALESCE(e.name,d.environment) ||
+                    """SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
+                    s.name || ' / ' || h.name || ' / ' || e.name ||
                     CASE WHEN d.runtime_name='' THEN '' ELSE ' / ' || d.runtime_name END AS name
                     FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
-                    JOIN ka.servers h ON h.id=d.server_id LEFT JOIN ka.environments e ON e.id=d.environment_id
+                    JOIN ka.servers h ON h.id=d.server_id JOIN ka.environments e ON e.id=d.environment_id
                     WHERE d.project_id=%s ORDER BY name,d.id""",
                     (project,),
                 ).fetchall(),

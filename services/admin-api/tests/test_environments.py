@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 
+from knowledge_admin.inventory import store as inventory_store
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -19,7 +20,7 @@ def inventory(store, tmp_path):
     return client, service, host
 
 
-def test_round_trip_shared_membership_edit_and_audit(store, inventory):
+def test_round_trip_lists_what_is_deployed_edit_and_audit(store, inventory):
     client, service, host = inventory
     value = {
         'name': ' Development ',
@@ -31,22 +32,27 @@ def test_round_trip_shared_membership_edit_and_audit(store, inventory):
     assert response.status_code == 201, response.text
     environment = response.json()
     assert environment['name'] == 'Development' and environment['revision'] == 1
+    assert environment['services'] == [] and environment['servers'] == []  # selected, not deployed there
+    assert 'ssh' not in response.text and 'credential' not in response.text
+    with store.connect() as conn:
+        inventory_store.create_deployment(
+            conn,
+            store.project(conn, 'shop'),
+            {'service_id': service['id'], 'server_id': host['id'], 'environment_id': environment['id']},
+            {'actor_id': None},
+        )
+    url = f'/api/environments/{environment["id"]}'
+    environment = client.get(url, headers=HEADERS).json()
     assert environment['services'] == [{'id': service['id'], 'name': 'API'}]
     assert environment['servers'] == [{'id': host['id'], 'name': 'App host', 'hostname': 'app.internal'}]
-    assert 'ssh' not in response.text and 'credential' not in response.text
     second = client.post('/api/environments', headers=HEADERS, json={**value, 'name': 'Staging'}).json()
-    assert second['services'] == environment['services'] and second['servers'] == environment['servers']
+    assert second['services'] == [] and second['servers'] == []
     listing = client.get('/api/environments', headers=HEADERS).json()['environments']
     assert [row['name'] for row in listing] == ['Development', 'Staging']
-    url = f'/api/environments/{environment["id"]}'
-    assert client.get(url, headers=HEADERS).json() == environment
-    edited = client.put(
-        url,
-        headers=HEADERS,
-        json={'name': 'Dev', 'description': 'Updated', 'revision': 1, 'service_ids': [], 'server_ids': [host['id']]},
-    )
+    assert listing[0] == environment
+    edited = client.put(url, headers=HEADERS, json={**value, 'name': 'Dev', 'description': 'Updated', 'revision': 1})
     assert edited.status_code == 200, edited.text
-    assert edited.json()['revision'] == 2 and edited.json()['services'] == []
+    assert edited.json()['revision'] == 2 and edited.json()['services'] == environment['services']
     assert client.get(f'/api/environments/{second["id"]}', headers=HEADERS).json() == second
     assert client.put(url, headers=HEADERS, json={**value, 'revision': 1}).status_code == 409
     assert client.get(url, headers=HEADERS).json() == edited.json()
@@ -57,7 +63,6 @@ def test_round_trip_shared_membership_edit_and_audit(store, inventory):
         ).fetchall()
         assert [row['action'] for row in events] == ['environment.created', 'environment.updated']
         assert events[-1]['details']['server_ids'] == [host['id']]
-        assert events[-1]['details']['service_ids'] == []
 
 
 def test_delete_requires_confirmation_revision_and_preserves_inventory(store, inventory):
