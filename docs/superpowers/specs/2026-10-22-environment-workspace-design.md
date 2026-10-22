@@ -21,6 +21,7 @@ phases 1–3 merged a1b831e).
    would write.
 3. **The workspace lives on the environment page.** The separate server and service pages stay for links from
    elsewhere.
+4. **An external system is a service of type `external`** with no deployment; connections can point to it.
 
 ## 1. Server membership
 
@@ -44,13 +45,36 @@ phases 1–3 merged a1b831e).
   environment; the environment must be in the run's access. Removing a membership is not an agent operation.
   `list_servers` reports each server's environments.
 
+## 1b. External services
+
+- Problem: a connection to something outside the environments stores only a hostname (`to_host`), so an external system
+  has no name, description, owner, documents or relations, its host is repeated on every connection, and spelling
+  differences split it. A service of type `external` cannot be a connection target, because targets are deployments.
+- Migration `0127` also:
+  - adds `services.address text` (optional, same check as `connections.to_host`): where an external service is reached;
+  - adds `connections.to_service_id uuid` (foreign key to `services`, `ON DELETE CASCADE`); the one-target check becomes
+    `num_nonnulls(to_deployment_id, to_host, to_service_id) = 1`; the uniqueness includes `to_service_id`.
+- Rules (store and pure rules; the database cannot check the target's type):
+  - `to_service_id` must name a service of type `external`: "Connect to an external service, or to a deployment of
+    this service.";
+  - a service that is the target of connections cannot change its type away from `external`: "This service is the
+    target of connections; remove them or keep the type external.";
+  - an external service may have deployments only if someone records one; nothing requires it.
+- `to_host` stays for a quick address nobody has described yet.
+- The environment model lists, under `external_services`, the external services its connections reach (id, name,
+  address, description, ports used); bare hosts stay under `external`. The map draws an external service as a named
+  external node (one per service), bare hosts as today.
+- Agent tools: `save_service` accepts `address`; `save_connection` accepts `to_service_id`; an external service target
+  must be in the run's access or created by this session, like other targets.
+- Proposals (section 2) may connect to an external service by name.
+
 ## 2. Service proposals carry connections and part_of
 
 - `propose_service` gains:
   - `connections`: up to 50 of `{to_service, to_server, to_host, port, protocol, description}` — the proposed
     deployment connects either to a recorded service's deployment (`to_service`, plus `to_server` when the service runs
-    on more than one server; looked up in the proposal's environment first, then in any environment) or to an external
-    host (`to_host`). Unknown names are refused with the same style of message as `depends_on` ("No service named …").
+    on more than one server; looked up in the proposal's environment first, then in any environment), to an external
+    service (`to_service` naming a service of type `external`), or to an external host (`to_host`). Unknown names are refused with the same style of message as `depends_on` ("No service named …").
   - `part_of`: names of recorded services this service is part of (library or component).
 - The payload stores the resolved ids and names (as `depends_on` does today), so the sheet can show them and approval
   can write them.
@@ -90,8 +114,8 @@ Info tab becomes a workspace of three columns.
 - **Column 3, the selected service:**
   - its fields (edit) and its deployment here (edit, remove), and where else it runs;
   - connections out and in, each with edit and remove; **+** adds a connection from this deployment to a deployment of
-    another service (picker grouped by environment and server) or to an external host, with port, protocol and
-    description;
+    another service (picker grouped by environment and server), to an external service, or to an external host, with
+    port, protocol and description;
   - relations: depends on, part of, and the reverse (needed by, has part), with remove; **+** adds one;
   - code projects (`built_from`), with remove; **+** adds one;
   - documents linked to the service (the existing documents list, with link and new document).
@@ -99,6 +123,8 @@ Info tab becomes a workspace of three columns.
 - Narrow screens show one column at a time, with a back link to the previous column.
 - Every change goes through the existing inventory REST API (plus the membership endpoints) and sends the revision it
   read; a conflict shows "This was changed meanwhile. Reload to see the latest." and reloads the column.
+- External services appear in the connection picker as their own group; the service form has an Address field shown
+  for type `external`.
 - The service page reuses the column 3 component, so a service looks the same in both places.
 - The workspace reads one environment model (`GET /environments/{id}/model`) and reloads it after each change; the pickers
   read the existing list endpoints.
@@ -114,6 +140,8 @@ Info tab becomes a workspace of three columns.
 
 - Store and rules: membership added by a deployment, idempotent add, refused removal, backfill in the migration, audit
   rows; the model lists empty member servers; the map places them.
+- External services: connection to an external service, refused for a non-external target, type change refused while
+  targeted, model `external_services`, the map node, the tools.
 - Proposals: resolving connection targets (one server, several servers, other environment, unknown name, external host),
   `part_of`, approval writing everything in one transaction and rolling back on error, no duplicate connections.
 - UI (vitest): column selection from the URL, each add dialog, conflict message, the proposal sheet showing every part.
