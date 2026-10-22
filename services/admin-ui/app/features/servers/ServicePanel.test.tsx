@@ -165,7 +165,10 @@ test("the column shows the fields, the deployment here, where else it runs, conn
       .map((item) => item.textContent),
   ).toEqual(["Part of billing", "Depends on postgres", "Needed by nginx", "Has part billing"]);
   expect(within(column.getByRole("region", { name: "Code projects" })).getByText("payments-repo")).toBeInTheDocument();
+  expect(column.queryByRole("region", { name: "Documents" })).not.toBeInTheDocument();
+  await userEvent.click(column.getByRole("tab", { name: "Documents" }));
   expect(await column.findByRole("region", { name: "Documents" })).toBeInTheDocument();
+  expect(column.queryByRole("region", { name: "Code projects" })).not.toBeInTheDocument();
 });
 
 test("on the service page every deployment is listed with its environment and server, and all its connections", async () => {

@@ -6,13 +6,15 @@ import { getService, type ServiceAsset } from "./services";
 import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import ServicePanel from "./ServicePanel";
+import EntryDocuments from "./EntryDocuments";
 import { checkoutText, sshText, useCodeFolder } from "./ServiceDetails";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One service: its Info (the service panel, as in the environment workspace, then its agent context, code folders and
- * server access) and its Chats (ResourceChats). */
+/** One service: a header (name, Proposals; Chat and Propose on the right) and tabs Overview (the service panel, as in
+ * the environment workspace, then its agent context, code folders and server access), Documents and Chats
+ * (ResourceChats). */
 export default function ServicePage({ serviceId }: { serviceId: string }) {
   const [service, setService] = useState<ServiceAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,27 +50,46 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
     ) : (
       <Skeleton className="h-60" />
     );
+  const id = encodeURIComponent(serviceId);
   return (
     <ResourceChats
       resource={{ type: "service", id: serviceId, name: service.name }}
       info={
-        <>
-          <div className="flex flex-col gap-1">
-            {back}
-            <h1 className="break-words text-2xl font-semibold">{service.name}</h1>
-          </div>
-          <ServicePanel serviceId={serviceId} onChanged={() => setVersion((value) => value + 1)} />
-          <AccessAndCode service={service} />
-        </>
+        <div className="flex flex-col gap-1">
+          {back}
+          <h1 className="break-words text-2xl font-semibold">{service.name}</h1>
+          <Link className="self-start text-sm underline" to={`/services/${id}/proposals`}>
+            Proposals
+          </Link>
+        </div>
       }
-      actions={
-        <>
-          <ProposeWizard resource={{ type: "service", id: serviceId, name: service.name }} />
-          <Button asChild size="sm" variant="link">
-            <Link to={`/services/${encodeURIComponent(serviceId)}/proposals`}>Proposals</Link>
-          </Button>
-        </>
-      }
+      pages={[
+        {
+          value: "overview",
+          label: "Overview",
+          content: (
+            <div className="flex min-w-0 flex-col gap-6">
+              <ServicePanel
+                serviceId={serviceId}
+                documents={false}
+                onChanged={() => setVersion((value) => value + 1)}
+              />
+              <AccessAndCode service={service} />
+            </div>
+          ),
+        },
+        {
+          value: "documents",
+          label: "Documents",
+          content: (
+            <EntryDocuments
+              entry={{ kind: "service", id: serviceId, name: service.name }}
+              onChanged={() => setVersion((value) => value + 1)}
+            />
+          ),
+        },
+      ]}
+      actions={<ProposeWizard resource={{ type: "service", id: serviceId, name: service.name }} />}
     />
   );
 }

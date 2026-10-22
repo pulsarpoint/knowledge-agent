@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import ServerPage from "~/features/servers/ServerPage";
@@ -217,14 +218,17 @@ test("shows the server, its services and documents, and its chats", async () => 
   expect(await screen.findByRole("heading", { name: "web-1", level: 1 })).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1");
+  expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/servers/s1/proposals");
+  await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(await screen.findByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");
+  expect(screen.queryByRole("region", { name: "Services" })).not.toBeInTheDocument();
   expect(screen.getByText("No inventory document yet.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "New inventory document" })).toHaveAttribute(
     "href",
     "/documents/new?inventory=server&resource_id=s1",
   );
-  expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/servers/s1/proposals");
-  const chats = screen.getByRole("region", { name: "Chats" });
+  await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
+  const chats = await screen.findByRole("region", { name: "Chats" });
   expect(await within(chats).findByRole("button", { name: /Disk usage/ })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Proposals panel" })).toBeNull();
@@ -316,6 +320,7 @@ test("empty services and documents are explained", async () => {
   api({ ...base(), "GET /api/servers/s1": () => [200, { ...page(true), deployments: [] }] });
   show();
   expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(await screen.findByText("No inventory document yet.")).toBeInTheDocument();
   expect(screen.getByText("No documents yet.")).toBeInTheDocument();
 });

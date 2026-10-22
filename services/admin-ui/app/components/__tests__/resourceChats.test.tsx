@@ -346,8 +346,15 @@ test("the service page shows the service's information in the service panel, and
   expect(panel.getByRole("region", { name: "Relations" })).toBeInTheDocument();
   expect(panel.getByRole("region", { name: "Code projects" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
-  expect(await screen.findByRole("region", { name: "Chats" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/services/v1/proposals");
+  // the documents are in their own tab, not in the panel
+  expect(panel.queryByRole("tab", { name: "Documents" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Documents" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
+  expect(await screen.findByRole("region", { name: "Documents" })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "payments" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
+  expect(await screen.findByRole("region", { name: "Chats" })).toBeInTheDocument();
 });
 
 test("the service page keeps the agent context link, the code folder path and the SSH status of each deployment", async () => {

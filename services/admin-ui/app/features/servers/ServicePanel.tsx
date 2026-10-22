@@ -25,6 +25,7 @@ import { RowAction, RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Field, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
@@ -62,17 +63,21 @@ type Open =
 /** A service with what is around it: its fields, its deployments (in the workspace the one on `serverId` in
  * `environmentId`, and where else it runs), connections out and in, relations both ways, code projects and documents.
  * Every change sends the revision it read; a stale one shows the conflict text and reloads. `onChanged` follows each
- * change. Used by the environment workspace (column 3) and the service page. */
+ * change. Used by the environment workspace (column 3, with tabs Details / Documents) and the service page (whose
+ * Documents tab holds the documents). */
 export default function ServicePanel({
   serviceId,
   environmentId,
   serverId,
   onChanged,
+  documents = true,
 }: {
   serviceId: string;
   environmentId?: string;
   serverId?: string;
   onChanged?: () => void;
+  /** Show the service's documents, in a Documents tab beside Details (false: the page shows them in its own tab). */
+  documents?: boolean;
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -192,13 +197,8 @@ export default function ServicePanel({
     .filter((item) => item.kind === "built_from" && item.from_service_id === serviceId)
     .map((item) => ({ item, text: repositories.get(item.to_code_project_id ?? "") ?? "an unknown code project" }));
 
-  return (
-    <section aria-label={service.name} className="flex min-w-0 flex-col gap-4 rounded-lg border p-3">
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+  const details = (
+    <>
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col gap-1">
           {workspace && <h2 className="break-words text-lg font-semibold">{service.name}</h2>}
@@ -309,8 +309,32 @@ export default function ServicePanel({
           </List>
         )}
       </Part>
+    </>
+  );
 
-      <EntryDocuments entry={{ kind: "service", id: serviceId, name: service.name }} onChanged={onChanged} />
+  return (
+    <section aria-label={service.name} className="flex min-w-0 flex-col gap-4 rounded-lg border p-3">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {documents ? (
+        <Tabs defaultValue="details" className="flex min-w-0 flex-col gap-4">
+          <TabsList aria-label="Service">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="documents">Documents</TabsTrigger>
+          </TabsList>
+          <TabsContent value="details" className="flex min-w-0 flex-col gap-4">
+            {details}
+          </TabsContent>
+          <TabsContent value="documents" className="min-w-0">
+            <EntryDocuments entry={{ kind: "service", id: serviceId, name: service.name }} onChanged={onChanged} />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        details
+      )}
 
       {open?.kind === "fields" && (
         <ServiceFieldsSheet service={service} onSaved={changed} onConflict={conflict} onClose={() => setOpen(null)} />

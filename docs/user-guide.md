@@ -351,14 +351,17 @@ Registering does not connect to anything.
 
 A server cannot be deleted while service deployments reference it.
 
-A server's name opens its page (`/servers/:id`): its **Info** (details, SSH state, the services deployed on it, its
-documents) and its **Chats**. Services (`/services/:id`) and environments (`/environments/:id`) have the same kind of
-page. **Connections and documents** there opens the same panel as the System map.
+A server's name opens its page (`/servers/:id`): a header (details, SSH state, **Proposals**; **Chat**, **New chat** and
+**Propose** on the right) and tabs **Overview** (the services deployed on it), **Documents** and **Chats**; the open tab
+is kept in the URL (`?view=documents`, `?view=chats`). Services (`/services/:id`: Overview is the service panel) and
+environments (`/environments/:id`: the first tab is the Workspace) have the same kind of page. In the environment
+workspace, the selected service's column has its own tabs **Details** and **Documents**. **Connections and documents**
+in a Documents tab opens the same panel as the System map.
 
 A server's, service's or environment's **inventory document** is the document tagged `inventory` built for it (the
-most recently updated one when several; the others are in its Documents list): Info shows it rendered, with **Open** to
+most recently updated one when several; the others are in its Documents list): the Documents tab shows it rendered, with **Open** to
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"). Without one,
-Info says "No inventory document yet." with **New inventory document**: the New document page opens built for the
+it says "No inventory document yet." with **New inventory document**: the New document page opens built for the
 resource with its Tags starting as `inventory`, and **Save** creates the draft of its inventory document. Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has

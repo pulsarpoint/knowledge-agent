@@ -7,12 +7,11 @@ import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
-/** One server: its Info (details and SSH state, the services deployed on it, its documents) and its Chats (ResourceChats:
- * the chat opens beside the Info on wide screens, as a tab below that). */
+/** One server: a header (details, SSH state, Proposals; Chat and Propose on the right) and tabs Overview (the services
+ * deployed on it), Documents and Chats (ResourceChats: the chat opens beside the page on wide screens). */
 export default function ServerPage({ serverId }: { serverId: string }) {
   const [data, setData] = useState<ServerPageData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +74,14 @@ export default function ServerPage({ serverId }: { serverId: string }) {
           </Badge>
         </div>
         {discovery.reason && <p className="text-sm text-muted-foreground">{discovery.reason}</p>}
+        <Link className="self-start text-sm underline" to={`/servers/${encodeURIComponent(serverId)}/proposals`}>
+          Proposals
+        </Link>
       </div>
+    </>
+  );
+  const services = (
+    <>
       <section aria-label="Services" className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Services</h2>
         {deployments.length === 0 ? (
@@ -111,10 +117,6 @@ export default function ServerPage({ serverId }: { serverId: string }) {
           </div>
         )}
       </section>
-      <EntryDocuments
-        entry={{ kind: "server", id: serverId, name: server.name }}
-        onChanged={() => setVersion((value) => value + 1)}
-      />
     </>
   );
   return (
@@ -122,14 +124,20 @@ export default function ServerPage({ serverId }: { serverId: string }) {
       resource={{ type: "server", id: serverId, name: server.name }}
       info={info}
       blockedReason={blocked}
-      actions={
-        <>
-          <ProposeWizard resource={{ type: "server", id: serverId, name: server.name }} blockedReason={blocked} />
-          <Button asChild size="sm" variant="link">
-            <Link to={`/servers/${encodeURIComponent(serverId)}/proposals`}>Proposals</Link>
-          </Button>
-        </>
-      }
+      pages={[
+        { value: "overview", label: "Overview", content: services },
+        {
+          value: "documents",
+          label: "Documents",
+          content: (
+            <EntryDocuments
+              entry={{ kind: "server", id: serverId, name: server.name }}
+              onChanged={() => setVersion((value) => value + 1)}
+            />
+          ),
+        },
+      ]}
+      actions={<ProposeWizard resource={{ type: "server", id: serverId, name: server.name }} blockedReason={blocked} />}
     />
   );
 }
