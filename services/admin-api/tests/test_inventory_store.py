@@ -500,19 +500,19 @@ def test_discarding_a_service_removes_its_drafts_and_never_a_confirmed_entry(sto
     with store.connect() as conn:
         discarded = inventory.discard(conn, p, 'service', drafts['cache']['id'], 1, author)
         assert discarded[0] == {'kind': 'service', 'id': drafts['cache']['id'], 'name': 'cache'}
-        assert {e['kind'] for e in discarded} == {'service', 'deployment', 'connection', 'relation'}
+        assert {e['kind'] for e in discarded} == {'service', 'deployment', 'connection', 'relation', 'membership'}
+        assert ('membership', 'c in test') in {(e['kind'], e['name']) for e in discarded}  # the deployment's, now empty
         found = statuses(conn, drafts)
         assert (found['cache'], found['cache_c'], found['link'], found['uses']) == (None, None, None, None)
-        assert (found['test'], found['c'], found['membership']) == ('draft', 'draft', 'draft')
+        assert (found['test'], found['c'], found['membership']) == ('draft', 'draft', None)
         assert inventory.get(conn, p, 'deployment', world['api_a']['id'])['status'] == 'confirmed'
         assert [r['action'] for r in audit(conn, drafts['cache']['id'])][-1] == 'service.discarded'
         assert [r['action'] for r in audit(conn, drafts['link']['id'])][-1] == 'connection.discarded'
         with pytest.raises(Invalid, match='^Only a draft can be discarded.$'):
             inventory.discard(conn, p, 'service', world['api']['id'], 1, author)
         membership = f'{drafts["test"]["id"]}:{drafts["c"]["id"]}'
-        assert inventory.discard(conn, p, 'membership', membership, None, author) == [
-            {'kind': 'membership', 'id': membership, 'name': 'c in test'}
-        ]
+        with pytest.raises(inventory.NotFound):
+            inventory.discard(conn, p, 'membership', membership, None, author)
         assert [e['kind'] for e in inventory.discard(conn, p, 'environment', drafts['test']['id'], 1, author)] == [
             'environment'
         ]
@@ -547,3 +547,42 @@ def test_a_person_writing_a_confirmed_entry_confirms_the_drafts_it_needs(store, 
             'confirmed',
             'draft',
         )
+
+
+def test_discarding_a_draft_deployment_keeps_a_confirmed_membership(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        x = inventory.create_server(conn, p, {'name': 'x', 'hostname': 'x.internal'}, author)
+        prod = world['prod']['id']
+        inventory.add_server_to_environment(conn, p, prod, x['id'], author)
+        queue = inventory.create_service(conn, p, {'name': 'queue'}, author, status='draft')
+        values = {'service_id': queue['id'], 'server_id': x['id'], 'environment_id': prod}
+        inventory.create_deployment(conn, p, values, author, status='draft')
+        discarded = inventory.discard(conn, p, 'service', queue['id'], 1, author)
+        assert {e['kind'] for e in discarded} == {'service', 'deployment'}
+        assert x['id'] in members(conn, prod)
+        status = conn.execute(
+            'SELECT status FROM ka.environment_servers WHERE environment_id=%s AND server_id=%s', (prod, x['id'])
+        ).fetchone()['status']
+        assert status == 'confirmed'
+
+
+def test_a_person_updating_a_confirmed_entry_confirms_the_drafts_it_now_needs(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        moved = inventory.update_deployment(conn, p, world['api_a']['id'], 1, {'server_id': drafts['c']['id']}, author)
+        assert moved['status'] == 'confirmed'
+        assert inventory.get(conn, p, 'server', drafts['c']['id'])['status'] == 'confirmed'
+        row = conn.execute(
+            'SELECT status FROM ka.environment_servers WHERE environment_id=%s AND server_id=%s',
+            (world['prod']['id'], drafts['c']['id']),
+        ).fetchone()
+        assert row['status'] == 'confirmed'
+        mail = inventory.create_service(
+            conn, p, {'name': 'mail', 'service_type': 'external', 'address': 'mail.example.com'}, author, status='draft'
+        )
+        values = {'from_deployment_id': world['db_b']['id'], 'to_host': 'smtp.example.com', 'port': 25}
+        connection = inventory.create_connection(conn, p, values, author)
+        changes = {'to_host': None, 'to_service_id': mail['id']}
+        inventory.update_connection(conn, p, connection['id'], 1, changes, author)
+        assert inventory.get(conn, p, 'service', mail['id'])['status'] == 'confirmed'

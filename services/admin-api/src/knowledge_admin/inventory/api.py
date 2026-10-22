@@ -21,7 +21,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictInt
 
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as documents
@@ -58,7 +58,7 @@ NOT_LINKED = 'This document is not linked.'
 
 class Revision(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    revision: int | None = None
+    revision: StrictInt | None = None
 
 
 class DocumentChoice(BaseModel):

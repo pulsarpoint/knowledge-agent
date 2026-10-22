@@ -98,6 +98,7 @@ KINDS = {
         'duplicate': 'This relation already exists',
     },
 }
+STATUSES = ('draft', 'confirmed')
 
 
 # Reads
@@ -462,7 +463,6 @@ def _add_member(conn, project_id: UUID, environment_id: UUID, server_id: UUID, a
 
 # Drafts: confirm and discard (rules.confirm_reach and rules.discard_reach say what they reach)
 
-STATUSES = ('draft', 'confirmed')
 TABLES = {kind: spec['table'] for kind, spec in KINDS.items()}
 DISCARD_ORDER = ('connection', 'relation', 'deployment', 'membership', 'service', 'server', 'environment')
 
@@ -536,21 +536,21 @@ def _listed(entries: list[tuple], rows: dict) -> list[dict]:
 
 def _confirm_entries(conn, project_id: UUID, entries: list[tuple], rows: dict, author: dict) -> list[dict]:
     listed = _listed(entries, rows)
-    for kind, key in entries:
+    for (kind, key), entry in zip(entries, listed, strict=True):
         if kind == 'membership':
             row = rows['membership'][key]
             conn.execute(
                 "UPDATE ka.environment_servers SET status='confirmed' WHERE environment_id=%s AND server_id=%s",
                 (row['environment_id'], row['server_id']),
             )
-            details = {'server_id': row['server_id']}
+            details = {'server_id': row['server_id'], 'name': entry['name']}
             _audit(conn, project_id, author, 'membership.confirmed', 'environment', row['environment_id'], details)
             continue
         revision = conn.execute(
             f"UPDATE {TABLES[kind]} SET status='confirmed',revision=revision+1 WHERE id=%s RETURNING revision",
             (key,),
         ).fetchone()['revision']
-        _audit(conn, project_id, author, f'{kind}.confirmed', kind, key, {'revision': revision})
+        _audit(conn, project_id, author, f'{kind}.confirmed', kind, key, {'revision': revision, 'name': entry['name']})
     return listed
 
 

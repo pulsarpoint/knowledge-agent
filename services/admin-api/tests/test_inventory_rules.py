@@ -406,3 +406,23 @@ def test_entry_names():
     assert rules.entry_name('connection', 'c2', rows) == 'api → mail'
     assert rules.entry_name('relation', 'r1', rows) == 'api depends_on pg'
     assert rules.entry_name('relation', 'r2', rows) == 'api built_from code'
+
+
+def test_discard_takes_the_draft_membership_its_deployments_leave_empty():
+    def without_api_db(rows: dict) -> dict:
+        del rows['deployment']['api_db'], rows['connection']['c1'], rows['connection']['c2']
+        return rows
+
+    assert set(rules.discard_reach('service', 'pg', without_api_db(draft_rows()))) == {
+        ('service', 'pg'),
+        ('deployment', 'pg_db'),
+        ('relation', 'r1'),
+        ('membership', 'test:db'),
+    }
+    assert ('membership', 'test:db') not in rules.discard_reach('service', 'pg', draft_rows())  # api_db is still there
+    kept = without_api_db(draft_rows(confirmed={'test', 'db', 'test:db'}))
+    assert set(rules.discard_reach('service', 'pg', kept)) == {
+        ('service', 'pg'),
+        ('deployment', 'pg_db'),
+        ('relation', 'r1'),
+    }

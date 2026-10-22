@@ -348,8 +348,9 @@ def confirm_reach(kind: str, key, rows: dict) -> list[tuple[str, object]]:
 
 
 def discard_reach(kind: str, key, rows: dict) -> list[tuple[str, object]]:
-    """What discarding this draft removes: the draft, then every entry that needs it. Refused when one of those is
-    confirmed (a confirmed entry is never removed by a discard)."""
+    """What discarding this draft removes: the draft, then every entry that needs it, then the draft memberships its
+    deployments leave empty. Refused when an entry that needs it is confirmed (a discard never removes a confirmed
+    entry)."""
     if not _is_draft(rows, (kind, key)):
         raise Invalid('Only a draft can be discarded.')
     found = _walk((kind, key), lambda k, i: _dependants(k, i, rows))
@@ -359,7 +360,21 @@ def discard_reach(kind: str, key, rows: dict) -> list[tuple[str, object]]:
                 f'A confirmed {entry[0]} ({entry_name(*entry, rows)}) needs this draft. Remove that {entry[0]} first, '
                 'or confirm the draft.'
             )
-    return [(kind, key), *found]
+    reach = [(kind, key), *found]
+    return reach + _emptied_memberships(reach, rows)
+
+
+def _emptied_memberships(reach: list[tuple[str, object]], rows: dict) -> list[tuple[str, object]]:
+    """The draft memberships the discarded deployments leave with no deployment (a confirmed membership stays)."""
+    gone = {key for kind, key in reach if kind == 'deployment'}
+    left = {membership_id(d['environment_id'], d['server_id']) for k, d in rows['deployment'].items() if k not in gone}
+    emptied = []
+    for deployment in gone:
+        d = rows['deployment'][deployment]
+        entry = ('membership', membership_id(d['environment_id'], d['server_id']))
+        if entry[1] not in left and entry not in reach and entry not in emptied and _is_draft(rows, entry):
+            emptied.append(entry)
+    return emptied
 
 
 def entry_name(kind: str, key, rows: dict) -> str:

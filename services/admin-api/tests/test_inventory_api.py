@@ -389,3 +389,11 @@ def test_a_membership_is_named_by_environment_and_server(client, store, world):
     assert {e['name']: e['status'] for e in listed} == {'prod': 'confirmed', 'test': 'confirmed'}
     bad = client.post('/api/inventory/membership/nonsense/discard', headers=HEADERS, json={})
     assert bad.status_code == 400
+
+
+def test_the_draft_kinds_of_the_api_are_the_rules_kinds():
+    from typing import get_args
+
+    from knowledge_admin.inventory import api, rules
+
+    assert get_args(api.DraftKind) == rules.DRAFT_KINDS
