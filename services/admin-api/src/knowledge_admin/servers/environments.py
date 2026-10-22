@@ -184,15 +184,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 raise HTTPException(404, 'Environment not found')
             if revision != current['revision']:
                 raise HTTPException(409, 'This environment changed. Cancel, refresh, and try again')
+            if conn.execute(
+                'SELECT 1 FROM ka.service_deployments WHERE environment_id=%s LIMIT 1', (environment_id,)
+            ).fetchone():
+                raise HTTPException(409, 'This environment has deployments. Remove those deployments first')
             actor_id = db.actor(conn, subject, email)
             conn.execute(
                 """UPDATE ka.services SET revision=revision+1 WHERE id IN
                 (SELECT service_id FROM ka.environment_services WHERE environment_id=%s)""",
                 (environment_id,),
-            )
-            conn.execute(
-                'UPDATE ka.service_deployments SET environment=%s WHERE environment_id=%s',
-                (current['name'], environment_id),
             )
             conn.execute('DELETE FROM ka.environments WHERE id=%s', (environment_id,))
             conn.execute(

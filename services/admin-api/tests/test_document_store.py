@@ -4,6 +4,7 @@ import threading
 from uuid import uuid4
 
 import pytest
+from inventory_rows import environment_id
 from fastapi import HTTPException
 from knowledge_admin.documents.store import (
     DRAFT_OUTCOME,
@@ -67,9 +68,9 @@ def code_project(conn, project, name: str):
 
 def deployment(conn, project, service_id, server_id):
     return conn.execute(
-        """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
-        VALUES (%s,%s,%s,'production','app') RETURNING id""",
-        (project, service_id, server_id),
+        """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
+        VALUES (%s,%s,%s,'production',%s,'app') RETURNING id""",
+        (project, service_id, server_id, environment_id(conn, project, 'production')),
     ).fetchone()['id']
 
 

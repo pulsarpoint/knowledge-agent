@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from inventory_rows import environment_id
 
 from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import get_agent_config, load_entries
@@ -39,9 +40,9 @@ def narrowed_agent(sessions):
             for name in ('runbooks', 'private')
         }
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
-            VALUES (%s,%s,%s,'Staging','payments-api',8080)""",
-            (project, sessions.service, host['id']),
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging',%s,'payments-api',8080)""",
+            (project, sessions.service, host['id'], environment_id(conn, project, 'Staging')),
         )
     analyst = native_agent(
         client,

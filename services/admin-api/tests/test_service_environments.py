@@ -95,16 +95,13 @@ def test_deployment_uses_environment_id_and_tracks_renames_and_deletion(store, t
         ).status_code
         == 400
     )
-    assert (
-        client.delete(
-            f'/api/environments/{env["id"]}?confirmed=true&revision={renamed["revision"]}', headers=HEADERS
-        ).status_code
-        == 200
+    # An environment with deployments cannot be deleted (0125: every deployment is in an environment).
+    refused = client.delete(
+        f'/api/environments/{env["id"]}?confirmed=true&revision={renamed["revision"]}', headers=HEADERS
     )
+    assert refused.status_code == 409 and 'deployments' in refused.json()['error']['message']
     asset = client.get(f'/api/services/{service["id"]}/context', headers=HEADERS).json()['service']
-    assert asset['environments'] == []
-    assert asset['deployments'][0]['environment_id'] is None
-    assert asset['deployments'][0]['environment'] == 'Development'
+    assert asset['deployments'][0]['environment_id'] == env['id']
     assert asset['deployments'][0]['id'] == deployment['id']
 
 

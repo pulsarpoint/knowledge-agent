@@ -8,6 +8,7 @@ from access_helpers import of
 from uuid import uuid4
 
 import pytest
+from inventory_rows import environment_id
 from pydantic import ValidationError
 
 from discovery_world import world  # noqa: F401  (fixture)
@@ -217,9 +218,9 @@ def test_lists_stop_at_100(world):
                 (service, world.project, f'svc-{number:03}'),
             )
             conn.execute(
-                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
-                VALUES (%s,%s,%s,'Production','x')""",
-                (world.project, service, world.server['id']),
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
+                VALUES (%s,%s,%s,'Production',%s,'x')""",
+                (world.project, service, world.server['id'], environment_id(conn, world.project, 'Production')),
             )
     found = get(given(world), 'server', world.server['id'])
     assert len(found['links']) == 100 and found['truncated'] is True

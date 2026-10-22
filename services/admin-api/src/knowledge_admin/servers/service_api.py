@@ -10,8 +10,19 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage, workspace
+from knowledge_admin.inventory import store as inventory
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.servers.services import ServerInput, ServiceInput
+
+
+def environment_named(conn, project_id: UUID, actor_id: UUID, name: str) -> UUID:
+    name = name.strip()[:100].strip()
+    row = conn.execute(
+        'SELECT id FROM ka.environments WHERE project_id=%s AND lower(name)=lower(%s)', (project_id, name)
+    ).fetchone()
+    if row is not None:
+        return row['id']
+    return inventory.create_environment(conn, project_id, {'name': name}, {'actor_id': actor_id})['id']
 
 
 def save_service(
@@ -88,6 +99,19 @@ def save_service(
         raise HTTPException(400, 'Choose servers belonging to this application')
     if any(d.id is not None and d.id not in existing_ids for d in value.deployments):
         raise HTTPException(400, 'Deployment does not belong to this service')
+    # Every deployment is in an environment: a free-text label names one (created when missing), as in 0125.
+    value = value.model_copy(
+        update={
+            'deployments': [
+                d
+                if d.environment_id is not None
+                else d.model_copy(
+                    update={'environment_id': environment_named(conn, project_id, actor_id, d.environment)}
+                )
+                for d in value.deployments
+            ]
+        }
+    )
     original_environments = {
         row['environment_id']
         for row in conn.execute('SELECT environment_id FROM ka.environment_services WHERE service_id=%s', (service_id,))

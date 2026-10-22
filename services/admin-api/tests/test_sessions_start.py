@@ -123,12 +123,12 @@ def test_options_say_what_each_service_and_environment_brings(ask, keyless):
     with ask.s.store.connect() as conn:
         project = ask.s.store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Gateway')", (gateway, project))
-        conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
-            VALUES (%s,%s,%s,'Staging','gateway',8080)""",
-            (project, gateway, ask.web['id']),
-        )
         conn.execute("INSERT INTO ka.environments(id,project_id,name) VALUES (%s,%s,'Staging')", (staging, project))
+        conn.execute(
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging',%s,'gateway',8080)""",
+            (project, gateway, ask.web['id'], staging),
+        )
         conn.execute(
             'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
             (project, staging, ask.web['id']),

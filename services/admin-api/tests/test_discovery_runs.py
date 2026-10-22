@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import asyncssh
 import pytest
+from inventory_rows import environment_id
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities.document_tools import _run_links
@@ -164,15 +165,15 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
     postgres = uuid4()
     with world.store.connect() as conn:  # nginx also runs on db-1; postgres runs only there
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
-            VALUES (%s,%s,%s,'Production','nginx')""",
-            (world.project, world.nginx, other['id']),
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
+            VALUES (%s,%s,%s,'Production',%s,'nginx')""",
+            (world.project, world.nginx, other['id'], environment_id(conn, world.project, 'Production')),
         )
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'postgres')", (postgres, world.project))
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
-            VALUES (%s,%s,%s,'Production','postgres')""",
-            (world.project, postgres, other['id']),
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
+            VALUES (%s,%s,%s,'Production',%s,'postgres')""",
+            (world.project, postgres, other['id'], environment_id(conn, world.project, 'Production')),
         )
     sid = start(world).json()['id']
     pinned = pinned_of(world, sid)

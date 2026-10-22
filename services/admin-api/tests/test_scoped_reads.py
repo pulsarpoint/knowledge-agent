@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from inventory_rows import environment_id
 
 from knowledge_admin import access as access_rules
 from discovery_world import world  # noqa: F401  (fixture)
@@ -61,9 +62,9 @@ def add_db(store, project, *, server=None):
             ).fetchone()['id']
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'postgres')", (service, project))
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
-            VALUES (%s,%s,%s,'Production','postgres')""",
-            (project, service, server),
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
+            VALUES (%s,%s,%s,'Production',%s,'postgres')""",
+            (project, service, server, environment_id(conn, project, 'Production')),
         )
         saved = live_document(
             conn, project, 'db-1-overview', 'db-1 overview', '# db-1 overview\n\nBody.', description='About db-1'

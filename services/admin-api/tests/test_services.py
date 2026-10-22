@@ -2,6 +2,7 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+from inventory_rows import environment_id
 
 from access_helpers import give
 from knowledge_admin.repositories import RepositoryInput
@@ -163,8 +164,9 @@ def test_cross_project_references_and_ids_fail_without_mutation(store, tmp_path)
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with store.connect() as conn:
             conn.execute(
-                "INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment) VALUES (%s,%s,%s,'prod')",
-                (local_project, local_service, foreign_server),
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id)
+                VALUES (%s,%s,%s,'prod',%s)""",
+                (local_project, local_service, foreign_server, environment_id(conn, local_project, 'prod')),
             )
 
 

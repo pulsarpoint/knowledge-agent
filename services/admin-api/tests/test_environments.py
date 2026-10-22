@@ -62,16 +62,17 @@ def test_round_trip_shared_membership_edit_and_audit(store, inventory):
 
 def test_delete_requires_confirmation_revision_and_preserves_inventory(store, inventory):
     client, service, host = inventory
-    # The existing deployment label is not an environment membership inference.
+    # A free-text deployment label names an environment, created when missing (0125).
     assert (
         client.put(
             f'/api/services/{service["id"]}',
             headers=HEADERS,
-            json={'name': 'API', 'revision': 1, 'deployments': [{'server_id': host['id'], 'environment': 'dev'}]},
+            json={'name': 'API', 'revision': 1, 'deployments': [{'server_id': host['id'], 'environment': 'qa'}]},
         ).status_code
         == 200
     )
-    assert client.get('/api/environments', headers=HEADERS).json() == {'environments': []}
+    [qa] = client.get('/api/environments', headers=HEADERS).json()['environments']
+    assert qa['name'] == 'qa'
     environment = client.post(
         '/api/environments',
         headers=HEADERS,
@@ -83,10 +84,17 @@ def test_delete_requires_confirmation_revision_and_preserves_inventory(store, in
     assert client.get(url, headers=HEADERS).status_code == 200
     assert client.delete(url + '?revision=1&confirmed=true', headers=HEADERS).status_code == 200
     assert client.get(url, headers=HEADERS).status_code == 404
-    assert client.get('/api/environments', headers=HEADERS).json() == {'environments': []}
+    assert [e['name'] for e in client.get('/api/environments', headers=HEADERS).json()['environments']] == ['qa']
+    refused = client.delete(f'/api/environments/{qa["id"]}?revision={qa["revision"]}&confirmed=true', headers=HEADERS)
+    assert refused.status_code == 409  # its deployment uses it
     with store.connect() as conn:
         for table in ('environment_services', 'environment_servers'):
-            assert conn.execute(f'SELECT count(*) AS n FROM ka.{table}').fetchone()['n'] == 0
+            assert (
+                conn.execute(
+                    f'SELECT count(*) AS n FROM ka.{table} WHERE environment_id=%s', (UUID(environment['id']),)
+                ).fetchone()['n']
+                == 0
+            )
         for table in ('services', 'servers', 'service_deployments'):
             assert conn.execute(f'SELECT count(*) AS n FROM ka.{table}').fetchone()['n'] == 1
         assert (

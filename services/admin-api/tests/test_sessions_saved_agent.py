@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from inventory_rows import environment_id
 
 from access_helpers import give
 from knowledge_admin.access import SSH_NOT_SET_UP
@@ -197,9 +198,9 @@ def test_options_tell_what_a_service_brings(agent, ask):
     with ask.s.store.connect() as conn:
         project = ask.s.store.project(conn, 'shop')
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
-            VALUES (%s,%s,%s,'Staging','payments-api',8081)""",
-            (project, ask.s.service, agent.web),
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging',%s,'payments-api',8081)""",
+            (project, ask.s.service, agent.web, environment_id(conn, project, 'Staging')),
         )
     options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
     service = next(item for item in options['resources']['services'] if item['id'] == ask.s.service)
@@ -209,9 +210,14 @@ def test_options_tell_what_a_service_brings(agent, ask):
 def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_it_brings(agent, ask):
     with ask.s.store.connect() as conn:  # Payments is deployed on web-1 and built from both code projects
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
-            VALUES (%s,%s,%s,'Staging','payments-api',8081)""",
-            (ask.s.store.project(conn, 'shop'), ask.s.service, agent.web),
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging',%s,'payments-api',8081)""",
+            (
+                ask.s.store.project(conn, 'shop'),
+                ask.s.service,
+                agent.web,
+                environment_id(conn, ask.s.store.project(conn, 'shop'), 'Staging'),
+            ),
         )
     response = start(agent.client, agent_id=agent.id, resources={'service_ids': [ask.s.service]})
     assert response.status_code == 201, response.text
