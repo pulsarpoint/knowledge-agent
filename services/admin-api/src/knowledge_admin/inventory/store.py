@@ -6,7 +6,10 @@ revision on update and delete, and record an audit event with the person and, fo
 
 author: {'actor_id': principal id or None, 'agent_id': agent id or None, 'session_id': agent session id or None}.
 Errors: rules.Invalid (bad values or a missing reference), NotFound (the item is not in this project), Conflict (stale
-revision, duplicate, or a delete refused while deployments use the item)."""
+revision, duplicate, or a delete refused while deployments use the item).
+
+The one write path covers the inventory structure; a server's SSH settings and connection-test results are written by
+the operations code (servers/operations_store.py, operations_api.py)."""
 
 from uuid import UUID
 
@@ -198,8 +201,9 @@ def _require(conn, table: str, project_id: UUID, item_id: UUID | None, label: st
     return row
 
 
-def _references(conn, project_id: UUID, kind: str, item: dict) -> dict:
-    """Check the item's references exist in the project; returns extra columns to write."""
+def _references(conn, project_id: UUID, kind: str, item: dict, saved: dict | None = None) -> dict:
+    """Check the item's references exist in the project; returns extra columns to write. A relation cannot newly point
+    at an archived code project (one it already points at stays, so its description can still change)."""
     if kind == 'deployment':
         _require(conn, 'ka.services', project_id, item['service_id'], 'service')
         _require(conn, 'ka.servers', project_id, item['server_id'], 'server')
@@ -215,7 +219,10 @@ def _references(conn, project_id: UUID, kind: str, item: dict) -> dict:
     if kind == 'relation':
         _require(conn, 'ka.services', project_id, item['from_service_id'], 'service')
         _require(conn, 'ka.services', project_id, item['to_service_id'], 'service to relate to')
-        _require(conn, 'ka.repositories', project_id, item['to_code_project_id'], 'code project')
+        code_project = _require(conn, 'ka.repositories', project_id, item['to_code_project_id'], 'code project')
+        kept = saved is not None and saved['to_code_project_id'] == item['to_code_project_id']
+        if code_project is not None and code_project['archived_at'] is not None and not kept:
+            raise Invalid('Choose a code project that is not archived')
     return {}
 
 
@@ -274,7 +281,7 @@ def _update(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, cha
     if kind == 'connection' and 'to_deployment_id' in changes and 'port' not in changes:
         saved['port'] = None  # a new target brings its own port
     item = KINDS[kind]['rule']({**saved, **changes})
-    columns = {**item, **_references(conn, project_id, kind, item)}
+    columns = {**item, **_references(conn, project_id, kind, item, row)}
     sets = ','.join(f'{name}=%s' for name in columns)
     _write(
         conn,

@@ -24,14 +24,14 @@ from knowledge_admin.inventory import assets, store
 from knowledge_admin.inventory.rules import Invalid
 from knowledge_admin.repositories import RepositoryStore
 
-# URL segment → store kind
-KINDS = {
-    'servers': 'server',
-    'services': 'service',
-    'environments': 'environment',
-    'deployments': 'deployment',
-    'connections': 'connection',
-    'relations': 'relation',
+# URL segment → the store's create, update and delete
+WRITERS = {
+    'servers': (store.create_server, store.update_server, store.delete_server),
+    'services': (store.create_service, store.update_service, store.delete_service),
+    'environments': (store.create_environment, store.update_environment, store.delete_environment),
+    'deployments': (store.create_deployment, store.update_deployment, store.delete_deployment),
+    'connections': (store.create_connection, store.update_connection, store.delete_connection),
+    'relations': (store.create_relation, store.update_relation, store.delete_relation),
 }
 EntryKind = Literal['service', 'server', 'environment', 'code_project']
 ENTRY_TABLES = {
@@ -93,20 +93,18 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
                     raise HTTPException(404, str(exc)) from None
             return reader(conn, project_id)
 
-    def routes(segment: str, kind: str) -> None:
+    def routes(segment: str, create_item: Callable, update_item: Callable, delete_item: Callable) -> None:
         def create(request: Request, value: Annotated[dict, Body()]) -> dict:
-            create_item = getattr(store, f'create_{kind}')
             return write(request, lambda conn, project_id, author: create_item(conn, project_id, value, author))
 
         def update(item_id: UUID, request: Request, value: Annotated[dict, Body()]) -> dict:
             def change(conn, project_id, author):
                 revision, changes = revision_of(value)
-                return getattr(store, f'update_{kind}')(conn, project_id, item_id, revision, changes, author)
+                return update_item(conn, project_id, item_id, revision, changes, author)
 
             return write(request, change)
 
         def delete(item_id: UUID, request: Request, revision: int = Query(ge=1)) -> dict:
-            delete_item = getattr(store, f'delete_{kind}')
             return write(
                 request, lambda conn, project_id, author: delete_item(conn, project_id, item_id, revision, author)
             )
@@ -115,8 +113,8 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
         router.add_api_route(f'/{segment}/{{item_id}}', update, methods=['PUT'])
         router.add_api_route(f'/{segment}/{{item_id}}', delete, methods=['DELETE'])
 
-    for segment, kind in KINDS.items():
-        routes(segment, kind)
+    for segment, writers in WRITERS.items():
+        routes(segment, *writers)
 
     # Reads
 

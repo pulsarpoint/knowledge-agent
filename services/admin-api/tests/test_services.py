@@ -204,6 +204,30 @@ def test_server_inventory_does_not_grant_access_or_accept_connection_secrets(sto
             conn.execute('UPDATE ka.servers SET enabled=true')
 
 
+def test_a_relation_cannot_newly_point_at_an_archived_code_project(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    archived = str(store.save('shop', RepositoryInput(remote_url='example/archive'), 'admin', ''))
+    linked = str(store.save('shop', RepositoryInput(remote_url='example/linked'), 'admin', ''))
+    service = post(client, 'services', name='Test')
+    relation = post(client, 'relations', from_service_id=service['id'], kind='built_from', to_code_project_id=linked)
+    with store.connect() as conn:
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=ANY(%s)', ([archived, linked],))
+    built_from = {'from_service_id': service['id'], 'kind': 'built_from', 'to_code_project_id': archived}
+    refused = client.post('/api/relations', headers=HEADERS, json=built_from)
+    assert (refused.status_code, refused.json()['error']['message']) == (
+        400,
+        'Choose a code project that is not archived',
+    )
+    url = f'/api/relations/{relation["id"]}'
+    moved = client.put(url, headers=HEADERS, json={'revision': 1, 'to_code_project_id': archived})
+    assert moved.status_code == 400
+    # the link it already has stays editable
+    described = client.put(url, headers=HEADERS, json={'revision': 1, 'description': 'source'})
+    assert described.status_code == 200, described.text
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.service_relations').fetchone()['n'] == 1
+
+
 def test_delete_service_requires_revision_identity_and_scope(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     service = client.post('/api/services', headers=HEADERS, json={'name': 'Disposable service'}).json()

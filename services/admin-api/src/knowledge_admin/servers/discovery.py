@@ -298,8 +298,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 author,
             )
         else:
-            kept = {key: proposed[key] for key in DEPLOYMENT_FIELDS if proposed[key] not in (None, '')}
-            inventory.update_deployment(conn, project, match['id'], match['revision'], kept, author)
+            kept = {key: proposed[key] for key in DEPLOYMENT_FIELDS if proposed[key] not in (None, '', match[key])}
+            if kept:
+                inventory.update_deployment(conn, project, match['id'], match['revision'], kept, author)
         related = {
             (relation['kind'], relation['to_service_id'] or relation['to_code_project_id'])
             for relation in inventory.list_relations(conn, project, service_id=service['id'])

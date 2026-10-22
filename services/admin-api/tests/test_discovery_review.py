@@ -122,6 +122,28 @@ def test_an_update_shows_its_changes_and_applies_only_the_kept_fields(run):
         deployment['deployed_version'] == '1.24.0' and deployment['port'] == 80 and deployment['runtime'] == 'systemd'
     )
     assert [item['name'] for item in nginx['repositories']] == ['Shop']
+    with world.store.connect() as conn:  # through the store: the service and the matched deployment, audited
+        actions = conn.execute(
+            """SELECT action FROM ka.audit_events WHERE resource_id=%s
+            OR resource_id IN (SELECT id FROM ka.service_deployments WHERE service_id=%s) ORDER BY id""",
+            (world.nginx, world.nginx),
+        ).fetchall()
+        assert [row['action'] for row in actions] == ['service.updated', 'deployment.updated']
+
+
+def test_an_accept_with_nothing_new_for_the_deployment_leaves_it_alone(run):
+    world, sid, config = run
+    propose(config, 'propose_service', name='nginx', description='Changed', deployment={'runtime_name': 'nginx'})
+    [proposal] = listed(world, sid)
+    assert decide(world, proposal, 'accept').status_code == 200
+    [deployment] = service(world, 'nginx')['deployments']
+    with world.store.connect() as conn:
+        assert (
+            conn.execute('SELECT revision FROM ka.service_deployments WHERE id=%s', (deployment['id'],)).fetchone()[
+                'revision'
+            ]
+            == 1
+        )
 
 
 def test_unticking_every_field_still_updates_the_deployment_and_adds_connections(run):
