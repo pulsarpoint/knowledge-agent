@@ -101,10 +101,10 @@ Thin wrappers over the same functions, each with a pure `check_<tool>` against t
 
 ## Phases (each a plan and branch)
 
-1. **Model and migration** — the tables, the conversion, the internal functions (create/update/delete/list) with tests.
-2. **API and UI** — the endpoints; the forms move onto them; the aggregate `save_service` and `/inventory/links` go.
-3. **Agent tools and role** — the tools, `inventory_editor`, audit; `get_resource` reads the model.
-4. **Model JSON and map** — `GET /environments/{id}/model`; the map and services view draw from it; the old readers go.
+1. **Model, API and UI** — the tables, the conversion, the store, the endpoints; every reader and writer moves onto them
+   and the old structures go (merged so there is never a second source of truth).
+2. **Agent tools and role** — the tools, `inventory_editor`, audit; `get_resource` reads the model.
+3. **Model JSON and map** — `GET /environments/{id}/model`; the map and services view draw from it; the old readers go.
 
 ## Out of scope
 
