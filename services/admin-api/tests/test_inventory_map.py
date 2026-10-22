@@ -79,6 +79,10 @@ def inventory(deployments=None, connections=(), relations=(), documents=None) ->
             for r in relations
         ],
         'code_projects': [{'id': E['code'], 'name': 'api-code'}, {'id': E['old-code'], 'name': 'old-code'}],
+        'memberships': [
+            {'environment_id': environment_id, 'server_id': server_id}
+            for _, server_id, environment_id in deployments.values()
+        ],
     }
     return {
         **build_project(environments, **rows),

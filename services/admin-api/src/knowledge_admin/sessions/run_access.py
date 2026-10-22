@@ -47,11 +47,12 @@ FOUND = {
     'environment': 'SELECT id,name,true AS usable FROM ka.environments WHERE project_id=%s AND id=ANY(%s)',
 }
 # What services and environments bring: only usable code projects (not archived) and servers (SSH allowed). An
-# environment holds what is deployed in it; a service's code projects are its built_from relations.
+# environment holds the services deployed in it and the servers in it (ka.environment_servers); a service's code
+# projects are its built_from relations.
 ENVIRONMENT_SERVICES = """SELECT s.id FROM ka.services s WHERE s.project_id=%s AND EXISTS (SELECT 1
     FROM ka.service_deployments d WHERE d.service_id=s.id AND d.environment_id=ANY(%s)) ORDER BY lower(s.name),s.id"""
 ENVIRONMENT_SERVERS = """SELECT s.id FROM ka.servers s WHERE s.project_id=%s AND s.ssh_allowed AND EXISTS (SELECT 1
-    FROM ka.service_deployments d WHERE d.server_id=s.id AND d.environment_id=ANY(%s)) ORDER BY lower(s.name),s.id"""
+    FROM ka.environment_servers m WHERE m.server_id=s.id AND m.environment_id=ANY(%s)) ORDER BY lower(s.name),s.id"""
 SERVICE_CODE = """SELECT r.id FROM ka.service_relations l JOIN ka.repositories r ON r.id=l.to_code_project_id
     WHERE l.kind='built_from' AND r.project_id=%s AND l.from_service_id=ANY(%s) AND r.archived_at IS NULL
     ORDER BY lower(r.name),r.id"""

@@ -1,5 +1,5 @@
-"""Every reader on the new inventory model: an environment holds what is deployed in it (membership rows are ignored),
-a service brings its servers (deployments) and code projects (built_from relations), a server its deployed services;
+"""Every reader on the new inventory model: an environment holds the services deployed in it and its member servers
+(ka.environment_servers, so also an empty one), a service brings its servers (deployments) and code projects (built_from relations), a server its deployed services;
 get_resource shows relations and connections with port and protocol."""
 
 import asyncio
@@ -302,3 +302,19 @@ def test_the_map_draws_connections_between_deployments_and_external_hosts(world)
         ('api', 'smtp.example.com', 'connects_to'),
         ('worker', 'api', 'part_of'),
     ]
+
+
+def test_an_empty_member_server_counts_wherever_an_environment_holds_its_servers(world):
+    """lonely, put in prod with no deployment, is brought by prod, listed by get_resource, its documents and its page."""
+    w = world
+    with w.store.connect() as conn:
+        inventory.add_server_to_environment(conn, w.project, w.prod, w.lonely, {'actor_id': None})
+        saved = live_document(conn, w.project, 'lonely-notes', 'lonely notes', '# lonely notes')
+        link_document(conn, w.project, saved['id'], 'server_id', w.lonely)
+        assert 'lonely notes' in [d['title'] for d in resource_document_list(conn, w.project, 'environment', w.prod)]
+        assert str(w.lonely) in run_access.bring(conn, w.project, [], [w.prod])['server_ids']
+    assert kinds(held(w, environment=[w.prod]))[('server', str(w.lonely))] == f'via environment {w.prod}'
+    assert ('server', 'lonely', 'contains') in links(get(w, 'environment', w.prod))
+    assert links(get(w, 'server', w.lonely)) == [('environment', 'prod', 'in_environment')]
+    page = w.client.get(f'/api/servers/{w.lonely}', headers=HEADERS).json()
+    assert [e['name'] for e in page['environments']] == ['prod']

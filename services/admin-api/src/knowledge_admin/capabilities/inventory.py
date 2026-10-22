@@ -66,12 +66,12 @@ ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND p
 CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
     WHERE id=%s AND project_id=%s AND archived_at IS NULL"""
 # Each query lists one kind of link: (type, id, name, relation, ...facts); {limit} caps it one past MAX_ITEMS. A server
-# or service is in the environments of its deployments; an environment contains what is deployed in it.
-IN_ENVIRONMENTS = """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environments e
-    WHERE EXISTS (SELECT 1 FROM ka.service_deployments d WHERE d.environment_id=e.id AND d.{column}=%s)
-    ORDER BY lower(e.name),e.id LIMIT {limit}"""
+# is in its environments (ka.environment_servers), a service in the environments of its deployments; an environment
+# contains its servers and the services deployed in it.
 SERVER_LINKS = (
-    IN_ENVIRONMENTS.replace('{column}', 'server_id'),
+    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environments e
+    WHERE EXISTS (SELECT 1 FROM ka.environment_servers m WHERE m.environment_id=e.id AND m.server_id=%s)
+    ORDER BY lower(e.name),e.id LIMIT {limit}""",
     """SELECT 'service' AS type,s.id,s.name,'runs' AS relation,e.name AS environment,d.runtime,
     d.runtime_name,d.port,d.deployed_version AS version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
     JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
@@ -82,7 +82,9 @@ SERVICE_LINKS = (
     d.runtime,d.runtime_name,d.port,d.deployed_version AS version FROM ka.service_deployments d
     JOIN ka.servers h ON h.id=d.server_id JOIN ka.environments e ON e.id=d.environment_id WHERE d.service_id=%s
     ORDER BY lower(h.name),lower(e.name),d.runtime_name,h.id LIMIT {limit}""",
-    IN_ENVIRONMENTS.replace('{column}', 'service_id'),
+    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environments e
+    WHERE EXISTS (SELECT 1 FROM ka.service_deployments d WHERE d.environment_id=e.id AND d.service_id=%s)
+    ORDER BY lower(e.name),e.id LIMIT {limit}""",
     """SELECT 'code_project' AS type,r.id,r.name,'built_from' AS relation,l.description FROM ka.service_relations l
     JOIN ka.repositories r ON r.id=l.to_code_project_id WHERE l.kind='built_from' AND l.from_service_id=%s
     AND r.archived_at IS NULL ORDER BY lower(r.name),r.id LIMIT {limit}""",
@@ -112,7 +114,7 @@ ENVIRONMENT_LINKS = (
     (SELECT 1 FROM ka.service_deployments d WHERE d.service_id=s.id AND d.environment_id=%s)
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
     """SELECT 'server' AS type,s.id,s.name,'contains' AS relation FROM ka.servers s WHERE EXISTS
-    (SELECT 1 FROM ka.service_deployments d WHERE d.server_id=s.id AND d.environment_id=%s)
+    (SELECT 1 FROM ka.environment_servers m WHERE m.server_id=s.id AND m.environment_id=%s)
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
 )
 CODE_PROJECT_LINKS = (

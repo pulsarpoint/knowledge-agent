@@ -652,8 +652,8 @@ ENTRY_TABLES = {
     'code_project': 'repositories',
 }
 # A resource's direct children whose documents its list shows, in group order: (type, query of {id, name} by the
-# resource's id), each by name: an environment what is deployed in it, a server its deployed services, a service its
-# code projects (built_from) and the servers it is deployed on.
+# resource's id), each by name: an environment the services deployed in it and its servers, a server its deployed
+# services, a service its code projects (built_from) and the servers it is deployed on.
 CHILDREN = {
     'environment': (
         (
@@ -664,7 +664,7 @@ CHILDREN = {
         (
             'server',
             """SELECT h.id,h.name FROM ka.servers h
-            WHERE h.id IN (SELECT server_id FROM ka.service_deployments WHERE environment_id=%s) ORDER BY lower(h.name),h.id""",
+            WHERE h.id IN (SELECT server_id FROM ka.environment_servers WHERE environment_id=%s) ORDER BY lower(h.name),h.id""",
         ),
     ),
     'server': (

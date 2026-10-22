@@ -53,7 +53,7 @@ def build_model(
     connections: list[dict],
     relations: list[dict],
     code_projects: list[dict],
-    memberships: list[dict] = (),
+    memberships: list[dict],
 ) -> dict:
     """Rows are the project's (deployments carry environment_name; memberships are {environment_id, server_id});
     connections and relations keep their order. A deployment's server is listed even without its membership row."""
@@ -149,7 +149,7 @@ def build_project(
     connections: list[dict],
     relations: list[dict],
     code_projects: list[dict],
-    memberships: list[dict] = (),
+    memberships: list[dict],
 ) -> dict:
     """The model of every environment (by name) and what no environment holds: the servers in no environment, the
     services with no deployment, and the relations no model lists (between such services, or from one to a code

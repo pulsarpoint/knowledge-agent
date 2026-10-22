@@ -1,8 +1,9 @@
 """The one write path for the inventory: servers, services, environments, deployments, connections, service
-relations and which servers are in which environment (membership). Every function works in the caller's transaction (the caller commits), scoped to one project, and returns
-plain dicts. Writes lock the project row first (every inventory writer takes that lock first, so concurrent writers
-serialize instead of deadlocking), validate with rules.py, check that referenced items exist in the project, check the
-revision on update and delete, and record an audit event with the person and, for agent runs, the agent and session.
+relations and which servers are in which environment (membership). Every function works in the caller's transaction
+(the caller commits), scoped to one project, and returns plain dicts. Writes lock the project row first (every
+inventory writer takes that lock first, so concurrent writers serialize instead of deadlocking), validate with
+rules.py, check that referenced items exist in the project, check the revision on update and delete, and record an
+audit event with the person and, for agent runs, the agent and session.
 A deployment's server is always a member of the deployment's environment: creating or moving a deployment adds the
 membership when it is missing.
 
