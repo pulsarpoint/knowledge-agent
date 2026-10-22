@@ -133,6 +133,35 @@ def test_a_service_lists_its_connections_with_port_and_protocol(world):
     assert (connection['from_server'], connection['to_server']) == ('web-1', 'web-1')
 
 
+def test_a_connection_to_an_external_service_is_listed_on_both_sides_with_its_address(world):
+    with world.store.connect() as conn:
+        stripe = conn.execute(
+            """INSERT INTO ka.services(project_id,name,service_type,address)
+            VALUES (%s,'stripe','external','api.stripe.com') RETURNING id""",
+            (world.project,),
+        ).fetchone()['id']
+        deployment = conn.execute(
+            'SELECT id FROM ka.service_deployments WHERE service_id=%s', (world.nginx,)
+        ).fetchone()['id']
+        conn.execute(
+            """INSERT INTO ka.connections(project_id,from_deployment_id,to_service_id,port,protocol,description)
+            VALUES (%s,%s,%s,443,'https','Card payments')""",
+            (world.project, deployment, stripe),
+        )
+    config = given(world)
+    config['access']['resources'].append({'type': 'service', 'id': str(stripe), 'source': 'given'})
+    nginx = get(config, 'service', world.nginx)
+    assert nginx['address'] is None
+    [out] = [item for item in nginx['links'] if item['relation'] == 'connects_to']
+    assert (out['type'], out['id'], out['name']) == ('service', str(stripe), 'stripe')
+    assert (out['port'], out['protocol'], out['description']) == (443, 'https', 'Card payments')
+    assert (out['from_server'], out['to_server']) == ('web-1', None)
+    found = get(config, 'service', stripe)
+    assert found['service_type'] == 'external' and found['address'] == 'api.stripe.com'
+    [back] = [item for item in found['links'] if item['relation'] == 'connected_from']
+    assert (back['id'], back['name'], back['port'], back['from_server']) == (str(world.nginx), 'nginx', 443, 'web-1')
+
+
 def test_an_environment_has_its_services_and_servers(world):
     found = get(given(world), 'environment', world.environment)
     assert found['type'] == 'environment' and found['name'] == 'Production' and found['description'] == 'Live'

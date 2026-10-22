@@ -60,7 +60,7 @@ def dumps(value: Any) -> str:
 
 SERVER = """SELECT id,name,hostname,port,username,description,tags,allow_sudo FROM ka.servers
     WHERE id=%s AND project_id=%s"""
-SERVICE = """SELECT id,name,service_type,service_role,description,owner FROM ka.services
+SERVICE = """SELECT id,name,service_type,service_role,description,owner,address FROM ka.services
     WHERE id=%s AND project_id=%s"""
 ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND project_id=%s'
 CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
@@ -103,6 +103,14 @@ SERVICE_LINKS = (
     JOIN ka.servers fh ON fh.id=f.server_id JOIN ka.servers th ON th.id=t.server_id
     JOIN ka.services o ON o.id=CASE WHEN f.service_id=%(id)s THEN t.service_id ELSE f.service_id END
     WHERE %(id)s IN (f.service_id,t.service_id)
+    ORDER BY f.service_id<>%(id)s,lower(o.name),o.id,c.port,c.id LIMIT {limit}""",
+    # connections to an external service: from its deployments to it, or (connected_from) from others to this one
+    """SELECT 'service' AS type,o.id,o.name,
+    CASE WHEN f.service_id=%(id)s THEN 'connects_to' ELSE 'connected_from' END AS relation,
+    fh.name AS from_server,NULL AS to_server,c.port,c.protocol,c.description FROM ka.connections c
+    JOIN ka.service_deployments f ON f.id=c.from_deployment_id JOIN ka.servers fh ON fh.id=f.server_id
+    JOIN ka.services o ON o.id=CASE WHEN f.service_id=%(id)s THEN c.to_service_id ELSE f.service_id END
+    WHERE c.to_service_id IS NOT NULL AND %(id)s IN (f.service_id,c.to_service_id)
     ORDER BY f.service_id<>%(id)s,lower(o.name),o.id,c.port,c.id LIMIT {limit}""",
 )
 # A service's connections to external hosts (not resources: no type or id to follow).
