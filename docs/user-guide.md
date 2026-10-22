@@ -1031,7 +1031,9 @@ with the condition `source equals memory` and `type equals memory.saved`.
 ### 4.21 System map
 
 Environments → **System map** draws your inventory — environments, servers, services and code projects — and the
-connections between them. Nothing is drawn by hand: add entries on their own pages, and connect them here.
+connections between them. Nothing is drawn by hand, and nothing is stored for the map: every view is drawn from the
+environment models (the same data as each environment's inventory), so it always matches the inventory. Add entries on
+their own pages, and connect them here.
 
 - **Infrastructure.** Each environment holds the servers with a deployment in it, and each server holds the services
   deployed on it in that environment. A server in two environments appears in both; a server without deployments sits
@@ -1041,7 +1043,9 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
   connections rolled up to the services (*connects to*). Archived code projects are left out.
 - **Browsing.** **Inside** lists what the current box holds (→ opens it; "+N inside" says it holds more), **Outside**
   lists what its connections reach elsewhere. The breadcrumb goes back up. **Depth** shows up to 3 levels; deeper
-  entries fold into their box and lines add up (`connects to ×3`). When both ends of a connection are in one environment, the line stays inside it: it never joins one environment's copy of a server to another's. Everything you choose is in the page address.
+  entries fold into their box and lines add up (`connects to ×3`). A connection line carries its label, `protocol:port`
+  (`connects to postgres:5432`; just the protocol or just `:port` when the other is missing); a line that adds up
+  several connections lists their distinct labels, sorted, at most 3 and then `+N` (`connects to tcp:25, tcp:587`). When both ends of a connection are in one environment, the line stays inside it: it never joins one environment's copy of a server to another's. Everything you choose is in the page address.
 - **Views.** **Diagram** is drawn by D2 with the layout you pick (tala, elk or dagre); **Mermaid** draws the same view
   with Mermaid; **D2** and **JSON** show the source, with **Copy**.
 - **Connections and relations.** Click an entry's name: the panel links to its page and shows its documents; for a

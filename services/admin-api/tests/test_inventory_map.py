@@ -241,3 +241,18 @@ def test_documents_come_with_every_placement():
     doc = {'id': uuid4(), 'slug': 'runbook', 'title': 'Runbook'}
     view = build_view(inventory(documents={('server', E['prod-1']): [doc]}), 'infrastructure', None, 3)
     assert [n['documents'] for n in view['nodes'] if n['name'] == 'prod-1'] == [[doc], [doc]]
+
+
+def test_connection_labels_are_protocol_and_port_and_rolled_up_labels_are_capped():
+    from knowledge_admin.servers.inventory_map import connection_label, rolled_label
+
+    def label(protocol, port):
+        return connection_label({'protocol': protocol, 'port': port})
+
+    assert label('postgres', 5432) == 'postgres:5432'
+    assert label('postgres', None) == 'postgres'
+    assert label(None, 5432) == ':5432'
+    assert label(None, None) == ''
+    assert rolled_label({'', ''}) == ''
+    assert rolled_label({'b', 'a', ''}) == 'a, b'
+    assert rolled_label({'d', 'c', 'b', 'a', 'e'}) == 'a, b, c +2'

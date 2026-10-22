@@ -40,6 +40,8 @@ def _shape(node: dict) -> str:
 
 def _label(edge: dict) -> str:
     kind = edge['type'].replace('_', ' ')
+    if edge.get('label'):
+        kind = f'{kind} {edge["label"]}'
     return kind if edge['count'] == 1 else f'{kind} ×{edge["count"]}'
 
 

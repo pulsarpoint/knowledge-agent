@@ -38,6 +38,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    },
@@ -48,6 +49,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    },
@@ -57,6 +59,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -66,6 +69,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -75,6 +79,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-1",
     "type": "connects_to"
    }
@@ -181,6 +186,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-2:db",
     "type": "connects_to"
    },
@@ -191,6 +197,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-2:db",
     "type": "connects_to"
    },
@@ -200,6 +207,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -209,6 +217,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -218,6 +227,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-1:api",
     "type": "connects_to"
    }
@@ -374,6 +384,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-2:db",
     "type": "connects_to"
    },
@@ -384,6 +395,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-2:db",
     "type": "connects_to"
    },
@@ -393,6 +405,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -402,6 +415,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -411,6 +425,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-1:api",
     "type": "connects_to"
    }
@@ -565,6 +580,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-1:api",
     "type": "connects_to"
    },
@@ -575,6 +591,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    }
@@ -652,6 +669,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-1:api",
     "type": "connects_to"
    },
@@ -662,6 +680,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    }
@@ -739,6 +758,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-1:api",
     "type": "connects_to"
    },
@@ -749,6 +769,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    }
@@ -887,6 +908,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "environment:production",
     "type": "connects_to"
    },
@@ -896,6 +918,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -905,6 +928,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "server:staging:shared",
     "type": "connects_to"
    }
@@ -985,6 +1009,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:shared:cache",
     "type": "connects_to"
    },
@@ -994,6 +1019,7 @@
     "ids": [
      "c-api-worker"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:stage-1:worker",
     "type": "connects_to"
    },
@@ -1003,6 +1029,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "environment:production",
     "type": "connects_to"
    },
@@ -1012,6 +1039,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    }
@@ -1142,6 +1170,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:shared:cache",
     "type": "connects_to"
    },
@@ -1151,6 +1180,7 @@
     "ids": [
      "c-api-worker"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:stage-1:worker",
     "type": "connects_to"
    },
@@ -1160,6 +1190,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "environment:production",
     "type": "connects_to"
    },
@@ -1169,6 +1200,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    }
@@ -1297,6 +1329,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:shared:cache",
     "type": "connects_to"
    }
@@ -1356,6 +1389,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:shared:cache",
     "type": "connects_to"
    }
@@ -1415,6 +1449,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:shared:cache",
     "type": "connects_to"
    }
@@ -1470,6 +1505,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -1479,6 +1515,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -1488,6 +1525,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "environment:production",
     "type": "connects_to"
    },
@@ -1497,6 +1535,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    }
@@ -1597,6 +1636,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    },
@@ -1606,6 +1646,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -1615,6 +1656,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -1624,6 +1666,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-1",
     "type": "connects_to"
    },
@@ -1633,6 +1676,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -1642,6 +1686,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "server:production:prod-2",
     "type": "connects_to"
    },
@@ -1651,6 +1696,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "server:staging:shared",
     "type": "connects_to"
    }
@@ -1834,6 +1880,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-2:db",
     "type": "connects_to"
    },
@@ -1843,6 +1890,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -1852,6 +1900,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -1861,6 +1910,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-1:api",
     "type": "connects_to"
    },
@@ -1870,6 +1920,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:shared:cache",
     "type": "connects_to"
    },
@@ -1879,6 +1930,7 @@
     "ids": [
      "c-api-worker"
     ],
+    "label": "tcp:8000",
     "to": "service:staging:stage-1:worker",
     "type": "connects_to"
    },
@@ -1888,6 +1940,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -1897,6 +1950,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "service:production:prod-2:db",
     "type": "connects_to"
    }
@@ -2254,6 +2308,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:cache",
     "type": "connects_to"
    },
@@ -2264,6 +2319,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "service:db",
     "type": "connects_to"
    },
@@ -2282,6 +2338,7 @@
     "ids": [
      "c-api-worker"
     ],
+    "label": "tcp:8000",
     "to": "service:worker",
     "type": "connects_to"
    },
@@ -2300,6 +2357,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -2327,6 +2385,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -2336,6 +2395,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:api",
     "type": "connects_to"
    },
@@ -2354,6 +2414,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -2372,6 +2433,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "service:db",
     "type": "connects_to"
    }
@@ -2556,6 +2618,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:cache",
     "type": "connects_to"
    },
@@ -2566,6 +2629,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "service:db",
     "type": "connects_to"
    },
@@ -2584,6 +2648,7 @@
     "ids": [
      "c-api-worker"
     ],
+    "label": "tcp:8000",
     "to": "service:worker",
     "type": "connects_to"
    },
@@ -2602,6 +2667,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -2629,6 +2695,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -2638,6 +2705,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:api",
     "type": "connects_to"
    },
@@ -2656,6 +2724,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -2674,6 +2743,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "service:db",
     "type": "connects_to"
    }
@@ -2858,6 +2928,7 @@
     "ids": [
      "c-api-cache"
     ],
+    "label": "tcp:8000",
     "to": "service:cache",
     "type": "connects_to"
    },
@@ -2868,6 +2939,7 @@
      "c-api-db",
      "c-api2-db"
     ],
+    "label": "tcp:8000",
     "to": "service:db",
     "type": "connects_to"
    },
@@ -2886,6 +2958,7 @@
     "ids": [
      "c-api-worker"
     ],
+    "label": "tcp:8000",
     "to": "service:worker",
     "type": "connects_to"
    },
@@ -2904,6 +2977,7 @@
     "ids": [
      "c-db-backup"
     ],
+    "label": "tcp:873",
     "to": "external_host:backup.example.com",
     "type": "connects_to"
    },
@@ -2931,6 +3005,7 @@
     "ids": [
      "c-web-smtp"
     ],
+    "label": "tcp:25",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -2940,6 +3015,7 @@
     "ids": [
      "c-web-api"
     ],
+    "label": "tcp:8000",
     "to": "service:api",
     "type": "connects_to"
    },
@@ -2958,6 +3034,7 @@
     "ids": [
      "c-worker-smtp"
     ],
+    "label": "tcp:587",
     "to": "external_host:smtp.example.com",
     "type": "connects_to"
    },
@@ -2976,6 +3053,7 @@
     "ids": [
      "c-worker-db"
     ],
+    "label": "tcp:8000",
     "to": "service:db",
     "type": "connects_to"
    }

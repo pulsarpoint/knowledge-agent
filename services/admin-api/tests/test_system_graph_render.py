@@ -201,3 +201,19 @@ def test_relations_are_drawn_dashed_and_connections_solid():
         'n1 -> n3: "depends on" {style.stroke-dash: 3}',
     ]
     assert render.mermaid(view).splitlines()[-2:] == ['  n1 -->|"connects to"| n3', '  n1 -.->|"depends on"| n3']
+
+
+def test_connection_edges_draw_their_label_in_d2_and_mermaid():
+    view = {
+        **VIEW,
+        'edges': [
+            {'from': 'match', 'to': 'store', 'type': 'connects_to', 'count': 1, 'ids': ['a'], 'label': 'postgres:5432'},
+            {'from': 'prod', 'to': 'events', 'type': 'connects_to', 'count': 2, 'ids': ['b'], 'label': 'a, "b" +2'},
+            {'from': 'prod', 'to': 'store', 'type': 'depends_on', 'count': 1, 'ids': ['c']},
+        ],
+    }
+    assert 'n1.n2 -> n3: "connects to postgres:5432"' in render.d2(view)
+    assert 'outside.n4 -> n1: "connects to a, \\"b\\" +2 ×2"' in render.d2(view)
+    assert 'outside.n4 -> n3: "depends on" {' in render.d2(view)
+    assert 'n2 -->|"connects to postgres:5432"| n3' in render.mermaid(view)
+    assert 'n4 -->|"connects to a, #34;b#34; +2 ×2"| n1' in render.mermaid(view)

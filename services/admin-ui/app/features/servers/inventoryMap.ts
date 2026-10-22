@@ -66,6 +66,8 @@ export interface ViewEdge {
   type: EdgeKind;
   count: number;
   ids: string[];
+  /** A connection's `protocol:port`; a rolled-up line lists the distinct ones (at most 3, then `+N`). */
+  label?: string;
 }
 export interface Crumb {
   id: string;

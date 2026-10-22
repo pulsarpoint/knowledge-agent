@@ -16,7 +16,7 @@ import networkx as nx
 VIEWS = ('infrastructure', 'services')
 ENTRY_KINDS = ('service', 'server', 'environment', 'code_project')
 EXTERNAL = 'external_host'  # the kind of an external host's node
-MAX_DEPTH, MAX_VISIBLE, MAX_EDGE_IDS = 3, 500, 20
+MAX_DEPTH, MAX_VISIBLE, MAX_EDGE_IDS, MAX_LABELS = 3, 500, 20, 3
 TOP = 'top'
 NOT_FOUND = 'Node not found.'
 TOO_MANY = 'Too many nodes; choose a deeper root or a smaller depth.'
@@ -34,6 +34,19 @@ def node_id(kind: str, entry: UUID, *where: UUID | None) -> str:
 
 def external_id(host: str) -> str:
     return f'{EXTERNAL}:{host}'
+
+
+def connection_label(connection: dict) -> str:
+    """`protocol:port`, or just the part there is; empty when neither."""
+    port = '' if connection['port'] is None else f':{connection["port"]}'
+    return f'{connection["protocol"] or ""}{port}'
+
+
+def rolled_label(labels: set[str]) -> str:
+    """The distinct labels sorted, at most three, then ` +N` for the rest."""
+    found = sorted(label for label in labels if label)
+    shown = ', '.join(found[:MAX_LABELS])
+    return shown + (f' +{len(found) - MAX_LABELS}' if len(found) > MAX_LABELS else '')
 
 
 def deployment_places(inventory: dict) -> dict[UUID, tuple[UUID, UUID, UUID]]:
@@ -110,7 +123,15 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
         start = deployment_node(connection['from_deployment_id'])
         end = deployment_node(connection['to_deployment_id']) if host is None else external_id(host)
         if start in tree and (end in tree or host is not None):
-            edges.append({'id': connection['id'], 'from_id': start, 'to_id': end, 'type': 'connects_to'})
+            edges.append(
+                {
+                    'id': connection['id'],
+                    'from_id': start,
+                    'to_id': end,
+                    'type': 'connects_to',
+                    'label': connection_label(connection),
+                }
+            )
     if view == 'services':
         relations = [r for model in models for r in model['relations']] + inventory['unplaced']['relations']
         for relation in {r['id']: r for r in relations}.values():  # one across environments
@@ -219,13 +240,17 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
             if end_id not in rows and end_id not in boundary:
                 boundary[end_id] = about(end_id)
         # an edge drawn between several placements rolls up once: count distinct connections and relations
-        grouped.setdefault((a, b, edge['type']), set()).add(edge['id'])
+        ids, labels = grouped.setdefault((a, b, edge['type']), (set(), set()))
+        ids.add(edge['id'])
+        labels.add(edge.get('label', ''))
     if len(rows) + len(boundary) > MAX_VISIBLE:
         raise ViewError(422, TOO_MANY)
-    rolled = [
-        {'from': a, 'to': b, 'type': kind, 'count': len(ids), 'ids': sorted(ids, key=str)[:MAX_EDGE_IDS]}
-        for (a, b, kind), ids in grouped.items()
-    ]
+    rolled = []
+    for (a, b, kind), (ids, labels) in grouped.items():
+        edge = {'from': a, 'to': b, 'type': kind, 'count': len(ids), 'ids': sorted(ids, key=str)[:MAX_EDGE_IDS]}
+        if rolled_label(labels):
+            edge['label'] = rolled_label(labels)
+        rolled.append(edge)
     nodes = []
 
     def emit(node: str) -> None:  # parents before children, siblings by name
