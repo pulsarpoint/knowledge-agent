@@ -88,12 +88,12 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
     server = client.post(
         '/api/servers', headers=HEADERS, json={'name': 'Payments host', 'hostname': 'payments.internal'}
     ).json()
-    service_value = {
-        'name': 'Payments',
-        'repository_ids': [repo],
-        'deployments': [{'server_id': server['id'], 'environment': 'production'}],
-    }
-    service = client.post('/api/services', headers=HEADERS, json=service_value).json()
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'Payments'}).json()
+    production = client.post('/api/environments', headers=HEADERS, json={'name': 'production'}).json()
+    built_from = {'from_service_id': service['id'], 'kind': 'built_from', 'to_code_project_id': repo}
+    assert client.post('/api/relations', headers=HEADERS, json=built_from).status_code == 201
+    placement = {'service_id': service['id'], 'server_id': server['id'], 'environment_id': production['id']}
+    assert client.post('/api/deployments', headers=HEADERS, json=placement).status_code == 201
     resources = client.get('/api/documentation/resources', headers=HEADERS)
     assert (
         resources.status_code == 200 and 'never-show-this' not in resources.text and 'credential' not in resources.text
@@ -131,13 +131,12 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
         ).json()['total']
         == 0
     )
-    edited_service = {
-        **service_value,
-        'revision': 1,
-        'description': 'Updated',
-        'deployments': [{**service_value['deployments'][0], 'id': deployment['id'], 'deployed_version': '2'}],
-    }
+    edited_service = {'revision': 1, 'description': 'Updated'}
     assert client.put('/api/services/' + service['id'], headers=HEADERS, json=edited_service).status_code == 200
+    edited_deployment = {'revision': 1, 'deployed_version': '2'}
+    assert (
+        client.put('/api/deployments/' + deployment['id'], headers=HEADERS, json=edited_deployment).status_code == 200
+    )
     assert client.get(endpoint, headers=HEADERS).json()['deployment_ids'] == [deployment['id']]
     # Links made when the document was created are built-for links: unticking one is refused.
     unticked = save_links(
@@ -340,19 +339,16 @@ def test_document_migrations_roundtrip_and_preserve_populated_tables(store):
         assert conn.execute("SELECT to_regclass('ka.agent_collections') AS name").fetchone()['name'] is None  # 0114
 
 
-def test_edit_service_can_swap_deployments_without_losing_document_links(store, tmp_path):
+def test_editing_deployments_keeps_document_links_and_deleting_them_removes_the_links(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     server = client.post(
         '/api/servers', headers=HEADERS, json={'name': 'Shared host', 'hostname': 'app.internal'}
     ).json()
-    value = {
-        'name': 'API',
-        'deployments': [
-            {'server_id': server['id'], 'environment': 'production'},
-            {'server_id': server['id'], 'environment': 'staging'},
-        ],
-    }
-    service = client.post('/api/services', headers=HEADERS, json=value).json()
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'API'}).json()
+    for name in ('production', 'staging'):
+        environment = client.post('/api/environments', headers=HEADERS, json={'name': name}).json()
+        placement = {'service_id': service['id'], 'server_id': server['id'], 'environment_id': environment['id']}
+        assert client.post('/api/deployments', headers=HEADERS, json=placement).status_code == 201
     deployments = client.get('/api/documentation/resources', headers=HEADERS).json()['deployments']
     doc = live(
         store,
@@ -361,26 +357,17 @@ def test_edit_service_can_swap_deployments_without_losing_document_links(store, 
         server_ids=[server['id']],
         deployment_ids=[d['id'] for d in deployments],
     )
-    swapped = [
-        {
-            'id': d['id'],
-            'server_id': server['id'],
-            'environment': 'staging' if d['environment'] == 'production' else 'production',
-        }
-        for d in deployments
-    ]
-    response = client.put(
-        '/api/services/' + service['id'], headers=HEADERS, json={'name': 'API', 'revision': 1, 'deployments': swapped}
-    )
-    assert response.status_code == 200, response.text
+    for deployment in deployments:
+        changed = client.put(
+            '/api/deployments/' + deployment['id'], headers=HEADERS, json={'revision': 1, 'runtime_name': 'api'}
+        )
+        assert changed.status_code == 200, changed.text
     current = client.get('/api/documentation/documents/' + doc['id'], headers=HEADERS).json()
     assert set(current['deployment_ids']) == {d['id'] for d in deployments}
-    assert (
-        client.delete(
-            '/api/services/' + service['id'], headers=HEADERS, params={'revision': 2, 'confirmed': True}
-        ).status_code
-        == 200
-    )
+    for deployment in deployments:
+        removed = client.delete('/api/deployments/' + deployment['id'], headers=HEADERS, params={'revision': 2})
+        assert removed.status_code == 200
+    assert client.delete('/api/services/' + service['id'], headers=HEADERS, params={'revision': 1}).status_code == 200
     current = client.get('/api/documentation/documents/' + doc['id'], headers=HEADERS).json()
     assert current['service_ids'] == current['deployment_ids'] == []
     assert current['source_snapshot']['services'][0]['name'] == 'API'

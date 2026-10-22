@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import pytest
 
-from knowledge_admin.inventory import store as inventory
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -17,18 +16,18 @@ def client(store, tmp_path):
 
 def setup(client):
     server = client.post('/api/servers', headers=HEADERS, json={'name': 'prod-1', 'hostname': 'one.internal'}).json()
-    production = client.post(
-        '/api/environments', headers=HEADERS, json={'name': 'production', 'server_ids': [server['id']]}
-    ).json()
-    api = client.post(
-        '/api/services',
+    production = client.post('/api/environments', headers=HEADERS, json={'name': 'production'}).json()
+    api = client.post('/api/services', headers=HEADERS, json={'name': 'api'}).json()
+    client.post(
+        '/api/deployments',
         headers=HEADERS,
         json={
-            'name': 'api',
-            'environment_ids': [production['id']],
-            'deployments': [{'server_id': server['id'], 'environment_id': production['id'], 'runtime_name': 'api'}],
+            'service_id': api['id'],
+            'server_id': server['id'],
+            'environment_id': production['id'],
+            'runtime_name': 'api',
         },
-    ).json()
+    )
     return server['id'], production['id'], api['id']
 
 
@@ -64,16 +63,11 @@ def test_a_removed_placement_is_not_found_and_bad_input_is_refused(client):
     assert client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 4}).status_code == 400
 
 
-def test_relations_and_search(client, store):
+def test_relations_and_search(client):
     server, production, api = setup(client)
     worker = client.post('/api/services', headers=HEADERS, json={'name': 'worker'}).json()['id']
-    with store.connect() as conn:
-        inventory.create_relation(
-            conn,
-            store.project(conn, 'shop'),
-            {'from_service_id': api, 'kind': 'depends_on', 'to_service_id': worker},
-            {'actor_id': None},
-        )
+    relation = {'from_service_id': api, 'kind': 'depends_on', 'to_service_id': worker}
+    assert client.post('/api/relations', headers=HEADERS, json=relation).status_code == 201
     view = client.get('/api/map/view/services', headers=HEADERS).json()
     assert [(e['from'], e['to'], e['type']) for e in view['edges']] == [
         (f'service:{api}', f'service:{worker}', 'depends_on')

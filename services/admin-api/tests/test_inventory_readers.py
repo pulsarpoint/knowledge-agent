@@ -273,6 +273,29 @@ def test_service_and_environment_lists_read_deployments_and_relations(world):
     assert w.client.get(f'/api/environments/{w.prod}', headers=HEADERS).json() == prod
 
 
+def test_the_lists_leave_out_rows_whose_ends_were_added_after_they_were_read(world, monkeypatch):
+    """The lists read rows one query after another: a deployment or relation added meanwhile (its new server or
+    service not read yet) is left out instead of failing the read."""
+    w = world
+    late = uuid4()
+    real_deployments, real_relations = inventory.list_deployments, inventory.list_relations
+
+    def deployments(*args, **kwargs):
+        rows = real_deployments(*args, **kwargs)
+        return [*rows, {**rows[0], 'id': uuid4(), 'server_id': late}, {**rows[0], 'id': uuid4(), 'service_id': late}]
+
+    def relations(*args, **kwargs):
+        rows = real_relations(*args, **kwargs)
+        return [*rows, {**rows[0], 'id': uuid4(), 'to_code_project_id': late}]
+
+    monkeypatch.setattr(inventory, 'list_deployments', deployments)
+    monkeypatch.setattr(inventory, 'list_relations', relations)
+    services = {s['name']: s for s in w.client.get('/api/services', headers=HEADERS).json()['services']}
+    assert len(services['api']['deployments']) == 1 and [r['name'] for r in services['api']['repositories']] == ['shop']
+    [prod] = w.client.get('/api/environments', headers=HEADERS).json()['environments']
+    assert [s['name'] for s in prod['servers']] == ['db', 'web']
+
+
 def test_the_map_draws_connections_between_deployments_and_external_hosts(world):
     w = world
     view = w.client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 3}).json()

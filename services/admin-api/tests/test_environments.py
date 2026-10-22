@@ -1,13 +1,12 @@
-"""Environment CRUD, membership isolation and migration safety against PostgreSQL."""
+"""Environment CRUD, project isolation and migration safety against PostgreSQL."""
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import psycopg
 import pytest
 
-from knowledge_admin.inventory import store as inventory_store
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -20,86 +19,66 @@ def inventory(store, tmp_path):
     return client, service, host
 
 
+def deploy(client, service, host, environment) -> dict:
+    response = client.post(
+        '/api/deployments',
+        headers=HEADERS,
+        json={'service_id': service['id'], 'server_id': host['id'], 'environment_id': environment['id']},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def test_round_trip_lists_what_is_deployed_edit_and_audit(store, inventory):
     client, service, host = inventory
-    value = {
-        'name': ' Development ',
-        'description': 'For daily testing',
-        'service_ids': [service['id']],
-        'server_ids': [host['id']],
-    }
-    response = client.post('/api/environments', headers=HEADERS, json=value)
+    response = client.post(
+        '/api/environments', headers=HEADERS, json={'name': ' Development ', 'description': 'For daily testing'}
+    )
     assert response.status_code == 201, response.text
     environment = response.json()
     assert environment['name'] == 'Development' and environment['revision'] == 1
-    assert environment['services'] == [] and environment['servers'] == []  # selected, not deployed there
     assert 'ssh' not in response.text and 'credential' not in response.text
-    with store.connect() as conn:
-        inventory_store.create_deployment(
-            conn,
-            store.project(conn, 'shop'),
-            {'service_id': service['id'], 'server_id': host['id'], 'environment_id': environment['id']},
-            {'actor_id': None},
-        )
     url = f'/api/environments/{environment["id"]}'
+    assert client.get(url, headers=HEADERS).json()['services'] == []  # nothing deployed there yet
+    deploy(client, service, host, environment)
     environment = client.get(url, headers=HEADERS).json()
     assert environment['services'] == [{'id': service['id'], 'name': 'API'}]
     assert environment['servers'] == [{'id': host['id'], 'name': 'App host', 'hostname': 'app.internal'}]
-    second = client.post('/api/environments', headers=HEADERS, json={**value, 'name': 'Staging'}).json()
-    assert second['services'] == [] and second['servers'] == []
+    second = client.post('/api/environments', headers=HEADERS, json={'name': 'Staging'}).json()
     listing = client.get('/api/environments', headers=HEADERS).json()['environments']
     assert [row['name'] for row in listing] == ['Development', 'Staging']
-    assert listing[0] == environment
-    edited = client.put(url, headers=HEADERS, json={**value, 'name': 'Dev', 'description': 'Updated', 'revision': 1})
+    assert listing[0] == environment and listing[1]['services'] == listing[1]['servers'] == []
+    edited = client.put(url, headers=HEADERS, json={'name': 'Dev', 'description': 'Updated', 'revision': 1})
     assert edited.status_code == 200, edited.text
-    assert edited.json()['revision'] == 2 and edited.json()['services'] == environment['services']
-    assert client.get(f'/api/environments/{second["id"]}', headers=HEADERS).json() == second
-    assert client.put(url, headers=HEADERS, json={**value, 'revision': 1}).status_code == 409
-    assert client.get(url, headers=HEADERS).json() == edited.json()
+    assert edited.json()['revision'] == 2
+    assert client.get(url, headers=HEADERS).json()['services'] == environment['services']
+    assert client.get(f'/api/environments/{second["id"]}', headers=HEADERS).json()['name'] == 'Staging'
+    assert client.put(url, headers=HEADERS, json={'name': 'Again', 'revision': 1}).status_code == 409
+    assert client.get(url, headers=HEADERS).json()['name'] == 'Dev'
     with store.connect() as conn:
         events = conn.execute(
             'SELECT action,details FROM ka.audit_events WHERE resource_id=%s ORDER BY created_at',
             (UUID(environment['id']),),
         ).fetchall()
         assert [row['action'] for row in events] == ['environment.created', 'environment.updated']
-        assert events[-1]['details']['server_ids'] == [host['id']]
+        assert events[-1]['details']['name'] == 'Dev'
 
 
-def test_delete_requires_confirmation_revision_and_preserves_inventory(store, inventory):
+def test_delete_requires_revision_is_refused_while_deployed_and_preserves_inventory(store, inventory):
     client, service, host = inventory
-    # A free-text deployment label names an environment, created when missing (0125).
-    assert (
-        client.put(
-            f'/api/services/{service["id"]}',
-            headers=HEADERS,
-            json={'name': 'API', 'revision': 1, 'deployments': [{'server_id': host['id'], 'environment': 'qa'}]},
-        ).status_code
-        == 200
-    )
-    [qa] = client.get('/api/environments', headers=HEADERS).json()['environments']
-    assert qa['name'] == 'qa'
-    environment = client.post(
-        '/api/environments',
-        headers=HEADERS,
-        json={'name': 'Dev', 'service_ids': [service['id']], 'server_ids': [host['id']]},
-    ).json()
+    qa = client.post('/api/environments', headers=HEADERS, json={'name': 'qa'}).json()
+    deploy(client, service, host, qa)
+    environment = client.post('/api/environments', headers=HEADERS, json={'name': 'Dev'}).json()
     url = f'/api/environments/{environment["id"]}'
-    assert client.delete(url + '?revision=1', headers=HEADERS).status_code == 400
-    assert client.delete(url + '?revision=2&confirmed=true', headers=HEADERS).status_code == 409
+    assert client.delete(url, headers=HEADERS).status_code == 400
+    assert client.delete(url + '?revision=2', headers=HEADERS).status_code == 409
     assert client.get(url, headers=HEADERS).status_code == 200
-    assert client.delete(url + '?revision=1&confirmed=true', headers=HEADERS).status_code == 200
+    assert client.delete(url + '?revision=1', headers=HEADERS).status_code == 200
     assert client.get(url, headers=HEADERS).status_code == 404
     assert [e['name'] for e in client.get('/api/environments', headers=HEADERS).json()['environments']] == ['qa']
-    refused = client.delete(f'/api/environments/{qa["id"]}?revision={qa["revision"]}&confirmed=true', headers=HEADERS)
+    refused = client.delete(f'/api/environments/{qa["id"]}?revision={qa["revision"]}', headers=HEADERS)
     assert refused.status_code == 409  # its deployment uses it
     with store.connect() as conn:
-        for table in ('environment_services', 'environment_servers'):
-            assert (
-                conn.execute(
-                    f'SELECT count(*) AS n FROM ka.{table} WHERE environment_id=%s', (UUID(environment['id']),)
-                ).fetchone()['n']
-                == 0
-            )
         for table in ('services', 'servers', 'service_deployments'):
             assert conn.execute(f'SELECT count(*) AS n FROM ka.{table}').fetchone()['n'] == 1
         assert (
@@ -111,64 +90,25 @@ def test_delete_requires_confirmation_revision_and_preserves_inventory(store, in
         )
 
 
-def test_member_deletion_removes_only_memberships(inventory):
-    client, service, host = inventory
-    environment = client.post(
-        '/api/environments',
-        headers=HEADERS,
-        json={'name': 'Dev', 'service_ids': [service['id']], 'server_ids': [host['id']]},
-    ).json()
-    current_service = client.get(f'/api/services/{service["id"]}/context', headers=HEADERS).json()['service']
-    assert (
-        client.delete(
-            f'/api/services/{service["id"]}?revision={current_service["revision"]}&confirmed=true', headers=HEADERS
-        ).status_code
-        == 200
-    )
-    assert client.delete(f'/api/servers/{host["id"]}?revision=1&confirmed=true', headers=HEADERS).status_code == 200
-    current = client.get(f'/api/environments/{environment["id"]}', headers=HEADERS).json()
-    assert current['name'] == 'Dev' and current['services'] == [] and current['servers'] == []
-
-
-def test_foreign_members_and_environment_are_rejected_by_api_and_foreign_keys(store, inventory):
+def test_a_foreign_environment_or_member_is_refused(store, inventory):
     client, service, host = inventory
     with store.connect() as conn:
         foreign = store.project(conn, 'foreign')
-        foreign_service = conn.execute(
-            "INSERT INTO ka.services(project_id,name) VALUES (%s,'Other') RETURNING id", (foreign,)
-        ).fetchone()['id']
-        foreign_server = conn.execute(
-            "INSERT INTO ka.servers(project_id,name,hostname,enabled) VALUES (%s,'Other','other.internal',false) RETURNING id",
-            (foreign,),
-        ).fetchone()['id']
         foreign_environment = conn.execute(
             "INSERT INTO ka.environments(project_id,name) VALUES (%s,'Secret') RETURNING id", (foreign,)
         ).fetchone()['id']
-    for field, member in (
-        ('service_ids', foreign_service),
-        ('server_ids', foreign_server),
-        ('service_ids', uuid4()),
-        ('server_ids', uuid4()),
-    ):
-        response = client.post('/api/environments', headers=HEADERS, json={'name': 'Invalid', field: [str(member)]})
-        assert response.status_code == 400, response.text
     url = f'/api/environments/{foreign_environment}'
     assert client.get(url, headers=HEADERS).status_code == 404
+    assert client.get(f'{url}/servers', headers=HEADERS).status_code == 404
     assert client.put(url, headers=HEADERS, json={'name': 'Other', 'revision': 1}).status_code == 404
-    assert client.delete(url + '?revision=1&confirmed=true', headers=HEADERS).status_code == 404
+    assert client.delete(url + '?revision=1', headers=HEADERS).status_code == 404
     assert client.get('/api/environments', headers=HEADERS).json()['environments'] == []
-    own = client.post('/api/environments', headers=HEADERS, json={'name': 'Own'}).json()
-    with store.connect() as conn:
-        with pytest.raises(psycopg.errors.ForeignKeyViolation), conn.transaction():
-            conn.execute(
-                'INSERT INTO ka.environment_services(project_id,environment_id,service_id) VALUES (%s,%s,%s)',
-                (UUID(own['project_id']), UUID(own['id']), foreign_service),
-            )
-        with pytest.raises(psycopg.errors.ForeignKeyViolation), conn.transaction():
-            conn.execute(
-                'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
-                (UUID(own['project_id']), UUID(own['id']), foreign_server),
-            )
+    refused = client.post(
+        '/api/deployments',
+        headers=HEADERS,
+        json={'service_id': service['id'], 'server_id': host['id'], 'environment_id': str(foreign_environment)},
+    )
+    assert refused.status_code == 400
 
 
 def test_duplicate_names_and_concurrent_updates_cannot_overwrite_each_other(inventory):
@@ -194,12 +134,14 @@ def test_duplicate_names_and_concurrent_updates_cannot_overwrite_each_other(inve
         {'name': 'x' * 101},
         {'name': 'Bad\x00'},
         {'name': 'Dev', 'description': 'x' * 4001},
-        {'name': 'Dev', 'service_ids': [str(UUID(int=1))] * 2},
-        {'name': 'Dev', 'server_ids': [str(UUID(int=1))] * 2},
+        {'name': 'Dev', 'service_ids': []},
+        {'name': 'Dev', 'server_ids': []},
     ],
 )
-def test_invalid_inputs_are_rejected_before_storage(tmp_path, value):
-    assert _client(tmp_path).post('/api/environments', headers=HEADERS, json=value).status_code == 400
+def test_invalid_inputs_are_rejected(store, tmp_path, value):
+    client = _client(tmp_path, repository_store=store)
+    assert client.post('/api/environments', headers=HEADERS, json=value).status_code == 400
+    assert client.get('/api/environments', headers=HEADERS).json()['environments'] == []
 
 
 @pytest.mark.parametrize(
@@ -209,7 +151,7 @@ def test_invalid_inputs_are_rejected_before_storage(tmp_path, value):
         ('POST', '/api/environments'),
         ('GET', f'/api/environments/{UUID(int=1)}'),
         ('PUT', f'/api/environments/{UUID(int=1)}'),
-        ('DELETE', f'/api/environments/{UUID(int=1)}?revision=1&confirmed=true'),
+        ('DELETE', f'/api/environments/{UUID(int=1)}?revision=1'),
     ],
 )
 def test_all_routes_require_admin_before_data_access(tmp_path, method, url):

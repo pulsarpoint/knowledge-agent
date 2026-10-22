@@ -19,6 +19,7 @@ from knowledge_admin.servers.discovery import (
 from knowledge_admin.servers.discovery import DOCUMENT_CHANGED
 from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.documents.api import document_slug
+from knowledge_admin.inventory import store as inventory
 from live_documents import live_document, rewrite_live_document
 from test_discovery_runs import config_of, ssh_ready, start
 from test_repositories import HEADERS
@@ -346,18 +347,97 @@ def test_a_stale_revision_and_unknown_ids_are_refused(run):
     assert decide(world, {'id': '00000000-0000-0000-0000-000000000000', 'revision': 1}, 'reject').status_code == 404
 
 
-def test_accepting_one_proposal_does_not_strand_another_update_of_a_service_it_linked(run):
+def test_accepting_one_proposal_leaves_the_revision_of_a_service_it_linked(run):
     world, sid, config = run
     propose(config, 'propose_service', **REDIS, depends_on=['nginx'])
     propose(config, 'propose_service', name='nginx', description='Changed', deployment={'runtime_name': 'nginx'})
     redis, nginx = listed(world, sid)
     assert decide(world, redis, 'accept').status_code == 200
-    nginx = listed(world, sid)[1]
-    refused = decide(world, nginx, 'accept')
-    assert refused.status_code == 409 and refused.json()['error']['message'] == SERVICE_CHANGED
-    nginx = listed(world, sid)[1]
-    assert nginx['status'] == 'pending'
-    assert decide(world, nginx, 'accept').status_code == 200
+    accepted = decide(world, listed(world, sid)[1], 'accept')
+    assert accepted.status_code == 200, accepted.text
+    assert service(world, 'nginx')['description'] == 'Changed'
+
+
+def test_accepting_writes_the_rows_direct_store_calls_write(run):
+    """Discovery's accept goes through the inventory store: the same rows (and audit) as the forms' calls."""
+    world, sid, config = run
+    propose(config, 'propose_service', **REDIS, depends_on=['nginx'], built_from=['Shop'])
+    [proposal] = listed(world, sid)
+    assert decide(world, proposal, 'accept').status_code == 200
+    with world.store.connect() as conn:
+        actor = conn.execute("SELECT id FROM ka.principals WHERE subject='admin-id'").fetchone()['id']
+        author = {'actor_id': actor}
+        direct = inventory.create_service(
+            conn,
+            world.project,
+            {**{k: REDIS[k] for k in ('service_role', 'description', 'owner')}, 'name': 'r2'},
+            author,
+        )
+        inventory.create_deployment(
+            conn,
+            world.project,
+            {
+                'service_id': direct['id'],
+                'server_id': world.server['id'],
+                'environment_id': world.environment,
+                **REDIS['deployment'],
+            },
+            author,
+        )
+        inventory.create_relation(
+            conn,
+            world.project,
+            {'from_service_id': direct['id'], 'kind': 'depends_on', 'to_service_id': world.nginx},
+            author,
+        )
+        inventory.create_relation(
+            conn,
+            world.project,
+            {'from_service_id': direct['id'], 'kind': 'built_from', 'to_code_project_id': world.shop},
+            author,
+        )
+        redis = conn.execute("SELECT id FROM ka.services WHERE name='redis'").fetchone()['id']
+        varying = {'id', 'name', 'service_id', 'from_service_id', 'created_at', 'updated_at'}
+
+        def rows(service_id):
+            items = [
+                *[s for s in inventory.list_services(conn, world.project) if s['id'] == service_id],
+                *inventory.list_deployments(conn, world.project, service_id=service_id),
+                *sorted(
+                    (
+                        r
+                        for r in inventory.list_relations(conn, world.project, service_id=service_id)
+                        if r['from_service_id'] == service_id
+                    ),
+                    key=lambda r: r['kind'],
+                ),
+            ]
+            return [{k: v for k, v in item.items() if k not in varying} for item in items]
+
+        def actions(service_id):
+            return sorted(
+                (row['action'], row['actor_id'])
+                for row in conn.execute(
+                    """SELECT action,actor_id FROM ka.audit_events WHERE resource_id=%s OR resource_id IN
+                    (SELECT id FROM ka.service_deployments WHERE service_id=%s
+                    UNION SELECT id FROM ka.service_relations WHERE from_service_id=%s)""",
+                    (service_id, service_id, service_id),
+                )
+            )
+
+        assert rows(redis) == rows(direct['id'])
+        assert (
+            actions(redis)
+            == actions(direct['id'])
+            == sorted(
+                [
+                    ('service.created', actor),
+                    ('deployment.created', actor),
+                    ('relation.created', actor),
+                    ('relation.created', actor),
+                ]
+            )
+        )
 
 
 def test_a_document_about_a_service_deleted_since_is_refused(run):

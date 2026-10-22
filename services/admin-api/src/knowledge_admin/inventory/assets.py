@@ -66,14 +66,28 @@ def service_asset(service: dict, rows: dict) -> dict:
 
 
 def _rows(conn, project_id: UUID) -> dict:
-    return {
+    """The project's rows; the reads are not one snapshot, so a deployment or relation whose ends were not read (added
+    meanwhile) is left out."""
+    rows = {
         'servers': {s['id']: s for s in store.list_servers(conn, project_id)},
         'services': {s['id']: s for s in store.list_services(conn, project_id)},
         'environments': {e['id']: e for e in store.list_environments(conn, project_id)},
         'repositories': {r['id']: r for r in conn.execute(REPOSITORIES, (project_id,))},
-        'deployments': store.list_deployments(conn, project_id),
-        'relations': store.list_relations(conn, project_id),
     }
+    rows['deployments'] = [
+        d
+        for d in store.list_deployments(conn, project_id)
+        if d['service_id'] in rows['services']
+        and d['server_id'] in rows['servers']
+        and d['environment_id'] in rows['environments']
+    ]
+    rows['relations'] = [
+        r
+        for r in store.list_relations(conn, project_id)
+        if r['from_service_id'] in rows['services']
+        and (r['to_service_id'] in rows['services'] or r['to_code_project_id'] in rows['repositories'])
+    ]
+    return rows
 
 
 def service_assets(conn, project_id: UUID, service_id: UUID | None = None) -> list[dict]:
@@ -89,9 +103,13 @@ def service_assets(conn, project_id: UUID, service_id: UUID | None = None) -> li
 def environment_assets(conn, project_id: UUID, environment_id: UUID | None = None) -> list[dict]:
     """The project's environments (or the one environment) with the services and servers deployed in them, by
     name."""
-    deployments = store.list_deployments(conn, project_id, environment_id=environment_id)
     services = {s['id']: s for s in store.list_services(conn, project_id)}
     servers = {s['id']: s for s in store.list_servers(conn, project_id)}
+    deployments = [  # not one snapshot: a deployment added after its service or server was read is left out
+        d
+        for d in store.list_deployments(conn, project_id, environment_id=environment_id)
+        if d['service_id'] in services and d['server_id'] in servers
+    ]
     return [
         {
             **environment,

@@ -43,22 +43,23 @@ def saved_agent(store, tmp_path):
     ).json()
     other_repo = client.post('/api/repositories', headers=HEADERS, json={'remote_url': 'example/unselected'}).json()
     service = client.post(
-        '/api/services',
+        '/api/services', headers=HEADERS, json={'name': 'Payments', 'description': 'Check the queue.'}
+    ).json()
+    built_from = {'from_service_id': service['id'], 'kind': 'built_from', 'to_code_project_id': other_repo['id']}
+    assert client.post('/api/relations', headers=HEADERS, json=built_from).status_code == 201
+    environment = client.post('/api/environments', headers=HEADERS, json={'name': 'test'}).json()
+    deployment = client.post(
+        '/api/deployments',
         headers=HEADERS,
         json={
-            'name': 'Payments',
-            'description': 'Check the queue.',
-            'repository_ids': [other_repo['id']],
-            'deployments': [
-                {
-                    'server_id': server['id'],
-                    'environment': 'test',
-                    'runtime_name': 'payments',
-                    'log_location': '/var/log/payments/app.log',
-                }
-            ],
+            'service_id': service['id'],
+            'server_id': server['id'],
+            'environment_id': environment['id'],
+            'runtime_name': 'payments',
+            'log_location': '/var/log/payments/app.log',
         },
-    ).json()
+    )
+    assert deployment.status_code == 201, deployment.text
     model = client.post(
         '/api/llm/models',
         headers=HEADERS,

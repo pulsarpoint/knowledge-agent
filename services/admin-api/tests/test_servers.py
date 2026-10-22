@@ -6,16 +6,28 @@ from test_api import _client
 from test_repositories import HEADERS
 
 
-def test_delete_server_requires_confirmation_revision_identity_and_scope(store, tmp_path):
+def deploy(client, server_id: str, name: str = 'API') -> tuple[dict, dict]:
+    """A new service deployed on the server in a test environment."""
+    service = client.post('/api/services', headers=HEADERS, json={'name': name}).json()
+    environment = client.post('/api/environments', headers=HEADERS, json={'name': f'{name} test'}).json()
+    deployment = client.post(
+        '/api/deployments',
+        headers=HEADERS,
+        json={'service_id': service['id'], 'server_id': server_id, 'environment_id': environment['id']},
+    )
+    assert deployment.status_code == 201, deployment.text
+    return service, deployment.json()
+
+
+def test_delete_server_requires_revision_identity_and_scope(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     value = {'name': 'Disposable host', 'hostname': 'delete.example.test', 'description': 'Test host', 'tags': ['test']}
     server = client.post('/api/servers', headers=HEADERS, json=value).json()
     endpoint = f'/api/servers/{server["id"]}'
-    params = {'revision': server['revision'], 'confirmed': True}
+    params = {'revision': server['revision']}
     assert client.delete(endpoint, params=params).status_code == 403
     assert client.delete(endpoint, params=params, headers={'X-Forwarded-Groups': 'docs-admins'}).status_code == 403
-    assert client.delete(endpoint, params={'revision': 1}, headers=HEADERS).status_code == 400
-    assert client.delete(endpoint, params={'confirmed': True}, headers=HEADERS).status_code == 400
+    assert client.delete(endpoint, headers=HEADERS).status_code == 400
     assert (
         client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1, 'name': 'Renamed host'}).status_code == 200
     )
@@ -38,7 +50,11 @@ def test_delete_server_requires_confirmation_revision_identity_and_scope(store, 
             "SELECT details FROM ka.audit_events WHERE resource_id=%s AND action='server.deleted'",
             (UUID(server['id']),),
         ).fetchone()
-        assert event['details'] == {'name': 'Renamed host', 'hostname': value['hostname'], 'revision': 2}
+        assert {k: event['details'][k] for k in ('name', 'hostname', 'revision')} == {
+            'name': 'Renamed host',
+            'hostname': value['hostname'],
+            'revision': 2,
+        }
 
 
 def test_linked_server_requires_removing_deployments_first(store, tmp_path):
@@ -46,21 +62,15 @@ def test_linked_server_requires_removing_deployments_first(store, tmp_path):
     server = client.post(
         '/api/servers', headers=HEADERS, json={'name': 'Linked host', 'hostname': 'linked.test'}
     ).json()
-    service = client.post(
-        '/api/services',
-        headers=HEADERS,
-        json={'name': 'API', 'deployments': [{'server_id': server['id'], 'environment': 'test'}]},
-    ).json()
+    service, deployment = deploy(client, server['id'])
     endpoint = f'/api/servers/{server["id"]}'
-    params = {'revision': 1, 'confirmed': True}
+    params = {'revision': 1}
     response = client.delete(endpoint, headers=HEADERS, params=params)
-    assert response.status_code == 409 and 'service deployments' in response.json()['error']['message']
+    assert response.status_code == 409 and 'deployment' in response.json()['error']['message']
     context = client.get(f'/api/services/{service["id"]}/context', headers=HEADERS).json()['service']
     assert context['deployments'][0]['server']['id'] == server['id']
     assert (
-        client.put(
-            f'/api/services/{service["id"]}', headers=HEADERS, json={'name': 'API', 'revision': 1, 'deployments': []}
-        ).status_code
+        client.delete(f'/api/deployments/{deployment["id"]}', headers=HEADERS, params={'revision': 1}).status_code
         == 200
     )
     assert client.delete(endpoint, headers=HEADERS, params=params).status_code == 200
@@ -77,7 +87,7 @@ def test_server_with_test_history_is_preserved(store, tmp_path):
         conn.execute(
             "INSERT INTO ka.jobs(project_id,kind,server_id) VALUES (%s,'server_test',%s)", (project, UUID(server['id']))
         )
-    response = client.delete(f'/api/servers/{server["id"]}', headers=HEADERS, params={'revision': 1, 'confirmed': True})
+    response = client.delete(f'/api/servers/{server["id"]}', headers=HEADERS, params={'revision': 1})
     assert response.status_code == 409 and 'history' in response.json()['error']['message']
     assert client.get('/api/servers', headers=HEADERS).json()['servers'] == [server]
 
@@ -95,11 +105,7 @@ def test_server_edits_propagate_to_service_context_preserving_access_and_links(s
     server = response.json()
     assert server['hostname'] == 'app.internal' and server['description'] == 'Runs the API'
     assert server['tags'] == ['production', 'eu-west'] and server['revision'] == 1
-    service_id = client.post(
-        '/api/services',
-        headers=HEADERS,
-        json={'name': 'API', 'deployments': [{'server_id': server['id'], 'environment': 'production'}]},
-    ).json()['id']
+    service_id = deploy(client, server['id'])[0]['id']
     initial = client.get(f'/api/services/{service_id}/context', headers=HEADERS).json()['service']
     with store.connect() as conn:
         conn.execute(
@@ -139,9 +145,9 @@ def test_server_edits_propagate_to_service_context_preserving_access_and_links(s
             'SELECT action,details FROM ka.audit_events WHERE resource_id=%s ORDER BY created_at,id',
             (UUID(server['id']),),
         ).fetchall()
-        assert events == [
-            {'action': 'server.registered', 'details': {'revision': 1, 'ssh_allowed': False}},
-            {'action': 'server.updated', 'details': {'revision': 2, 'ssh_allowed': False}},
+        assert [(e['action'], e['details']['revision'], e['details']['ssh_allowed']) for e in events] == [
+            ('server.created', 1, False),
+            ('server.updated', 2, False),
         ]
 
 
@@ -152,7 +158,7 @@ def test_stale_server_edit_and_duplicate_name_roll_back(store, tmp_path):
     client.post('/api/servers', headers=HEADERS, json={'name': 'Taken', 'hostname': 'localhost'})
     endpoint = f'/api/servers/{server["id"]}'
     assert client.put(endpoint, headers=HEADERS, json={**value, 'name': 'Taken', 'revision': 1}).status_code == 409
-    assert client.put(endpoint, headers=HEADERS, json=value).status_code == 409
+    assert client.put(endpoint, headers=HEADERS, json=value).status_code == 400  # no revision
     saved = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1, 'tags': []})
     assert saved.status_code == 200 and saved.json()['tags'] == [] and saved.json()['revision'] == 2
     assert client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1}).status_code == 409
@@ -211,11 +217,13 @@ def test_server_updates_require_identity_and_project_scope(store, tmp_path):
         {'ssh_allowed': None},
     ],
 )
-def test_invalid_server_attributes_rejected_before_storage(tmp_path, extra):
-    client = _client(tmp_path)
+def test_invalid_server_attributes_are_refused_without_a_change(store, tmp_path, extra):
+    client = _client(tmp_path, repository_store=store)
     value = {'name': 'Host', 'hostname': 'localhost', **extra}
     assert client.post('/api/servers', headers=HEADERS, json=value).status_code == 400
-    assert client.put(f'/api/servers/{uuid4()}', headers=HEADERS, json=value).status_code == 400
+    server = client.post('/api/servers', headers=HEADERS, json={'name': 'Host', 'hostname': 'localhost'}).json()
+    assert client.put(f'/api/servers/{server["id"]}', headers=HEADERS, json={'revision': 1, **extra}).status_code == 400
+    assert client.get('/api/servers', headers=HEADERS).json()['servers'] == [server]
 
 
 def test_ssh_permission_persists_in_inventory_and_service_context_without_enabling_connection(store, tmp_path):
@@ -226,11 +234,7 @@ def test_ssh_permission_persists_in_inventory_and_service_context_without_enabli
     server = response.json()
     assert server['ssh_allowed'] is True
     assert server['access_enabled'] is False and server['allow_sudo'] is False and server['ssh_username'] is None
-    service = client.post(
-        '/api/services',
-        headers=HEADERS,
-        json={'name': 'Policy service', 'deployments': [{'server_id': server['id'], 'environment': 'test'}]},
-    ).json()
+    service = deploy(client, server['id'], 'Policy service')[0]
     context_url = f'/api/services/{service["id"]}/context'
     assert client.get(context_url, headers=HEADERS).json()['service']['deployments'][0]['server']['ssh_allowed'] is True
     path = f'/api/servers/{server["id"]}'

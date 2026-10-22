@@ -8,115 +8,64 @@ from test_api import _client
 from test_repositories import HEADERS
 
 
-def test_membership_alone_puts_nothing_in_an_environment_and_stale_edits_are_refused(store, tmp_path):
-    """A service or server is in an environment when one of its deployments is (0125): selected environments without
-    a deployment there are not its environments."""
-    client = _client(tmp_path, repository_store=store)
-    dev = client.post('/api/environments', headers=HEADERS, json={'name': 'Dev'}).json()
-    prod = client.post('/api/environments', headers=HEADERS, json={'name': 'Production'}).json()
-    service = client.post(
-        '/api/services', headers=HEADERS, json={'name': 'API', 'environment_ids': [dev['id'], prod['id']]}
-    ).json()
-    url = f'/api/services/{service["id"]}'
-    assert client.get(url + '/context', headers=HEADERS).json()['service']['environments'] == []
-    current_dev = client.get(f'/api/environments/{dev["id"]}', headers=HEADERS).json()
-    assert current_dev['services'] == [] and current_dev['revision'] == 2
-    stale = client.put(f'/api/environments/{dev["id"]}', headers=HEADERS, json={'name': 'Dev', 'revision': 1})
-    assert stale.status_code == 409
-    assert client.put(url, headers=HEADERS, json={'name': 'Renamed', 'revision': 1}).status_code == 200
-    assert (
-        client.put(url, headers=HEADERS, json={'name': 'Stale', 'revision': 1, 'environment_ids': []}).status_code
-        == 409
-    )
-
-
-def test_deployment_uses_environment_id_and_tracks_renames_and_deletion(store, tmp_path):
+def test_a_deployment_names_its_environment_by_id_and_follows_a_rename(store, tmp_path):
+    """A service or server is in an environment when one of its deployments is (0125)."""
     client = _client(tmp_path, repository_store=store)
     env = client.post('/api/environments', headers=HEADERS, json={'name': 'Dev'}).json()
     host = client.post('/api/servers', headers=HEADERS, json={'name': 'Host', 'hostname': 'host.test'}).json()
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'API'}).json()
+    url = f'/api/services/{service["id"]}/context'
+    assert client.get(url, headers=HEADERS).json()['service']['environments'] == []
+    untrusted = {'service_id': service['id'], 'server_id': host['id'], 'environment': 'untrusted-name'}
+    assert client.post('/api/deployments', headers=HEADERS, json=untrusted).status_code == 400
     response = client.post(
-        '/api/services',
+        '/api/deployments',
         headers=HEADERS,
-        json={
-            'name': 'API',
-            'environment_ids': [env['id']],
-            'deployments': [{'server_id': host['id'], 'environment_id': env['id'], 'environment': 'untrusted-name'}],
-        },
+        json={'service_id': service['id'], 'server_id': host['id'], 'environment_id': env['id']},
     )
     assert response.status_code == 201, response.text
-    service = response.json()
-    asset = client.get(f'/api/services/{service["id"]}/context', headers=HEADERS).json()['service']
-    deployment = asset['deployments'][0]
+    deployment = client.get(url, headers=HEADERS).json()['service']['deployments'][0]
     assert deployment['environment'] == 'Dev' and deployment['environment_id'] == env['id']
     current = client.get(f'/api/environments/{env["id"]}', headers=HEADERS).json()
     assert current['services'][0]['id'] == service['id'] and current['servers'][0]['id'] == host['id']
-    response = client.put(
-        f'/api/environments/{env["id"]}',
-        headers=HEADERS,
-        json={
-            'name': 'Development',
-            'revision': current['revision'],
-            'service_ids': [service['id']],
-            'server_ids': [host['id']],
-        },
+    renamed = client.put(
+        f'/api/environments/{env["id"]}', headers=HEADERS, json={'name': 'Development', 'revision': current['revision']}
     )
-    assert response.status_code == 200, response.text
-    renamed = response.json()
-    asset = client.get(f'/api/services/{service["id"]}/context', headers=HEADERS).json()['service']
+    assert renamed.status_code == 200, renamed.text
+    asset = client.get(url, headers=HEADERS).json()['service']
     assert asset['deployments'][0]['environment'] == 'Development'
     assert asset['deployments'][0]['id'] == deployment['id']
+    assert [e['name'] for e in asset['environments']] == ['Development']
     resources = client.get('/api/documentation/resources', headers=HEADERS).json()
     assert resources['deployments'][0]['environment'] == 'Development'
-    assert (
-        client.put(
-            f'/api/environments/{env["id"]}',
-            headers=HEADERS,
-            json={'name': 'Development', 'revision': renamed['revision']},
-        ).status_code
-        == 400
-    )
     # An environment with deployments cannot be deleted (0125: every deployment is in an environment).
-    refused = client.delete(
-        f'/api/environments/{env["id"]}?confirmed=true&revision={renamed["revision"]}', headers=HEADERS
-    )
-    assert refused.status_code == 409 and 'deployments' in refused.json()['error']['message']
-    asset = client.get(f'/api/services/{service["id"]}/context', headers=HEADERS).json()['service']
-    assert asset['deployments'][0]['environment_id'] == env['id']
-    assert asset['deployments'][0]['id'] == deployment['id']
+    refused = client.delete(f'/api/environments/{env["id"]}?revision={renamed.json()["revision"]}', headers=HEADERS)
+    assert refused.status_code == 409 and 'deployment' in refused.json()['error']['message']
+    assert client.get(url, headers=HEADERS).json()['service']['deployments'][0]['environment_id'] == env['id']
 
 
-def test_environment_selection_rejects_missing_foreign_and_duplicate_ids(store, tmp_path):
+def test_a_deployment_in_another_projects_environment_is_refused(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     with store.connect() as conn:
         foreign_project = store.project(conn, 'foreign')
         foreign_id = conn.execute(
             "INSERT INTO ka.environments(project_id,name) VALUES (%s,'Secret') RETURNING id", (foreign_project,)
         ).fetchone()['id']
-    for ids in ([str(foreign_id)], [str(uuid4())], [str(foreign_id), str(foreign_id)]):
-        response = client.post('/api/services', headers=HEADERS, json={'name': 'Rejected', 'environment_ids': ids})
-        assert response.status_code == 400 and 'Secret' not in response.text
-    assert client.get('/api/services', headers=HEADERS).json()['services'] == []
-    env = client.post('/api/environments', headers=HEADERS, json={'name': 'Local'}).json()
     host = client.post('/api/servers', headers=HEADERS, json={'name': 'Host', 'hostname': 'host.test'}).json()
-    assert (
-        client.post(
-            '/api/services',
-            headers=HEADERS,
-            json={
-                'name': 'API',
-                'environment_ids': [],
-                'deployments': [{'server_id': host['id'], 'environment_id': env['id']}],
-            },
-        ).status_code
-        == 400
-    )
     service = client.post('/api/services', headers=HEADERS, json={'name': 'Valid'}).json()
+    for environment_id in (foreign_id, uuid4()):
+        response = client.post(
+            '/api/deployments',
+            headers=HEADERS,
+            json={'service_id': service['id'], 'server_id': host['id'], 'environment_id': str(environment_id)},
+        )
+        assert response.status_code == 400 and 'Secret' not in response.text
     with store.connect() as conn:
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             conn.execute(
                 """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,environment)
                 VALUES (%s,%s,%s,%s,'Secret')""",
-                (UUID(env['project_id']), UUID(service['id']), UUID(host['id']), foreign_id),
+                (UUID(service['project_id']), UUID(service['id']), UUID(host['id']), foreign_id),
             )
 
 

@@ -100,7 +100,7 @@ def test_ssh_secret_encrypted_write_only_rotation_removal_and_server_delete(stor
         )
     assert (
         client.delete(
-            f'/api/servers/{server["id"]}', headers=HEADERS, params={'revision': changed['revision'], 'confirmed': True}
+            f'/api/servers/{server["id"]}', headers=HEADERS, params={'revision': changed['revision']}
         ).status_code
         == 200
     )

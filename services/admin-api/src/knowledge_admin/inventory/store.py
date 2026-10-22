@@ -156,6 +156,14 @@ def list_relations(conn, project_id: UUID, service_id: UUID | None = None) -> li
     ).fetchall()
 
 
+def get(conn, project_id: UUID, kind: str, item_id: UUID) -> dict:
+    """One item of the project; NotFound when it is not there."""
+    row = conn.execute(f'{KINDS[kind]["read"]} WHERE x.id=%s AND x.project_id=%s', (item_id, project_id)).fetchone()
+    if row is None:
+        raise NotFound(f'{kind.capitalize()} not found')
+    return row
+
+
 # Helpers
 
 
@@ -163,7 +171,8 @@ def _get(conn, kind: str, item_id: UUID) -> dict:
     return conn.execute(f'{KINDS[kind]["read"]} WHERE x.id=%s', (item_id,)).fetchone()
 
 
-def _lock_project(conn, project_id: UUID) -> None:
+def lock_project(conn, project_id: UUID) -> None:
+    """Every inventory writer takes this lock first (callers that upsert the person take it before that)."""
     conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project_id,))
 
 
@@ -211,7 +220,7 @@ def _references(conn, project_id: UUID, kind: str, item: dict) -> dict:
 
 
 def _write(conn, kind: str, sql: str, params: list) -> UUID:
-    # A deployment's identity constraints are deferred (for the old service form's swaps): check them now, so a
+    # A deployment's identity constraints are deferrable (left from the old service form): check them now, so a
     # duplicate is a Conflict here and not a failed commit.
     if kind == 'deployment':
         conn.execute(f'SET CONSTRAINTS {DEPLOYMENT_IDENTITY} IMMEDIATE')
@@ -220,9 +229,6 @@ def _write(conn, kind: str, sql: str, params: list) -> UUID:
             return conn.execute(sql, params).fetchone()['id']
     except psycopg.errors.UniqueViolation:
         raise Conflict(KINDS[kind]['duplicate']) from None
-    finally:
-        if kind == 'deployment':
-            conn.execute(f'SET CONSTRAINTS {DEPLOYMENT_IDENTITY} DEFERRED')
 
 
 def _audit(conn, project_id: UUID, author: dict, action: str, kind: str, item_id: UUID, details: dict) -> None:
@@ -238,7 +244,7 @@ def _audit(conn, project_id: UUID, author: dict, action: str, kind: str, item_id
 
 
 def _create(conn, project_id: UUID, kind: str, values: dict, author: dict) -> dict:
-    _lock_project(conn, project_id)
+    lock_project(conn, project_id)
     item = KINDS[kind]['rule'](values)
     columns = {**item, **_references(conn, project_id, kind, item)}
     if kind == 'server':
@@ -262,11 +268,8 @@ def _create(conn, project_id: UUID, kind: str, values: dict, author: dict) -> di
 
 def _update(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, changes: dict, author: dict) -> dict:
     """Changes are merged into the saved item; the whole item is validated again."""
-    _lock_project(conn, project_id)
+    lock_project(conn, project_id)
     row = _locked(conn, kind, project_id, item_id, revision)
-    unknown = sorted(set(changes) - set(KINDS[kind]['fields']))
-    if unknown:
-        raise Invalid(f'Unknown field: {", ".join(unknown)}')
     saved = {field: row[field] for field in KINDS[kind]['fields']}
     if kind == 'connection' and 'to_deployment_id' in changes and 'port' not in changes:
         saved['port'] = None  # a new target brings its own port
@@ -292,7 +295,7 @@ def _refuse_with_deployments(conn, kind: str, item_id: UUID) -> None:
 
 
 def _delete(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, author: dict) -> dict:
-    _lock_project(conn, project_id)
+    lock_project(conn, project_id)
     row = _locked(conn, kind, project_id, item_id, revision)
     details = {'revision': revision, **{field: row[field] for field in KINDS[kind]['fields']}}
     if kind in ('server', 'service', 'environment'):

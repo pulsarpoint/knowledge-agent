@@ -411,9 +411,7 @@ def test_a_brand_new_inventory_draft_is_the_resources_inventory_document_unpubli
 def test_deleting_the_resource_leaves_its_inventory_document_with_its_tag_and_no_links(store, client):
     created = client.post('/api/services', headers=HEADERS, json={'name': 'payments'}).json()
     runbook = live(store, 'runbook', 'Runbook', service_ids=[created['id']], tags=['inventory'])
-    deleted = client.delete(
-        f'/api/services/{created["id"]}', headers=HEADERS, params={'revision': created['revision'], 'confirmed': True}
-    )
+    deleted = client.delete(f'/api/services/{created["id"]}', headers=HEADERS, params={'revision': created['revision']})
     assert deleted.status_code == 200, deleted.text
     document = client.get(f'{DOCUMENTS}/{runbook}', headers=HEADERS).json()
     assert (document['tags'], document['resource_links']) == (['inventory'], [])

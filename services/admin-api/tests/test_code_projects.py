@@ -35,10 +35,10 @@ def test_local_project_maps_multiple_folders_and_is_available_to_agents_and_serv
     assert client.get('/api/agents/code/options', headers=HEADERS).json()['code_project'] == [
         {'type': 'code_project', 'id': project_id, 'name': 'Payments', 'description_short': 'Payment source'}
     ]
-    service = client.post(
-        '/api/services', headers=HEADERS, json={'name': 'Payment API', 'repository_ids': [project_id]}
-    )
-    assert service.status_code == 201, service.text
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'Payment API'}).json()
+    built_from = {'from_service_id': service['id'], 'kind': 'built_from', 'to_code_project_id': project_id}
+    relation = client.post('/api/relations', headers=HEADERS, json=built_from)
+    assert relation.status_code == 201, relation.text
     with store.connect() as conn:
         give(conn, 'code', [('code_project', project_id)])
     config = get_agent_config('code', conninfo=store.conninfo)

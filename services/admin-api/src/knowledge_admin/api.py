@@ -13,7 +13,8 @@ from knowledge_admin.documents import (
     folders as documentation_folders,
     prompts as documentation_prompts,
 )
-from knowledge_admin.servers import discovery, environments, inventory_links_api, map_api, service_api
+from knowledge_admin.inventory import api as inventory_api
+from knowledge_admin.servers import discovery, map_api
 from knowledge_admin.code_projects import api as repository_api
 from knowledge_admin.events import (
     api as events_api,
@@ -58,10 +59,8 @@ def build_api(
     from knowledge_admin.servers import operations_api
 
     router.include_router(operations_api.build_api(app_name, repository_store))
-    router.include_router(service_api.build_api(app_name, repository_store))
-    router.include_router(inventory_links_api.build_api(app_name, repository_store))
+    router.include_router(inventory_api.build_api(app_name, repository_store))
     router.include_router(map_api.build_api(app_name, repository_store))
-    router.include_router(environments.build_api(app_name, repository_store))
     router.include_router(skills.build_api(app_name, repository_store))
     router.include_router(documents.build_api(app_name, repository_store))
     router.include_router(document_drafts.build_api(app_name, repository_store))

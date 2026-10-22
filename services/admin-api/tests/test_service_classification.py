@@ -55,9 +55,11 @@ def test_classification_round_trip_preserves_omitted_fields_and_rejects_stale_up
     'field,value',
     [('service_type', 'invalid'), ('service_role', 'invalid'), ('service_type', None), ('service_role', None)],
 )
-def test_invalid_classifications_are_rejected_before_database(tmp_path, field, value):
-    response = _client(tmp_path).post('/api/services', headers=HEADERS, json={'name': 'Test', field: value})
+def test_invalid_classifications_are_rejected(store, tmp_path, field, value):
+    client = _client(tmp_path, repository_store=store)
+    response = client.post('/api/services', headers=HEADERS, json={'name': 'Test', field: value})
     assert response.status_code == 400
+    assert client.get('/api/services', headers=HEADERS).json()['services'] == []
 
 
 def test_database_enums_reject_unknown_values(store):

@@ -64,7 +64,7 @@ def test_dependency_direction_metadata_and_service_lifecycle(store, tmp_path):
     assert saved.status_code == 200, saved.text
     with store.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM ka.inventory_links WHERE kind='depends_on'").fetchone()['n'] == 4
-    deleted = client.delete(f'/api/services/{postgres}', headers=HEADERS, params={'revision': 1, 'confirmed': True})
+    deleted = client.delete(f'/api/services/{postgres}', headers=HEADERS, params={'revision': 1})
     assert deleted.status_code == 200, deleted.text
     with store.connect() as conn:
         assert conn.execute(
