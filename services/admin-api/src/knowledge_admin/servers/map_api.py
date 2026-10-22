@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 
+from knowledge_admin.inventory import store as inventory_store
 from knowledge_admin.servers import inventory_map, system_graph_render
 from knowledge_admin.repositories import RepositoryStore
 
@@ -21,7 +22,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         if store is None:
             raise HTTPException(503, 'Inventory storage is not configured')
         with store.connect() as conn:
-            return inventory_map.load(conn, store.project(conn, app))
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')  # one snapshot of the rows
+            return inventory_store.load_project_models(conn, store.project(conn, app))
 
     @router.get('/map/view/{view}', response_model=None)
     def view(

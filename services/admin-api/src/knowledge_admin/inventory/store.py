@@ -16,7 +16,7 @@ from uuid import UUID
 import psycopg
 
 from knowledge_admin.db import audit
-from knowledge_admin.inventory import rules
+from knowledge_admin.inventory import model, rules
 from knowledge_admin.inventory.rules import Invalid
 
 
@@ -158,11 +158,10 @@ def list_relations(conn, project_id: UUID, service_id: UUID | None = None) -> li
     ).fetchall()
 
 
-def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
-    """The rows model.build_model takes: the environment (NotFound when it is not in the project) and the project's
-    servers, services, deployments (with their environment's name), connections, relations and code projects."""
+def _project_rows(conn, project_id: UUID) -> dict:
+    """The project's servers, services, deployments (with their environment's name), connections, relations and code
+    projects (archived ones too, with archived_at)."""
     return {
-        'environment': get(conn, project_id, 'environment', environment_id),
         'servers': list_servers(conn, project_id),
         'services': list_services(conn, project_id),
         'deployments': conn.execute(
@@ -173,8 +172,43 @@ def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
         'connections': list_connections(conn, project_id),
         'relations': list_relations(conn, project_id),
         'code_projects': conn.execute(
-            'SELECT id,name FROM ka.repositories WHERE project_id=%s ORDER BY lower(name),id', (project_id,)
+            """SELECT id,name,description,archived_at FROM ka.repositories WHERE project_id=%s
+            ORDER BY lower(name),id""",
+            (project_id,),
         ).fetchall(),
+    }
+
+
+def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
+    """The rows model.build_model takes: the environment (NotFound when it is not in the project) and the project's
+    servers, services, deployments, connections, relations and code projects."""
+    return {'environment': get(conn, project_id, 'environment', environment_id), **_project_rows(conn, project_id)}
+
+
+def load_project_models(conn, project_id: UUID) -> dict:
+    """model.build_project over the project's rows ({models, unplaced}), plus its code projects that are not archived
+    {id, name, description} and the live documents linked to each entry: {(entry kind, entry id): [{id, slug, title}]}
+    (links to a deployment left out). One consistent read when the caller's transaction is REPEATABLE READ."""
+    rows = _project_rows(conn, project_id)
+    documents: dict[tuple, list[dict]] = {}
+    for row in conn.execute(
+        """SELECT r.resource_type AS entry_kind,COALESCE(r.server_id,r.service_id,r.environment_id,r.code_project_id)
+            AS entry_id,d.id,d.slug,d.title FROM ka.document_resources r JOIN ka.documents d ON d.id=r.document_id
+            WHERE d.project_id=%s AND NOT d.is_draft AND r.removed_at IS NULL AND r.deployment_id IS NULL
+            ORDER BY lower(d.title),d.id""",
+        (project_id,),
+    ):
+        documents.setdefault((row['entry_kind'], row['entry_id']), []).append(
+            {'id': row['id'], 'slug': row['slug'], 'title': row['title']}
+        )
+    return {
+        **model.build_project(list_environments(conn, project_id), **rows),
+        'code_projects': [
+            {'id': c['id'], 'name': c['name'], 'description': c['description']}
+            for c in rows['code_projects']
+            if c['archived_at'] is None
+        ],
+        'documents': documents,
     }
 
 

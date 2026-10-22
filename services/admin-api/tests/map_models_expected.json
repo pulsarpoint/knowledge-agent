@@ -1,0 +1,3128 @@
+{
+ "infrastructure production 1": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   },
+   {
+    "entry_id": "staging",
+    "entry_kind": "environment",
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   }
+  ],
+  "depth": 1,
+  "edges": [
+   {
+    "count": 1,
+    "from": "environment:staging",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "server:production:prod-1",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:production:prod-2",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "server:production:prod-1",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 1,
+    "description": "prod-1 box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "prod-1",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:production:prod-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-1",
+    "parent_id": null
+   },
+   {
+    "child_count": 1,
+    "description": "prod-2 box",
+    "documents": [],
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:production:prod-2",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-2",
+    "parent_id": null
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:production:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "production environment",
+   "entry_id": "production",
+   "entry_kind": "environment",
+   "id": "environment:production",
+   "kind": "environment",
+   "name": "production"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure production 2": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   },
+   {
+    "entry_id": "staging",
+    "entry_kind": "environment",
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   }
+  ],
+  "depth": 2,
+  "edges": [
+   {
+    "count": 1,
+    "from": "environment:staging",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "service:production:prod-2:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:production:prod-1:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "service:production:prod-2:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:prod-2:db",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:shared:web",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:shared:web",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:production:prod-1:api",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 1,
+    "description": "prod-1 box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "prod-1",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:prod-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-1",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": "server:production:prod-1"
+   },
+   {
+    "child_count": 1,
+    "description": "prod-2 box",
+    "documents": [],
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:prod-2",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-2",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "db service",
+    "documents": [],
+    "entry_id": "db",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-2:db",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "db",
+    "parent_id": "server:production:prod-2"
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "web service",
+    "documents": [],
+    "entry_id": "web",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:shared:web",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "web",
+    "parent_id": "server:production:shared"
+   }
+  ],
+  "root": {
+   "description": "production environment",
+   "entry_id": "production",
+   "entry_kind": "environment",
+   "id": "environment:production",
+   "kind": "environment",
+   "name": "production"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure production 3": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   },
+   {
+    "entry_id": "staging",
+    "entry_kind": "environment",
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   }
+  ],
+  "depth": 3,
+  "edges": [
+   {
+    "count": 1,
+    "from": "environment:staging",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "service:production:prod-2:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:production:prod-1:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "service:production:prod-2:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:prod-2:db",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:shared:web",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:shared:web",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:production:prod-1:api",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 1,
+    "description": "prod-1 box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "prod-1",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:prod-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-1",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": "server:production:prod-1"
+   },
+   {
+    "child_count": 1,
+    "description": "prod-2 box",
+    "documents": [],
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:prod-2",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-2",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "db service",
+    "documents": [],
+    "entry_id": "db",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-2:db",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "db",
+    "parent_id": "server:production:prod-2"
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "web service",
+    "documents": [],
+    "entry_id": "web",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:shared:web",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "web",
+    "parent_id": "server:production:shared"
+   }
+  ],
+  "root": {
+   "description": "production environment",
+   "entry_id": "production",
+   "entry_kind": "environment",
+   "id": "environment:production",
+   "kind": "environment",
+   "name": "production"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure production/prod-1 1": {
+  "boundary": [
+   {
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "id": "server:production:prod-2",
+    "kind": "server",
+    "name": "prod-2"
+   },
+   {
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "id": "server:production:shared",
+    "kind": "server",
+    "name": "shared"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   },
+   {
+    "id": "server:production:prod-1",
+    "kind": "server",
+    "name": "prod-1"
+   }
+  ],
+  "depth": 1,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:production:prod-1:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:production:prod-1:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "prod-1 box",
+   "entry_id": "prod-1",
+   "entry_kind": "server",
+   "id": "server:production:prod-1",
+   "kind": "server",
+   "name": "prod-1"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure production/prod-1 2": {
+  "boundary": [
+   {
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "id": "server:production:prod-2",
+    "kind": "server",
+    "name": "prod-2"
+   },
+   {
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "id": "server:production:shared",
+    "kind": "server",
+    "name": "shared"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   },
+   {
+    "id": "server:production:prod-1",
+    "kind": "server",
+    "name": "prod-1"
+   }
+  ],
+  "depth": 2,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:production:prod-1:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:production:prod-1:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "prod-1 box",
+   "entry_id": "prod-1",
+   "entry_kind": "server",
+   "id": "server:production:prod-1",
+   "kind": "server",
+   "name": "prod-1"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure production/prod-1 3": {
+  "boundary": [
+   {
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "id": "server:production:prod-2",
+    "kind": "server",
+    "name": "prod-2"
+   },
+   {
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "id": "server:production:shared",
+    "kind": "server",
+    "name": "shared"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   },
+   {
+    "id": "server:production:prod-1",
+    "kind": "server",
+    "name": "prod-1"
+   }
+  ],
+  "depth": 3,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:production:prod-1:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:production:prod-1:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "prod-1 box",
+   "entry_id": "prod-1",
+   "entry_kind": "server",
+   "id": "server:production:prod-1",
+   "kind": "server",
+   "name": "prod-1"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure spare 1": {
+  "boundary": [],
+  "breadcrumb": [
+   {
+    "id": "server:top:spare",
+    "kind": "server",
+    "name": "spare"
+   }
+  ],
+  "depth": 1,
+  "edges": [],
+  "nodes": [],
+  "root": {
+   "description": "spare box",
+   "entry_id": "spare",
+   "entry_kind": "server",
+   "id": "server:top:spare",
+   "kind": "server",
+   "name": "spare"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure spare 2": {
+  "boundary": [],
+  "breadcrumb": [
+   {
+    "id": "server:top:spare",
+    "kind": "server",
+    "name": "spare"
+   }
+  ],
+  "depth": 2,
+  "edges": [],
+  "nodes": [],
+  "root": {
+   "description": "spare box",
+   "entry_id": "spare",
+   "entry_kind": "server",
+   "id": "server:top:spare",
+   "kind": "server",
+   "name": "spare"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure spare 3": {
+  "boundary": [],
+  "breadcrumb": [
+   {
+    "id": "server:top:spare",
+    "kind": "server",
+    "name": "spare"
+   }
+  ],
+  "depth": 3,
+  "edges": [],
+  "nodes": [],
+  "root": {
+   "description": "spare box",
+   "entry_id": "spare",
+   "entry_kind": "server",
+   "id": "server:top:spare",
+   "kind": "server",
+   "name": "spare"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure staging 1": {
+  "boundary": [
+   {
+    "entry_id": "production",
+    "entry_kind": "environment",
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   }
+  ],
+  "depth": 1,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "environment:production",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "server:staging:shared",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:staging:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": null
+   },
+   {
+    "child_count": 2,
+    "description": "stage-1 box",
+    "documents": [],
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:staging:stage-1",
+    "internal_edges": 1,
+    "kind": "server",
+    "name": "stage-1",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "staging environment",
+   "entry_id": "staging",
+   "entry_kind": "environment",
+   "id": "environment:staging",
+   "kind": "environment",
+   "name": "staging"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure staging 2": {
+  "boundary": [
+   {
+    "entry_id": "production",
+    "entry_kind": "environment",
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   }
+  ],
+  "depth": 2,
+  "edges": [
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:api",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:staging:shared:cache",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:api",
+    "ids": [
+     "c-api-worker"
+    ],
+    "to": "service:staging:stage-1:worker",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:worker",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "environment:production",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:worker",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:staging:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:shared:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": "server:staging:shared"
+   },
+   {
+    "child_count": 2,
+    "description": "stage-1 box",
+    "documents": [],
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:staging:stage-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "stage-1",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:stage-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": "server:staging:stage-1"
+   },
+   {
+    "child_count": 0,
+    "description": "worker service",
+    "documents": [],
+    "entry_id": "worker",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:stage-1:worker",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "worker",
+    "parent_id": "server:staging:stage-1"
+   }
+  ],
+  "root": {
+   "description": "staging environment",
+   "entry_id": "staging",
+   "entry_kind": "environment",
+   "id": "environment:staging",
+   "kind": "environment",
+   "name": "staging"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure staging 3": {
+  "boundary": [
+   {
+    "entry_id": "production",
+    "entry_kind": "environment",
+    "id": "environment:production",
+    "kind": "environment",
+    "name": "production"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   }
+  ],
+  "depth": 3,
+  "edges": [
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:api",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:staging:shared:cache",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:api",
+    "ids": [
+     "c-api-worker"
+    ],
+    "to": "service:staging:stage-1:worker",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:worker",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "environment:production",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:worker",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:staging:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:shared:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": "server:staging:shared"
+   },
+   {
+    "child_count": 2,
+    "description": "stage-1 box",
+    "documents": [],
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:staging:stage-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "stage-1",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:stage-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": "server:staging:stage-1"
+   },
+   {
+    "child_count": 0,
+    "description": "worker service",
+    "documents": [],
+    "entry_id": "worker",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:stage-1:worker",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "worker",
+    "parent_id": "server:staging:stage-1"
+   }
+  ],
+  "root": {
+   "description": "staging environment",
+   "entry_id": "staging",
+   "entry_kind": "environment",
+   "id": "environment:staging",
+   "kind": "environment",
+   "name": "staging"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure staging/shared 1": {
+  "boundary": [
+   {
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "id": "server:staging:stage-1",
+    "kind": "server",
+    "name": "stage-1"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   },
+   {
+    "id": "server:staging:shared",
+    "kind": "server",
+    "name": "shared"
+   }
+  ],
+  "depth": 1,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:staging:shared:cache",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:shared:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "shared box",
+   "entry_id": "shared",
+   "entry_kind": "server",
+   "id": "server:staging:shared",
+   "kind": "server",
+   "name": "shared"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure staging/shared 2": {
+  "boundary": [
+   {
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "id": "server:staging:stage-1",
+    "kind": "server",
+    "name": "stage-1"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   },
+   {
+    "id": "server:staging:shared",
+    "kind": "server",
+    "name": "shared"
+   }
+  ],
+  "depth": 2,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:staging:shared:cache",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:shared:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "shared box",
+   "entry_id": "shared",
+   "entry_kind": "server",
+   "id": "server:staging:shared",
+   "kind": "server",
+   "name": "shared"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure staging/shared 3": {
+  "boundary": [
+   {
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "id": "server:staging:stage-1",
+    "kind": "server",
+    "name": "stage-1"
+   }
+  ],
+  "breadcrumb": [
+   {
+    "id": "environment:staging",
+    "kind": "environment",
+    "name": "staging"
+   },
+   {
+    "id": "server:staging:shared",
+    "kind": "server",
+    "name": "shared"
+   }
+  ],
+  "depth": 3,
+  "edges": [
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:staging:shared:cache",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:shared:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": null
+   }
+  ],
+  "root": {
+   "description": "shared box",
+   "entry_id": "shared",
+   "entry_kind": "server",
+   "id": "server:staging:shared",
+   "kind": "server",
+   "name": "shared"
+  },
+  "view": "infrastructure"
+ },
+ "infrastructure top 1": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [],
+  "depth": 1,
+  "edges": [
+   {
+    "count": 1,
+    "from": "environment:production",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "environment:production",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "environment:staging",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "environment:production",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "environment:staging",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 3,
+    "description": "production environment",
+    "documents": [
+     {
+      "id": "overview",
+      "slug": "overview",
+      "title": "Production overview"
+     }
+    ],
+    "entry_id": "production",
+    "entry_kind": "environment",
+    "expandable": true,
+    "id": "environment:production",
+    "internal_edges": 3,
+    "kind": "environment",
+    "name": "production",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "sandbox environment",
+    "documents": [],
+    "entry_id": "sandbox",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:sandbox",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "sandbox",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "spare box",
+    "documents": [
+     {
+      "id": "spare-doc",
+      "slug": "spare-doc",
+      "title": "Spare box"
+     }
+    ],
+    "entry_id": "spare",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:top:spare",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "spare",
+    "parent_id": null
+   },
+   {
+    "child_count": 2,
+    "description": "staging environment",
+    "documents": [],
+    "entry_id": "staging",
+    "entry_kind": "environment",
+    "expandable": true,
+    "id": "environment:staging",
+    "internal_edges": 2,
+    "kind": "environment",
+    "name": "staging",
+    "parent_id": null
+   }
+  ],
+  "root": null,
+  "view": "infrastructure"
+ },
+ "infrastructure top 2": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [],
+  "depth": 2,
+  "edges": [
+   {
+    "count": 2,
+    "from": "server:production:prod-1",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:production:prod-2",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:production:shared",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "server:production:prod-1",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "server:production:prod-2",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "server:staging:stage-1",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "server:staging:shared",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 3,
+    "description": "production environment",
+    "documents": [
+     {
+      "id": "overview",
+      "slug": "overview",
+      "title": "Production overview"
+     }
+    ],
+    "entry_id": "production",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:production",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "production",
+    "parent_id": null
+   },
+   {
+    "child_count": 1,
+    "description": "prod-1 box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "prod-1",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:production:prod-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-1",
+    "parent_id": "environment:production"
+   },
+   {
+    "child_count": 1,
+    "description": "prod-2 box",
+    "documents": [],
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:production:prod-2",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-2",
+    "parent_id": "environment:production"
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:production:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": "environment:production"
+   },
+   {
+    "child_count": 0,
+    "description": "sandbox environment",
+    "documents": [],
+    "entry_id": "sandbox",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:sandbox",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "sandbox",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "spare box",
+    "documents": [
+     {
+      "id": "spare-doc",
+      "slug": "spare-doc",
+      "title": "Spare box"
+     }
+    ],
+    "entry_id": "spare",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:top:spare",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "spare",
+    "parent_id": null
+   },
+   {
+    "child_count": 2,
+    "description": "staging environment",
+    "documents": [],
+    "entry_id": "staging",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:staging",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "staging",
+    "parent_id": null
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:staging:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": "environment:staging"
+   },
+   {
+    "child_count": 2,
+    "description": "stage-1 box",
+    "documents": [],
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "expandable": true,
+    "id": "server:staging:stage-1",
+    "internal_edges": 1,
+    "kind": "server",
+    "name": "stage-1",
+    "parent_id": "environment:staging"
+   }
+  ],
+  "root": null,
+  "view": "infrastructure"
+ },
+ "infrastructure top 3": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [],
+  "depth": 3,
+  "edges": [
+   {
+    "count": 2,
+    "from": "service:production:prod-1:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "service:production:prod-2:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:prod-2:db",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:shared:web",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:production:shared:web",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:production:prod-1:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:api",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:staging:shared:cache",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:api",
+    "ids": [
+     "c-api-worker"
+    ],
+    "to": "service:staging:stage-1:worker",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:worker",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:staging:stage-1:worker",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "service:production:prod-2:db",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 3,
+    "description": "production environment",
+    "documents": [
+     {
+      "id": "overview",
+      "slug": "overview",
+      "title": "Production overview"
+     }
+    ],
+    "entry_id": "production",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:production",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "production",
+    "parent_id": null
+   },
+   {
+    "child_count": 1,
+    "description": "prod-1 box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "prod-1",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:prod-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-1",
+    "parent_id": "environment:production"
+   },
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": "server:production:prod-1"
+   },
+   {
+    "child_count": 1,
+    "description": "prod-2 box",
+    "documents": [],
+    "entry_id": "prod-2",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:prod-2",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "prod-2",
+    "parent_id": "environment:production"
+   },
+   {
+    "child_count": 0,
+    "description": "db service",
+    "documents": [],
+    "entry_id": "db",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:prod-2:db",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "db",
+    "parent_id": "server:production:prod-2"
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:production:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": "environment:production"
+   },
+   {
+    "child_count": 0,
+    "description": "web service",
+    "documents": [],
+    "entry_id": "web",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:production:shared:web",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "web",
+    "parent_id": "server:production:shared"
+   },
+   {
+    "child_count": 0,
+    "description": "sandbox environment",
+    "documents": [],
+    "entry_id": "sandbox",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:sandbox",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "sandbox",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "spare box",
+    "documents": [
+     {
+      "id": "spare-doc",
+      "slug": "spare-doc",
+      "title": "Spare box"
+     }
+    ],
+    "entry_id": "spare",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:top:spare",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "spare",
+    "parent_id": null
+   },
+   {
+    "child_count": 2,
+    "description": "staging environment",
+    "documents": [],
+    "entry_id": "staging",
+    "entry_kind": "environment",
+    "expandable": false,
+    "id": "environment:staging",
+    "internal_edges": 0,
+    "kind": "environment",
+    "name": "staging",
+    "parent_id": null
+   },
+   {
+    "child_count": 1,
+    "description": "shared box",
+    "documents": [
+     {
+      "id": "runbook",
+      "slug": "runbook",
+      "title": "Runbook"
+     }
+    ],
+    "entry_id": "shared",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:staging:shared",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "shared",
+    "parent_id": "environment:staging"
+   },
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:shared:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": "server:staging:shared"
+   },
+   {
+    "child_count": 2,
+    "description": "stage-1 box",
+    "documents": [],
+    "entry_id": "stage-1",
+    "entry_kind": "server",
+    "expandable": false,
+    "id": "server:staging:stage-1",
+    "internal_edges": 0,
+    "kind": "server",
+    "name": "stage-1",
+    "parent_id": "environment:staging"
+   },
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:stage-1:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": "server:staging:stage-1"
+   },
+   {
+    "child_count": 0,
+    "description": "worker service",
+    "documents": [],
+    "entry_id": "worker",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:staging:stage-1:worker",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "worker",
+    "parent_id": "server:staging:stage-1"
+   }
+  ],
+  "root": null,
+  "view": "infrastructure"
+ },
+ "services api 1": {
+  "boundary": [],
+  "breadcrumb": [
+   {
+    "id": "service:api",
+    "kind": "service",
+    "name": "api"
+   }
+  ],
+  "depth": 1,
+  "edges": [],
+  "nodes": [],
+  "root": {
+   "description": "api service",
+   "entry_id": "api",
+   "entry_kind": "service",
+   "id": "service:api",
+   "kind": "service",
+   "name": "api"
+  },
+  "view": "services"
+ },
+ "services api 2": {
+  "boundary": [],
+  "breadcrumb": [
+   {
+    "id": "service:api",
+    "kind": "service",
+    "name": "api"
+   }
+  ],
+  "depth": 2,
+  "edges": [],
+  "nodes": [],
+  "root": {
+   "description": "api service",
+   "entry_id": "api",
+   "entry_kind": "service",
+   "id": "service:api",
+   "kind": "service",
+   "name": "api"
+  },
+  "view": "services"
+ },
+ "services api 3": {
+  "boundary": [],
+  "breadcrumb": [
+   {
+    "id": "service:api",
+    "kind": "service",
+    "name": "api"
+   }
+  ],
+  "depth": 3,
+  "edges": [],
+  "nodes": [],
+  "root": {
+   "description": "api service",
+   "entry_id": "api",
+   "entry_kind": "service",
+   "id": "service:api",
+   "kind": "service",
+   "name": "api"
+  },
+  "view": "services"
+ },
+ "services top 1": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [],
+  "depth": 1,
+  "edges": [
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "r-api-code"
+    ],
+    "to": "code_project:code",
+    "type": "built_from"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:cache",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "service:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "r-api-db"
+    ],
+    "to": "service:db",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "c-api-worker"
+    ],
+    "to": "service:worker",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:cache",
+    "ids": [
+     "r-cache-web"
+    ],
+    "to": "service:web",
+    "type": "part_of"
+   },
+   {
+    "count": 1,
+    "from": "service:db",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:lonely",
+    "ids": [
+     "r-lonely-code"
+    ],
+    "to": "code_project:code",
+    "type": "built_from"
+   },
+   {
+    "count": 1,
+    "from": "service:lonely",
+    "ids": [
+     "r-lonely-lonely2"
+    ],
+    "to": "service:Lonely-2",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "r-web-lonely"
+    ],
+    "to": "service:lonely",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "r-worker-api"
+    ],
+    "to": "service:api",
+    "type": "part_of"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "service:db",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "code repository",
+    "documents": [
+     {
+      "id": "code-doc",
+      "slug": "code-doc",
+      "title": "Code"
+     }
+    ],
+    "entry_id": "code",
+    "entry_kind": "code_project",
+    "expandable": false,
+    "id": "code_project:code",
+    "internal_edges": 0,
+    "kind": "code_project",
+    "name": "code",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "db service",
+    "documents": [],
+    "entry_id": "db",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:db",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "db",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "lonely service",
+    "documents": [
+     {
+      "id": "lonely-doc",
+      "slug": "lonely-doc",
+      "title": "Lonely"
+     }
+    ],
+    "entry_id": "lonely",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:lonely",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "lonely",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "Lonely-2 service",
+    "documents": [],
+    "entry_id": "Lonely-2",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:Lonely-2",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "Lonely-2",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "tools repository",
+    "documents": [],
+    "entry_id": "tools",
+    "entry_kind": "code_project",
+    "expandable": false,
+    "id": "code_project:tools",
+    "internal_edges": 0,
+    "kind": "code_project",
+    "name": "tools",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "web service",
+    "documents": [],
+    "entry_id": "web",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:web",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "web",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "worker service",
+    "documents": [],
+    "entry_id": "worker",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:worker",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "worker",
+    "parent_id": null
+   }
+  ],
+  "root": null,
+  "view": "services"
+ },
+ "services top 2": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [],
+  "depth": 2,
+  "edges": [
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "r-api-code"
+    ],
+    "to": "code_project:code",
+    "type": "built_from"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:cache",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "service:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "r-api-db"
+    ],
+    "to": "service:db",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "c-api-worker"
+    ],
+    "to": "service:worker",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:cache",
+    "ids": [
+     "r-cache-web"
+    ],
+    "to": "service:web",
+    "type": "part_of"
+   },
+   {
+    "count": 1,
+    "from": "service:db",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:lonely",
+    "ids": [
+     "r-lonely-code"
+    ],
+    "to": "code_project:code",
+    "type": "built_from"
+   },
+   {
+    "count": 1,
+    "from": "service:lonely",
+    "ids": [
+     "r-lonely-lonely2"
+    ],
+    "to": "service:Lonely-2",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "r-web-lonely"
+    ],
+    "to": "service:lonely",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "r-worker-api"
+    ],
+    "to": "service:api",
+    "type": "part_of"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "service:db",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "code repository",
+    "documents": [
+     {
+      "id": "code-doc",
+      "slug": "code-doc",
+      "title": "Code"
+     }
+    ],
+    "entry_id": "code",
+    "entry_kind": "code_project",
+    "expandable": false,
+    "id": "code_project:code",
+    "internal_edges": 0,
+    "kind": "code_project",
+    "name": "code",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "db service",
+    "documents": [],
+    "entry_id": "db",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:db",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "db",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "lonely service",
+    "documents": [
+     {
+      "id": "lonely-doc",
+      "slug": "lonely-doc",
+      "title": "Lonely"
+     }
+    ],
+    "entry_id": "lonely",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:lonely",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "lonely",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "Lonely-2 service",
+    "documents": [],
+    "entry_id": "Lonely-2",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:Lonely-2",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "Lonely-2",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "tools repository",
+    "documents": [],
+    "entry_id": "tools",
+    "entry_kind": "code_project",
+    "expandable": false,
+    "id": "code_project:tools",
+    "internal_edges": 0,
+    "kind": "code_project",
+    "name": "tools",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "web service",
+    "documents": [],
+    "entry_id": "web",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:web",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "web",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "worker service",
+    "documents": [],
+    "entry_id": "worker",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:worker",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "worker",
+    "parent_id": null
+   }
+  ],
+  "root": null,
+  "view": "services"
+ },
+ "services top 3": {
+  "boundary": [
+   {
+    "entry_id": "backup.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:backup.example.com",
+    "kind": "external_host",
+    "name": "backup.example.com"
+   },
+   {
+    "entry_id": "smtp.example.com",
+    "entry_kind": "external_host",
+    "id": "external_host:smtp.example.com",
+    "kind": "external_host",
+    "name": "smtp.example.com"
+   }
+  ],
+  "breadcrumb": [],
+  "depth": 3,
+  "edges": [
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "r-api-code"
+    ],
+    "to": "code_project:code",
+    "type": "built_from"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "c-api-cache"
+    ],
+    "to": "service:cache",
+    "type": "connects_to"
+   },
+   {
+    "count": 2,
+    "from": "service:api",
+    "ids": [
+     "c-api-db",
+     "c-api2-db"
+    ],
+    "to": "service:db",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "r-api-db"
+    ],
+    "to": "service:db",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:api",
+    "ids": [
+     "c-api-worker"
+    ],
+    "to": "service:worker",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:cache",
+    "ids": [
+     "r-cache-web"
+    ],
+    "to": "service:web",
+    "type": "part_of"
+   },
+   {
+    "count": 1,
+    "from": "service:db",
+    "ids": [
+     "c-db-backup"
+    ],
+    "to": "external_host:backup.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:lonely",
+    "ids": [
+     "r-lonely-code"
+    ],
+    "to": "code_project:code",
+    "type": "built_from"
+   },
+   {
+    "count": 1,
+    "from": "service:lonely",
+    "ids": [
+     "r-lonely-lonely2"
+    ],
+    "to": "service:Lonely-2",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "c-web-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "c-web-api"
+    ],
+    "to": "service:api",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:web",
+    "ids": [
+     "r-web-lonely"
+    ],
+    "to": "service:lonely",
+    "type": "depends_on"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "c-worker-smtp"
+    ],
+    "to": "external_host:smtp.example.com",
+    "type": "connects_to"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "r-worker-api"
+    ],
+    "to": "service:api",
+    "type": "part_of"
+   },
+   {
+    "count": 1,
+    "from": "service:worker",
+    "ids": [
+     "c-worker-db"
+    ],
+    "to": "service:db",
+    "type": "connects_to"
+   }
+  ],
+  "nodes": [
+   {
+    "child_count": 0,
+    "description": "api service",
+    "documents": [
+     {
+      "id": "api-guide",
+      "slug": "api-guide",
+      "title": "API guide"
+     },
+     {
+      "id": "b-api",
+      "slug": "b-api",
+      "title": "b API notes"
+     }
+    ],
+    "entry_id": "api",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:api",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "api",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "cache service",
+    "documents": [],
+    "entry_id": "cache",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:cache",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "cache",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "code repository",
+    "documents": [
+     {
+      "id": "code-doc",
+      "slug": "code-doc",
+      "title": "Code"
+     }
+    ],
+    "entry_id": "code",
+    "entry_kind": "code_project",
+    "expandable": false,
+    "id": "code_project:code",
+    "internal_edges": 0,
+    "kind": "code_project",
+    "name": "code",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "db service",
+    "documents": [],
+    "entry_id": "db",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:db",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "db",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "lonely service",
+    "documents": [
+     {
+      "id": "lonely-doc",
+      "slug": "lonely-doc",
+      "title": "Lonely"
+     }
+    ],
+    "entry_id": "lonely",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:lonely",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "lonely",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "Lonely-2 service",
+    "documents": [],
+    "entry_id": "Lonely-2",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:Lonely-2",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "Lonely-2",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "tools repository",
+    "documents": [],
+    "entry_id": "tools",
+    "entry_kind": "code_project",
+    "expandable": false,
+    "id": "code_project:tools",
+    "internal_edges": 0,
+    "kind": "code_project",
+    "name": "tools",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "web service",
+    "documents": [],
+    "entry_id": "web",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:web",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "web",
+    "parent_id": null
+   },
+   {
+    "child_count": 0,
+    "description": "worker service",
+    "documents": [],
+    "entry_id": "worker",
+    "entry_kind": "service",
+    "expandable": false,
+    "id": "service:worker",
+    "internal_edges": 0,
+    "kind": "service",
+    "name": "worker",
+    "parent_id": null
+   }
+  ],
+  "root": null,
+  "view": "services"
+ }
+}

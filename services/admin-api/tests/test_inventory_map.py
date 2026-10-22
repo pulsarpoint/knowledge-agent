@@ -5,38 +5,85 @@ from uuid import uuid4
 
 import pytest
 
-from knowledge_admin.servers.inventory_map import Inventory, ViewError, build_view
+from knowledge_admin.inventory.model import build_project
+from knowledge_admin.servers.inventory_map import ViewError, build_view
 
 E = {name: uuid4() for name in ('production', 'staging', 'prod-1', 'spare', 'api', 'worker', 'db', 'code', 'old-code')}
 # deployments: api on prod-1 in production and in staging, worker on prod-1 in staging, db on spare in production
 D = {name: uuid4() for name in ('api-prod', 'api-staging', 'worker-staging', 'db-prod')}
 
 
-def inventory(**overrides) -> Inventory:
-    names = {
-        ('environment', E['production']): 'production',
-        ('environment', E['staging']): 'staging',
-        ('server', E['prod-1']): 'prod-1',
-        ('server', E['spare']): 'spare',
-        ('service', E['api']): 'api',
-        ('service', E['worker']): 'worker',
-        ('service', E['db']): 'db',
-        ('code_project', E['code']): 'api-code',
+DEPLOYMENTS = {
+    D['api-prod']: (E['api'], E['prod-1'], E['production']),
+    D['api-staging']: (E['api'], E['prod-1'], E['staging']),
+    D['worker-staging']: (E['worker'], E['prod-1'], E['staging']),
+    D['db-prod']: (E['db'], E['spare'], E['production']),
+}
+
+
+def inventory(deployments=None, connections=(), relations=(), documents=None) -> dict:
+    """What load_project_models returns for these rows: production and staging, servers prod-1 and spare, services
+    api, worker and db, code projects api-code and old-code (archived)."""
+    deployments = DEPLOYMENTS if deployments is None else deployments
+
+    def item(name: str, **fields) -> dict:
+        return {'id': E[name], 'name': name, 'description': '', 'revision': 1, **fields}
+
+    server = {'hostname': 'h', 'tags': []}
+    service = {'service_type': 'internal', 'service_role': 'application', 'owner': None}
+    environments = [item('production'), item('staging')]
+    names = {E[e['name']]: e['name'] for e in environments}
+    rows = {
+        'servers': [item('prod-1', **server), item('spare', **server)],
+        'services': [item(name, **service) for name in ('api', 'worker', 'db')],
+        'deployments': [
+            {
+                'id': deployment,
+                'service_id': service_id,
+                'server_id': server_id,
+                'environment_id': environment_id,
+                'environment_name': names[environment_id],
+                'runtime': 'docker',
+                'runtime_name': str(deployment),
+                'port': None,
+                'deployed_version': None,
+                'log_location': None,
+                'revision': 1,
+            }
+            for deployment, (service_id, server_id, environment_id) in deployments.items()
+        ],
+        'connections': [
+            {
+                'id': c['id'],
+                'from_deployment_id': c['from'],
+                'to_deployment_id': c['to'],
+                'to_host': c['host'],
+                'port': None,
+                'protocol': None,
+                'description': '',
+                'revision': 1,
+            }
+            for c in connections
+        ],
+        'relations': [
+            {
+                'id': r['id'],
+                'kind': r['kind'],
+                'from_service_id': r['from'][1],
+                'to_service_id': r['to'][1] if r['to'][0] == 'service' else None,
+                'to_code_project_id': r['to'][1] if r['to'][0] == 'code_project' else None,
+                'description': '',
+                'revision': 1,
+            }
+            for r in relations
+        ],
+        'code_projects': [{'id': E['code'], 'name': 'api-code'}, {'id': E['old-code'], 'name': 'old-code'}],
     }
-    base = dict(
-        entries={key: {'name': name, 'description': ''} for key, name in names.items()},
-        deployments={
-            D['api-prod']: (E['api'], E['prod-1'], E['production']),
-            D['api-staging']: (E['api'], E['prod-1'], E['staging']),
-            D['worker-staging']: (E['worker'], E['prod-1'], E['staging']),
-            D['db-prod']: (E['db'], E['spare'], E['production']),
-        },
-        connections=[],
-        relations=[],
-        documents={},
-    )
-    base.update(overrides)
-    return Inventory(**base)
+    return {
+        **build_project(environments, **rows),
+        'code_projects': [{'id': E['code'], 'name': 'api-code', 'description': ''}],  # old-code is archived
+        'documents': documents or {},
+    }
 
 
 def connection(start, end=None, host=None) -> dict:

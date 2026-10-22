@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from knowledge_admin.inventory.model import build_model
+from knowledge_admin.inventory.model import build_model, build_project
 from test_inventory_api import client, made, world  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 
@@ -231,6 +231,24 @@ def test_an_empty_environment():
 
 
 # The endpoint
+
+
+def test_the_project_is_every_environment_model_and_what_none_holds():
+    """Adds a server and a service with no deployment, and a relation between two services with none (lib, lonely)."""
+    project_rows = {key: value for key, value in rows().items() if key != 'environment'}
+    lonely = {**project_rows['services'][0], 'id': uuid4(), 'name': 'lonely'}
+    project_rows['servers'].append({**project_rows['servers'][0], 'id': uuid4(), 'name': 'spare'})
+    project_rows['services'].append(lonely)
+    project_rows['relations'].append(
+        {**project_rows['relations'][0], 'id': uuid4(), 'from_service_id': I['lib'], 'to_service_id': lonely['id']}
+    )
+    prod, stage = rows()['environment'], {'id': I['stage'], 'name': 'stage', 'description': '', 'revision': 1}
+    project = build_project([stage, prod], **project_rows)
+    assert project['models'] == [build_model(environment, **project_rows) for environment in (prod, stage)]
+    unplaced = project['unplaced']
+    assert [s['name'] for s in unplaced['servers']] == ['spare'] and 'ssh_username' not in unplaced['servers'][0]
+    assert [s['name'] for s in unplaced['services']] == ['lib', 'lonely']
+    assert [(r['from_service'], r['to_service']) for r in unplaced['relations']] == [('lib', 'lonely')]
 
 
 def test_the_model_endpoint_reads_the_rows(client, world, store):  # noqa: F811

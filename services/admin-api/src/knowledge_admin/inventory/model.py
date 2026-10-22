@@ -25,6 +25,24 @@ def _by_name(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda item: (item['name'].lower(), str(item['id'])))
 
 
+def _relation(r: dict, service_by_id: dict, code_project_by_id: dict) -> dict:
+    def name_of(rows: dict, item_id) -> str | None:
+        return None if item_id is None else rows[item_id]['name']
+
+    return {
+        'id': r['id'],
+        'kind': r['kind'],
+        'from_service_id': r['from_service_id'],
+        'from_service': name_of(service_by_id, r['from_service_id']),
+        'to_service_id': r['to_service_id'],
+        'to_service': name_of(service_by_id, r['to_service_id']),
+        'to_code_project_id': r['to_code_project_id'],
+        'to_code_project': name_of(code_project_by_id, r['to_code_project_id']),
+        'description': r['description'],
+        'revision': r['revision'],
+    }
+
+
 def build_model(
     environment: dict,
     servers: list[dict],
@@ -87,22 +105,8 @@ def build_model(
                 ports.add(c['port'])
         model_connections.append(item)
 
-    def name_of(rows: dict, item_id) -> str | None:
-        return None if item_id is None else rows[item_id]['name']
-
     model_relations = [
-        {
-            'id': r['id'],
-            'kind': r['kind'],
-            'from_service_id': r['from_service_id'],
-            'from_service': name_of(service_by_id, r['from_service_id']),
-            'to_service_id': r['to_service_id'],
-            'to_service': name_of(service_by_id, r['to_service_id']),
-            'to_code_project_id': r['to_code_project_id'],
-            'to_code_project': name_of(code_project_by_id, r['to_code_project_id']),
-            'description': r['description'],
-            'revision': r['revision'],
-        }
+        _relation(r, service_by_id, code_project_by_id)
         for r in relations
         if r['from_service_id'] in service_ids or r['to_service_id'] in service_ids
     ]
@@ -114,4 +118,38 @@ def build_model(
         'connections': model_connections,
         'relations': model_relations,
         'external': [{'host': host, 'ports': sorted(ports)} for host, ports in sorted(external.items())],
+    }
+
+
+def build_project(
+    environments: list[dict],
+    servers: list[dict],
+    services: list[dict],
+    deployments: list[dict],
+    connections: list[dict],
+    relations: list[dict],
+    code_projects: list[dict],
+) -> dict:
+    """The model of every environment (by name) and what no environment holds: the servers and services with no
+    deployment, and the relations no model lists (between such services, or from one to a code project)."""
+    models = [
+        build_model(e, servers, services, deployments, connections, relations, code_projects)
+        for e in _by_name(environments)
+    ]
+    placed_servers = {d['server_id'] for d in deployments}
+    placed_services = {d['service_id'] for d in deployments}
+    held = {r['id'] for m in models for r in m['relations']}
+    service_by_id = {s['id']: s for s in services}
+    code_project_by_id = {c['id']: c for c in code_projects}
+    return {
+        'models': models,
+        'unplaced': {
+            'servers': [
+                _pick(s, SERVER_FIELDS) for s in _by_name([s for s in servers if s['id'] not in placed_servers])
+            ],
+            'services': [
+                _pick(s, SERVICE_FIELDS) for s in _by_name([s for s in services if s['id'] not in placed_services])
+            ],
+            'relations': [_relation(r, service_by_id, code_project_by_id) for r in relations if r['id'] not in held],
+        },
     }
