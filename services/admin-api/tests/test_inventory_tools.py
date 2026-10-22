@@ -356,3 +356,112 @@ def test_the_api_and_the_tools_write_identical_rows(world, tmp_path):
 
 def uuid_of(item) -> UUID:
     return UUID(str(item['id']))
+
+
+# --- writes on an existing deployment need all of its ends (I-1) ---
+
+
+def test_a_write_on_a_deployment_needs_its_environment_server_and_service():
+    staging = access(entry('environment', 'e2'), entry('server', 's2'), entry('service', 'v1'))
+    prod = {('deployment', 'p1'): {'server_id': 's1', 'service_id': 'v1', 'environment_id': 'e1'}}
+    connection = {('connection', 'n1'): {'from_deployment_id': 'p1'}, **prod}
+    refused = 'This deployment is not available in this run.'
+    assert tools.check_save_deployment(staging, id='p1', port=1, rows=prod) == refused
+    assert tools.check_remove_inventory_item(staging, kind='deployment', id='p1', rows=prod) == refused
+    assert tools.check_save_connection(staging, id='n1', port=1, rows=connection) == (
+        'This connection is not available in this run.'
+    )
+    assert tools.check_remove_inventory_item(staging, kind='connection', id='n1', rows=connection) == (
+        'This connection is not available in this run.'
+    )
+    assert tools.check_save_connection(staging, from_deployment_id='p1', to_host='x.example', port=1, rows=prod) == (
+        refused
+    )
+    # reads keep any one end; a deployment created by this session stays writable
+    assert tools.check_list_connections(staging, deployment_id='p1', rows=prod) is None
+    assert (
+        tools.check_remove_inventory_item(
+            staging, kind='deployment', id='p1', rows=prod, created={('deployment', 'p1')}
+        )
+        is None
+    )
+
+
+def test_an_editor_given_staging_cannot_change_the_prod_deployment_of_a_service_it_holds(world):
+    with world['store'].connect() as conn:
+        by = {'actor_id': world['actor']}
+        inventory_store.create_deployment(
+            conn,
+            world['project'],
+            {'service_id': world['api']['id'], 'server_id': world['c']['id'], 'environment_id': world['staging']['id']},
+            by,
+        )
+        link = inventory_store.create_connection(
+            conn, world['project'], {'from_deployment_id': world['api_a']['id'], 'to_host': 'x.example', 'port': 1}, by
+        )
+    via = f'via environment {world["staging"]["id"]}'
+    staging = access(
+        entry('environment', world['staging']['id']),
+        *[entry(t, world[k]['id'], via) for t, k in [('server', 'c'), ('service', 'web'), ('service', 'api')]],
+    )
+    c = cfg(world, access=staging)
+    assert [d['id'] for d in call(c, 'list_deployments', service_id=i(world['api']))['deployments']]  # reads stay
+    refused = {'refused': 'This deployment is not available in this run.'}
+    assert call(c, 'save_deployment', id=i(world['api_a']), revision=1, port=1) == refused
+    assert call(c, 'remove_inventory_item', kind='deployment', id=i(world['api_a']), revision=1) == refused
+    no_connection = {'refused': 'This connection is not available in this run.'}
+    assert call(c, 'save_connection', id=i(link), revision=1, port=2) == no_connection
+    assert call(c, 'remove_inventory_item', kind='connection', id=i(link), revision=1) == no_connection
+    with world['store'].connect() as conn:
+        assert inventory_store.get(conn, world['project'], 'deployment', world['api_a']['id'])['revision'] == 1
+        assert inventory_store.get(conn, world['project'], 'connection', link['id'])['revision'] == 1
+
+
+# --- more writes through the tools (M-3) ---
+
+
+def test_update_a_deployment_and_a_connection_and_relate_part_of(world):
+    c = world['config']
+    deployment = call(c, 'save_deployment', id=i(world['api_a']), revision=1, port=9090, deployed_version='1.2')
+    assert (deployment['port'], deployment['deployed_version'], deployment['revision']) == (9090, '1.2', 2)
+    link = call(c, 'save_connection', from_deployment_id=i(world['api_a']), to_deployment_id=i(world['db_b']))
+    assert link['port'] == 5432
+    changed = call(c, 'save_connection', id=link['id'], revision=1, protocol='postgres', description='orders')
+    assert (changed['protocol'], changed['description'], changed['revision'], changed['port']) == (
+        'postgres',
+        'orders',
+        2,
+        5432,
+    )
+    part = call(c, 'save_relation', from_service_id=i(world['db']), kind='part_of', to_service_id=i(world['api']))
+    assert (part['kind'], part['to_service_id']) == ('part_of', i(world['api']))
+
+
+def test_the_api_and_the_tools_write_identical_deployments_and_connections(world, tmp_path):
+    client = _client(tmp_path, repository_store=world['store'])
+    ends = {'service_id': i(world['api']), 'server_id': i(world['b']), 'environment_id': i(world['prod'])}
+    values = {**ends, 'runtime': 'docker', 'port': 8081, 'log_location': '/var/log/api', 'deployed_version': '2'}
+    by_api = client.post('/api/deployments', headers=HEADERS, json={**values, 'runtime_name': 'api-1'})
+    assert by_api.status_code == 201, by_api.text
+    by_tool = call(world['config'], 'save_deployment', **values, runtime_name='api-2')
+    link = {'from_deployment_id': i(world['api_a']), 'port': 443, 'protocol': 'https', 'description': 'payments'}
+    api_link = client.post('/api/connections', headers=HEADERS, json={**link, 'to_host': 'pay.example'})
+    assert api_link.status_code == 201, api_link.text
+    tool_link = call(world['config'], 'save_connection', **link, to_host='pay2.example')
+    skip = {'id', 'created_at', 'updated_at', 'created_by', 'created_by_agent', 'session_id', 'runtime_name', 'to_host'}
+    with world['store'].connect() as conn:
+        for table, pair in [
+            ('service_deployments', (by_api.json(), by_tool)),
+            ('connections', (api_link.json(), tool_link)),
+        ]:
+            first, second = (
+                {
+                    k: v
+                    for k, v in conn.execute(f'SELECT * FROM ka.{table} WHERE id=%s', (uuid_of(item),))
+                    .fetchone()
+                    .items()
+                    if k not in skip
+                }
+                for item in pair
+            )
+            assert first == second

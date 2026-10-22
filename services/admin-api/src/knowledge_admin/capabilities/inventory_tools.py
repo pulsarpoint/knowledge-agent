@@ -2,10 +2,10 @@
 inventory/model.py. Replies are JSON; a refusal is {"refused": text} (a store error's message is the refusal).
 
 Access (each tool's pure check_<tool>): an item is usable when it is in the run's access object, or this session
-created it (store.created_in_session); a deployment when its server, service or environment is usable; a connection
-when its from-deployment is; a relation when its from-service is. Reads need the item usable. Writes need the role
-inventory_editor, a session (its person, agent and session are the author), and every item they name usable; a new
-server or service needs only an environment in the access. The write tools are offered only in a session turn
+created it (store.created_in_session); a deployment when its server, service or environment is usable (for a write:
+all three, as for a new one); a connection when its from-deployment is; a relation when its from-service is. Reads need
+the item usable. Writes need the role inventory_editor, a session (its person, agent and session are the author), and
+every item they name usable; a new server or service needs only an environment in the access. The write tools are offered only in a session turn
 (tools/catalog.INVENTORY_WRITES): never to a subagent or an expert."""
 
 import asyncio
@@ -55,8 +55,9 @@ def refuse(kind: str) -> str:
     return access_rules.NOT_AVAILABLE.format(type=WORDS[kind])
 
 
-def usable(access: dict, kind: str, item_id, created=frozenset(), rows=None) -> bool:
-    """In the access, created by this session, or (deployment, connection, relation) reached through its row."""
+def usable(access: dict, kind: str, item_id, created=frozenset(), rows=None, strict: bool = False) -> bool:
+    """In the access, created by this session, or (deployment, connection, relation) reached through its row: a
+    deployment through any of its server, service and environment, or with strict (writes) through all three."""
     if (kind, str(item_id)) in created:
         return True
     if kind in access_rules.TYPES:
@@ -65,9 +66,10 @@ def usable(access: dict, kind: str, item_id, created=frozenset(), rows=None) -> 
     if row is None:
         return False
     if kind == 'deployment':
-        return any(usable(access, end, row[f'{end}_id'], created, rows) for end in ('server', 'service', 'environment'))
+        ends = [usable(access, end, row[f'{end}_id'], created, rows) for end in ('server', 'service', 'environment')]
+        return all(ends) if strict else any(ends)
     if kind == 'connection':
-        return usable(access, 'deployment', row['from_deployment_id'], created, rows)
+        return usable(access, 'deployment', row['from_deployment_id'], created, rows, strict)
     return usable(access, 'service', row['from_service_id'], created, rows)  # a relation
 
 
@@ -77,9 +79,11 @@ def refs(kind: str | None, item_id, values: dict) -> list[tuple[str, Any]]:
     return found + [(REFERENCES[k], v) for k, v in values.items() if k in REFERENCES and v is not None]
 
 
-def first_refused(access: dict, named: list[tuple[str, Any]], created=frozenset(), rows=None) -> str | None:
+def first_refused(
+    access: dict, named: list[tuple[str, Any]], created=frozenset(), rows=None, strict: bool = False
+) -> str | None:
     for kind, item_id in named:
-        if not usable(access, kind, item_id, created, rows):
+        if not usable(access, kind, item_id, created, rows, strict):
             return refuse(kind)
     return None
 
@@ -89,7 +93,7 @@ def _write(access: dict, kind: str, id, values: dict, created, rows) -> str | No
         return OFF
     if id is None and kind in ('server', 'service') and not access_rules.has_any(access, 'environment'):
         return access_rules.refuse_none('environment')
-    return first_refused(access, refs(kind, id, values), created, rows)
+    return first_refused(access, refs(kind, id, values), created, rows, strict=True)
 
 
 def _either(access: dict, values: dict, created, rows) -> str | None:

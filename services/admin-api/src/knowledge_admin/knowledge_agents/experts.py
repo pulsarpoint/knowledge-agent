@@ -72,11 +72,10 @@ def load(
     entry: Mapping[str, Any],
     resources: Mapping[str, list[str]] | None,
     caller_content_editor: bool = False,
-    caller_inventory_editor: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """The expert's configuration for one call (its current settings), with its access object: its own agent's access,
     narrowed to the given resources (which the caller already checked are its own; none given: everything it has),
-    each role (content editor, inventory editor) on only when its agent and the calling run both have it; and its
+    a content editor only when its agent and the calling run both are, never an inventory editor; and its
     decrypted credentials. ValueError: a message for the model (also a given resource outside its access).
     Synchronous: the caller runs it in a thread."""
     from knowledge_admin.agents.runner import load_credentials  # agents imports this package
@@ -105,7 +104,7 @@ def load(
             config,
             picks(resources) or None,
             content_editor=caller_content_editor and access_rules.is_content_editor(config['access']),
-            inventory_editor=caller_inventory_editor and access_rules.is_inventory_editor(config['access']),
+            inventory_editor=False,  # an expert never changes the inventory (no write tools either)
         )
         config = {**config, 'access': access, 'project_id': str(project_id)}
     config.pop('record', None)

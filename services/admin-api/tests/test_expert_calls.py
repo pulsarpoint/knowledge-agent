@@ -64,12 +64,12 @@ class Loader:
         self.credentials = credentials if credentials is not None else {'expert-model': 'expert-model-secret'}
         self.error = error
         self.calls: list[tuple] = []
-        self.roles: list[tuple] = []  # (the caller's content editor, the caller's inventory editor) of each call
+        self.roles: list[bool] = []  # the caller's content editor of each call
         self.issued: list[dict] = []
 
-    def __call__(self, entry, given, editor=False, inventory_editor=False):
+    def __call__(self, entry, given, editor=False):
         self.calls.append((entry, given))
-        self.roles.append((editor, inventory_editor))
+        self.roles.append(editor)
         if self.error is not None:
             raise self.error
         issued = dict(self.credentials)
@@ -348,7 +348,7 @@ def test_a_load_that_ends_after_stop_empties_the_credentials_it_returns():
     release, loading = threading.Event(), threading.Event()
     loader = Loader({'ssh': EXPERT_SECRET})
 
-    def slow(entry, given, editor, inventory_editor):
+    def slow(entry, given, editor):
         loading.set()
         release.wait(5)
         return loader(entry, given)
@@ -637,25 +637,24 @@ def test_an_expert_is_told_the_callers_roles():
 
     asyncio.run(asked({'content_editor': False, 'inventory_editor': True}))
     asyncio.run(asked({'content_editor': True, 'inventory_editor': False}))
-    assert loader.roles == [(False, True), (True, False)]
+    assert loader.roles == [False, True]
 
 
-def test_an_expert_is_an_inventory_editor_only_when_its_agent_and_its_caller_both_are(narrowed_agent):
+def test_an_expert_is_never_an_inventory_editor(narrowed_agent):
     s = narrowed_agent
     with s.store.connect() as conn:
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Payments code.' WHERE id=%s", (s.analyst,))
         project = s.store.project(conn, 'shop')
         [entry] = [found for found in offered(conn, None) if found['id'] == s.analyst]
 
-    def roles(caller_inventory_editor):
-        config, _ = load(s.store, project, entry, None, caller_inventory_editor=caller_inventory_editor)
+    def roles():
+        config, _ = load(s.store, project, entry, None)
         return config['access']['roles']
 
-    assert roles(True) == {'content_editor': False, 'inventory_editor': False}  # its agent is not one
+    assert roles() == {'content_editor': False, 'inventory_editor': False}
     with s.store.connect() as conn:
         conn.execute(
             """UPDATE ka.agents SET access=jsonb_set(access,'{roles,inventory_editor}','true') WHERE id=%s""",
             (s.analyst,),
         )
-    assert roles(False) == {'content_editor': False, 'inventory_editor': False}  # its caller is not one
-    assert roles(True) == {'content_editor': False, 'inventory_editor': True}
+    assert roles() == {'content_editor': False, 'inventory_editor': False}  # even when its agent is one

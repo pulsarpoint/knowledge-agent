@@ -239,9 +239,8 @@ class Subagents:
         if self.root.started >= MAX_PER_TURN:
             raise ValueError(LIMIT)
         self.root.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
-        caller = context['config']['access']  # the expert has a role only if its caller has it too
-        editor, inventory = access_rules.is_content_editor(caller), access_rules.is_inventory_editor(caller)
-        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources, editor, inventory))
+        editor = access_rules.is_content_editor(context['config']['access'])  # the expert's only if its caller's too
+        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources, editor))
         try:
             config, credentials = await asyncio.shield(load)
         except asyncio.CancelledError:

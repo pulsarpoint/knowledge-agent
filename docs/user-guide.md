@@ -596,15 +596,15 @@ it.”) and **Apply to a new clone** clones the agent first and writes them ther
 only notes ticked, **Save memory notes**. When notes were sent, the sheet lists the saved notes (each opens its Memory
 entry) and any refused names with the reason; **Done** closes it.
 
-**Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources and
-the **Content editor** role: a tool without what it needs refuses (for example `This run has no servers.`), and
-`report_not_covered` works only with **Answer only from documents**. Every agent can read the inventory of its
-resources (`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`); only an **Inventory
-editor** can change it (`save_server`, `save_service`, `save_deployment`, `save_connection`, `save_relation`,
+**Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources and the
+**Content editor** role: a tool without what it needs refuses (for example `This run has no servers.`), and
+`report_not_covered` works only with **Answer only from documents**. Every agent can read the inventory of its resources
+(`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`); only an **Inventory editor** can
+change it (`save_server`, `save_service`, `save_deployment`, `save_connection`, `save_relation`,
 `remove_inventory_item`), and only for what is in its resources or what it added in the same session — so it can add a
-server, deploy a service on it and connect it in one conversation. Its changes show in the audit log with the person
-who started the session, the agent and the session; helpers and experts never change the inventory. **Agent runs**, run records, session pages and
-Test chats show how often each tool was used.
+server, deploy a service on it and connect it in one conversation. Its changes show in the audit log with the person who
+started the session, the agent and the session; helpers and experts never change the inventory. **Agent runs**, run
+records, session pages and Test chats show how often each tool was used.
 
 **Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except
 `run_subagent`, and some or all of the run's resources (content editor off), but not the conversation. Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
