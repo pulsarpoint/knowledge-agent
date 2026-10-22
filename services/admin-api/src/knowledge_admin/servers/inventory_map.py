@@ -132,7 +132,7 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
             end = node_id('service', service) if view == 'services' else external_service_id(service)
         else:
             end = deployment_node(connection['to_deployment_id']) if host is None else external_id(host)
-        if start in tree and (end in tree or host is not None or end == external_service_id(service)):
+        if start in tree and (end in tree or host is not None or service is not None):
             edges.append(
                 {
                     'id': connection['id'],

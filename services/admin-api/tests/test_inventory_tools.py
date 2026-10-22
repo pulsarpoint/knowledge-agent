@@ -488,6 +488,8 @@ def test_a_server_is_put_in_an_environment_and_listed_with_its_environments(worl
     # an existing server joins too; the environment outside the access is refused and nothing is added
     own = call(c, 'save_server', id=i(world['a']), revision=1, environment_id=i(world['prod']))
     assert own['environment_ids'] == [i(world['prod'])]
+    assert own['revision'] == 1  # only the membership was added: the server row is not updated
+    assert call(c, 'save_server', id=i(world['a']), revision=1, description='x')['revision'] == 2
     refused = {'refused': 'This environment is not available in this run.'}
     assert call(c, 'save_server', name='x', hostname='x', environment_id=i(world['staging'])) == refused
     assert call(c, 'save_server', id=server['id'], revision=1, environment_id=i(world['staging'])) == refused

@@ -5,7 +5,8 @@ Access (each tool's pure check_<tool>): an item is usable when it is in the run'
 created it (store.created_in_session); a deployment when its server, service or environment is usable (for a write:
 all three, as for a new one); a connection when its from-deployment is; a relation when its from-service is. Reads need
 the item usable. Writes need the role inventory_editor, a session (its person, agent and session are the author), and
-every item they name usable; a new server or service needs only an environment in the access. The write tools are offered only in a session turn
+every item they name usable (a save_server environment_id and a save_connection to_service_id included); a new server
+or service needs only an environment in the access. The write tools are offered only in a session turn
 (tools/catalog.INVENTORY_WRITES): never to a subagent or an expert."""
 
 import asyncio
@@ -275,8 +276,10 @@ def _change(config: dict[str, Any], kind: str, item_id, revision, values: dict, 
             environment = found.pop('environment_id', None) if kind == 'server' else None  # a membership, not a field
             if found_id is None:
                 saved = create(conn, project, found, author)
-            else:
+            elif found or environment is None:  # only a membership: the server row stays as it is
                 saved = update(conn, project, UUID(found_id), revision, found, author)
+            else:
+                saved = {'id': UUID(found_id)}
             if environment is not None:
                 store.add_server_to_environment(conn, project, UUID(environment), saved['id'], author)
                 saved = store.get(conn, project, 'server', saved['id'])
