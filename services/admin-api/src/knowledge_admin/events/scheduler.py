@@ -51,17 +51,23 @@ def run(store: RepositoryStore, schedule: dict, targets: dict[str, Target]) -> t
 
 
 def finish(store: RepositoryStore, schedule: dict, status: str, message: str) -> None:
-    """Record the run and set the next time from the schedule as it is now (it may have been edited or paused)."""
+    """Record the run and set the next time from the schedule as it is now (it may have been edited or paused). A
+    one-time schedule is used up by its scheduled run (switched off, no next time); Run now leaves it for its time."""
     with store.connect() as conn:
         current = conn.execute(
-            """SELECT cron,timezone,enabled FROM ka.schedules WHERE id=%s AND lease_expires_at=%s
+            """SELECT cron,run_at,timezone,enabled FROM ka.schedules WHERE id=%s AND lease_expires_at=%s
             FOR UPDATE""",
             (schedule['id'], schedule['lease_expires_at']),
         ).fetchone()
         if current is None:
             return  # deleted, or the lease ran out and another worker took the schedule over
-        next_run = None
-        if current['enabled']:
+        next_run, enabled = None, current['enabled']
+        if current['run_at'] is not None:
+            # an edit to a new time during the run is not used up
+            if not schedule['run_requested'] and current['run_at'] == schedule['run_at']:
+                enabled = False
+            next_run = current['run_at'] if enabled else None
+        elif enabled:
             try:
                 next_run = next_after(current['cron'], current['timezone'], datetime.now(UTC))
             except Exception:
@@ -70,9 +76,9 @@ def finish(store: RepositoryStore, schedule: dict, status: str, message: str) ->
                 )
                 status, message = 'failed', UNEXPECTED
         conn.execute(
-            """UPDATE ka.schedules SET lease_expires_at=NULL,run_requested=false,next_run_at=%s,
+            """UPDATE ka.schedules SET lease_expires_at=NULL,run_requested=false,next_run_at=%s,enabled=%s,
             last_finished_at=clock_timestamp(),last_status=%s,last_message=%s WHERE id=%s""",
-            (next_run, status, message, schedule['id']),
+            (next_run, enabled, status, message, schedule['id']),
         )
         conn.execute(
             """INSERT INTO ka.schedule_runs(schedule_id,trigger,started_at,finished_at,status,message)

@@ -12,7 +12,9 @@ export interface Schedule {
   name: string;
   target_kind: string;
   target_id: string;
-  cron: string;
+  /** Exactly one of cron (repeating) and run_at (once, Emit event only) is set. */
+  cron: string | null;
+  run_at: string | null;
   description: string;
   timezone: string;
   enabled: boolean;
@@ -43,9 +45,12 @@ export interface JiraPullParams {
 export interface ScheduleInput {
   /** Emit event schedules only: the Jira pull schedule keeps its fixed name. */
   name?: string;
-  cron: string;
+  /** Repeating: cron; once: run_at, a local date and time ("2030-01-15T09:30") in timezone, or an ISO time. */
+  cron?: string;
+  run_at?: string;
   timezone: string;
-  enabled: boolean;
+  /** Saving may leave it out: a new one-time run_at turns the schedule on, otherwise it stays as it is. */
+  enabled?: boolean;
   params?: JiraPullParams;
 }
 
@@ -84,6 +89,24 @@ export const deleteSchedule = (id: string) => request<void>(path(id), { method: 
 export const runSchedule = (id: string) => request<{ schedule: Schedule }>(`${path(id)}/run`, { method: "POST" });
 export const previewSchedule = (cron: string, timezone: string) =>
   request<{ runs: string[] }>("/api/schedules/preview", send("POST", { cron, timezone }));
+
+/** An ISO time as the date and time a datetime-local input shows in a time zone, e.g. "2030-01-15T09:30". */
+export function localTime(iso: string, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date(iso))
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
 
 export function browserTimeZone(): string {
   try {

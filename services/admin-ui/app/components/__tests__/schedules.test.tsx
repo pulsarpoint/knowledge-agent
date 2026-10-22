@@ -10,6 +10,7 @@ const schedule: Schedule = {
   target_kind: "jira.pull",
   target_id: "jira-1",
   cron: "*/15 * * * *",
+  run_at: null,
   description: "Every 15 minutes",
   timezone: "Europe/Belgrade",
   enabled: true,
@@ -569,4 +570,115 @@ test("a rename asks first only when handlers are bound, and says how many", asyn
   expect(await screen.findByText("Late check")).toBeInTheDocument();
   expect(screen.queryByText(/This also updates/)).toBeNull();
   expect(body(fetch, "PUT /api/schedules/e-2").name).toBe("Late check");
+});
+
+const local = (iso: string) => new Date(iso).toLocaleString();
+const once = (extra: Partial<Schedule> = {}): Schedule =>
+  emit({
+    id: "o-1",
+    name: "Release check",
+    cron: null,
+    run_at: "2030-01-15T08:30:00Z",
+    description: "Once",
+    timezone: "UTC",
+    next_run_at: "2030-01-15T08:30:00Z",
+    last_status: null,
+    last_message: null,
+    last_finished_at: null,
+    ...extra,
+  });
+
+test("the Repeating / Once switch appears only for Emit event, and Once posts run_at", async () => {
+  const user = userEvent.setup();
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "POST /api/schedules": () => [201, { schedule: { ...once(), handlers: undefined } }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  expect(screen.queryByRole("tab", { name: "Once" })).toBeNull();
+  expect(screen.getByRole("combobox", { name: "How often" })).toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "What to run" }));
+  await user.click(screen.getByRole("option", { name: "Emit event" }));
+  expect(screen.getByRole("tab", { name: "Repeating" })).toHaveAttribute("aria-selected", "true");
+  await user.click(screen.getByRole("tab", { name: "Once" }));
+  expect(screen.queryByRole("combobox", { name: "How often" })).toBeNull();
+  await user.type(screen.getByLabelText("Name"), "Release check");
+  const create = screen.getByRole("button", { name: "Create" });
+  expect(create).toBeDisabled();
+  await user.type(screen.getByLabelText("Date and time"), "2030-01-15T09:30");
+  await user.click(create);
+  expect(await screen.findByText("Release check")).toBeInTheDocument();
+  expect(body(fetch, "POST /api/schedules")).toEqual({
+    target_kind: "event.emit",
+    name: "Release check",
+    run_at: "2030-01-15T09:30",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    enabled: true,
+  });
+});
+
+test("the list says Once at for a pending one-time schedule and Ran once at for a finished one", async () => {
+  api({
+    "GET /api/schedules": () => [
+      200,
+      {
+        schedules: [
+          once(),
+          once({
+            id: "o-2",
+            name: "Done check",
+            run_at: "2026-10-01T08:00:00Z",
+            enabled: false,
+            next_run_at: null,
+            last_finished_at: "2026-10-01T08:00:03Z",
+            last_status: "succeeded",
+          }),
+        ],
+      },
+    ],
+  });
+  view();
+  const pending = (await screen.findByText("Release check")).closest("tr")!;
+  expect(within(pending).getByText(`Once at ${local("2030-01-15T08:30:00Z")}`)).toBeInTheDocument();
+  const done = screen.getByText("Done check").closest("tr")!;
+  expect(within(done).getByText(`Ran once at ${local("2026-10-01T08:00:03Z")}`)).toBeInTheDocument();
+});
+
+test("editing a one-time schedule shows its time in its zone and saves a new one without enabled", async () => {
+  const user = userEvent.setup();
+  const stored = once({ timezone: "Europe/Belgrade" });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [stored] }],
+    "PUT /api/schedules/o-1": () => [200, { schedule: { ...stored, revision: 2, handlers: undefined } }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  expect(screen.getByRole("tab", { name: "Once" })).toHaveAttribute("aria-selected", "true");
+  const time = screen.getByLabelText("Date and time");
+  expect(time).toHaveValue("2030-01-15T09:30");
+  await user.clear(time);
+  await user.type(time, "2030-02-01T07:00");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(body(fetch, "PUT /api/schedules/o-1")).toEqual({
+      name: "Release check",
+      run_at: "2030-02-01T07:00",
+      timezone: "Europe/Belgrade",
+      revision: 1,
+    }),
+  );
+});
+
+test("the Jira editor has no Repeating / Once switch", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/schedules": () => [200, { schedules: [schedule] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await screen.findByText("Next runs");
+  expect(screen.queryByRole("tab", { name: "Once" })).toBeNull();
 });

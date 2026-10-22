@@ -40,6 +40,14 @@ const when = (value: string | null) => (value ? new Date(value).toLocaleString()
 const text = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
 const HANDLERS = "/events/handlers";
 
+/** The next run: a one-time schedule says when it runs, or when it ran once its time has passed. */
+function nextRun(schedule: Schedule): string {
+  if (schedule.run_at && schedule.enabled) return `Once at ${when(schedule.run_at)}`;
+  if (schedule.run_at && schedule.last_finished_at && new Date(schedule.run_at) <= new Date())
+    return `Ran once at ${when(schedule.last_finished_at)}`;
+  return schedule.next_run_at ? when(schedule.next_run_at) : "Paused";
+}
+
 /** Which handlers run an Emit event schedule, or Add handler when none does. */
 function HandledBy({ schedule, onAdd }: { schedule: Schedule; onAdd: () => void }) {
   const handlers = schedule.handlers ?? [];
@@ -218,7 +226,7 @@ export default function SchedulesView() {
                       onCheckedChange={(enabled) =>
                         change(schedule, () =>
                           saveSchedule(schedule.id, {
-                            cron: schedule.cron,
+                            ...(schedule.run_at ? { run_at: schedule.run_at } : { cron: schedule.cron ?? "" }),
                             timezone: schedule.timezone,
                             enabled,
                             revision: schedule.revision,
@@ -240,7 +248,7 @@ export default function SchedulesView() {
                     <div>{schedule.description}</div>
                     <div className="text-xs text-muted-foreground">{schedule.timezone}</div>
                   </TableCell>
-                  <TableCell>{schedule.next_run_at ? when(schedule.next_run_at) : "Paused"}</TableCell>
+                  <TableCell>{nextRun(schedule)}</TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">
                       <ScheduleStatus schedule={schedule} />

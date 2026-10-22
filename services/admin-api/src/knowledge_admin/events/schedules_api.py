@@ -1,7 +1,8 @@
 """Administration → Schedules: create, list, edit, pause, run and delete schedules. repository-worker
-runs them (scheduler.py); this API only changes their rows. Targets: the Jira pull (one per connection) and Emit event
-(each schedule its own target; a handler runs it by checking the event's subject equals the schedule's name, so names
-are unique per project and a rename rewrites that condition on its handlers; the list shows the handlers that run it)."""
+runs them (scheduler.py); this API only changes their rows. Targets: the Jira pull (one per connection, always
+repeating) and Emit event (repeating or once at a time; each schedule its own target; a handler runs it by checking the
+event's subject equals the schedule's name, so names are unique per project and a rename rewrites that condition on its
+handlers; the list shows the handlers that run it)."""
 
 from datetime import UTC, datetime
 from functools import partial
@@ -18,9 +19,9 @@ from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.events.matching import type_matches
 from knowledge_admin.events.schedule_event import TYPE as FIRED
-from knowledge_admin.events.schedules import ScheduleError, describe, next_after, upcoming, validate
+from knowledge_admin.events.schedules import ScheduleError, describe, next_after, run_time, upcoming, validate
 
-FIELDS = """id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,
+FIELDS = """id,name,target_kind,target_id,cron,run_at,timezone,enabled,next_run_at,
     coalesce(lease_expires_at > now(), false) AS running,last_run_at,last_finished_at,last_status,last_message,revision,params"""
 NOT_FOUND = 'Schedule not found.'
 STALE = 'Schedule changed. Reload and try again.'
@@ -33,13 +34,24 @@ NO_NAME = 'Enter a name.'
 NO_SETTINGS = 'Emit event schedules take no settings.'
 TAKEN = 'A schedule with this name already exists.'
 RESERVED = 'This name is reserved for the Jira pull schedule.'
+REPEATS = 'The Jira pull repeats; give it a timetable.'
+BOTH_OR_NEITHER = 'Give either a timetable or a time to run once.'
 PREVIEW_RUNS = 3
 HISTORY = 20
 
 
-class Timetable(BaseModel):
+class Preview(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     cron: str = Field(min_length=1, max_length=100)
+    timezone: str = Field(min_length=1, max_length=100)
+
+
+class Timetable(BaseModel):
+    """Repeating (cron) or once (run_at; a time without an offset is in the time zone): exactly one is given."""
+
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    cron: str | None = Field(default=None, min_length=1, max_length=100)
+    run_at: datetime | None = None
     timezone: str = Field(min_length=1, max_length=100)
 
 
@@ -53,7 +65,7 @@ class JiraPullParams(BaseModel):
 
 
 class ScheduleInput(Timetable):
-    enabled: bool
+    enabled: bool | None = None  # left out: as it is, except that a new one-time run_at turns the schedule on
     revision: int = Field(ge=1, strict=True)
     params: JiraPullParams | None = None
     name: str | None = Field(default=None, max_length=200)  # stripped; a blank one is refused with NO_NAME
@@ -67,11 +79,14 @@ class NewSchedule(Timetable):
 
 
 def shown(row: dict) -> dict:
-    return {**row, 'description': describe(row['cron'])}
+    return {**row, 'description': describe(row['cron']) if row['cron'] else 'Once'}
 
 
 def kind_checked(target_kind: str, value: NewSchedule | ScheduleInput) -> None:
-    """The Jira pull schedule keeps its fixed name; an emit schedule has nothing to set but its name and timing."""
+    """The Jira pull schedule keeps its fixed name and repeats; an emit schedule has nothing to set but its name and
+    timing."""
+    if target_kind == 'jira.pull' and value.run_at is not None:
+        raise HTTPException(400, REPEATS)
     if target_kind == 'jira.pull' and value.name is not None:
         raise HTTPException(400, NO_RENAME)
     if target_kind == 'event.emit' and value.params is not None and value.params.model_dump(exclude_none=True):
@@ -96,15 +111,34 @@ def renamed(conditions: list[dict], old: str, new: str) -> list[dict]:
     return [subject_is(new) if condition == subject_is(old) else condition for condition in conditions]
 
 
-def checked(value: Timetable) -> None:
+def checked(value: Timetable) -> datetime | None:
+    """Refuse a timetable the schedule may not use; a one-time schedule's run time, in UTC."""
+    if (value.cron is None) == (value.run_at is None):
+        raise HTTPException(400, BOTH_OR_NEITHER)
     try:
+        if value.run_at is not None:
+            return run_time(value.run_at, value.timezone, datetime.now(UTC))
         validate(value.cron, value.timezone)
     except ScheduleError as exc:
         raise HTTPException(400, str(exc)) from None
+    return None
 
 
-def first_run(value: Timetable) -> datetime | None:
-    return next_after(value.cron, value.timezone, datetime.now(UTC)) if value.enabled else None
+def first_run(value: Timetable, run_at: datetime | None, enabled: bool) -> datetime | None:
+    if not enabled:
+        return None
+    return run_at or next_after(value.cron, value.timezone, datetime.now(UTC))
+
+
+def turned_on(sent: bool | None, current: dict, run_at: datetime | None) -> bool:
+    """Enabled as sent; left out, a new one-time run time turns the schedule (back) on, else it stays as it is."""
+    if sent is not None:
+        return sent
+    return True if run_at is not None and run_at != current['run_at'] else current['enabled']
+
+
+def timing(value: Timetable, run_at: datetime | None) -> dict:
+    return {'run_at': run_at.isoformat()} if run_at else {'cron': value.cron}
 
 
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
@@ -158,8 +192,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         return {'schedules': [shown(row) for row in rows]}
 
     @router.post('/schedules/preview')
-    def preview(value: Timetable) -> dict:
-        checked(value)
+    def preview(value: Preview) -> dict:
+        checked(Timetable(cron=value.cron, timezone=value.timezone))
         return {'runs': upcoming(value.cron, value.timezone, datetime.now(UTC), PREVIEW_RUNS)}
 
     @router.get('/schedules/{schedule_id}/runs')
@@ -182,7 +216,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.post('/schedules', status_code=201)
     def create(value: NewSchedule, request: Request) -> dict:
-        checked(value)
+        run_at = checked(value)
         kind_checked(value.target_kind, value)
         if value.target_kind == 'event.emit' and value.name is None:
             raise HTTPException(400, NO_NAME)
@@ -198,9 +232,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 name, target_id = value.name, schedule_id  # an emit schedule is its own target
             try:
                 row = conn.execute(
-                    f"""INSERT INTO ka.schedules(id,project_id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,params)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,target_kind,target_id) DO NOTHING
-                    RETURNING {FIELDS}""",
+                    f"""INSERT INTO ka.schedules(id,project_id,name,target_kind,target_id,cron,run_at,timezone,enabled,
+                    next_run_at,params) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (project_id,target_kind,target_id) DO NOTHING RETURNING {FIELDS}""",
                     (
                         schedule_id,
                         project,
@@ -208,9 +242,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                         value.target_kind,
                         target_id,
                         value.cron,
+                        run_at,
                         value.timezone,
                         value.enabled,
-                        first_run(value),
+                        first_run(value, run_at, value.enabled),
                         Jsonb(value.params.model_dump(exclude_none=True)),
                     ),
                 ).fetchone()
@@ -227,7 +262,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 {
                     'target_kind': value.target_kind,
                     'name': row['name'],
-                    'cron': value.cron,
+                    **timing(value, run_at),
                     'timezone': value.timezone,
                     'enabled': value.enabled,
                     **row['params'],
@@ -257,11 +292,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.put('/schedules/{schedule_id}')
     def save(schedule_id: UUID, value: ScheduleInput, request: Request) -> dict:
-        checked(value)
+        run_at = checked(value)
         db = database()
         with workspace(db, app) as (conn, project):
             current = conn.execute(
-                """SELECT revision,run_requested,next_run_at,params,target_kind,name FROM ka.schedules
+                """SELECT revision,run_requested,next_run_at,params,target_kind,name,enabled,run_at FROM ka.schedules
                 WHERE id=%s AND project_id=%s FOR UPDATE""",
                 (schedule_id, project),
             ).fetchone()
@@ -270,14 +305,15 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
             kind_checked(current['target_kind'], value)
-            next_run = current['next_run_at'] if current['run_requested'] else first_run(value)
+            enabled = turned_on(value.enabled, current, run_at)
+            next_run = current['next_run_at'] if current['run_requested'] else first_run(value, run_at, enabled)
             params = current['params'] if value.params is None else value.params.model_dump(exclude_none=True)
             name = value.name or current['name']
             try:
                 row = conn.execute(
-                    f"""UPDATE ka.schedules SET name=%s,cron=%s,timezone=%s,enabled=%s,next_run_at=%s,params=%s,
-                    revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",
-                    (name, value.cron, value.timezone, value.enabled, next_run, Jsonb(params), schedule_id),
+                    f"""UPDATE ka.schedules SET name=%s,cron=%s,run_at=%s,timezone=%s,enabled=%s,next_run_at=%s,
+                    params=%s,revision=revision+1,updated_at=now() WHERE id=%s RETURNING {FIELDS}""",
+                    (name, value.cron, run_at, value.timezone, enabled, next_run, Jsonb(params), schedule_id),
                 ).fetchone()
             except psycopg.errors.UniqueViolation:
                 raise HTTPException(409, TAKEN) from None
@@ -290,9 +326,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 'schedule.saved',
                 schedule_id,
                 {
-                    'cron': value.cron,
+                    **timing(value, run_at),
                     'timezone': value.timezone,
-                    'enabled': value.enabled,
+                    'enabled': enabled,
                     **({'name': name} if value.name is not None else {}),
                     **({'handlers_updated': moved} if moved else {}),
                     **params,

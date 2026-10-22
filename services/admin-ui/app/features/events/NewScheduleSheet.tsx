@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { DEFAULT_CRON, EMIT, TARGETS, browserTimeZone, createSchedule, type Schedule } from "./schedules";
-import TimetableFields, { type Timetable } from "./TimetableFields";
+import TimetableFields, { complete, timing, type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPullParams, type JiraPull } from "./JiraPullFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -27,7 +27,12 @@ export default function NewScheduleSheet({
   const free = Object.keys(TARGETS).filter((kind) => kind === EMIT || !taken.includes(kind));
   const [target, setTarget] = useState(free[0]);
   const [name, setName] = useState("");
-  const [timetable, setTimetable] = useState<Timetable>({ cron: DEFAULT_CRON, timezone: browserTimeZone() });
+  const [timetable, setTimetable] = useState<Timetable>({
+    cron: DEFAULT_CRON,
+    timezone: browserTimeZone(),
+    once: false,
+    runAt: "",
+  });
   const [enabled, setEnabled] = useState(true);
   const [pull, setPull] = useState<JiraPull>({ jql: "", limit: "" });
   const [problem, setProblem] = useState<string | null>(null);
@@ -44,8 +49,7 @@ export default function NewScheduleSheet({
           await createSchedule({
             target_kind: target,
             ...(target === EMIT ? { name: name.trim() } : {}),
-            cron: timetable.cron.trim(),
-            timezone: timetable.timezone,
+            ...timing(timetable),
             enabled,
             ...(target === "jira.pull" ? { params: jiraPullParams(pull) } : {}),
           })
@@ -74,7 +78,13 @@ export default function NewScheduleSheet({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="new-schedule-target">What to run</FieldLabel>
-              <Select value={target} onValueChange={setTarget}>
+              <Select
+                value={target}
+                onValueChange={(kind) => {
+                  setTarget(kind);
+                  if (kind !== EMIT) setTimetable((current) => ({ ...current, once: false })); // the Jira pull repeats
+                }}
+              >
                 <SelectTrigger id="new-schedule-target" aria-label="What to run" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -102,7 +112,13 @@ export default function NewScheduleSheet({
               </Field>
             )}
             {target === "jira.pull" && <JiraPullFields id="new-schedule" value={pull} onChange={setPull} />}
-            <TimetableFields id="new-schedule" value={timetable} onChange={setTimetable} onProblem={setProblem} />
+            <TimetableFields
+              id="new-schedule"
+              value={timetable}
+              canRunOnce={target === EMIT}
+              onChange={setTimetable}
+              onProblem={setProblem}
+            />
             <Field orientation="horizontal">
               <Switch id="new-schedule-enabled" checked={enabled} onCheckedChange={setEnabled} />
               <FieldLabel htmlFor="new-schedule-enabled">Enabled</FieldLabel>
@@ -116,7 +132,7 @@ export default function NewScheduleSheet({
           <SheetFooter>
             <Button
               type="submit"
-              disabled={saving || problem !== null || !timetable.cron.trim() || (target === EMIT && !name.trim())}
+              disabled={saving || problem !== null || !complete(timetable) || (target === EMIT && !name.trim())}
             >
               {saving && <Spinner data-icon="inline-start" />}Create
             </Button>

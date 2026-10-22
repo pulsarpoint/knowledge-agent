@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { EMIT, saveSchedule, type Schedule } from "./schedules";
-import TimetableFields, { type Timetable } from "./TimetableFields";
+import TimetableFields, { complete, timetableOf, timing, type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPull, jiraPullParams, type JiraPull } from "./JiraPullFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
@@ -22,7 +22,7 @@ import { Spinner } from "~/components/ui/spinner";
 
 function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (schedule: Schedule) => void }) {
   const [name, setName] = useState(schedule.name);
-  const [timetable, setTimetable] = useState<Timetable>({ cron: schedule.cron, timezone: schedule.timezone });
+  const [timetable, setTimetable] = useState<Timetable>(() => timetableOf(schedule));
   const [pull, setPull] = useState<JiraPull>(() => jiraPull(schedule.params));
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,9 +46,9 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
         (
           await saveSchedule(schedule.id, {
             ...(schedule.target_kind === EMIT ? { name: name.trim() } : {}),
-            cron: timetable.cron.trim(),
-            timezone: timetable.timezone,
-            enabled: schedule.enabled,
+            ...timing(timetable),
+            // a one-time schedule leaves it out: a new time turns it (back) on
+            ...(timetable.once ? {} : { enabled: schedule.enabled }),
             revision: schedule.revision,
             ...(schedule.target_kind === "jira.pull" ? { params: jiraPullParams(pull) } : {}),
           })
@@ -71,7 +71,13 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
           </Field>
         )}
         {schedule.target_kind === "jira.pull" && <JiraPullFields id="schedule" value={pull} onChange={setPull} />}
-        <TimetableFields id="schedule" value={timetable} onChange={setTimetable} onProblem={setProblem} />
+        <TimetableFields
+          id="schedule"
+          value={timetable}
+          canRunOnce={schedule.target_kind === EMIT}
+          onChange={setTimetable}
+          onProblem={setProblem}
+        />
       </FieldGroup>
       {error && (
         <Alert variant="destructive">
@@ -79,7 +85,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
         </Alert>
       )}
       <SheetFooter>
-        <Button type="submit" disabled={saving || problem !== null || !timetable.cron.trim() || !name.trim()}>
+        <Button type="submit" disabled={saving || problem !== null || !complete(timetable) || !name.trim()}>
           {saving && <Spinner data-icon="inline-start" />}Save
         </Button>
       </SheetFooter>

@@ -1,5 +1,6 @@
-"""Schedules run one target (a named job, e.g. the Jira pull) on a cron timetable in a time zone. This module holds the
-cron rules; scheduler.py claims and runs due schedules, schedules_api.py edits them."""
+"""Schedules run one target (a named job, e.g. the Jira pull) on a cron timetable in a time zone, or (Emit event only)
+once at a time. This module holds the timetable rules; scheduler.py claims and runs due schedules, schedules_api.py
+edits them."""
 
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, available_timezones
@@ -11,6 +12,7 @@ CHECKED_FIRES = 11  # the gaps between the next 11 fire times are checked agains
 TOO_OFTEN = 'Schedules may run at most every 5 minutes.'
 BAD_CRON = 'Use a cron expression with five fields, for example */15 * * * *.'
 BAD_TIMEZONE = 'Choose a time zone from the list.'
+PAST = 'Choose a time in the future.'
 MISSING = 'Target no longer exists.'
 PRESETS = {
     '*/15 * * * *': 'Every 15 minutes',
@@ -55,6 +57,16 @@ def validate(cron: str, timezone: str) -> None:
         raise ScheduleError(BAD_CRON) from None
     if any(later - earlier < MIN_INTERVAL for earlier, later in zip(times, times[1:])):
         raise ScheduleError(TOO_OFTEN)
+
+
+def run_time(run_at: datetime, timezone: str, now: datetime) -> datetime:
+    """When a one-time schedule runs: a time without an offset is read in the schedule's time zone. It must be ahead."""
+    if timezone not in available_timezones():
+        raise ScheduleError(BAD_TIMEZONE)
+    aware = run_at if run_at.tzinfo else run_at.replace(tzinfo=ZoneInfo(timezone))
+    if aware <= now:
+        raise ScheduleError(PAST)
+    return aware.astimezone(UTC)
 
 
 def describe(cron: str) -> str:

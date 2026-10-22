@@ -463,3 +463,12 @@ Agents can continue their own session later (wake-ups, see [agents](agents.md#to
 wake-up, and the partial index `agent_session_inputs_wakeups` serves queued wake-ups by `not_before`. Existing inputs
 become messages. The down migration deletes every wake-up row (pending and delivered; people's messages stay) and drops
 the index, constraints and columns.
+
+## 0124_one_time_schedules
+
+One-time schedules (Administration → Schedules, Emit event only). `ka.schedules.cron` becomes nullable and
+`run_at timestamptz` is added: a schedule with `run_at` runs once at that time; `schedules_one_timetable` requires
+exactly one of `cron` and `run_at`, and `schedules_run_at_emit` allows `run_at` only for `target_kind` `event.emit`
+(the Jira pull always repeats). After its scheduled run a one-time schedule is switched off (`enabled` false,
+`next_run_at` null); the row and its `schedule_runs` stay. The down migration deletes one-time schedules (test data)
+with their history, drops the constraints and the column and makes `cron` NOT NULL again.

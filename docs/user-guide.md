@@ -846,6 +846,12 @@ schedule** creates one: choose what to run and when:
   condition `subject` equals the schedule's name, action Send to agent): choose the agent, write the prompt and
   save.
 
+An Emit event schedule is **Repeating** (a timetable, below) or **Once**: a **Date and time** in the schedule's time
+zone, which must be in the future (`Choose a time in the future.`). The Jira tickets schedule always repeats and shows
+no such switch. A one-time schedule shows `Once at <time>` as its next run; when the time comes it runs once and
+switches itself off, keeping its row and history, and then shows `Ran once at <time>`. **Run now** runs it without
+using up its time. **Edit** it to a new future time to run it again (it is switched back on).
+
 **Delete** removes a schedule and its history; the handlers of an Emit event schedule stay (they no longer match any
 event). Each row shows what
 it runs, when (in plain words and its time zone), the next run and the last result. Switch a schedule off to pause it;

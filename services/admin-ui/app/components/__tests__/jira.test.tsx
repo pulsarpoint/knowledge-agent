@@ -374,6 +374,7 @@ const pullSchedule: Schedule = {
   target_kind: "jira.pull",
   target_id: "jira-1",
   cron: "*/15 * * * *",
+  run_at: null,
   description: "Every 15 minutes",
   timezone: "UTC",
   enabled: true,
