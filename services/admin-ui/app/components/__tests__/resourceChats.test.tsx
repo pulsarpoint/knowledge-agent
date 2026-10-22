@@ -350,6 +350,81 @@ test("the service page shows the service's information in the service panel, and
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/services/v1/proposals");
 });
 
+test("the service page keeps the agent context link, the code folder path and the SSH status of each deployment", async () => {
+  const service = {
+    id: "v1",
+    name: "payments",
+    description: "",
+    service_type: "custom",
+    service_role: "application",
+    owner: "",
+    address: null,
+    revision: 1,
+    created_at: at,
+    updated_at: at,
+    repositories: [
+      {
+        id: "r1",
+        name: "payments-repo",
+        remote_url: null,
+        requested_ref: null,
+        current_commit: null,
+        checkout_path: "payments-repo",
+        synced_at: null,
+        archived: false,
+      },
+    ],
+    deployments: [
+      {
+        id: "d1",
+        server_id: "s1",
+        environment_id: "e1",
+        environment: "prod",
+        runtime: "docker",
+        runtime_name: "",
+        port: null,
+        log_location: "",
+        deployed_version: "",
+        server: {
+          id: "s1",
+          name: "app-1",
+          hostname: "10.0.0.7",
+          description: "",
+          tags: [],
+          ssh_allowed: true,
+          access_enabled: true,
+          allow_sudo: false,
+        },
+      },
+    ],
+    dependencies: [],
+    dependents: [],
+    environments: [],
+  };
+  api({
+    ...base(),
+    "GET /api/services/v1/context": () => [200, { service }],
+    "GET /api/inventory/service/v1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/services": () => [200, { services: [service] }],
+    "GET /api/services/v1/deployments": () => [200, { deployments: [] }],
+    "GET /api/services/v1/connections": () => [200, { connections: [] }],
+    "GET /api/services/v1/relations": () => [200, { relations: [] }],
+    "GET /api/storage": () => [200, { locations: [{ id: "code", container_path: "/code" }] }],
+  });
+  render(
+    <MemoryRouter initialEntries={["/services/v1"]}>
+      <ServicePage serviceId="v1" />
+    </MemoryRouter>,
+  );
+  const extras = within(await screen.findByRole("region", { name: "Access and code" }));
+  expect(extras.getByRole("link", { name: "Agent context (JSON)" })).toHaveAttribute(
+    "href",
+    "/api/services/v1/context",
+  );
+  expect(await extras.findByText("payments-repo: /code/payments-repo")).toBeInTheDocument();
+  expect(extras.getByText("prod / app-1: SSH allowed: On · Connection: Enabled · Sudo: Disabled")).toBeInTheDocument();
+});
+
 test("the environment page shows its workspace of servers and services, and its chats", async () => {
   api({
     "GET /api/environments/e1": () => [

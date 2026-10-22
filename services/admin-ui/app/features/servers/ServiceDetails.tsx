@@ -1,7 +1,7 @@
 import { FileJson, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { type ServiceAsset } from "./services";
+import { type ServiceAsset, type ServiceDeployment } from "./services";
 import { getStorage } from "~/lib/storage";
 import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Badge } from "~/components/ui/badge";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Separator } from "~/components/ui/separator";
 
 /** The configured code folder as mounted in the containers, or null while unknown. */
-function useCodeFolder(needed: boolean) {
+export function useCodeFolder(needed: boolean) {
   const [folder, setFolder] = useState<string | null>(null);
   useEffect(() => {
     if (!needed) return;
@@ -22,6 +22,16 @@ function useCodeFolder(needed: boolean) {
   }, [needed]);
   return folder;
 }
+
+/** Where a code project's checkout is: "/code/shop", or "shop (in the code folder)" while the folder is unknown. */
+export const checkoutText = (checkoutPath: string, codeFolder: string | null) =>
+  codeFolder ? `${codeFolder}/${checkoutPath}` : `${checkoutPath} (in the code folder)`;
+
+/** A deployment's server access: "SSH allowed: On · Connection: Enabled · Sudo: Disabled". */
+export const sshText = ({ server }: ServiceDeployment) =>
+  `SSH allowed: ${server.ssh_allowed ? "On" : "Off"} · Connection: ${
+    server.access_enabled ? "Enabled" : "Not configured / disabled"
+  } · Sudo: ${server.allow_sudo ? "Allowed by server policy" : "Disabled"}`;
 
 /** A service's saved details; onClose adds a close button (the services list), the service page has none. */
 export default function ServiceDetails({ service, onClose }: { service: ServiceAsset; onClose?: () => void }) {
@@ -101,7 +111,7 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
               )}
               {repo.checkout_path && (
                 <p className="break-all font-mono text-xs text-muted-foreground">
-                  {codeFolder ? `${codeFolder}/${repo.checkout_path}` : `${repo.checkout_path} (in the code folder)`}
+                  {checkoutText(repo.checkout_path, codeFolder)}
                 </p>
               )}
             </div>
@@ -163,11 +173,7 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
               <p className="break-words">
                 Logs: <span className="font-mono">{deployment.log_location || "Not recorded"}</span>
               </p>
-              <p className="text-xs text-muted-foreground">
-                SSH allowed: {deployment.server.ssh_allowed ? "On" : "Off"} · Connection:{" "}
-                {deployment.server.access_enabled ? "Enabled" : "Not configured / disabled"} · Sudo:{" "}
-                {deployment.server.allow_sudo ? "Allowed by server policy" : "Disabled"}
-              </p>
+              <p className="text-xs text-muted-foreground">{sshText(deployment)}</p>
             </div>
           ))}
         </section>
