@@ -20,7 +20,7 @@ from knowledge_admin.knowledge_agents.subagents import (
     referenced_credentials,
     subagent_config,
 )
-from knowledge_admin.tools.catalog import CATALOG, WAKEUPS
+from knowledge_admin.tools.catalog import CATALOG, INVENTORY_WRITES, WAKEUPS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
 MODEL = {
@@ -101,7 +101,7 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_the_given_r
     sub = subagent_config(lead, {**NO_RESOURCES, 'code_project_ids': ['worker']})
     assert lead == before  # the parent's configuration is untouched
     _, tools, experts, _ = instructions_and_tools(sub, subagents=False)
-    offered = [name for name in CATALOG if name != 'run_subagent' and name not in WAKEUPS]
+    offered = [name for name in CATALOG if name != 'run_subagent' and name not in WAKEUPS | INVENTORY_WRITES]
     assert [tool.name for tool in tools] == offered and experts == []
     assert [s['id'] for s in selected_servers(sub)] == ['docs'] and 'tools' not in sub
     assert [p['id'] for p in entries(sub['access'], 'code_project')] == ['worker']

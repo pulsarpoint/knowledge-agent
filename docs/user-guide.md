@@ -551,7 +551,7 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose services and documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose services and documents and edit its editable documents), **Inventory editor** (lets this agent add and change servers, services, deployments, connections and relations; off by default, and the agent designer never switches it on), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**; a document may be made **Editable** (only a Content editor changes it). A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
@@ -598,7 +598,12 @@ entry) and any refused names with the reason; **Done** closes it.
 
 **Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources and
 the **Content editor** role: a tool without what it needs refuses (for example `This run has no servers.`), and
-`report_not_covered` works only with **Answer only from documents**. **Agent runs**, run records, session pages and
+`report_not_covered` works only with **Answer only from documents**. Every agent can read the inventory of its
+resources (`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`); only an **Inventory
+editor** can change it (`save_server`, `save_service`, `save_deployment`, `save_connection`, `save_relation`,
+`remove_inventory_item`), and only for what is in its resources or what it added in the same session — so it can add a
+server, deploy a service on it and connect it in one conversation. Its changes show in the audit log with the person
+who started the session, the agent and the session; helpers and experts never change the inventory. **Agent runs**, run records, session pages and
 Test chats show how often each tool was used.
 
 **Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except

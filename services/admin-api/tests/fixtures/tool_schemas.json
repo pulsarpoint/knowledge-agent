@@ -574,6 +574,808 @@
   },
   {
     "group": "inventory",
+    "label": "Environment model",
+    "name": "get_environment_model",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "environment_id": {
+          "description": "The environment id.",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Environment Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment_id"
+      ],
+      "title": "GetEnvironmentModel",
+      "type": "object"
+    },
+    "summary": "One environment's servers, deployments, services, connections and relations.",
+    "usage": "One environment as JSON: its servers with their deployments (service, runtime, port, version), its services,\nthe connections touching it (an end in another environment under outside), external hosts with their ports, and\nthe relations of its services. Every item carries the id and revision you need to change it."
+  },
+  {
+    "group": "inventory",
+    "label": "List servers",
+    "name": "list_servers",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "environment_id": {
+          "description": "The environment id.",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Environment Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment_id"
+      ],
+      "title": "ListServers",
+      "type": "object"
+    },
+    "summary": "The servers with a deployment in an environment.",
+    "usage": "The servers with a deployment in the environment, as JSON (id, name, hostname, description, tags, revision)."
+  },
+  {
+    "group": "inventory",
+    "label": "List deployments",
+    "name": "list_deployments",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "server_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The deployments on this server.",
+          "title": "Server Id"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The deployments of this service.",
+          "title": "Service Id"
+        }
+      },
+      "required": [
+        "server_id",
+        "service_id"
+      ],
+      "title": "ListDeployments",
+      "type": "object"
+    },
+    "summary": "The deployments on a server or of a service.",
+    "usage": "The deployments on a server or of a service (give one), as JSON: service, server, environment, runtime, port,\nversion and revision."
+  },
+  {
+    "group": "inventory",
+    "label": "List connections",
+    "name": "list_connections",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Connections of this deployment.",
+          "title": "Deployment Id"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Connections of the service's deployments.",
+          "title": "Service Id"
+        }
+      },
+      "required": [
+        "service_id",
+        "deployment_id"
+      ],
+      "title": "ListConnections",
+      "type": "object"
+    },
+    "summary": "The connections of a service or a deployment.",
+    "usage": "The connections from or to a service's deployments or one deployment (give one), as JSON: from and to\ndeployment or external host, port, protocol, description and revision."
+  },
+  {
+    "group": "inventory",
+    "label": "Save server",
+    "name": "save_server",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "hostname": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "IP address or hostname; required to create.",
+          "title": "Hostname"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The item to update; omit to create one.",
+          "title": "Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required to create.",
+          "title": "Name"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With id: the revision you read (from the model or a list).",
+          "title": "Revision"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tags"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "hostname",
+        "description",
+        "tags"
+      ],
+      "title": "SaveServer",
+      "type": "object"
+    },
+    "summary": "Create or update a server (inventory editor).",
+    "usage": "Create a server (without id; needs an environment in this run) or update one (id and the revision you read;\nomitted fields keep their values). Then deploy services on it with save_deployment. SSH access is set up by a\nperson, not here. Returns the saved server as JSON."
+  },
+  {
+    "group": "inventory",
+    "label": "Save service",
+    "name": "save_service",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The item to update; omit to create one.",
+          "title": "Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required to create.",
+          "title": "Name"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With id: the revision you read (from the model or a list).",
+          "title": "Revision"
+        },
+        "service_role": {
+          "anyOf": [
+            {
+              "enum": [
+                "unclassified",
+                "application",
+                "proxy",
+                "web_server",
+                "database",
+                "cache",
+                "message_broker",
+                "worker",
+                "other"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Service Role"
+        },
+        "service_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "unclassified",
+                "custom",
+                "builtin",
+                "external"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Service Type"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "service_type",
+        "service_role",
+        "description",
+        "owner"
+      ],
+      "title": "SaveService",
+      "type": "object"
+    },
+    "summary": "Create or update a service (inventory editor).",
+    "usage": "Create a service (without id; needs an environment in this run) or update one (id and the revision you read;\nomitted fields keep their values). Returns the saved service as JSON."
+  },
+  {
+    "group": "inventory",
+    "label": "Save deployment",
+    "name": "save_deployment",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "deployed_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deployed Version"
+        },
+        "environment_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its environment; required to create.",
+          "title": "Environment Id"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The item to update; omit to create one.",
+          "title": "Id"
+        },
+        "log_location": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Log Location"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Port"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With id: the revision you read (from the model or a list).",
+          "title": "Revision"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "e.g. systemd, docker, k8s.",
+          "title": "Runtime"
+        },
+        "runtime_name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Unit, container or pod name.",
+          "title": "Runtime Name"
+        },
+        "server_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The server it runs on; required to create.",
+          "title": "Server Id"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The service deployed; required to create.",
+          "title": "Service Id"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "service_id",
+        "server_id",
+        "environment_id",
+        "runtime",
+        "runtime_name",
+        "port",
+        "log_location",
+        "deployed_version"
+      ],
+      "title": "SaveDeployment",
+      "type": "object"
+    },
+    "summary": "Create or update a deployment (inventory editor).",
+    "usage": "Record that a service runs on a server in an environment (without id), or update a deployment (id and the\nrevision you read; omitted fields keep their values). Returns the saved deployment as JSON."
+  },
+  {
+    "group": "inventory",
+    "label": "Save connection",
+    "name": "save_connection",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "from_deployment_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The deployment that connects; required to create.",
+          "title": "From Deployment Id"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The item to update; omit to create one.",
+          "title": "Id"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Needed for a host; a deployment's own port when omitted.",
+          "title": "Port"
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "e.g. tcp (default), http, postgres.",
+          "title": "Protocol"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With id: the revision you read (from the model or a list).",
+          "title": "Revision"
+        },
+        "to_deployment_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The deployment it connects to (or to_host).",
+          "title": "To Deployment Id"
+        },
+        "to_host": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An external host it connects to (or to_deployment_id).",
+          "title": "To Host"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "from_deployment_id",
+        "to_deployment_id",
+        "to_host",
+        "port",
+        "protocol",
+        "description"
+      ],
+      "title": "SaveConnection",
+      "type": "object"
+    },
+    "summary": "Create or update a connection (inventory editor).",
+    "usage": "Record that a deployment connects to another deployment or an external host on a port (without id), or update a\nconnection (id and the revision you read; omitted fields keep their values). Returns the saved connection as\nJSON."
+  },
+  {
+    "group": "inventory",
+    "label": "Save relation",
+    "name": "save_relation",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "from_service_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The service; required to create.",
+          "title": "From Service Id"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The item to update; omit to create one.",
+          "title": "Id"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "depends_on",
+                "part_of",
+                "built_from"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "depends_on and part_of point at a service, built_from at a code project.",
+          "title": "Kind"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With id: the revision you read (from the model or a list).",
+          "title": "Revision"
+        },
+        "to_code_project_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "To Code Project Id"
+        },
+        "to_service_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "To Service Id"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "from_service_id",
+        "kind",
+        "to_service_id",
+        "to_code_project_id",
+        "description"
+      ],
+      "title": "SaveRelation",
+      "type": "object"
+    },
+    "summary": "Create or update a service relation (inventory editor).",
+    "usage": "Record how a service relates to another service or a code project (without id), or update a relation (id and\nthe revision you read; omitted fields keep their values). Returns the saved relation as JSON."
+  },
+  {
+    "group": "inventory",
+    "label": "Remove inventory item",
+    "name": "remove_inventory_item",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The item to remove.",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "server",
+            "service",
+            "deployment",
+            "connection",
+            "relation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The revision you read.",
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "revision"
+      ],
+      "title": "RemoveInventoryItem",
+      "type": "object"
+    },
+    "summary": "Remove a server, service, deployment, connection or relation (inventory editor).",
+    "usage": "Remove a server, service, deployment, connection or relation. A deployment takes its connections with it; a\nserver or service is refused while deployments use it. Returns {\"removed\": id}."
+  },
+  {
+    "group": "inventory",
     "label": "Read document",
     "name": "get_document",
     "schema": {

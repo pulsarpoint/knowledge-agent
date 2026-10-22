@@ -45,6 +45,12 @@ next turn (`Scheduled wake-up (set <time>): <message>`), never as a comment insi
 session turn (`catalog.WAKEUPS`): not in a subagent's run, an expert's call (`config['expert']`, set by
 `experts.load`) or an internal call.
 
+The inventory tools (`capabilities/inventory_tools.py`; group `inventory`): reads `get_environment_model`,
+`list_servers`, `list_deployments`, `list_connections`, offered in every run; writes `save_server`, `save_service`,
+`save_deployment`, `save_connection`, `save_relation`, `remove_inventory_item` through `inventory/store.py`, offered only
+in a session turn (`catalog.INVENTORY_WRITES`, withheld like the wake-ups) and allowed only with the role
+`inventory_editor` for items in the run's access or created by the session (`store.created_in_session`).
+
 `load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
 name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this
 run.`). The run's instructions list its skills by name and description only (`skills.section`, used by

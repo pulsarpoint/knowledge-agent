@@ -78,6 +78,66 @@
     "summary": "What is recorded about a server, service, environment or code project."
   },
   {
+    "name": "get_environment_model",
+    "group": "inventory",
+    "label": "Environment model",
+    "summary": "One environment's servers, deployments, services, connections and relations."
+  },
+  {
+    "name": "list_servers",
+    "group": "inventory",
+    "label": "List servers",
+    "summary": "The servers with a deployment in an environment."
+  },
+  {
+    "name": "list_deployments",
+    "group": "inventory",
+    "label": "List deployments",
+    "summary": "The deployments on a server or of a service."
+  },
+  {
+    "name": "list_connections",
+    "group": "inventory",
+    "label": "List connections",
+    "summary": "The connections of a service or a deployment."
+  },
+  {
+    "name": "save_server",
+    "group": "inventory",
+    "label": "Save server",
+    "summary": "Create or update a server (inventory editor)."
+  },
+  {
+    "name": "save_service",
+    "group": "inventory",
+    "label": "Save service",
+    "summary": "Create or update a service (inventory editor)."
+  },
+  {
+    "name": "save_deployment",
+    "group": "inventory",
+    "label": "Save deployment",
+    "summary": "Create or update a deployment (inventory editor)."
+  },
+  {
+    "name": "save_connection",
+    "group": "inventory",
+    "label": "Save connection",
+    "summary": "Create or update a connection (inventory editor)."
+  },
+  {
+    "name": "save_relation",
+    "group": "inventory",
+    "label": "Save relation",
+    "summary": "Create or update a service relation (inventory editor)."
+  },
+  {
+    "name": "remove_inventory_item",
+    "group": "inventory",
+    "label": "Remove inventory item",
+    "summary": "Remove a server, service, deployment, connection or relation (inventory editor)."
+  },
+  {
     "name": "get_document",
     "group": "inventory",
     "label": "Read document",

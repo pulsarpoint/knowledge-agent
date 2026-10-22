@@ -226,6 +226,11 @@ def build_api(app_name, store):
                             m['id'] == proposal.model_id for m in offered['models']
                         ):
                             proposal = proposal.model_copy(update={'model_id': None})  # the administrator picks one
+                        # the person switches the inventory editor role on in the agent's settings, never the model
+                        roles = proposal.access.roles.model_copy(update={'inventory_editor': False})
+                        proposal = proposal.model_copy(
+                            update={'access': proposal.access.model_copy(update={'roles': roles})}
+                        )
                         return {'proposal': proposal}
                     except (ModelBehaviorError, ValidationError, HTTPException) as exc:
                         if attempt == 1:

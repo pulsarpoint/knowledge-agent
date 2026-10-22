@@ -19,6 +19,7 @@ from knowledge_admin.capabilities import (  # noqa: F401
     documents,
     files,
     inventory,
+    inventory_tools,
     memory,
     skills,
     ssh,
@@ -34,6 +35,10 @@ Group = Literal['code', 'documents', 'servers', 'inventory', 'memory', 'agents']
 GROUPS = typing.get_args(Group)
 SUBAGENT = 'run_subagent'
 WAKEUPS = frozenset({'schedule_wakeup', 'list_wakeups', 'cancel_wakeup'})  # a session turn's own tools
+# Inventory writes: only a session turn (audited with its session), never a subagent or an expert.
+INVENTORY_WRITES = frozenset(
+    {'save_server', 'save_service', 'save_deployment', 'save_connection', 'save_relation', 'remove_inventory_item'}
+)
 
 
 @dataclass(frozen=True)

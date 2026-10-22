@@ -1,4 +1,4 @@
-"""Every run gets every tool: the whole catalog (run_subagent except in a subagent, the wake-up tools only in a session
+"""Every run gets every tool: the whole catalog (run_subagent except in a subagent, the wake-up and inventory write tools only in a session
 turn), every expert (narrowed by the request's expert_ids), every tool of the MCP servers in its access; the access
 object alone decides what a tool may do. A request carries no tool switches; an ad-hoc run asks for the content editor role with content_editor."""
 
@@ -7,7 +7,7 @@ import asyncio
 from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.capabilities.documents import check_report_not_covered, report_not_covered
 from knowledge_admin.knowledge_agents.subagents import subagent_config
-from knowledge_admin.tools.catalog import CATALOG, WAKEUPS
+from knowledge_admin.tools.catalog import CATALOG, INVENTORY_WRITES, WAKEUPS
 from test_discovery_runs import config_of, ssh_ready
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_saved_agent import agent, start  # noqa: F401  (fixture)
@@ -52,7 +52,9 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_and_no_expe
     parent = config(ssh=True)
     parent['experts'] = [EXPERT]
     sub = subagent_config(parent, None)
-    assert names(sub, subagents=False) == [name for name in EVERY if name != 'run_subagent' and name not in WAKEUPS]
+    assert names(sub, subagents=False) == [
+        name for name in EVERY if name != 'run_subagent' and name not in WAKEUPS | INVENTORY_WRITES
+    ]
     assert sub['experts'] == [] and not sub['access']['roles']['content_editor']
 
 

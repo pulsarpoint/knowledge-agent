@@ -344,3 +344,22 @@ def test_generation_offers_the_models_that_fit_an_agent(store, wizard, monkeypat
     assert gpt in {m['id'] for m in tasks[0]['catalog']['models']}
     assert native.json()['proposal']['model_id'] == gpt
     assert 'agent_type' not in tasks[0]  # the designer is not told an agent type
+
+
+def test_a_proposal_never_makes_an_inventory_editor(wizard, monkeypatch):
+    """The person switches the role on in the agent's settings; whatever the model proposes, the wizard turns it off."""
+    client, _, proposal, _ = wizard
+    proposed = {
+        **proposal,
+        'access': {**proposal['access'], 'roles': {'content_editor': True, 'inventory_editor': True}},
+    }
+
+    async def run(*args, **kwargs):
+        return SimpleNamespace(final_output=AgentProposal.model_validate(proposed))
+
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
+    result = client.post(
+        '/api/agents/wizard/generate', headers=HEADERS, json={'role': 'Payments', 'model_id': proposal['model_id']}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()['proposal']['access']['roles'] == {'content_editor': True, 'inventory_editor': False}

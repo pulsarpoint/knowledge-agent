@@ -76,8 +76,9 @@ def load(
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """The expert's configuration for one call (its current settings), with its access object: its own agent's access,
     narrowed to the given resources (which the caller already checked are its own; none given: everything it has),
-    a content (inventory) editor only when its agent and the calling run both are; and its decrypted credentials. ValueError: a message for the model (also a given resource
-    outside its access). Synchronous: the caller runs it in a thread."""
+    each role (content editor, inventory editor) on only when its agent and the calling run both have it; and its
+    decrypted credentials. ValueError: a message for the model (also a given resource outside its access).
+    Synchronous: the caller runs it in a thread."""
     from knowledge_admin.agents.runner import load_credentials  # agents imports this package
 
     unavailable = ValueError(UNAVAILABLE.format(name=entry['name']))

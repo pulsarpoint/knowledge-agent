@@ -15,8 +15,8 @@ def item(type_: str, id_: str, name: str, source: str = 'given', **extra) -> dic
     return {'type': type_, 'id': id_, 'name': name, 'description_short': '', 'source': source, **extra}
 
 
-def run(*resources: dict, editor: bool = False) -> dict:
-    return {'resources': list(resources), 'roles': {'content_editor': editor}}
+def run(*resources: dict, editor: bool = False, inventory: bool = False) -> dict:
+    return {'resources': list(resources), 'roles': {'content_editor': editor, 'inventory_editor': inventory}}
 
 
 SERVER = item('server', 's1', 'web-1')
@@ -49,6 +49,13 @@ ACCESS = {
     ),
     # a saved agent's skill (skills are always given)
     'skill': run(item('skill', 'k1', 'inspect')),
+    # an inventory editor on an environment (its server and service come with it)
+    'inventory_editor': run(
+        item('environment', 'e1', 'prod'),
+        item('server', 's1', 'web-1', source='via environment e1'),
+        item('service', 'v1', 'api', source='via environment e1'),
+        inventory=True,
+    ),
     # one of every kind, none of them the one asked for
     'other': run(
         item('server', 's9', 'db-9'),
@@ -62,6 +69,8 @@ ACCESS = {
     ),
 }
 
+# The rows a tool loads for the deployment it names (capabilities/inventory_tools._facts).
+DEPLOYMENT_ROWS = {('deployment', 'p1'): {'server_id': 's1', 'service_id': 'v1', 'environment_id': 'e1'}}
 ARGS = {
     'list_files': {'path': None},
     'read_file': {'path': '/code/payments/a.py'},
@@ -90,6 +99,16 @@ ARGS = {
     'schedule_wakeup': {'message': 'Check the deploy.', 'in_minutes': 30},
     'list_wakeups': {},
     'cancel_wakeup': {'id': 1},
+    'get_environment_model': {'environment_id': 'e1'},
+    'list_servers': {'environment_id': 'e1'},
+    'list_deployments': {'server_id': 's1'},
+    'list_connections': {'service_id': 'v1'},
+    'save_server': {'name': 'cache-1', 'hostname': 'cache-1.internal'},
+    'save_service': {'id': 'v1', 'owner': 'ops'},
+    'save_deployment': {'service_id': 'v1', 'server_id': 's1', 'environment_id': 'e1'},
+    'save_connection': {'from_deployment_id': 'p1', 'to_host': 'db.example', 'port': 5432, 'rows': DEPLOYMENT_ROWS},
+    'save_relation': {'from_service_id': 'v1', 'kind': 'built_from', 'to_code_project_id': 'c1'},
+    'remove_inventory_item': {'kind': 'deployment', 'id': 'p1', 'rows': DEPLOYMENT_ROWS},
 }
 
 NOT_EDITOR = access_rules.NOT_EDITOR
@@ -104,8 +123,19 @@ NOT_COLLECTION = 'This collection is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
 NOT_SKILL = 'This skill is not available in this run.'
 NOT_GROUNDED = 'This run does not answer only from documents.'
-WITH_SERVER = ('server', 'server_with_services', 'wizard', 'new_document')
-WITHOUT_EDITOR = ('empty', 'server', 'server_with_services', 'read_only_document', 'editable_document', 'skill')
+WITH_SERVER = ('server', 'server_with_services', 'wizard', 'new_document', 'inventory_editor')
+WITHOUT_EDITOR = (
+    'empty',
+    'server',
+    'server_with_services',
+    'read_only_document',
+    'editable_document',
+    'skill',
+    'inventory_editor',
+)
+NOT_ENVIRONMENT = 'This environment is not available in this run.'
+NOT_SERVICE = 'This service is not available in this run.'
+NOT_INVENTORY_EDITOR = 'This agent may not change the inventory (inventory editor is off).'
 
 
 def row(default, **cells) -> dict:
@@ -161,6 +191,17 @@ EXPECTED = {
     'schedule_wakeup': ALWAYS,  # a session's own wake-ups; the time is checked in test_wakeups
     'list_wakeups': ALWAYS,
     'cancel_wakeup': ALWAYS,
+    'get_environment_model': row(NOT_ENVIRONMENT, inventory_editor=None),
+    'list_servers': row(NOT_ENVIRONMENT, inventory_editor=None),
+    'list_deployments': row(NOT_SERVER, **some(WITH_SERVER, None)),
+    'list_connections': row(NOT_SERVICE, server_with_services=None, inventory_editor=None),
+    # writes: the role first, then the items named (code project c1 is not in the inventory editor's run)
+    'save_server': row(NOT_INVENTORY_EDITOR, inventory_editor=None),
+    'save_service': row(NOT_INVENTORY_EDITOR, inventory_editor=None),
+    'save_deployment': row(NOT_INVENTORY_EDITOR, inventory_editor=None),
+    'save_connection': row(NOT_INVENTORY_EDITOR, inventory_editor=None),
+    'save_relation': row(NOT_INVENTORY_EDITOR, inventory_editor=NOT_CODE),
+    'remove_inventory_item': row(NOT_INVENTORY_EDITOR, inventory_editor=None),
 }
 
 
