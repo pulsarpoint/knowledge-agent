@@ -661,3 +661,90 @@ def test_a_matched_document_that_became_the_inventory_document_gets_a_new_docume
     with world.store.connect() as conn:
         assert conn.execute('SELECT draft_of FROM ka.documents WHERE id=%s', (draft,)).fetchone()['draft_of'] is None
     assert snapshot(world, document) == before
+
+
+def outgoing(world, service_id):
+    with world.store.connect() as conn:
+        [deployment] = inventory.list_deployments(conn, world.project, service_id=service_id)
+        return [
+            row
+            for row in inventory.list_connections(conn, world.project, deployment_id=deployment['id'])
+            if row['from_deployment_id'] == deployment['id']
+        ]
+
+
+def test_accepting_writes_connections_and_part_of(run):
+    world, sid, config = run
+    with world.store.connect() as conn:
+        stripe = inventory.create_service(conn, world.project, {'name': 'Stripe', 'service_type': 'external'}, {})
+    host = {'to_host': 'db.example', 'port': 5432}
+    propose(
+        config,
+        'propose_service',
+        **REDIS,
+        connections=[{'to_service': 'nginx'}, {'to_service': 'Stripe', 'port': 443}, host, host],
+        part_of=['nginx'],
+    )
+    [proposal] = listed(world, sid)
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    redis = service(world, 'redis')
+    with world.store.connect() as conn:
+        [nginx_deployment] = inventory.list_deployments(conn, world.project, service_id=world.nginx)
+        relations = inventory.list_relations(conn, world.project, service_id=redis['id'])
+    targets = [
+        (row['to_deployment_id'], row['to_service_id'], row['to_host'], row['port'])
+        for row in outgoing(world, redis['id'])
+    ]  # written in one transaction: one created_at, so compared without order
+    assert sorted(targets, key=str) == sorted(
+        [
+            (nginx_deployment['id'], None, None, 80),
+            (None, stripe['id'], None, 443),
+            (None, None, 'db.example', 5432),
+        ],
+        key=str,
+    )
+    assert [(row['kind'], row['to_service_id']) for row in relations] == [('part_of', world.nginx)]
+
+
+def test_a_failing_connection_rolls_back_the_whole_approval(run):
+    world, sid, config = run
+    propose(config, 'propose_service', **REDIS, connections=[{'to_service': 'nginx'}], part_of=['nginx'])
+    [proposal] = listed(world, sid)
+    with world.store.connect() as conn:  # the target is deleted meanwhile
+        conn.execute('DELETE FROM ka.service_deployments WHERE service_id=%s', (world.nginx,))
+    refused = decide(world, proposal, 'accept')
+    assert refused.status_code == 400
+    assert refused.json()['error']['message'] == 'Choose an existing deployment to connect to in this project'
+    assert service(world, 'redis') is None
+    [proposal] = listed(world, sid)
+    assert proposal['status'] == 'pending'
+
+
+def test_an_identical_existing_connection_is_not_duplicated(run):
+    world, sid, config = run
+    with world.store.connect() as conn:
+        [deployment] = inventory.list_deployments(conn, world.project, service_id=world.nginx)
+        inventory.create_connection(
+            conn, world.project, {'from_deployment_id': deployment['id'], 'to_host': 'db.example', 'port': 5432}, {}
+        )
+        inventory.create_service(conn, world.project, {'name': 'billing'}, {})
+    propose(
+        config,
+        'propose_service',
+        name='nginx',
+        deployment={'runtime_name': 'nginx'},
+        connections=[{'to_host': 'db.example', 'port': 5432}, {'to_host': 'db.example', 'port': 5433}],
+        part_of=['billing'],
+    )
+    [proposal] = listed(world, sid)
+    assert proposal['present'] == {'connections': [True, False], 'relations': []}
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    assert sorted((row['to_host'], row['port']) for row in outgoing(world, world.nginx)) == [
+        ('db.example', 5432),
+        ('db.example', 5433),
+    ]
+    with world.store.connect() as conn:
+        relations = inventory.list_relations(conn, world.project, service_id=world.nginx)
+    assert sorted(row['kind'] for row in relations) == ['built_from', 'part_of']

@@ -7,7 +7,8 @@ import pydantic
 import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.capabilities.discovery import NOT_DISCOVERY, resolve_environment
+from knowledge_admin.capabilities.discovery import NOT_DISCOVERY, resolve_connections, resolve_environment
+from knowledge_admin.inventory import store as inventory
 from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import config_of, ssh_ready, start
 
@@ -228,3 +229,114 @@ def test_text_with_null_characters_is_refused_in_every_proposal_field():
         CATALOG['propose_document'].arguments.model_validate({'title': 'T', 'markdown': 'a\x00'})
     with pytest.raises(pydantic.ValidationError, match='Text cannot contain null characters.'):
         CATALOG['propose_document'].arguments.model_validate({'title': 'T', 'markdown': 'a', 'about_service': '\x00'})
+
+
+PROD, STAGING = str(uuid4()), str(uuid4())
+
+
+def deployment(service, server, environment_id, environment, port=5432):
+    return {
+        'id': str(uuid4()),
+        'service': service,
+        'server': server,
+        'environment_id': environment_id,
+        'environment': environment,
+        'port': port,
+    }
+
+
+def test_a_connection_to_a_service_on_one_server_takes_its_deployment_and_port():
+    db1 = deployment('postgres', 'db-1', PROD, 'prod')
+    [resolved] = resolve_connections([{'to_service': 'Postgres'}], [db1], [], PROD)
+    assert resolved == {
+        'to_deployment_id': db1['id'],
+        'to_service_id': None,
+        'to_host': None,
+        'label': 'postgres @ db-1 (prod)',
+        'port': 5432,
+        'protocol': 'tcp',
+        'description': '',
+    }
+
+
+def test_a_service_on_two_servers_needs_to_server():
+    db1, db2 = deployment('postgres', 'db-1', PROD, 'prod'), deployment('postgres', 'db-2', PROD, 'prod')
+    with pytest.raises(ValueError, match=r'postgres runs on several servers \(db-1, db-2\)\. Give to_server'):
+        resolve_connections([{'to_service': 'postgres'}], [db2, db1], [], PROD)
+    [resolved] = resolve_connections([{'to_service': 'postgres', 'to_server': 'DB-2'}], [db1, db2], [], PROD)
+    assert resolved['to_deployment_id'] == db2['id'] and resolved['label'] == 'postgres @ db-2 (prod)'
+    with pytest.raises(ValueError, match=r'postgres does not run on db-3\. It runs on: db-1, db-2\.'):
+        resolve_connections([{'to_service': 'postgres', 'to_server': 'db-3'}], [db1, db2], [], PROD)
+
+
+def test_the_proposals_environment_comes_first_then_any_environment():
+    prod, staging = deployment('postgres', 'db-1', PROD, 'prod'), deployment('postgres', 'db-2', STAGING, 'staging')
+    assert (
+        resolve_connections([{'to_service': 'postgres'}], [prod, staging], [], STAGING)[0]['to_deployment_id']
+        == (staging['id'])
+    )
+    other = str(uuid4())
+    with pytest.raises(ValueError, match=r'several servers \(db-1, db-2\)'):
+        resolve_connections([{'to_service': 'postgres'}], [prod, staging], [], other)
+    assert resolve_connections([{'to_service': 'postgres'}], [prod], [], None)[0]['label'] == 'postgres @ db-1 (prod)'
+
+
+def test_external_services_hosts_and_unknown_names():
+    stripe = {'id': str(uuid4()), 'name': 'Stripe'}
+    db1 = deployment('postgres', 'db-1', PROD, 'prod')
+    external, host = resolve_connections(
+        [
+            {'to_service': 'stripe', 'port': 443, 'protocol': 'https', 'description': 'Payments'},
+            {'to_host': 'API.Example.com.', 'port': 443},
+        ],
+        [db1],
+        [stripe],
+        PROD,
+    )
+    assert external == {
+        'to_deployment_id': None,
+        'to_service_id': stripe['id'],
+        'to_host': None,
+        'label': 'Stripe',
+        'port': 443,
+        'protocol': 'https',
+        'description': 'Payments',
+    }
+    assert (host['to_host'], host['label'], host['port']) == ('api.example.com', 'api.example.com', 443)
+    with pytest.raises(ValueError, match=r'No service named mysql\. Known services: postgres, Stripe\.'):
+        resolve_connections([{'to_service': 'mysql'}], [db1], [stripe], PROD)
+    with pytest.raises(ValueError, match='A connection to an external host needs a port'):
+        resolve_connections([{'to_host': 'api.example.com'}], [], [], PROD)
+    with pytest.raises(ValueError, match='Give to_service or to_host'):
+        resolve_connections([{'to_service': 'postgres', 'to_host': 'x.example'}], [db1], [], PROD)
+    with pytest.raises(ValueError, match='Give to_service or to_host'):
+        resolve_connections([{}], [db1], [], PROD)
+
+
+def test_a_proposal_stores_its_resolved_connections_and_part_of(run):
+    world, sid, config = run
+    with world.store.connect() as conn:
+        inventory.create_service(conn, world.project, {'name': 'Stripe', 'service_type': 'external'}, {})
+    propose(
+        config,
+        'propose_service',
+        **SERVICE,
+        connections=[
+            {'to_service': 'nginx'},
+            {'to_service': 'stripe', 'port': 443},
+            {'to_host': 'db.example', 'port': 5432},
+        ],
+        part_of=['nginx'],
+    )
+    [row] = proposals(world, sid)
+    labels = [(item['label'], item['port']) for item in row['payload']['connections']]
+    assert labels == [('nginx @ web-1 (Production)', 80), ('Stripe', 443), ('db.example', 5432)]
+    assert row['payload']['part_of'] == [{'id': str(world.nginx), 'name': 'nginx'}]
+    with pytest.raises(ValueError, match='No service named mysql'):
+        propose(config, 'propose_service', **SERVICE, connections=[{'to_service': 'mysql'}])
+    with pytest.raises(ValueError, match='Unknown services: billing'):
+        propose(config, 'propose_service', **SERVICE, part_of=['billing'])
+    with pytest.raises(ValueError, match='A service cannot be part of itself.'):
+        propose(config, 'propose_service', **{**SERVICE, 'name': 'nginx'}, part_of=['nginx'])
+    with pytest.raises(pydantic.ValidationError):
+        propose(config, 'propose_service', **SERVICE, connections=[{'to_host': 'a.example', 'port': 1}] * 51)

@@ -49,7 +49,8 @@ export default function ProposalsPage({ resource }: { resource: { type: Resource
     };
   }, [load]);
 
-  const current = runs?.flatMap((run) => run.proposals).find((item) => item.id === open) ?? null;
+  const openRun = runs?.find((item) => item.proposals.some((proposal) => proposal.id === open));
+  const current = openRun?.proposals.find((item) => item.id === open) ?? null;
   return (
     <div className="flex flex-col gap-4">
       <div role="group" aria-label="Status" className="flex flex-wrap gap-2">
@@ -132,6 +133,11 @@ export default function ProposalsPage({ resource }: { resource: { type: Resource
           }}
           onMessage={setDecision}
           onReload={() => void load()}
+          related={openRun?.proposals}
+          onOpen={(id) => {
+            setDecision(null);
+            setOpen(id);
+          }}
         />
       )}
     </div>

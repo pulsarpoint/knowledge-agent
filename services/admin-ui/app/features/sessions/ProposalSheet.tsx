@@ -60,16 +60,36 @@ export function AcceptedDocument({ proposal }: { proposal: DocumentProposal }) {
 
 const shown = (value: unknown) => (value === null || value === undefined || value === "" ? "—" : String(value));
 
+const RELATIONS = { depends_on: "Depends on", part_of: "Part of", built_from: "Built from" } as const;
+
 function ServiceDetails({
   proposal,
   kept,
   onKeep,
+  related,
+  onOpen,
 }: {
   proposal: ServiceProposal;
   kept: ServiceField[];
   onKeep: (field: ServiceField, on: boolean) => void;
+  related: Proposal[];
+  onOpen?: (id: string) => void;
 }) {
   const { payload, current } = proposal;
+  const connections = payload.connections ?? [];
+  const relations = (
+    [
+      ["depends_on", payload.depends_on],
+      ["part_of", payload.part_of ?? []],
+      ["built_from", payload.built_from],
+    ] as const
+  ).flatMap(([kind, items]) => items.map((item) => [kind, item] as const));
+  // The run's document proposals about this service: a proposed service's by its proposal, a recorded one's by its id.
+  const documents = related.filter(
+    (item): item is DocumentProposal =>
+      item.kind === "document" &&
+      (item.service_proposal_id === proposal.id || (!!proposal.service_id && item.service_id === proposal.service_id)),
+  );
   return (
     <div className="flex flex-col gap-4">
       {current ? (
@@ -154,15 +174,60 @@ function ServiceDetails({
             : "Accepting adds this deployment."}
         </p>
       </section>
-      {(payload.depends_on.length > 0 || payload.built_from.length > 0) && (
+      {connections.length > 0 && (
         <section aria-label="Connections">
-          <h3 className="text-sm font-semibold">Connections to add</h3>
+          <h3 className="text-sm font-semibold">Connections from this deployment</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>To</TableHead>
+                <TableHead>Port</TableHead>
+                <TableHead>Protocol</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {connections.map((item, index) => (
+                <TableRow key={index}>
+                  <TableCell>{item.label}</TableCell>
+                  <TableCell>{shown(item.port)}</TableCell>
+                  <TableCell>{item.protocol}</TableCell>
+                  <TableCell className="whitespace-pre-wrap">{item.description}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{proposal.present?.connections[index] ? "Recorded" : "New"}</Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+      )}
+      {relations.length > 0 && (
+        <section aria-label="Relations">
+          <h3 className="text-sm font-semibold">Relations</h3>
           <ul className="text-sm">
-            {payload.depends_on.map((item) => (
-              <li key={item.id}>Depends on {item.name}</li>
+            {relations.map(([kind, item]) => (
+              <li key={`${kind}:${item.id}`}>
+                {`${RELATIONS[kind]} ${item.name}`}
+                {proposal.present?.relations.includes(`${kind}:${item.id}`) && (
+                  <span className="text-muted-foreground"> (recorded)</span>
+                )}
+              </li>
             ))}
-            {payload.built_from.map((item) => (
-              <li key={item.id}>Built from {item.name}</li>
+          </ul>
+        </section>
+      )}
+      {documents.length > 0 && (
+        <section aria-label="Documents">
+          <h3 className="text-sm font-semibold">Document proposals about this service</h3>
+          <ul className="text-sm">
+            {documents.map((item) => (
+              <li key={item.id}>
+                <Button variant="link" className="h-auto p-0" onClick={() => onOpen?.(item.id)}>
+                  {`${item.number} · ${item.payload.title}`}
+                </Button>
+              </li>
             ))}
           </ul>
         </section>
@@ -172,7 +237,9 @@ function ServiceDetails({
 }
 
 /** One proposal in a wide side panel, with Accept and Reject while it is pending. `resourceType`: what the run was
- * started from (a document not about a service is about it). */
+ * started from (a document not about a service is about it). `related`: the proposals of the same run, so a service
+ * proposal lists the document proposals about it and a document proposal links to its service proposal; `onOpen`
+ * opens one of them instead. */
 export default function ProposalSheet({
   proposal,
   resourceType = "server",
@@ -180,6 +247,8 @@ export default function ProposalSheet({
   onClose,
   onMessage,
   onReload,
+  related = [],
+  onOpen,
 }: {
   proposal: Proposal;
   resourceType?: ResourceType;
@@ -187,6 +256,8 @@ export default function ProposalSheet({
   onClose: () => void;
   onMessage: (message: string | null) => void;
   onReload: () => void;
+  related?: Proposal[];
+  onOpen?: (id: string) => void;
 }) {
   const [kept, setKept] = useState<ServiceField[]>(proposal.kind === "service" ? (proposal.changes ?? []) : []);
   const [busy, setBusy] = useState(false);
@@ -226,6 +297,10 @@ export default function ProposalSheet({
       setBusy(false);
     }
   }
+  const parent =
+    proposal.kind === "document" && proposal.service_proposal_id
+      ? related.find((item) => item.id === proposal.service_proposal_id)
+      : undefined;
   const target =
     proposal.kind === "document"
       ? proposal.service_name
@@ -275,9 +350,19 @@ export default function ProposalSheet({
               proposal={proposal}
               kept={kept}
               onKeep={(field, on) => setKept((list) => (on ? [...list, field] : list.filter((item) => item !== field)))}
+              related={related}
+              onOpen={onOpen}
             />
           ) : (
             <>
+              {parent && (
+                <p className="text-sm">
+                  {"Service proposal: "}
+                  <Button variant="link" className="h-auto p-0" onClick={() => onOpen?.(parent.id)}>
+                    {`${parent.number} · ${proposalLabel(parent)}`}
+                  </Button>
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">{proposal.payload.description}</p>
               <Markdown content={proposal.payload.markdown} />
             </>

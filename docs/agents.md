@@ -90,7 +90,9 @@ limit, no per-turn time limit, no 300-second limit).
   document and never changes a document tagged `inventory`: a proposal titled like it is a new document, not a new
   version, and a matched document tagged `inventory` before the accept gets a new document, never a draft of it. A
   person decides whether the new one replaces it (moving the tag) or merges it by hand. `propose_service` proposes a
-  service's name, type, role, description, owner and deployment; operating knowledge goes in documents.
+  service's name, type, role, description, owner and deployment, the deployment's connections (to a recorded service's
+  deployment, an external service or an external host) and its relations (`depends_on`, `part_of`, `built_from`);
+  operating knowledge goes in documents.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per

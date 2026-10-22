@@ -34,11 +34,25 @@ export interface ProposedDeployment {
   log_location: string;
   deployed_version: string;
 }
+/** A proposed connection from the proposal's deployment: to a deployment, an external service or a host (one of the
+ * three ids is set), with a label such as "postgres @ db-1 (prod)". */
+export interface ProposedConnection {
+  to_deployment_id: string | null;
+  to_service_id: string | null;
+  to_host: string | null;
+  label: string;
+  port: number | null;
+  protocol: string;
+  description: string;
+}
 export interface ServicePayload extends Record<ServiceField, string> {
   name: string;
   deployment: ProposedDeployment;
   depends_on: { id: string; name: string }[];
   built_from: { id: string; name: string }[];
+  /** Absent in proposals made before connections and part_of. */
+  connections?: ProposedConnection[];
+  part_of?: { id: string; name: string }[];
   matched_revision: number | null;
 }
 export interface DocumentPayload {
@@ -68,6 +82,8 @@ export interface ServiceProposal extends ProposalBase {
   changes?: ServiceField[];
   current_deployment?:
     (Omit<ProposedDeployment, "environment_id"> & { id: string; environment_id: string | null }) | null;
+  /** What is already recorded: per proposed connection, and the relations as "kind:target id". */
+  present?: { connections: boolean[]; relations: string[] };
 }
 export interface DocumentProposal extends ProposalBase {
   kind: "document";

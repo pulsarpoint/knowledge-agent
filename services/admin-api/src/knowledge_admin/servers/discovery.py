@@ -89,6 +89,36 @@ def changes(proposed: dict, current: dict) -> list[str]:
     ]
 
 
+CONNECTION_KEYS = ('to_deployment_id', 'to_service_id', 'to_host', 'port', 'protocol', 'description')
+SAME_CONNECTION = ('to_deployment_id', 'to_service_id', 'to_host', 'port', 'protocol')
+RELATION_TARGETS = (('depends_on', 'to_service_id'), ('part_of', 'to_service_id'), ('built_from', 'to_code_project_id'))
+
+
+def connection_key(item: dict) -> tuple:
+    """A connection's target, port and protocol (a recorded row or a proposed one): an equal key from the same
+    deployment is the same connection."""
+    return tuple(None if item[key] is None else str(item[key]) for key in SAME_CONNECTION)
+
+
+def recorded(conn, project, service_id, deployment_id) -> tuple[set, set]:
+    """What the service already has: the connection keys from the deployment, and its relations as 'kind:target'."""
+    connections = (
+        set()
+        if deployment_id is None
+        else {
+            connection_key(row)
+            for row in inventory.list_connections(conn, project, deployment_id=deployment_id)
+            if row['from_deployment_id'] == deployment_id
+        }
+    )
+    relations = {
+        f'{row["kind"]}:{row["to_service_id"] or row["to_code_project_id"]}'
+        for row in inventory.list_relations(conn, project, service_id=service_id)
+        if row['from_service_id'] == service_id
+    }
+    return connections, relations
+
+
 def matching_deployment(conn, service_id, server_id, deployment: dict) -> dict | None:
     """The service's deployment a proposal updates: on this server in the same environment (by id, or by name when the
     proposal names one), with the same runtime name, or the only one there."""
@@ -285,7 +315,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 )
             match = matching_deployment(conn, service['id'], row['server_id'], proposed)
         if match is None:
-            inventory.create_deployment(
+            deployment_id = inventory.create_deployment(
                 conn,
                 project,
                 {
@@ -296,25 +326,29 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     **{key: proposed[key] for key in DEPLOYMENT_FIELDS},
                 },
                 author,
-            )
+            )['id']
         else:
+            deployment_id = match['id']
             kept = {key: proposed[key] for key in DEPLOYMENT_FIELDS if proposed[key] not in (None, '', match[key])}
             if kept:
                 inventory.update_deployment(conn, project, match['id'], match['revision'], kept, author)
-        related = {
-            (relation['kind'], relation['to_service_id'] or relation['to_code_project_id'])
-            for relation in inventory.list_relations(conn, project, service_id=service['id'])
-            if relation['from_service_id'] == service['id']
-        }
-        for kind, target, items in (
-            ('depends_on', 'to_service_id', payload['depends_on']),
-            ('built_from', 'to_code_project_id', payload['built_from']),
-        ):
-            for item in items:
-                if (kind, UUID(item['id'])) not in related:
+        connected, related = recorded(conn, project, service['id'], deployment_id)
+        for item in payload.get('connections', []):
+            if connection_key(item) not in connected:
+                inventory.create_connection(
+                    conn,
+                    project,
+                    {'from_deployment_id': deployment_id, **{key: item[key] for key in CONNECTION_KEYS}},
+                    author,
+                )
+                connected.add(connection_key(item))
+        for kind, target in RELATION_TARGETS:
+            for item in payload.get(kind, []):
+                if f'{kind}:{item["id"]}' not in related:
                     inventory.create_relation(
                         conn, project, {'from_service_id': service['id'], 'kind': kind, target: item['id']}, author
                     )
+                    related.add(f'{kind}:{item["id"]}')
         return service['id']
 
     def accept_document(conn, project, actor, row: dict) -> UUID:
@@ -450,6 +484,22 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             item['current_deployment'] = matching_deployment(
                 conn, row['service_id'], row['server_id'], payload['deployment']
             )
+        if row['kind'] == 'service':
+            deployment = item.get('current_deployment')
+            connected, related = (
+                recorded(conn, row['project_id'], row['service_id'], deployment and deployment['id'])
+                if row['service_id'] is not None
+                else (set(), set())
+            )
+            item['present'] = {
+                'connections': [connection_key(entry) in connected for entry in payload.get('connections', [])],
+                'relations': [
+                    f'{kind}:{entry["id"]}'
+                    for kind, _ in RELATION_TARGETS
+                    for entry in payload.get(kind, [])
+                    if f'{kind}:{entry["id"]}' in related
+                ],
+            }
         if row['kind'] == 'document':
             if row['service_id'] is not None:
                 item['service_name'] = conn.execute(

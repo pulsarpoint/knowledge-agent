@@ -407,9 +407,20 @@ the resource's runs, grouped by run (newest first, with who started it and **Ope
 - A **new service** shows its fields.
 - An **update** to an existing service shows the current value against the proposed one,
   with a **Keep** checkbox per changed field. Untick a field to keep the current value.
-- A **document** shows its text.
+- Either kind of service proposal also shows its deployment on the server, its **connections** (target, port,
+  protocol: a deployment of a recorded service such as `postgres @ db-1 (prod)`, an external service, or an external
+  host), its **relations** (depends on, part of, built from; what is already recorded is marked), and the document
+  proposals of the same run about this service, each opening its own review.
+- A **document** shows its text; a document about a service proposed in the same run links to that service proposal.
 
-**Accept** writes services to the inventory: the deployment is added or updated and connections are added. A document
+The agent names a connection's target by service name: a service that runs on several servers needs the server
+(`to_server`), and the proposal's environment is preferred over another; an unknown name is refused with the services
+it can connect to. `part_of` names recorded services this one is part of (as a library or component).
+
+**Accept** writes services to the inventory in one step: the service, the deployment (added or updated), its
+connections and its relations. A connection already recorded with the same target, port and protocol is not added
+again. If any part fails (for example a target deployment was removed meanwhile), nothing is written and the error is
+shown. A document
 is never written live by Accept: a new document becomes a draft (a generated document named in `servers/<server>/`, in
 `servers/<server>-2`, `-3`, ... when the folder would overlap another document's export, or in
 `server-documents/<server>` when `servers` itself is a document's export), and a new version of an existing document

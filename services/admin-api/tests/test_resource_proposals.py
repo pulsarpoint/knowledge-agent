@@ -138,3 +138,29 @@ def test_a_document_from_an_environment_run_is_built_for_and_attached_to_the_env
     publish(world, about)
     assert attached(world, 'service', world.nginx) == {'nginx runbook', 'Proxy'}
     assert attached(world, 'environment', world.environment) == {'Overview'}
+
+
+def test_a_service_proposal_lists_its_connections_part_of_and_what_already_exists(world):
+    ssh_ready(world)
+    sid = start(world, {'server_id': world.server['id']})
+    config = config_of(world, sid)
+    propose(
+        config,
+        'propose_service',
+        name='redis',
+        deployment={'runtime': 'systemd'},
+        connections=[{'to_service': 'nginx', 'protocol': 'http'}],
+        part_of=['nginx'],
+    )
+    propose(config, 'propose_document', title='Redis', markdown='# Redis', about_service='redis')
+    [run] = across(world, f'servers/{world.server["id"]}')
+    service, document = run['proposals']
+    [connection] = service['payload']['connections']
+    assert (connection['label'], connection['port'], connection['protocol']) == (
+        'nginx @ web-1 (Production)',
+        80,
+        'http',
+    )
+    assert service['payload']['part_of'] == [{'id': str(world.nginx), 'name': 'nginx'}]
+    assert service['present'] == {'connections': [False], 'relations': []}
+    assert document['service_proposal_id'] == service['id'] and document['service_name'] == 'redis'

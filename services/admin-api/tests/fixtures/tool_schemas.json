@@ -1488,6 +1488,88 @@
     "name": "propose_service",
     "schema": {
       "$defs": {
+        "ConnectionProposal": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "default": "",
+              "description": "What the connection is for.",
+              "maxLength": 4000,
+              "title": "Description",
+              "type": "string"
+            },
+            "port": {
+              "anyOf": [
+                {
+                  "maximum": 65535,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The port it connects to; empty: the deployment's port (a host needs one).",
+              "title": "Port"
+            },
+            "protocol": {
+              "default": "tcp",
+              "description": "For example tcp, http, https or postgres.",
+              "pattern": "^[a-z0-9.+-]{1,20}$",
+              "title": "Protocol",
+              "type": "string"
+            },
+            "to_host": {
+              "anyOf": [
+                {
+                  "maxLength": 253,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Or an external host (IP address or hostname) nobody has recorded as a service.",
+              "title": "To Host"
+            },
+            "to_server": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The server of to_service it connects to, when that service runs on more than one server.",
+              "title": "To Server"
+            },
+            "to_service": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A recorded service it connects to: a deployment of it (see to_server), or a service of type external.",
+              "title": "To Service"
+            }
+          },
+          "required": [
+            "to_service",
+            "to_server",
+            "to_host",
+            "port",
+            "protocol",
+            "description"
+          ],
+          "title": "ConnectionProposal",
+          "type": "object"
+        },
         "DeploymentProposal": {
           "additionalProperties": false,
           "properties": {
@@ -1569,6 +1651,15 @@
           },
           "maxItems": 100,
           "title": "Built From",
+          "type": "array"
+        },
+        "connections": {
+          "description": "What this deployment connects to: a recorded service's deployment, an external service, or an external host.",
+          "items": {
+            "$ref": "#/$defs/ConnectionProposal"
+          },
+          "maxItems": 50,
+          "title": "Connections",
           "type": "array"
         },
         "depends_on": {
@@ -1673,6 +1764,16 @@
           "title": "Owner",
           "type": "string"
         },
+        "part_of": {
+          "description": "Names of recorded services this service is part of (as a library or component).",
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Part Of",
+          "type": "array"
+        },
         "service_role": {
           "default": "unclassified",
           "description": "What it does for the system.",
@@ -1711,13 +1812,15 @@
         "owner",
         "deployment",
         "depends_on",
-        "built_from"
+        "built_from",
+        "connections",
+        "part_of"
       ],
       "title": "ProposeService",
       "type": "object"
     },
-    "summary": "Propose a service for review (content editor runs started from a server).",
-    "usage": "Propose a service running on this server, with its deployment here, for an administrator to accept or reject. A service already recorded under this name is proposed as an update; proposing the same service again replaces your earlier proposal. If the call is refused, correct what it says and call again."
+    "summary": "Propose a service with its deployment, connections and part_of for review (content editor runs started from a server).",
+    "usage": "Propose a service running on this server, with its deployment here, what that deployment connects to (connections) and the services it is part of (part_of), for an administrator to accept or reject. A service already recorded under this name is proposed as an update; proposing the same service again replaces your earlier proposal. If the call is refused, correct what it says and call again."
   },
   {
     "group": "inventory",
