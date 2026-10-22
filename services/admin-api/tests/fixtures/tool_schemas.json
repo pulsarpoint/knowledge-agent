@@ -593,8 +593,8 @@
       "title": "GetEnvironmentModel",
       "type": "object"
     },
-    "summary": "One environment's servers, deployments, services, connections and relations.",
-    "usage": "One environment as JSON: its servers with their deployments (service, runtime, port, version), its services,\nthe connections touching it (an end in another environment under outside), external hosts with their ports, and\nthe relations of its services. Every item carries the id and revision you need to change it."
+    "summary": "One environment's servers, deployments, services, connections, external services and relations.",
+    "usage": "One environment as JSON: its servers (also those with no deployment) with their deployments (service, runtime,\nport, version), its services, the connections touching it (an end in another environment under outside),\nexternal services (id, name, address, ports used), external hosts with their ports, and the relations of its\nservices. Every item carries the id and revision you need to change it."
   },
   {
     "group": "inventory",
@@ -617,8 +617,8 @@
       "title": "ListServers",
       "type": "object"
     },
-    "summary": "The servers with a deployment in an environment.",
-    "usage": "The servers with a deployment in the environment, as JSON (id, name, hostname, description, tags, revision)."
+    "summary": "The servers in an environment, with their environments.",
+    "usage": "The servers in the environment (with or without deployments), as JSON (id, name, hostname, description, tags,\nrevision, environment_ids)."
   },
   {
     "group": "inventory",
@@ -706,7 +706,7 @@
       "type": "object"
     },
     "summary": "The connections of a service or a deployment.",
-    "usage": "The connections from or to a service's deployments or one deployment (give one), as JSON: from and to\ndeployment or external host, port, protocol, description and revision."
+    "usage": "The connections from or to a service's deployments or one deployment (give one), as JSON: from and to\ndeployment, external service or host, port, protocol, description and revision."
   },
   {
     "group": "inventory",
@@ -726,6 +726,19 @@
             }
           ],
           "title": "Description"
+        },
+        "environment_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Put the server in this environment (an environment in this run).",
+          "title": "Environment Id"
         },
         "hostname": {
           "anyOf": [
@@ -801,13 +814,14 @@
         "name",
         "hostname",
         "description",
-        "tags"
+        "tags",
+        "environment_id"
       ],
       "title": "SaveServer",
       "type": "object"
     },
-    "summary": "Create or update a server (inventory editor).",
-    "usage": "Create a server (without id; needs an environment in this run) or update one (id and the revision you read;\nomitted fields keep their values). Then deploy services on it with save_deployment. SSH access is set up by a\nperson, not here. Returns the saved server as JSON."
+    "summary": "Create or update a server, optionally putting it in an environment (inventory editor).",
+    "usage": "Create a server (without id; needs an environment in this run) or update one (id and the revision you read;\nomitted fields keep their values). With environment_id the server joins that environment, with or without\ndeployments; it is never removed from one here. Then deploy services on it with save_deployment. SSH access is\nset up by a person, not here. Returns the saved server as JSON, with its environment_ids."
   },
   {
     "group": "inventory",
@@ -816,6 +830,19 @@
     "schema": {
       "additionalProperties": false,
       "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where an external service is reached (host or URL).",
+          "title": "Address"
+        },
         "description": {
           "anyOf": [
             {
@@ -926,13 +953,14 @@
         "service_type",
         "service_role",
         "description",
-        "owner"
+        "owner",
+        "address"
       ],
       "title": "SaveService",
       "type": "object"
     },
     "summary": "Create or update a service (inventory editor).",
-    "usage": "Create a service (without id; needs an environment in this run) or update one (id and the revision you read;\nomitted fields keep their values). Returns the saved service as JSON."
+    "usage": "Create a service (without id; needs an environment in this run) or update one (id and the revision you read;\nomitted fields keep their values). An external service (service_type external) can be the target of connections.\nReturns the saved service as JSON."
   },
   {
     "group": "inventory",
@@ -1198,6 +1226,19 @@
           ],
           "description": "An external host it connects to (or to_deployment_id).",
           "title": "To Host"
+        },
+        "to_service_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An external service it connects to (type external; in this run or yours).",
+          "title": "To Service Id"
         }
       },
       "required": [
@@ -1206,6 +1247,7 @@
         "from_deployment_id",
         "to_deployment_id",
         "to_host",
+        "to_service_id",
         "port",
         "protocol",
         "description"
@@ -1213,8 +1255,8 @@
       "title": "SaveConnection",
       "type": "object"
     },
-    "summary": "Create or update a connection (inventory editor).",
-    "usage": "Record that a deployment connects to another deployment or an external host on a port (without id), or update a\nconnection (id and the revision you read; omitted fields keep their values). Returns the saved connection as\nJSON."
+    "summary": "Create or update a connection to a deployment, an external service or a host (inventory editor).",
+    "usage": "Record that a deployment connects to another deployment, an external service or an external host on a port\n(without id; give one target), or update a connection (id and the revision you read; omitted fields keep their\nvalues). Returns the saved connection as JSON."
   },
   {
     "group": "inventory",

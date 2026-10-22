@@ -148,3 +148,35 @@ def test_the_map_from_the_models_equals_the_map_from_the_old_loader(client, stor
     assert sorted(found) == sorted(expected)
     for key in expected:
         assert found[key] == expected[key], key
+
+
+def test_an_empty_member_server_and_an_external_service_are_drawn(client, store):  # noqa: F811
+    """Not part of the captured views: a server added to an environment with no deployment, and a connection to a
+    named external service."""
+    production = made(client, 'environments', name='production')['id']
+    spare = made(client, 'servers', name='spare', hostname='spare.internal')['id']
+    box = made(client, 'servers', name='box', hostname='box.internal')['id']
+    api = made(client, 'services', name='api')['id']
+    stripe = made(client, 'services', name='Stripe', service_type='external', address='api.stripe.com')['id']
+    assert client.put(f'/api/environments/{production}/servers/{spare}', headers=HEADERS).status_code == 204
+    deployment = made(
+        client, 'deployments', service_id=api, server_id=box, environment_id=production, runtime_name='api'
+    )['id']
+    made(client, 'connections', from_deployment_id=deployment, to_service_id=stripe, port=443, protocol='https')
+
+    def view(name: str, **params) -> dict:
+        response = client.get(f'/api/map/view/{name}', headers=HEADERS, params=params)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    infrastructure = view('infrastructure', depth=2)
+    by_id = {node['id']: node for node in infrastructure['nodes']}
+    assert f'server:{production}:{spare}' in by_id
+    assert by_id[f'server:{production}:{spare}']['parent_id'] == f'environment:{production}'
+    assert f'server:top:{spare}' not in by_id
+    assert [(b['name'], b['kind'], b['address']) for b in infrastructure['boundary']] == [
+        ('Stripe', 'external_service', 'api.stripe.com')
+    ]
+    assert [(e['to'], e['label']) for e in infrastructure['edges']] == [(f'external-service:{stripe}', 'https:443')]
+    services = view('services', depth=1)
+    assert [(e['to'], e['label']) for e in services['edges']] == [(f'service:{stripe}', 'https:443')]

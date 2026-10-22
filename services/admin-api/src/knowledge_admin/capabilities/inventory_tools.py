@@ -158,8 +158,10 @@ def _reply(value: Any) -> str:
 
 
 def _shown(kind: str, row: dict) -> dict:
-    """A saved item as a tool shows it: a server without its SSH settings (the model's fields)."""
-    return {f: row[f] for f in model.SERVER_FIELDS} if kind == 'server' else row
+    """A saved item as a tool shows it: a server without its SSH settings (the model's fields), with its environments."""
+    if kind != 'server':
+        return row
+    return {**{f: row[f] for f in model.SERVER_FIELDS}, 'environment_ids': row['environment_ids']}
 
 
 def _normal(kind: str | None, item_id, values: dict) -> tuple[str | None, dict] | str:
@@ -270,9 +272,15 @@ def _change(config: dict[str, Any], kind: str, item_id, revision, values: dict, 
             author = {'actor_id': started['actor_id'], 'agent_id': started['agent_id'], 'session_id': str(session)}
             if remove:
                 return {'removed': delete(conn, project, UUID(found_id), revision, author)['id']}
+            environment = found.pop('environment_id', None) if kind == 'server' else None  # a membership, not a field
             if found_id is None:
-                return _shown(kind, create(conn, project, found, author))
-            return _shown(kind, update(conn, project, UUID(found_id), revision, found, author))
+                saved = create(conn, project, found, author)
+            else:
+                saved = update(conn, project, UUID(found_id), revision, found, author)
+            if environment is not None:
+                store.add_server_to_environment(conn, project, UUID(environment), saved['id'], author)
+                saved = store.get(conn, project, 'server', saved['id'])
+            return _shown(kind, saved)
 
     return _guarded(run)
 
@@ -294,9 +302,10 @@ Port = Annotated[int | None, Field(ge=1, le=65535)]
 async def get_environment_model(
     context, environment_id: Annotated[Id, Field(description='The environment id.')]
 ) -> str:
-    """One environment as JSON: its servers with their deployments (service, runtime, port, version), its services,
-    the connections touching it (an end in another environment under outside), external hosts with their ports, and
-    the relations of its services. Every item carries the id and revision you need to change it."""
+    """One environment as JSON: its servers (also those with no deployment) with their deployments (service, runtime,
+    port, version), its services, the connections touching it (an end in another environment under outside),
+    external services (id, name, address, ports used), external hosts with their ports, and the relations of its
+    services. Every item carries the id and revision you need to change it."""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -308,7 +317,8 @@ async def get_environment_model(
 
 @tool
 async def list_servers(context, environment_id: Annotated[Id, Field(description='The environment id.')]) -> str:
-    """The servers with a deployment in the environment, as JSON (id, name, hostname, description, tags, revision)."""
+    """The servers in the environment (with or without deployments), as JSON (id, name, hostname, description, tags,
+    revision, environment_ids)."""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -344,7 +354,7 @@ async def list_connections(
     deployment_id: Annotated[OptionalId, Field(description='Connections of this deployment.')] = None,
 ) -> str:
     """The connections from or to a service's deployments or one deployment (give one), as JSON: from and to
-    deployment or external host, port, protocol, description and revision."""
+    deployment, external service or host, port, protocol, description and revision."""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -365,11 +375,15 @@ async def save_server(
     ] = None,
     description: Text = None,
     tags: Annotated[list[str] | None, Field(max_length=32)] = None,
+    environment_id: Annotated[
+        OptionalId, Field(description='Put the server in this environment (an environment in this run).')
+    ] = None,
 ) -> str:
     """Create a server (without id; needs an environment in this run) or update one (id and the revision you read;
-    omitted fields keep their values). Then deploy services on it with save_deployment. SSH access is set up by a
-    person, not here. Returns the saved server as JSON."""
-    values = _given(name=name, hostname=hostname, description=description, tags=tags)
+    omitted fields keep their values). With environment_id the server joins that environment, with or without
+    deployments; it is never removed from one here. Then deploy services on it with save_deployment. SSH access is
+    set up by a person, not here. Returns the saved server as JSON, with its environment_ids."""
+    values = _given(name=name, hostname=hostname, description=description, tags=tags, environment_id=environment_id)
     return await asyncio.to_thread(_change, context['config'], 'server', id, revision, values, check_save_server)
 
 
@@ -383,11 +397,20 @@ async def save_service(
     service_role: Literal[SERVICE_ROLES] | None = None,
     description: Text = None,
     owner: Annotated[str | None, Field(max_length=200)] = None,
+    address: Annotated[
+        str | None, Field(max_length=253, description='Where an external service is reached (host or URL).')
+    ] = None,
 ) -> str:
     """Create a service (without id; needs an environment in this run) or update one (id and the revision you read;
-    omitted fields keep their values). Returns the saved service as JSON."""
+    omitted fields keep their values). An external service (service_type external) can be the target of connections.
+    Returns the saved service as JSON."""
     values = _given(
-        name=name, service_type=service_type, service_role=service_role, description=description, owner=owner
+        name=name,
+        service_type=service_type,
+        service_role=service_role,
+        description=description,
+        owner=owner,
+        address=address,
     )
     return await asyncio.to_thread(_change, context['config'], 'service', id, revision, values, check_save_service)
 
@@ -435,17 +458,21 @@ async def save_connection(
     to_host: Annotated[
         str | None, Field(max_length=253, description='An external host it connects to (or to_deployment_id).')
     ] = None,
+    to_service_id: Annotated[
+        OptionalId, Field(description='An external service it connects to (type external; in this run or yours).')
+    ] = None,
     port: Annotated[Port, Field(description="Needed for a host; a deployment's own port when omitted.")] = None,
     protocol: Annotated[str | None, Field(max_length=20, description='e.g. tcp (default), http, postgres.')] = None,
     description: Text = None,
 ) -> str:
-    """Record that a deployment connects to another deployment or an external host on a port (without id), or update a
-    connection (id and the revision you read; omitted fields keep their values). Returns the saved connection as
-    JSON."""
+    """Record that a deployment connects to another deployment, an external service or an external host on a port
+    (without id; give one target), or update a connection (id and the revision you read; omitted fields keep their
+    values). Returns the saved connection as JSON."""
     values = _given(
         from_deployment_id=from_deployment_id,
         to_deployment_id=to_deployment_id,
         to_host=to_host,
+        to_service_id=to_service_id,
         port=port,
         protocol=protocol,
         description=description,

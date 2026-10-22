@@ -5,7 +5,8 @@ infrastructure (environment › server › service, from deployments: a server s
 deployments, a service node is its deployments on one server in one environment) and services (services and code
 projects, flat). Infrastructure edges are connections between the deployment nodes; the services view draws service
 relations and the connections rolled up to the services. A connection to an external host ends on a boundary node for
-that host. Each node lists the live documents linked to its entry (ka.document_resources). A view shows one node's
+that host, one to an external service on a boundary node named for the service (the services view draws the service's
+own node). Each node lists the live documents linked to its entry (ka.document_resources). A view shows one node's
 inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every edge up to the
 nodes shown (graph in graph)."""
 
@@ -16,6 +17,7 @@ import networkx as nx
 VIEWS = ('infrastructure', 'services')
 ENTRY_KINDS = ('service', 'server', 'environment', 'code_project')
 EXTERNAL = 'external_host'  # the kind of an external host's node
+EXTERNAL_SERVICE = 'external_service'  # the kind of an external service's node (infrastructure view)
 MAX_DEPTH, MAX_VISIBLE, MAX_EDGE_IDS, MAX_LABELS = 3, 500, 20, 3
 TOP = 'top'
 NOT_FOUND = 'Node not found.'
@@ -34,6 +36,10 @@ def node_id(kind: str, entry: UUID, *where: UUID | None) -> str:
 
 def external_id(host: str) -> str:
     return f'{EXTERNAL}:{host}'
+
+
+def external_service_id(service: UUID) -> str:
+    return f'external-service:{service}'
 
 
 def connection_label(connection: dict) -> str:
@@ -104,7 +110,8 @@ def placements(inventory: dict, view: str) -> nx.DiGraph:
 def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
     """The view's edges {id, from_id, to_id, type}: infrastructure, each connection between the nodes of its
     deployments; services, each relation and each connection between the services of its deployments. A connection
-    to an external host ends on that host's node (not in the tree)."""
+    to an external host ends on that host's node, one to an external service on the service's node (infrastructure
+    view; not in the tree)."""
     places = deployment_places(inventory)
 
     def deployment_node(deployment: UUID | None) -> str | None:
@@ -119,10 +126,13 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
     connections = {c['id']: c for model in models for c in model['connections']}  # one across environments
     edges = []
     for connection in connections.values():
-        host = connection['to_host']
+        host, service = connection['to_host'], connection['to_service_id']
         start = deployment_node(connection['from_deployment_id'])
-        end = deployment_node(connection['to_deployment_id']) if host is None else external_id(host)
-        if start in tree and (end in tree or host is not None):
+        if service is not None:  # services view: the service's own node; infrastructure: an external node
+            end = node_id('service', service) if view == 'services' else external_service_id(service)
+        else:
+            end = deployment_node(connection['to_deployment_id']) if host is None else external_id(host)
+        if start in tree and (end in tree or host is not None or end == external_service_id(service)):
             edges.append(
                 {
                     'id': connection['id'],
@@ -166,7 +176,21 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
             node = parent(node)
         return ids[::-1]
 
+    external_services = {
+        service['id']: service for model in inventory['models'] for service in model['external_services']
+    }
+
     def about(node: str) -> dict:
+        if node.startswith('external-service:'):
+            service = external_services[UUID(node.removeprefix('external-service:'))]
+            return {
+                'id': node,
+                'name': service['name'],
+                'kind': EXTERNAL_SERVICE,
+                'entry_kind': 'service',
+                'entry_id': service['id'],
+                'address': service['address'],
+            }
         if node not in tree:  # an external host
             host = node.removeprefix(f'{EXTERNAL}:')
             return {'id': node, 'name': host, 'kind': EXTERNAL, 'entry_kind': EXTERNAL, 'entry_id': host}

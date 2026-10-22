@@ -8,7 +8,10 @@ import pytest
 from knowledge_admin.inventory.model import build_project
 from knowledge_admin.servers.inventory_map import ViewError, build_view
 
-E = {name: uuid4() for name in ('production', 'staging', 'prod-1', 'spare', 'api', 'worker', 'db', 'code', 'old-code')}
+E = {
+    name: uuid4()
+    for name in ('production', 'staging', 'prod-1', 'spare', 'api', 'worker', 'db', 'code', 'old-code', 'stripe')
+}
 # deployments: api on prod-1 in production and in staging, worker on prod-1 in staging, db on spare in production
 D = {name: uuid4() for name in ('api-prod', 'api-staging', 'worker-staging', 'db-prod')}
 
@@ -21,7 +24,7 @@ DEPLOYMENTS = {
 }
 
 
-def inventory(deployments=None, connections=(), relations=(), documents=None) -> dict:
+def inventory(deployments=None, connections=(), relations=(), documents=None, members=(), external=()) -> dict:
     """What load_project_models returns for these rows: production and staging, servers prod-1 and spare, services
     api, worker and db, code projects api-code and old-code (archived)."""
     deployments = DEPLOYMENTS if deployments is None else deployments
@@ -35,7 +38,8 @@ def inventory(deployments=None, connections=(), relations=(), documents=None) ->
     names = {E[e['name']]: e['name'] for e in environments}
     rows = {
         'servers': [item('prod-1', **server), item('spare', **server)],
-        'services': [item(name, **service) for name in ('api', 'worker', 'db')],
+        'services': [item(name, **service) for name in ('api', 'worker', 'db')]
+        + [item(name, **service | {'service_type': 'external', 'address': f'{name}.example.com'}) for name in external],
         'deployments': [
             {
                 'id': deployment,
@@ -58,7 +62,7 @@ def inventory(deployments=None, connections=(), relations=(), documents=None) ->
                 'from_deployment_id': c['from'],
                 'to_deployment_id': c['to'],
                 'to_host': c['host'],
-                'to_service_id': None,
+                'to_service_id': E[c['service']] if c.get('service') else None,
                 'port': None,
                 'protocol': None,
                 'description': '',
@@ -82,7 +86,8 @@ def inventory(deployments=None, connections=(), relations=(), documents=None) ->
         'memberships': [
             {'environment_id': environment_id, 'server_id': server_id}
             for _, server_id, environment_id in deployments.values()
-        ],
+        ]
+        + [{'environment_id': E[environment], 'server_id': E[server]} for environment, server in members],
     }
     return {
         **build_project(environments, **rows),
@@ -91,8 +96,8 @@ def inventory(deployments=None, connections=(), relations=(), documents=None) ->
     }
 
 
-def connection(start, end=None, host=None) -> dict:
-    return {'id': uuid4(), 'from': D[start], 'to': D[end] if end else None, 'host': host}
+def connection(start, end=None, host=None, service=None) -> dict:
+    return {'id': uuid4(), 'from': D[start], 'to': D[end] if end else None, 'host': host, 'service': service}
 
 
 def relation(kind, start, end, end_kind='service') -> dict:
@@ -261,3 +266,36 @@ def test_connection_labels_are_protocol_and_port_and_rolled_up_labels_are_capped
     assert rolled_label({'', ''}) == ''
     assert rolled_label({'b', 'a', ''}) == 'a, b'
     assert rolled_label({'d', 'c', 'b', 'a', 'e'}) == 'a, b, c +2'
+
+
+def test_an_empty_member_server_sits_inside_its_environment():
+    view = build_view(inventory(members=[('staging', 'spare')]), 'infrastructure', None, 2)
+    assert 'staging › spare' in names(view)
+    assert 'spare' not in names(view)  # not at the top level any more
+    assert 'production › spare' in names(view)  # it also has a deployment there
+
+
+def test_an_external_service_is_a_named_node_with_its_address():
+    connections = [connection('api-prod', service='stripe'), connection('db-prod', service='stripe')]
+    view = build_view(inventory(connections=connections, external=['stripe']), 'infrastructure', None, 1)
+    stripe = f'external-service:{E["stripe"]}'
+    assert view['boundary'] == [
+        {
+            'id': stripe,
+            'name': 'stripe',
+            'kind': 'external_service',
+            'entry_kind': 'service',
+            'entry_id': E['stripe'],
+            'address': 'stripe.example.com',
+        }
+    ]
+    assert [(e['from'], e['to'], e['count']) for e in view['edges']] == [(f'environment:{E["production"]}', stripe, 2)]
+
+
+def test_services_view_draws_the_edge_to_the_external_service_node():
+    view = build_view(
+        inventory(connections=[connection('api-prod', service='stripe')], external=['stripe']), 'services', None, 1
+    )
+    assert view['boundary'] == []
+    assert [(e['from'], e['to']) for e in view['edges']] == [(f'service:{E["api"]}', f'service:{E["stripe"]}')]
+    assert names(view)['stripe']['kind'] == 'service'

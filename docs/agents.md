@@ -248,27 +248,31 @@ as `generation.session.wakeup_cancelled`); the session detail and its live state
 due_at, message, created_at}]`, and the detail's `inputs` and `queued` count people's messages only.
 
 **Inventory tools (`capabilities/inventory_tools.py`).** Reads: `get_environment_model(environment_id)` (the environment
-model of `GET /api/environments/{id}/model`: servers with their deployments, services, connections, external hosts,
-relations; every item with its id and revision), `list_servers(environment_id)`, `list_deployments(server_id |
+model of `GET /api/environments/{id}/model`: member servers (also those with no deployment) with their deployments,
+services, connections, external services, external hosts, relations; every item with its id and revision),
+`list_servers(environment_id)` (the member servers; each with its `environment_ids`), `list_deployments(server_id |
 service_id)` and `list_connections(service_id | deployment_id)` (give one; lists stop at 100 with `truncated`). Writes:
 `save_server`, `save_service`, `save_deployment`, `save_connection`, `save_relation` (without `id` they create; with
 `id` and the `revision` read they update, and omitted fields keep their values) and `remove_inventory_item(kind, id,
-revision)`. They call `inventory/store.py`, the one write path the inventory pages use, so the rows are the same; the
-audit row carries the session's starting person, the agent and the session. Replies are JSON; a refusal is `{"refused":
-text}` and a store error's message is the refusal (a stale revision, a duplicate name, a server still used by
-deployments). A server's SSH settings are not part of the tools: a server reply has the model's fields only. Access
-(pure `check_<tool>`): an item is usable when it is in the run's access object (children included) or this session
-created it (`store.created_in_session`, read from the audit); a deployment when its server, service or environment is
-usable — for a write (update, remove, or a connection from it) all three, as for a new deployment, so a service held
-through one environment does not open its deployments elsewhere; a connection when its from-deployment is; a relation
-when its from-service is. Reads need the item usable. Writes need the role `inventory_editor` (`This agent may not
-change the inventory (inventory editor is off).`), a session (`Inventory changes need a session.`) and every item they
-name usable (`This <type> is not available in this run.`: a deployment names its environment, server and service; a
-connection its deployments; a relation its services or code project); a new server or service needs only an environment
-in the access (`This run has no environments.`). So an agent can add a server, deploy a service on it and connect it in
-one run, and cannot touch what is outside its access unless it created it. The read tools are offered in every run; the
-write tools only in a session turn (`catalog.INVENTORY_WRITES`): never to a subagent or an expert, whose role is off too
-(an expert is never an inventory editor).
+revision)`. `save_server(environment_id)` puts the server (new or existing) in that environment, which must be in the
+run's access or created by the session (a membership is never removed by an agent); `save_service(address)` sets where
+an external service is reached; `save_connection(to_service_id)` connects to an external service, which must be in the
+access or created by the session (a custom service gives the store's refusal). They call `inventory/store.py`, the one
+write path the inventory pages use, so the rows are the same; the audit row carries the session's starting person, the
+agent and the session. Replies are JSON; a refusal is `{"refused": text}` and a store error's message is the refusal (a
+stale revision, a duplicate name, a server still used by deployments). A server's SSH settings are not part of the
+tools: a server reply has the model's fields only. Access (pure `check_<tool>`): an item is usable when it is in the
+run's access object (children included) or this session created it (`store.created_in_session`, read from the audit); a
+deployment when its server, service or environment is usable — for a write (update, remove, or a connection from it) all
+three, as for a new deployment, so a service held through one environment does not open its deployments elsewhere; a
+connection when its from-deployment is; a relation when its from-service is. Reads need the item usable. Writes need the
+role `inventory_editor` (`This agent may not change the inventory (inventory editor is off).`), a session (`Inventory
+changes need a session.`) and every item they name usable (`This <type> is not available in this run.`: a deployment
+names its environment, server and service; a connection its deployments; a relation its services or code project); a new
+server or service needs only an environment in the access (`This run has no environments.`). So an agent can add a
+server, deploy a service on it and connect it in one run, and cannot touch what is outside its access unless it created
+it. The read tools are offered in every run; the write tools only in a session turn (`catalog.INVENTORY_WRITES`): never
+to a subagent or an expert, whose role is off too (an expert is never an inventory editor).
 
 ## Clones
 

@@ -103,10 +103,10 @@ ARGS = {
     'list_servers': {'environment_id': 'e1'},
     'list_deployments': {'server_id': 's1'},
     'list_connections': {'service_id': 'v1'},
-    'save_server': {'name': 'cache-1', 'hostname': 'cache-1.internal'},
+    'save_server': {'name': 'cache-1', 'hostname': 'cache-1.internal', 'environment_id': 'e1'},
     'save_service': {'id': 'v1', 'owner': 'ops'},
     'save_deployment': {'service_id': 'v1', 'server_id': 's1', 'environment_id': 'e1'},
-    'save_connection': {'from_deployment_id': 'p1', 'to_host': 'db.example', 'port': 5432, 'rows': DEPLOYMENT_ROWS},
+    'save_connection': {'from_deployment_id': 'p1', 'to_service_id': 'v1', 'port': 5432, 'rows': DEPLOYMENT_ROWS},
     'save_relation': {'from_service_id': 'v1', 'kind': 'built_from', 'to_code_project_id': 'c1'},
     'remove_inventory_item': {'kind': 'deployment', 'id': 'p1', 'rows': DEPLOYMENT_ROWS},
 }

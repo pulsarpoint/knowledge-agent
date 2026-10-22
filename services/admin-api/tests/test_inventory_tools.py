@@ -122,6 +122,16 @@ def test_writes_need_the_role_then_the_target_in_access_or_created_by_this_sessi
     assert tools.check_save_service(a, name='x') is None
     no_environment = access(entry('server', 's1'))
     assert tools.check_save_server(no_environment, name='x', hostname='x') == 'This run has no environments.'
+    # an environment to put the server in: in the access, or created by this session
+    assert tools.check_save_server(a, name='x', hostname='x', environment_id='e1') is None
+    assert tools.check_save_server(a, id='s1', environment_id='e9') == 'This environment is not available in this run.'
+    assert tools.check_save_server(a, id='s1', environment_id='e9', created={('environment', 'e9')}) is None
+    # an external service to connect to: in the access, or created by this session
+    rows = {('deployment', 'p1'): {'server_id': 's1', 'service_id': 'v1', 'environment_id': 'e1'}}
+    connect = {'from_deployment_id': 'p1', 'rows': rows}
+    assert tools.check_save_connection(a, to_service_id='v1', **connect) is None
+    assert tools.check_save_connection(a, to_service_id='v9', **connect) == 'This service is not available in this run.'
+    assert tools.check_save_connection(a, to_service_id='v9', created={('service', 'v9')}, **connect) is None
     # an update: in access, or created by this session
     assert tools.check_save_server(a, id='s1') is None
     assert tools.check_save_server(a, id='s9') == 'This server is not available in this run.'
@@ -465,3 +475,46 @@ def test_the_api_and_the_tools_write_identical_deployments_and_connections(world
                 for item in pair
             )
             assert first == second
+
+
+def test_a_server_is_put_in_an_environment_and_listed_with_its_environments(world):
+    c = world['config']
+    server = call(c, 'save_server', name='spare', hostname='spare.internal', environment_id=i(world['prod']))
+    assert server['environment_ids'] == [i(world['prod'])]
+    listed = call(c, 'list_servers', environment_id=i(world['prod']))['servers']
+    assert {s['name']: s['environment_ids'] for s in listed}['spare'] == [i(world['prod'])]
+    model = call(c, 'get_environment_model', environment_id=i(world['prod']))
+    assert [s['deployments'] for s in model['servers'] if s['name'] == 'spare'] == [[]]
+    # an existing server joins too; the environment outside the access is refused and nothing is added
+    own = call(c, 'save_server', id=i(world['a']), revision=1, environment_id=i(world['prod']))
+    assert own['environment_ids'] == [i(world['prod'])]
+    refused = {'refused': 'This environment is not available in this run.'}
+    assert call(c, 'save_server', name='x', hostname='x', environment_id=i(world['staging'])) == refused
+    assert call(c, 'save_server', id=server['id'], revision=1, environment_id=i(world['staging'])) == refused
+
+
+def test_a_connection_to_an_external_service(world):
+    c = world['config']
+    stripe = call(c, 'save_service', name='Stripe', service_type='external', address='api.stripe.com')
+    assert stripe['address'] == 'api.stripe.com'  # created by this session: usable
+    connection = call(
+        c,
+        'save_connection',
+        from_deployment_id=i(world['api_a']),
+        to_service_id=stripe['id'],
+        port=443,
+        protocol='https',
+    )
+    assert connection['to_service_id'] == stripe['id']
+    model = call(c, 'get_environment_model', environment_id=i(world['prod']))
+    assert [(s['name'], s['address'], s['ports']) for s in model['external_services']] == [
+        ('Stripe', 'api.stripe.com', [443])
+    ]
+    # a custom service is not a target; a service outside the access is not available
+    custom = 'Connect to an external service, or to a deployment of this service.'
+    assert call(c, 'save_connection', from_deployment_id=i(world['api_a']), to_service_id=i(world['db']), port=1) == {
+        'refused': custom
+    }
+    assert call(c, 'save_connection', from_deployment_id=i(world['api_a']), to_service_id=i(world['web']), port=1) == {
+        'refused': 'This service is not available in this run.'
+    }

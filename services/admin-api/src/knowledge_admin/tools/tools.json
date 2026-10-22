@@ -81,13 +81,13 @@
     "name": "get_environment_model",
     "group": "inventory",
     "label": "Environment model",
-    "summary": "One environment's servers, deployments, services, connections and relations."
+    "summary": "One environment's servers, deployments, services, connections, external services and relations."
   },
   {
     "name": "list_servers",
     "group": "inventory",
     "label": "List servers",
-    "summary": "The servers with a deployment in an environment."
+    "summary": "The servers in an environment, with their environments."
   },
   {
     "name": "list_deployments",
@@ -105,7 +105,7 @@
     "name": "save_server",
     "group": "inventory",
     "label": "Save server",
-    "summary": "Create or update a server (inventory editor)."
+    "summary": "Create or update a server, optionally putting it in an environment (inventory editor)."
   },
   {
     "name": "save_service",
@@ -123,7 +123,7 @@
     "name": "save_connection",
     "group": "inventory",
     "label": "Save connection",
-    "summary": "Create or update a connection (inventory editor)."
+    "summary": "Create or update a connection to a deployment, an external service or a host (inventory editor)."
   },
   {
     "name": "save_relation",
