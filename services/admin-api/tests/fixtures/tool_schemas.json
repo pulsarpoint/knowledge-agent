@@ -840,7 +840,7 @@
               "type": "null"
             }
           ],
-          "description": "Where an external service is reached (host or URL).",
+          "description": "Where an external service is reached (hostname or IP address).",
           "title": "Address"
         },
         "description": {

@@ -401,7 +401,7 @@ async def save_service(
     description: Text = None,
     owner: Annotated[str | None, Field(max_length=200)] = None,
     address: Annotated[
-        str | None, Field(max_length=253, description='Where an external service is reached (host or URL).')
+        str | None, Field(max_length=253, description='Where an external service is reached (hostname or IP address).')
     ] = None,
 ) -> str:
     """Create a service (without id; needs an environment in this run) or update one (id and the revision you read;

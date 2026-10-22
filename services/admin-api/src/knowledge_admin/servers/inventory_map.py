@@ -16,8 +16,10 @@ import networkx as nx
 
 VIEWS = ('infrastructure', 'services')
 ENTRY_KINDS = ('service', 'server', 'environment', 'code_project')
-EXTERNAL = 'external_host'  # the kind of an external host's node
-EXTERNAL_SERVICE = 'external_service'  # the kind of an external service's node (infrastructure view)
+EXTERNAL_HOST = 'external_host'  # the kind of an external host's node; its id is external_host:<host>
+# The kind of an external service's node (infrastructure view); its id is external-service:<service id>.
+EXTERNAL_SERVICE = 'external_service'
+EXTERNAL_SERVICE_PREFIX = 'external-service:'
 MAX_DEPTH, MAX_VISIBLE, MAX_EDGE_IDS, MAX_LABELS = 3, 500, 20, 3
 TOP = 'top'
 NOT_FOUND = 'Node not found.'
@@ -34,12 +36,12 @@ def node_id(kind: str, entry: UUID, *where: UUID | None) -> str:
     return ':'.join([kind, *(TOP if place is None else str(place) for place in where), str(entry)])
 
 
-def external_id(host: str) -> str:
-    return f'{EXTERNAL}:{host}'
+def external_host_id(host: str) -> str:
+    return f'{EXTERNAL_HOST}:{host}'
 
 
 def external_service_id(service: UUID) -> str:
-    return f'external-service:{service}'
+    return f'{EXTERNAL_SERVICE_PREFIX}{service}'
 
 
 def connection_label(connection: dict) -> str:
@@ -131,7 +133,7 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
         if service is not None:  # services view: the service's own node; infrastructure: an external node
             end = node_id('service', service) if view == 'services' else external_service_id(service)
         else:
-            end = deployment_node(connection['to_deployment_id']) if host is None else external_id(host)
+            end = deployment_node(connection['to_deployment_id']) if host is None else external_host_id(host)
         if start in tree and (end in tree or host is not None or service is not None):
             edges.append(
                 {
@@ -181,8 +183,8 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
     }
 
     def about(node: str) -> dict:
-        if node.startswith('external-service:'):
-            service = external_services[UUID(node.removeprefix('external-service:'))]
+        if node.startswith(EXTERNAL_SERVICE_PREFIX):
+            service = external_services[UUID(node.removeprefix(EXTERNAL_SERVICE_PREFIX))]
             return {
                 'id': node,
                 'name': service['name'],
@@ -192,8 +194,8 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
                 'address': service['address'],
             }
         if node not in tree:  # an external host
-            host = node.removeprefix(f'{EXTERNAL}:')
-            return {'id': node, 'name': host, 'kind': EXTERNAL, 'entry_kind': EXTERNAL, 'entry_id': host}
+            host = node.removeprefix(f'{EXTERNAL_HOST}:')
+            return {'id': node, 'name': host, 'kind': EXTERNAL_HOST, 'entry_kind': EXTERNAL_HOST, 'entry_id': host}
         data = tree.nodes[node]
         kind, entry = data['entry']
         return {'id': node, 'name': data['name'], 'kind': kind, 'entry_kind': kind, 'entry_id': entry}
