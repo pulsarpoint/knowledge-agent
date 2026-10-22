@@ -60,7 +60,7 @@ def test_round_trip_lists_what_is_deployed_edit_and_audit(store, inventory):
             'SELECT action,details FROM ka.audit_events WHERE resource_id=%s ORDER BY created_at',
             (UUID(environment['id']),),
         ).fetchall()
-        assert [row['action'] for row in events] == ['environment.created', 'environment.updated']
+        assert [row['action'] for row in events] == ['environment.created', 'membership.added', 'environment.updated']
         assert events[-1]['details']['name'] == 'Dev'
 
 
@@ -166,6 +166,9 @@ def test_migration_reapply_and_populated_rollback_protection(store):
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'Retained')", (project,))
         # 0104's views read documents.phase_metadata, which 0073's rollback drops: roll 0104 back first (0107 before it).
+        conn.execute(
+            (migrations / '0127_environment_workspace.down.sql').read_text(), prepare=False
+        )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((migrations / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0107_inventory_document.down.sql').read_text(), prepare=False)

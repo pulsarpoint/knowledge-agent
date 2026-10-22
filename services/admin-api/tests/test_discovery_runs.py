@@ -175,6 +175,10 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
             VALUES (%s,%s,%s,%s,'postgres')""",
             (world.project, postgres, other['id'], environment_id(conn, world.project, 'Production')),
         )
+        conn.execute(  # a deployment's server is in its environment (the store adds this)
+            'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
+            (world.project, environment_id(conn, world.project, 'Production'), other['id']),
+        )
     sid = start(world).json()['id']
     pinned = pinned_of(world, sid)
     assert [server['id'] for server in of(pinned, 'server')] == [world.server['id']]

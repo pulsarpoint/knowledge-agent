@@ -1,8 +1,10 @@
-"""The one write path for the inventory: servers, services, environments, deployments, connections and service
-relations. Every function works in the caller's transaction (the caller commits), scoped to one project, and returns
+"""The one write path for the inventory: servers, services, environments, deployments, connections, service
+relations and which servers are in which environment (membership). Every function works in the caller's transaction (the caller commits), scoped to one project, and returns
 plain dicts. Writes lock the project row first (every inventory writer takes that lock first, so concurrent writers
 serialize instead of deadlocking), validate with rules.py, check that referenced items exist in the project, check the
 revision on update and delete, and record an audit event with the person and, for agent runs, the agent and session.
+A deployment's server is always a member of the deployment's environment: creating or moving a deployment adds the
+membership when it is missing.
 
 author: {'actor_id': principal id or None, 'agent_id': agent id or None, 'session_id': agent session id or None}.
 Errors: rules.Invalid (bad values or a missing reference), NotFound (the item is not in this project), Conflict (stale
@@ -28,12 +30,15 @@ class Conflict(Exception):
     pass
 
 
-# What a reader gets: public columns only (no SSH credentials).
+# What a reader gets: public columns only (no SSH credentials); a server with the environments it is in.
 SERVER = """SELECT x.id,x.project_id,x.name,x.hostname,x.description,x.tags,x.revision,x.created_at,x.updated_at,
-    x.port AS ssh_port,x.username AS ssh_username,x.enabled AS access_enabled,x.allow_sudo,x.ssh_allowed
+    x.port AS ssh_port,x.username AS ssh_username,x.enabled AS access_enabled,x.allow_sudo,x.ssh_allowed,
+    ARRAY(SELECT m.environment_id FROM ka.environment_servers m WHERE m.server_id=x.id ORDER BY m.environment_id)
+    AS environment_ids
     FROM ka.servers x"""
 SERVICE = """SELECT x.id,x.project_id,x.name,x.description,x.owner,x.service_type::text AS service_type,
-    x.service_role::text AS service_role,x.revision,x.created_by,x.created_at,x.updated_at FROM ka.services x"""
+    x.service_role::text AS service_role,x.address,x.revision,x.created_by,x.created_at,x.updated_at
+    FROM ka.services x"""
 ENVIRONMENT = 'SELECT x.id,x.project_id,x.name,x.description,x.revision,x.created_by,x.created_at,x.updated_at FROM ka.environments x'
 DEPLOYMENT = """SELECT x.id,x.project_id,x.service_id,x.server_id,x.environment_id,x.runtime,x.runtime_name,x.port,
     x.log_location,x.deployed_version,x.revision FROM ka.service_deployments x"""
@@ -90,10 +95,10 @@ KINDS = {
 
 
 def list_servers(conn, project_id: UUID, environment_id: UUID | None = None) -> list[dict]:
-    """Servers, or the servers with a deployment in the environment."""
+    """Servers, or the servers in the environment; each with environment_ids, the environments it is in."""
     return conn.execute(
         f"""{SERVER} WHERE x.project_id=%(p)s AND (%(e)s::uuid IS NULL OR EXISTS
-        (SELECT 1 FROM ka.service_deployments d WHERE d.server_id=x.id AND d.environment_id=%(e)s))
+        (SELECT 1 FROM ka.environment_servers m WHERE m.server_id=x.id AND m.environment_id=%(e)s))
         ORDER BY lower(x.name),x.id""",
         {'p': project_id, 'e': environment_id},
     ).fetchall()
@@ -110,10 +115,10 @@ def list_services(conn, project_id: UUID, environment_id: UUID | None = None) ->
 
 
 def list_environments(conn, project_id: UUID, server_id: UUID | None = None) -> list[dict]:
-    """Environments, or the environments the server has a deployment in."""
+    """Environments, or the environments the server is in."""
     return conn.execute(
         f"""{ENVIRONMENT} WHERE x.project_id=%(p)s AND (%(s)s::uuid IS NULL OR EXISTS
-        (SELECT 1 FROM ka.service_deployments d WHERE d.environment_id=x.id AND d.server_id=%(s)s))
+        (SELECT 1 FROM ka.environment_servers m WHERE m.environment_id=x.id AND m.server_id=%(s)s))
         ORDER BY lower(x.name),x.id""",
         {'p': project_id, 's': server_id},
     ).fetchall()
@@ -138,11 +143,12 @@ def list_deployments(
 def list_connections(
     conn, project_id: UUID, deployment_id: UUID | None = None, service_id: UUID | None = None
 ) -> list[dict]:
-    """Connections, or those from or to the deployment, or from or to any deployment of the service."""
+    """Connections, or those from or to the deployment, or from or to any deployment of the service (or to the service
+    itself, an external service)."""
     return conn.execute(
         f"""{CONNECTION} WHERE x.project_id=%(p)s
         AND (%(d)s::uuid IS NULL OR %(d)s IN (x.from_deployment_id,x.to_deployment_id))
-        AND (%(s)s::uuid IS NULL OR EXISTS (SELECT 1 FROM ka.service_deployments d
+        AND (%(s)s::uuid IS NULL OR x.to_service_id=%(s)s OR EXISTS (SELECT 1 FROM ka.service_deployments d
             WHERE d.service_id=%(s)s AND d.id IN (x.from_deployment_id,x.to_deployment_id)))
         ORDER BY x.created_at,x.id""",
         {'p': project_id, 'd': deployment_id, 's': service_id},
@@ -159,8 +165,8 @@ def list_relations(conn, project_id: UUID, service_id: UUID | None = None) -> li
 
 
 def _project_rows(conn, project_id: UUID) -> dict:
-    """The project's servers, services, deployments (with their environment's name), connections, relations and code
-    projects (archived ones too, with archived_at)."""
+    """The project's servers, services, deployments (with their environment's name), connections, relations, code
+    projects (archived ones too, with archived_at) and memberships {environment_id, server_id}."""
     return {
         'servers': list_servers(conn, project_id),
         'services': list_services(conn, project_id),
@@ -176,12 +182,15 @@ def _project_rows(conn, project_id: UUID) -> dict:
             ORDER BY lower(name),id""",
             (project_id,),
         ).fetchall(),
+        'memberships': conn.execute(
+            'SELECT environment_id,server_id FROM ka.environment_servers WHERE project_id=%s', (project_id,)
+        ).fetchall(),
     }
 
 
 def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
     """The rows model.build_model takes: the environment (NotFound when it is not in the project) and the project's
-    servers, services, deployments, connections, relations and code projects."""
+    servers, services, deployments, connections, relations, code projects and memberships."""
     return {'environment': get(conn, project_id, 'environment', environment_id), **_project_rows(conn, project_id)}
 
 
@@ -278,6 +287,9 @@ def _references(conn, project_id: UUID, kind: str, item: dict, saved: dict | Non
         target = _require(
             conn, 'ka.service_deployments', project_id, item['to_deployment_id'], 'deployment to connect to'
         )
+        service = _require(conn, 'ka.services', project_id, item['to_service_id'], 'service to connect to')
+        if service is not None and (refused := rules.check_target_service(service['service_type'])):
+            raise Invalid(refused)
         if target is not None and item['port'] is None:
             return {'port': target['port']}
     if kind == 'relation':
@@ -330,6 +342,8 @@ def _create(conn, project_id: UUID, kind: str, values: dict, author: dict) -> di
         [project_id, *columns.values()],
     )
     _audit(conn, project_id, author, f'{kind}.created', kind, item_id, {'revision': 1, **item})
+    if kind == 'deployment':
+        _add_member(conn, project_id, item['environment_id'], item['server_id'], author)
     return _get(conn, kind, item_id)
 
 
@@ -341,6 +355,10 @@ def _update(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, cha
     if kind == 'connection' and 'to_deployment_id' in changes and 'port' not in changes:
         saved['port'] = None  # a new target brings its own port
     item = KINDS[kind]['rule']({**saved, **changes})
+    if kind == 'service':
+        targeted = conn.execute('SELECT 1 FROM ka.connections WHERE to_service_id=%s LIMIT 1', (item_id,)).fetchone()
+        if refused := rules.check_type_change(saved['service_type'], item['service_type'], targeted is not None):
+            raise Invalid(refused)
     columns = {**item, **_references(conn, project_id, kind, item, row)}
     sets = ','.join(f'{name}=%s' for name in columns)
     _write(
@@ -350,6 +368,8 @@ def _update(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, cha
         [*columns.values(), item_id],
     )
     _audit(conn, project_id, author, f'{kind}.updated', kind, item_id, {'revision': revision + 1, **item})
+    if kind == 'deployment':
+        _add_member(conn, project_id, item['environment_id'], item['server_id'], author)
     return _get(conn, kind, item_id)
 
 
@@ -378,6 +398,10 @@ def _delete(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, aut
                 (item_id, item_id),
             )
         ]
+    if kind == 'service':  # an external service's connections go with it
+        details['connection_ids'] = [
+            r['id'] for r in conn.execute('DELETE FROM ka.connections WHERE to_service_id=%s RETURNING id', (item_id,))
+        ]
     conn.execute(f'DELETE FROM {KINDS[kind]["table"]} WHERE id=%s', (item_id,))
     if kind == 'server':
         conn.execute(  # the server's own key, unless another server uses it
@@ -389,7 +413,45 @@ def _delete(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, aut
     return {'id': item_id}
 
 
+def _add_member(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict) -> bool:
+    added = conn.execute(
+        """INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)
+        ON CONFLICT DO NOTHING RETURNING server_id""",
+        (project_id, environment_id, server_id),
+    ).fetchone()
+    if added is not None:
+        _audit(conn, project_id, author, 'membership.added', 'environment', environment_id, {'server_id': server_id})
+    return added is not None
+
+
 # Writes
+
+
+def add_server_to_environment(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict) -> bool:
+    """Puts the server in the environment; True when added, False when it was a member already (nothing written)."""
+    lock_project(conn, project_id)
+    get(conn, project_id, 'environment', environment_id)
+    get(conn, project_id, 'server', server_id)
+    return _add_member(conn, project_id, environment_id, server_id, author)
+
+
+def remove_server_from_environment(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict) -> None:
+    """Refused (Invalid) while the server has deployments in the environment; NotFound when it is not a member."""
+    lock_project(conn, project_id)
+    get(conn, project_id, 'environment', environment_id)
+    get(conn, project_id, 'server', server_id)
+    if conn.execute(
+        'SELECT 1 FROM ka.service_deployments WHERE environment_id=%s AND server_id=%s LIMIT 1',
+        (environment_id, server_id),
+    ).fetchone():
+        raise Invalid('Remove the deployments on this server in this environment first.')
+    removed = conn.execute(
+        'DELETE FROM ka.environment_servers WHERE environment_id=%s AND server_id=%s RETURNING server_id',
+        (environment_id, server_id),
+    ).fetchone()
+    if removed is None:
+        raise NotFound('This server is not in this environment')
+    _audit(conn, project_id, author, 'membership.removed', 'environment', environment_id, {'server_id': server_id})
 
 
 def create_server(conn, project_id: UUID, values: dict, author: dict) -> dict:
@@ -414,7 +476,7 @@ def update_service(conn, project_id: UUID, service_id: UUID, revision: int, chan
 
 
 def delete_service(conn, project_id: UUID, service_id: UUID, revision: int, author: dict) -> dict:
-    """Refused while deployments use it; its relations go with it."""
+    """Refused while deployments use it; its relations and the connections to it (an external service) go with it."""
     return _delete(conn, project_id, 'service', service_id, revision, author)
 
 
@@ -434,10 +496,12 @@ def delete_environment(conn, project_id: UUID, environment_id: UUID, revision: i
 
 
 def create_deployment(conn, project_id: UUID, values: dict, author: dict) -> dict:
+    """Puts the server in the environment when it is not there yet."""
     return _create(conn, project_id, 'deployment', values, author)
 
 
 def update_deployment(conn, project_id: UUID, deployment_id: UUID, revision: int, changes: dict, author: dict) -> dict:
+    """Moved to another environment or server: that server is put in that environment when it is not there yet."""
     return _update(conn, project_id, 'deployment', deployment_id, revision, changes, author)
 
 

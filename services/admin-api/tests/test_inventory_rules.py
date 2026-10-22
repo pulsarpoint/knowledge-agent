@@ -48,7 +48,11 @@ def test_service_normalizes_and_defaults():
         'service_role': 'database',
         'description': '',
         'owner': '',
+        'address': None,
     }
+    external = rules.service({'name': 'mail', 'service_type': 'external', 'address': 'Mail.Example.com.'})
+    assert external['address'] == 'mail.example.com'
+    assert rules.service({'name': 'mail', 'address': ''})['address'] is None
 
 
 @pytest.mark.parametrize(
@@ -58,6 +62,9 @@ def test_service_normalizes_and_defaults():
         {'name': 'a', 'service_type': 'thing'},
         {'name': 'a', 'service_role': 'db'},
         {'name': 'a', 'owner': 'x' * 201},
+        {'name': 'a', 'address': 'https://mail.example.com'},
+        {'name': 'a', 'address': 'mail.example.com:25'},
+        {'name': 'a', 'address': 'x' * 254},
     ],
 )
 def test_service_rejects(values):
@@ -110,6 +117,7 @@ def test_connection_to_a_deployment_or_a_host():
         'from_deployment_id': A,
         'to_deployment_id': B,
         'to_host': None,
+        'to_service_id': None,
         'port': None,
         'protocol': 'tcp',
         'description': '',
@@ -120,6 +128,7 @@ def test_connection_to_a_deployment_or_a_host():
         'from_deployment_id': A,
         'to_deployment_id': None,
         'to_host': 'db.example.com',
+        'to_service_id': None,
         'port': 5432,
         'protocol': 'postgres',
         'description': '',
@@ -129,12 +138,37 @@ def test_connection_to_a_deployment_or_a_host():
         rules.connection({'from_deployment_id': A, 'to_host': 'fe80::1%eth0', 'port': 1})
 
 
+def test_connection_to_an_external_service():
+    item = rules.connection({'from_deployment_id': A, 'to_service_id': str(C), 'port': 25, 'protocol': 'smtp'})
+    assert (item['to_service_id'], item['to_deployment_id'], item['to_host'], item['port']) == (C, None, None, 25)
+    assert rules.connection({'from_deployment_id': A, 'to_service_id': C})['port'] is None
+
+
+def test_only_an_external_service_is_a_connection_target():
+    assert rules.check_target_service('external') is None
+    for service_type in ('custom', 'builtin', 'unclassified'):
+        assert rules.check_target_service(service_type) == (
+            'Connect to an external service, or to a deployment of this service.'
+        )
+
+
+def test_a_targeted_service_keeps_the_type_external():
+    text = 'This service is the target of connections; remove them or keep the type external.'
+    assert rules.check_type_change('external', 'custom', targeted=True) == text
+    assert rules.check_type_change('external', 'custom', targeted=False) is None
+    assert rules.check_type_change('external', 'external', targeted=True) is None
+    assert rules.check_type_change('custom', 'external', targeted=False) is None
+
+
 @pytest.mark.parametrize(
     'values',
     [
         {'to_deployment_id': B},
         {'from_deployment_id': A},
         {'from_deployment_id': A, 'to_deployment_id': B, 'to_host': 'db', 'port': 1},
+        {'from_deployment_id': A, 'to_deployment_id': B, 'to_service_id': C},
+        {'from_deployment_id': A, 'to_host': 'db', 'port': 1, 'to_service_id': C},
+        {'from_deployment_id': A, 'to_service_id': 'nope'},
         {'from_deployment_id': A, 'to_deployment_id': A},
         {'from_deployment_id': A, 'to_host': 'db'},
         {'from_deployment_id': A, 'to_host': 'db:5432', 'port': 5432},

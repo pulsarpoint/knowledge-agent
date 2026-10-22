@@ -80,6 +80,9 @@ def test_migration_preserves_inventory_and_refuses_to_discard_saved_classificati
     up = (MIGRATIONS / '0044_service_classification.up.sql').read_text(encoding='utf-8')
     down = (MIGRATIONS / '0044_service_classification.down.sql').read_text(encoding='utf-8')
     with store.connect() as conn:
+        conn.execute(
+            (MIGRATIONS / '0127_environment_workspace.down.sql').read_text(), prepare=False
+        )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((MIGRATIONS / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0107_inventory_document.down.sql').read_text(), prepare=False)  # before 0095

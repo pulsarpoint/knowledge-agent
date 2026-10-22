@@ -17,6 +17,7 @@ def run(conn, name):
 
 def down(conn):
     """Back to before 0125: 0126 (which drops the old structures 0125 converts) first."""
+    run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again
     run(conn, '0126_inventory_drop_old.down.sql')
     run(conn, DOWN)
 

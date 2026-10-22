@@ -72,6 +72,9 @@ def test_a_deployment_in_another_projects_environment_is_refused(store, tmp_path
 def test_migration_maps_exact_labels_and_retains_unmatched_deployments(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute(
+            (migrations / '0127_environment_workspace.down.sql').read_text(), prepare=False
+        )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((migrations / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0107_inventory_document.down.sql').read_text(), prepare=False)  # before 0095

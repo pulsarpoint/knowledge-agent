@@ -99,6 +99,7 @@ def flag(conn, document_id) -> None:
 def at_0108(store):
     """The schema before 0109: documents.inventory and its checks."""
     with store.connect() as conn:
+        run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again
         run(conn, '0126_inventory_drop_old.down.sql')  # 0126 drops service_assets, which 0109 changes
         run(conn, TAGS_DOWN)
     return store

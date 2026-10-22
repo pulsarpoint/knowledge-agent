@@ -14,6 +14,7 @@ def ids(*names: str) -> dict:
 I = ids(
     'prod', 'stage', 'a', 'b', 'c', 'api', 'db', 'web', 'lib', 'repo',
     'api_a', 'db_b', 'web_c', 'api_c', 'c1', 'c2', 'c3', 'c4', 'e1', 'e2', 'r1', 'r2', 'r3', 'r4',
+    'mail', 'x1', 'x2', 'x3',
 )  # fmt: skip
 
 
@@ -77,6 +78,7 @@ def rows() -> dict:
             'from_deployment_id': I[source],
             'to_deployment_id': I[target] if target else None,
             'to_host': to_host,
+            'to_service_id': None,
             'port': port,
             'protocol': 'tcp',
             'description': key,
@@ -119,6 +121,7 @@ def rows() -> dict:
         'connections': connections,
         'relations': relations,
         'code_projects': code_projects,
+        'memberships': [{'environment_id': d['environment_id'], 'server_id': d['server_id']} for d in deployments],
     }
 
 
@@ -183,6 +186,8 @@ def test_connections_touching_the_environment_name_the_end_outside_it():
         'from_deployment_id': I['api_a'],
         'to_deployment_id': I['db_b'],
         'to_host': None,
+        'to_service_id': None,
+        'to_service_name': None,
         'port': 5432,
         'protocol': 'tcp',
         'description': 'c1',
@@ -225,9 +230,53 @@ def test_relations_of_services_in_the_environment_both_directions_with_names():
 
 
 def test_an_empty_environment():
-    model = build_model(**{**rows(), 'deployments': []})
+    model = build_model(**{**rows(), 'deployments': [], 'memberships': []})
     assert model['servers'] == [] and model['services'] == [] and model['connections'] == []
-    assert model['relations'] == [] and model['external'] == []
+    assert model['relations'] == [] and model['external'] == [] and model['external_services'] == []
+
+
+def test_a_member_server_without_deployments_is_listed_empty():
+    model = build_model(
+        **{**rows(), 'memberships': [*rows()['memberships'], {'environment_id': I['prod'], 'server_id': I['c']}]}
+    )
+    assert [(s['name'], len(s['deployments'])) for s in model['servers']] == [('A', 1), ('b', 1), ('c', 0)]
+    assert model['servers'][2]['deployments'] == []
+
+
+def test_external_services_the_connections_reach_with_their_ports():
+    r = rows()
+    mail = {
+        'id': I['mail'],
+        'name': 'mail',
+        'service_type': 'external',
+        'service_role': 'other',
+        'description': 'Mail relay',
+        'owner': '',
+        'address': 'mail.example.com',
+        'revision': 2,
+    }
+    r['services'].append(mail)
+
+    def to_mail(key, source, port):
+        return {**r['connections'][0], 'id': I[key], 'from_deployment_id': I[source], 'to_deployment_id': None,
+                'to_service_id': I['mail'], 'port': port, 'description': key}  # fmt: skip
+
+    r['connections'] += [to_mail('x1', 'api_a', 25), to_mail('x2', 'db_b', 587), to_mail('x3', 'web_c', 2525)]
+    model = build_model(**r)
+    assert model['external_services'] == [
+        {
+            'id': I['mail'],
+            'name': 'mail',
+            'address': 'mail.example.com',
+            'description': 'Mail relay',
+            'revision': 2,
+            'ports': [25, 587],  # web_c is in stage
+        }
+    ]
+    x1 = next(c for c in model['connections'] if c['id'] == I['x1'])
+    assert (x1['to_service_id'], x1['to_service_name'], 'outside' in x1) == (I['mail'], 'mail', False)
+    assert [s['name'] for s in model['services']] == ['api', 'db']  # an external service is not deployed here
+    assert model['external'] == build_model(**rows())['external']
 
 
 # The endpoint

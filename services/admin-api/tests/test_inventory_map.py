@@ -58,6 +58,7 @@ def inventory(deployments=None, connections=(), relations=(), documents=None) ->
                 'from_deployment_id': c['from'],
                 'to_deployment_id': c['to'],
                 'to_host': c['host'],
+                'to_service_id': None,
                 'port': None,
                 'protocol': None,
                 'description': '',

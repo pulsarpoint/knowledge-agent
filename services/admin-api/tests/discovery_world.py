@@ -54,6 +54,10 @@ def world(store, tmp_path, monkeypatch):
             VALUES (%s,%s,%s,%s,'systemd','nginx',80)""",
             (project, nginx, server['id'], environment),
         )
+        conn.execute(  # a deployment's server is in its environment (the store adds this)
+            'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
+            (project, environment, server['id']),
+        )
         conn.execute(
             "INSERT INTO ka.repositories(id,project_id,slug,name,remote_url) VALUES (%s,%s,'shop','Shop','https://git.example/shop.git')",
             (shop, project),

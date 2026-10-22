@@ -77,7 +77,7 @@ def world(store):
 
 def test_up_drops_the_old_structures_and_the_deployment_identity_is_checked_at_once(store, world):
     with store.connect() as conn:
-        assert present(conn) == set()
+        assert present(conn) == {'environment_servers'}  # made again by 0127, as explicit membership
         assert not has_label(conn)
         with pytest.raises(psycopg.errors.UniqueViolation, match='service_deployments_environment_identity'):
             conn.execute(
@@ -90,6 +90,7 @@ def test_up_drops_the_old_structures_and_the_deployment_identity_is_checked_at_o
 def test_down_backfills_the_old_structures_and_up_drops_them_again(store, world):
     w = world
     with store.connect() as conn:
+        run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again
         run(conn, DOWN)
         assert present(conn) == set(OLD)
         assert {r['environment'] for r in conn.execute('SELECT environment FROM ka.service_deployments')} == {'prod'}

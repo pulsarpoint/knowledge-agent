@@ -5,7 +5,10 @@ inventory entry's documents.
 Writes: POST /<kind>s with the item's fields (201, the saved item); PUT /<kind>s/{id} with `revision` and the fields to
 change (omitted fields keep their values); DELETE /<kind>s/{id}?revision=N. Store errors map to 400 (rules.Invalid, with
 its message), 404 (store.NotFound) and 409 (store.Conflict: a stale revision, a duplicate, or a delete refused while
-deployments use the item). The store records every change in the audit log with the person."""
+deployments use the item). The store records every change in the audit log with the person.
+
+Membership: PUT /environments/{id}/servers/{server_id} puts the server in the environment (204, also when it was there);
+DELETE removes it (204; 400 while the server has deployments there, 404 when it is not a member)."""
 
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -115,6 +118,24 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
 
     for segment, writers in WRITERS.items():
         routes(segment, *writers)
+
+    @router.put('/environments/{environment_id}/servers/{server_id}', status_code=204)
+    def add_server(environment_id: UUID, server_id: UUID, request: Request) -> None:
+        write(
+            request,
+            lambda conn, project_id, author: store.add_server_to_environment(
+                conn, project_id, environment_id, server_id, author
+            ),
+        )
+
+    @router.delete('/environments/{environment_id}/servers/{server_id}', status_code=204)
+    def remove_server(environment_id: UUID, server_id: UUID, request: Request) -> None:
+        write(
+            request,
+            lambda conn, project_id, author: store.remove_server_from_environment(
+                conn, project_id, environment_id, server_id, author
+            ),
+        )
 
     # Reads
 

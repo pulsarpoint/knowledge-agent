@@ -51,7 +51,7 @@ def test_items_are_created_as_plain_dicts_with_audit(store, world):
     assert (deployment['environment_id'], deployment['port'], deployment['revision']) == (world['prod']['id'], 8080, 1)
     with store.connect() as conn:
         for item, kind in [(world['a'], 'server'), (world['api'], 'service'), (world['prod'], 'environment')]:
-            [row] = audit(conn, item['id'])
+            row = audit(conn, item['id'])[0]  # the environment then has its deployments' memberships
             assert (row['actor_id'], row['action'], row['resource_type']) == (world['actor'], f'{kind}.created', kind)
         [row] = audit(conn, deployment['id'])
         assert (row['action'], row['details']['revision'], row['details']['agent_id']) == (
@@ -278,3 +278,116 @@ def test_deleting_a_deployment_removes_its_connections_then_the_rest_can_go(stor
         assert [r['action'] for r in audit(conn, world['a']['id'])] == ['server.created', 'server.deleted']
     with pytest.raises(inventory.NotFound), store.connect() as conn:
         inventory.delete_server(conn, p, world['a']['id'], 1, author)
+
+
+# Membership and external services
+
+
+def members(conn, environment_id) -> list:
+    return [
+        r['server_id']
+        for r in conn.execute('SELECT server_id FROM ka.environment_servers WHERE environment_id=%s', (environment_id,))
+    ]
+
+
+def actions(conn, environment_id, action) -> list:
+    return [r for r in audit(conn, environment_id) if r['action'] == action]
+
+
+def test_a_deployment_adds_its_server_to_the_environment_once(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        prod = world['prod']['id']
+        assert sorted(members(conn, prod)) == sorted([world['a']['id'], world['b']['id']])
+        [added_a] = [
+            r for r in actions(conn, prod, 'membership.added') if r['details']['server_id'] == str(world['a']['id'])
+        ]
+        assert added_a['actor_id'] == world['actor']
+        values = {'service_id': world['db']['id'], 'server_id': world['a']['id'], 'environment_id': prod}
+        inventory.create_deployment(conn, p, values, author)
+        assert len(actions(conn, prod, 'membership.added')) == 2  # a was a member already
+        test = inventory.create_environment(conn, p, {'name': 'test'}, author)
+        inventory.update_deployment(conn, p, world['db_b']['id'], 1, {'environment_id': test['id']}, author)
+        assert members(conn, test['id']) == [world['b']['id']]
+        assert world['b']['id'] in members(conn, prod)  # moving a deployment keeps the old membership
+        listed = {s['name']: s['environment_ids'] for s in inventory.list_servers(conn, p)}
+        assert listed == {'a': [prod], 'b': sorted([prod, test['id']], key=str)}
+
+
+def test_adding_a_server_is_idempotent_and_an_empty_server_is_listed(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        c = inventory.create_server(conn, p, {'name': 'c', 'hostname': 'c.internal'}, author)
+        prod = world['prod']['id']
+        assert inventory.add_server_to_environment(conn, p, prod, c['id'], author) is True
+        assert inventory.add_server_to_environment(conn, p, prod, c['id'], author) is False
+        added = [r for r in actions(conn, prod, 'membership.added') if r['details']['server_id'] == str(c['id'])]
+        assert len(added) == 1
+        assert [s['name'] for s in inventory.list_servers(conn, p, environment_id=prod)] == ['a', 'b', 'c']
+        assert [e['name'] for e in inventory.list_environments(conn, p, server_id=c['id'])] == ['prod']
+        with pytest.raises(inventory.NotFound):
+            inventory.add_server_to_environment(conn, p, uuid4(), c['id'], author)
+        with pytest.raises(inventory.NotFound):
+            inventory.add_server_to_environment(conn, p, prod, uuid4(), author)
+
+
+def test_removing_a_server_is_refused_while_it_has_deployments_there(store, world):
+    p, author = world['project'], world['author']
+    prod = world['prod']['id']
+    with pytest.raises(Invalid) as refused, store.connect() as conn:
+        inventory.remove_server_from_environment(conn, p, prod, world['a']['id'], author)
+    assert str(refused.value) == 'Remove the deployments on this server in this environment first.'
+    with store.connect() as conn:
+        inventory.delete_deployment(conn, p, world['api_a']['id'], 1, author)
+        assert world['a']['id'] in members(conn, prod)  # the last deployment gone: still a member, empty
+        assert [s['name'] for s in inventory.list_servers(conn, p, environment_id=prod)] == ['a', 'b']
+        inventory.remove_server_from_environment(conn, p, prod, world['a']['id'], author)
+        assert members(conn, prod) == [world['b']['id']]
+        [removed] = actions(conn, prod, 'membership.removed')
+        assert removed['details']['server_id'] == str(world['a']['id'])
+        with pytest.raises(inventory.NotFound):
+            inventory.remove_server_from_environment(conn, p, prod, world['a']['id'], author)
+
+
+def test_a_connection_to_an_external_service_only(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        mail = inventory.create_service(
+            conn, p, {'name': 'mail', 'service_type': 'external', 'address': 'mail.example.com'}, author
+        )
+        assert mail['address'] == 'mail.example.com'
+        values = {'from_deployment_id': world['api_a']['id'], 'to_service_id': mail['id'], 'port': 25}
+        connection = inventory.create_connection(conn, p, values, author)
+        assert (connection['to_service_id'], connection['port']) == (mail['id'], 25)
+        assert [c['id'] for c in inventory.list_connections(conn, p, service_id=mail['id'])] == [connection['id']]
+    with pytest.raises(Invalid) as refused, store.connect() as conn:
+        values = {'from_deployment_id': world['api_a']['id'], 'to_service_id': world['db']['id']}
+        inventory.create_connection(conn, p, values, author)
+    assert str(refused.value) == 'Connect to an external service, or to a deployment of this service.'
+
+
+def test_a_targeted_service_cannot_stop_being_external(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        mail = inventory.create_service(conn, p, {'name': 'mail', 'service_type': 'external'}, author)
+        values = {'from_deployment_id': world['api_a']['id'], 'to_service_id': mail['id']}
+        inventory.create_connection(conn, p, values, author)
+    with pytest.raises(Invalid) as refused, store.connect() as conn:
+        inventory.update_service(conn, p, mail['id'], 1, {'service_type': 'custom'}, author)
+    assert str(refused.value) == 'This service is the target of connections; remove them or keep the type external.'
+    with store.connect() as conn:
+        saved = inventory.get(conn, p, 'service', mail['id'])
+        assert (saved['service_type'], saved['revision']) == ('external', 1)
+        assert inventory.update_service(conn, p, mail['id'], 1, {'description': 'Mail'}, author)['revision'] == 2
+
+
+def test_deleting_an_external_service_removes_its_connections(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        mail = inventory.create_service(conn, p, {'name': 'mail', 'service_type': 'external'}, author)
+        values = {'from_deployment_id': world['api_a']['id'], 'to_service_id': mail['id'], 'port': 25}
+        connection = inventory.create_connection(conn, p, values, author)
+        inventory.delete_service(conn, p, mail['id'], 1, author)
+        assert inventory.list_connections(conn, p) == []
+        [*_, row] = audit(conn, mail['id'])
+        assert (row['action'], row['details']['connection_ids']) == ('service.deleted', [str(connection['id'])])

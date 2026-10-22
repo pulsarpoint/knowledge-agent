@@ -52,6 +52,9 @@ def test_fresh_workspace_fixture_is_active_and_edits_are_drafts(store, tmp_path)
 def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(store, tmp_path):
     with store.connect() as conn:
         # 0104's views read documents.phase_metadata, which 0073's rollback drops: roll 0104 back first (0107 before it).
+        conn.execute(
+            (MIGRATIONS / '0127_environment_workspace.down.sql').read_text(), prepare=False
+        )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((MIGRATIONS / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0107_inventory_document.down.sql').read_text(), prepare=False)

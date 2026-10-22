@@ -22,7 +22,7 @@ RELATION_KINDS = ('depends_on', 'part_of', 'built_from')
 PROTOCOL = re.compile(r'[a-z0-9.+-]{1,20}')
 LABEL = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?')
 SERVER_FIELDS = ('name', 'hostname', 'description', 'tags', 'ssh_allowed')
-SERVICE_FIELDS = ('name', 'service_type', 'service_role', 'description', 'owner')
+SERVICE_FIELDS = ('name', 'service_type', 'service_role', 'description', 'owner', 'address')
 ENVIRONMENT_FIELDS = ('name', 'description')
 DEPLOYMENT_FIELDS = (
     'service_id',
@@ -34,8 +34,20 @@ DEPLOYMENT_FIELDS = (
     'log_location',
     'deployed_version',
 )
-CONNECTION_FIELDS = ('from_deployment_id', 'to_deployment_id', 'to_host', 'port', 'protocol', 'description')
+CONNECTION_FIELDS = (
+    'from_deployment_id',
+    'to_deployment_id',
+    'to_host',
+    'to_service_id',
+    'port',
+    'protocol',
+    'description',
+)
 RELATION_FIELDS = ('from_service_id', 'kind', 'to_service_id', 'to_code_project_id', 'description')
+
+
+NOT_EXTERNAL_TARGET = 'Connect to an external service, or to a deployment of this service.'
+TARGETED_TYPE = 'This service is the target of connections; remove them or keep the type external.'
 
 
 class Invalid(ValueError):
@@ -138,7 +150,12 @@ def server(values: dict) -> dict:
     }
 
 
+def _host(values: dict, key: str) -> str | None:
+    return None if values.get(key) in (None, '') else host(values[key])
+
+
 def service(values: dict) -> dict:
+    """address: where an external service is reached (an IP address or hostname), optional."""
     _fields(values, SERVICE_FIELDS)
     return {
         'name': _text(values, 'name', 200, required=True),
@@ -146,7 +163,21 @@ def service(values: dict) -> dict:
         'service_role': _choice(values, 'service_role', SERVICE_ROLES, 'unclassified'),
         'description': _text(values, 'description', 4000),
         'owner': _text(values, 'owner', 200),
+        'address': _host(values, 'address'),
     }
+
+
+def check_target_service(service_type: str) -> str | None:
+    """A connection's to_service_id names an external service; a service of another type is reached through one of
+    its deployments."""
+    return None if service_type == 'external' else NOT_EXTERNAL_TARGET
+
+
+def check_type_change(old_type: str, new_type: str, targeted: bool) -> str | None:
+    """An external service that connections point to keeps its type."""
+    if targeted and old_type == 'external' and new_type != 'external':
+        return TARGETED_TYPE
+    return None
 
 
 def environment(values: dict) -> dict:
@@ -169,14 +200,16 @@ def deployment(values: dict) -> dict:
 
 
 def connection(values: dict) -> dict:
-    """From a deployment to exactly one target: another deployment, or an external host (which needs a port). A
-    connection to a deployment without a port takes the target's port in the store."""
+    """From a deployment to exactly one target: another deployment, an external service (its type is the store's
+    check), or an external host (which needs a port). A connection to a deployment without a port takes the target's
+    port in the store."""
     _fields(values, CONNECTION_FIELDS)
     source = _id(values, 'from_deployment_id')
     target = _id(values, 'to_deployment_id', required=False)
-    to_host = None if values.get('to_host') in (None, '') else host(values['to_host'])
-    if (target is None) == (to_host is None):
-        raise Invalid('Connect to either a deployment or an external host')
+    to_service = _id(values, 'to_service_id', required=False)
+    to_host = _host(values, 'to_host')
+    if [target, to_host, to_service].count(None) != 2:
+        raise Invalid('Connect to a deployment, an external service or an external host')
     if target == source:
         raise Invalid('A deployment cannot connect to itself')
     port = _port(values)
@@ -189,6 +222,7 @@ def connection(values: dict) -> dict:
         'from_deployment_id': source,
         'to_deployment_id': target,
         'to_host': to_host,
+        'to_service_id': to_service,
         'port': port,
         'protocol': protocol,
         'description': _text(values, 'description', 4000),

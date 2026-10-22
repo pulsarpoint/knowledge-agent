@@ -1,7 +1,7 @@
 """The service and environment records the Services and Environments lists show, built from the store's reads (they
 replace the service_assets and environment_assets views): a service's environments are those of its deployments, its
 code projects its built_from relations, its dependencies and dependents its depends_on relations; an environment holds
-the services and servers deployed in it."""
+the services deployed in it and the servers in it (ka.environment_servers)."""
 
 from uuid import UUID
 
@@ -101,10 +101,10 @@ def service_assets(conn, project_id: UUID, service_id: UUID | None = None) -> li
 
 
 def environment_assets(conn, project_id: UUID, environment_id: UUID | None = None) -> list[dict]:
-    """The project's environments (or the one environment) with the services and servers deployed in them, by
-    name."""
+    """The project's environments (or the one environment) with the services deployed in them and the servers in
+    them, by name."""
     services = {s['id']: s for s in store.list_services(conn, project_id)}
-    servers = {s['id']: s for s in store.list_servers(conn, project_id)}
+    servers = {s['id']: s for s in store.list_servers(conn, project_id)}  # each with its environment_ids
     deployments = [  # not one snapshot: a deployment added after its service or server was read is left out
         d
         for d in store.list_deployments(conn, project_id, environment_id=environment_id)
@@ -118,8 +118,9 @@ def environment_assets(conn, project_id: UUID, environment_id: UUID | None = Non
                 for key in {d['service_id'] for d in deployments if d['environment_id'] == environment['id']}
             ),
             'servers': _by_name(
-                {'id': key, 'name': servers[key]['name'], 'hostname': servers[key]['hostname']}
-                for key in {d['server_id'] for d in deployments if d['environment_id'] == environment['id']}
+                {'id': s['id'], 'name': s['name'], 'hostname': s['hostname']}
+                for s in servers.values()
+                if environment['id'] in s['environment_ids']
             ),
         }
         for environment in store.list_environments(conn, project_id)

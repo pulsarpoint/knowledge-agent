@@ -111,7 +111,11 @@ def test_a_new_server_has_no_ssh_access_and_the_lists_read_it(client):
         ('environments', {'name': 'x', 'service_ids': []}, 'Unknown field: service_ids'),
         ('environments', {'name': 'x', 'revision': 1}, 'Unknown field: revision'),
         ('deployments', {'service_id': 'nope'}, 'service_id must be an id'),
-        ('connections', {'from_deployment_id': str(uuid4())}, 'Connect to either a deployment or an external host'),
+        (
+            'connections',
+            {'from_deployment_id': str(uuid4())},
+            'Connect to a deployment, an external service or an external host',
+        ),
         ('relations', {'from_service_id': str(uuid4()), 'kind': 'likes'}, 'kind must be one of'),
     ],
 )
@@ -281,3 +285,40 @@ def test_a_write_needs_the_persons_identity(client):
     headers = {k: v for k, v in HEADERS.items() if k.lower() != 'x-forwarded-user'}
     assert client.post('/api/services', headers=headers, json={'name': 'x'}).status_code == 403
     assert client.get('/api/services', headers=HEADERS).json()['services'] == []
+
+
+def test_a_server_is_put_in_and_removed_from_an_environment(client, store, world):
+    spare = made(client, 'servers', name='spare', hostname='spare.internal')
+    prod = world['prod']['id']
+    url = f'/api/environments/{prod}/servers/{spare["id"]}'
+    assert client.put(url, headers=HEADERS).status_code == 204
+    assert client.put(url, headers=HEADERS).status_code == 204  # already a member
+    servers = client.get(f'/api/environments/{prod}/servers', headers=HEADERS).json()['servers']
+    assert [s['name'] for s in servers] == ['a', 'b', 'spare']
+    [environment] = client.get('/api/environments', headers=HEADERS).json()['environments']
+    assert [s['name'] for s in environment['servers']] == ['a', 'b', 'spare']
+    assert client.delete(url, headers=HEADERS).status_code == 204
+    assert client.delete(url, headers=HEADERS).status_code == 404
+    assert audit_actions(store, prod).count(('membership.added', True)) == 3
+    assert audit_actions(store, prod).count(('membership.removed', True)) == 1
+
+    refused = client.delete(f'/api/environments/{prod}/servers/{world["a"]["id"]}', headers=HEADERS)
+    assert error(refused) == (400, 'Remove the deployments on this server in this environment first.')
+    for path in (f'/api/environments/{uuid4()}/servers/{spare["id"]}', f'/api/environments/{prod}/servers/{uuid4()}'):
+        assert client.put(path, headers=HEADERS).status_code == 404
+        assert client.delete(path, headers=HEADERS).status_code == 404
+
+
+def test_an_external_service_with_an_address_is_a_connection_target(client, world):
+    mail = made(client, 'services', name='mail', service_type='external', address='mail.example.com')
+    assert mail['address'] == 'mail.example.com'
+    connection = made(client, 'connections', from_deployment_id=world['api_a']['id'], to_service_id=mail['id'], port=25)
+    assert connection['to_service_id'] == mail['id']
+    changed = client.put(f'/api/services/{mail["id"]}', headers=HEADERS, json={'revision': 1, 'service_type': 'custom'})
+    assert error(changed) == (400, 'This service is the target of connections; remove them or keep the type external.')
+    custom = client.post(
+        '/api/connections',
+        headers=HEADERS,
+        json={'from_deployment_id': world['api_a']['id'], 'to_service_id': world['db']['id']},
+    )
+    assert error(custom) == (400, 'Connect to an external service, or to a deployment of this service.')

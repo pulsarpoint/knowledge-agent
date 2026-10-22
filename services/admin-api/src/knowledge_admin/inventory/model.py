@@ -1,7 +1,8 @@
-"""The environment model: one environment's servers with their deployments, its services, the connections touching it
-(an end in another environment is named in `outside`), external hosts with their ports, and the relations of its
-services. build_model is pure: it takes the project's rows (store.load_model_rows) and picks named fields only, so
-nothing secret (SSH username, port, access or credential settings) reaches it."""
+"""The environment model: one environment's servers (its members, each with its deployments there, possibly none), its
+services, the connections touching it (an end in another environment is named in `outside`; a connection to an external
+service names it), the external services and the bare external hosts its connections reach with their ports, and the
+relations of its services. build_model is pure: it takes the project's rows (store.load_model_rows) and picks named
+fields only, so nothing secret (SSH username, port, access or credential settings) reaches it."""
 
 SERVER_FIELDS = ('id', 'name', 'hostname', 'description', 'tags', 'revision')
 SERVICE_FIELDS = ('id', 'name', 'service_type', 'service_role', 'description', 'owner', 'revision')
@@ -10,6 +11,7 @@ CONNECTION_FIELDS = (
     'from_deployment_id',
     'to_deployment_id',
     'to_host',
+    'to_service_id',
     'port',
     'protocol',
     'description',
@@ -51,8 +53,10 @@ def build_model(
     connections: list[dict],
     relations: list[dict],
     code_projects: list[dict],
+    memberships: list[dict] = (),
 ) -> dict:
-    """Rows are the project's (deployments carry environment_name); connections and relations keep their order."""
+    """Rows are the project's (deployments carry environment_name; memberships are {environment_id, server_id});
+    connections and relations keep their order. A deployment's server is listed even without its membership row."""
     server_by_id = {s['id']: s for s in servers}
     service_by_id = {s['id']: s for s in services}
     code_project_by_id = {c['id']: c for c in code_projects}
@@ -60,6 +64,8 @@ def build_model(
     inside = [d for d in deployments if d['environment_id'] == environment['id']]
     inside_ids = {d['id'] for d in inside}
     service_ids = {d['service_id'] for d in inside}
+    member_ids = {m['server_id'] for m in memberships if m['environment_id'] == environment['id']}
+    member_ids |= {d['server_id'] for d in inside}
 
     def deployment(d: dict) -> dict:
         return {
@@ -80,16 +86,23 @@ def build_model(
 
     model_servers = [
         {**_pick(s, SERVER_FIELDS), 'deployments': on_server(s['id'])}
-        for s in _by_name([server_by_id[i] for i in {d['server_id'] for d in inside}])
+        for s in _by_name([server_by_id[i] for i in member_ids])
     ]
 
     model_connections = []
     external: dict[str, set] = {}
+    external_services: dict = {}
     for c in connections:
         ends = [c['from_deployment_id'], c['to_deployment_id']]
         if not inside_ids.intersection(ends):
             continue
         item = _pick(c, CONNECTION_FIELDS)
+        item['to_service_name'] = None
+        if c['to_service_id'] is not None:
+            item['to_service_name'] = service_by_id[c['to_service_id']]['name']
+            ports = external_services.setdefault(c['to_service_id'], set())
+            if c['port'] is not None:
+                ports.add(c['port'])
         outside = [end for end in ends if end is not None and end not in inside_ids]
         if outside:
             other = deployment_by_id[outside[0]]
@@ -118,6 +131,13 @@ def build_model(
         'connections': model_connections,
         'relations': model_relations,
         'external': [{'host': host, 'ports': sorted(ports)} for host, ports in sorted(external.items())],
+        'external_services': [
+            {
+                **_pick(s, ('id', 'name', 'address', 'description', 'revision')),
+                'ports': sorted(external_services[s['id']]),
+            }
+            for s in _by_name([service_by_id[i] for i in external_services])
+        ],
     }
 
 
@@ -129,14 +149,16 @@ def build_project(
     connections: list[dict],
     relations: list[dict],
     code_projects: list[dict],
+    memberships: list[dict] = (),
 ) -> dict:
-    """The model of every environment (by name) and what no environment holds: the servers and services with no
-    deployment, and the relations no model lists (between such services, or from one to a code project)."""
+    """The model of every environment (by name) and what no environment holds: the servers in no environment, the
+    services with no deployment, and the relations no model lists (between such services, or from one to a code
+    project)."""
     models = [
-        build_model(e, servers, services, deployments, connections, relations, code_projects)
+        build_model(e, servers, services, deployments, connections, relations, code_projects, memberships)
         for e in _by_name(environments)
     ]
-    placed_servers = {d['server_id'] for d in deployments}
+    placed_servers = {d['server_id'] for d in deployments} | {m['server_id'] for m in memberships}
     placed_services = {d['service_id'] for d in deployments}
     held = {r['id'] for m in models for r in m['relations']}
     service_by_id = {s['id']: s for s in services}
