@@ -21,6 +21,7 @@ const SERVICES = {
     { id: "api", name: "api", deployments: [deployment("d-api", "web-1", 8080)] },
     { id: "pg", name: "pg", deployments: [deployment("d-pg", "db-1", 5432)] },
     { id: "worker", name: "worker", deployments: [] },
+    { id: "stripe", name: "stripe", service_type: "external", address: "api.stripe.com", deployments: [] },
   ],
 };
 const connection = {
@@ -143,6 +144,7 @@ test("adds a connection to another deployment with the target's port prefilled",
   await user.click(form.getByRole("combobox", { name: "To" }));
   expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
     "pg on db-1 (prod)",
+    "stripe · api.stripe.com",
     "An external host",
   ]);
   await user.click(screen.getByRole("option", { name: "pg on db-1 (prod)" }));
@@ -196,6 +198,53 @@ test("adds a connection to an external host", async () => {
       protocol: "smtp",
       description: "",
     }),
+  );
+});
+
+test("a connection to an external service reads by its name, edits and saves with to_service_id", async () => {
+  const user = userEvent.setup();
+  const toStripe = { ...connection, to_deployment_id: null, to_service_id: "stripe", port: 443, protocol: "https" };
+  let put: unknown = null;
+  let posted: unknown = null;
+  server({
+    ...reads([toStripe], []),
+    [`GET ${DOCS}`]: () => ({ json: none }),
+    ["PUT /api/connections/c1"]: (init) => {
+      put = JSON.parse(String(init?.body));
+      return { json: { ...toStripe, revision: 2 } };
+    },
+    ["POST /api/connections"]: (init) => {
+      posted = JSON.parse(String(init?.body));
+      return { status: 201, json: toStripe };
+    },
+  });
+  sheet();
+  const text = "api on web-1 (prod) → stripe :443 https";
+  await user.click(await screen.findByRole("button", { name: `Edit ${text}` }));
+  const edit = within(screen.getByRole("form", { name: `Edit ${text}` }));
+  expect(edit.getByRole("combobox", { name: "To" })).toHaveTextContent("stripe · api.stripe.com");
+  expect(edit.queryByLabelText("Host")).toBeNull();
+  await user.clear(edit.getByLabelText("Description"));
+  await user.type(edit.getByLabelText("Description"), "card payments");
+  await user.click(edit.getByRole("button", { name: "Save connection" }));
+  await waitFor(() =>
+    expect(put).toEqual({
+      from_deployment_id: "d-api",
+      to_deployment_id: null,
+      to_service_id: "stripe",
+      to_host: null,
+      port: 443,
+      protocol: "https",
+      description: "card payments",
+      revision: 1,
+    }),
+  );
+  const form = within(await screen.findByRole("region", { name: "New connection" }));
+  await user.click(form.getByRole("combobox", { name: "To" }));
+  await user.click(screen.getByRole("option", { name: "stripe · api.stripe.com" }));
+  await user.click(form.getByRole("button", { name: "Add connection" }));
+  await waitFor(() =>
+    expect(posted).toMatchObject({ from_deployment_id: "d-api", to_deployment_id: null, to_service_id: "stripe" }),
   );
 });
 

@@ -41,14 +41,16 @@ import { Textarea } from "~/components/ui/textarea";
 
 const say = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
 const EXTERNAL = "external";
+const SERVICE = "service:"; // the To value of an external service: "service:<id>"
 
-/** A connection's fields: from one of the service's deployments to another deployment (its port prefilled) or to an
- * external host. */
+/** A connection's fields: from one of the service's deployments to another deployment (its port prefilled), to an
+ * external service, or to an external host. */
 function ConnectionForm({
   id,
   label,
   from,
   deployments,
+  externals,
   initial,
   submitLabel,
   onSubmit,
@@ -58,13 +60,18 @@ function ConnectionForm({
   label: string;
   from: DeploymentLabel[];
   deployments: DeploymentLabel[];
+  externals: { id: string; label: string }[];
   initial?: Connection;
   submitLabel: string;
   onSubmit: (value: ConnectionValue) => Promise<boolean>;
   onCancel?: () => void;
 }) {
   const [source, setSource] = useState(initial?.from_deployment_id ?? from[0]?.id ?? "");
-  const [target, setTarget] = useState(initial ? (initial.to_deployment_id ?? EXTERNAL) : "");
+  const [target, setTarget] = useState(
+    initial
+      ? (initial.to_deployment_id ?? (initial.to_service_id ? `${SERVICE}${initial.to_service_id}` : EXTERNAL))
+      : "",
+  );
   const [host, setHost] = useState(initial?.to_host ?? "");
   const [port, setPort] = useState(initial?.port?.toString() ?? "");
   const [protocol, setProtocol] = useState(initial?.protocol ?? "tcp");
@@ -75,10 +82,11 @@ function ConnectionForm({
     event.preventDefault();
     setBusy(true);
     const external = target === EXTERNAL;
+    const service = target.startsWith(SERVICE) ? target.slice(SERVICE.length) : null;
     const saved = await onSubmit({
       from_deployment_id: source,
-      to_deployment_id: external ? null : target,
-      to_service_id: null,
+      to_deployment_id: external || service ? null : target,
+      to_service_id: service,
       to_host: external ? host.trim() : null,
       port: port === "" ? null : Number(port),
       protocol: protocol.trim(),
@@ -124,13 +132,18 @@ function ConnectionForm({
             }}
           >
             <SelectTrigger id={`${id}-to`} className="w-full">
-              <SelectValue placeholder="Choose a deployment or an external host" />
+              <SelectValue placeholder="Choose a deployment, an external service or a host" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
                 {targets.map((deployment) => (
                   <SelectItem key={deployment.id} value={deployment.id}>
                     {deployment.label}
+                  </SelectItem>
+                ))}
+                {externals.map((service) => (
+                  <SelectItem key={service.id} value={`${SERVICE}${service.id}`}>
+                    {service.label}
                   </SelectItem>
                 ))}
                 <SelectItem value={EXTERNAL}>An external host</SelectItem>
@@ -301,6 +314,8 @@ interface ServiceLinks {
   deployments: Map<string, DeploymentLabel>;
   names: Map<string, string>;
   services: { id: string; name: string }[];
+  /** External services, the connection targets beside deployments: "stripe · api.stripe.com". */
+  externals: { id: string; label: string }[];
   codeProjects: { id: string; name: string }[];
   connections: Connection[];
   relations: Relation[];
@@ -317,6 +332,9 @@ async function loadServiceLinks(serviceId: string): Promise<ServiceLinks> {
     deployments: deploymentLabels(services),
     names: new Map([...services, ...repositories].map((item) => [item.id, item.name])),
     services: services.map(({ id, name }) => ({ id, name })),
+    externals: services
+      .filter((service) => service.service_type === "external")
+      .map(({ id, name, address }) => ({ id, label: address ? `${name} · ${address}` : name })),
     codeProjects: repositories.map(({ id, name }) => ({ id, name })),
     connections,
     relations,
@@ -469,7 +487,7 @@ export default function EntrySheet({
                 ) : (
                   <ul className="flex flex-col gap-2 text-sm">
                     {links.connections.map((connection) => {
-                      const text = connectionText(connection, links.deployments);
+                      const text = connectionText(connection, links.deployments, links.names);
                       const outgoing = mine.some((deployment) => deployment.id === connection.from_deployment_id);
                       return (
                         <li key={connection.id} className="flex flex-col gap-1">
@@ -513,6 +531,7 @@ export default function EntrySheet({
                               label={`Edit ${text}`}
                               from={mine}
                               deployments={deployments}
+                              externals={links.externals}
                               initial={connection}
                               submitLabel="Save connection"
                               onCancel={() => setEditing(null)}
@@ -542,6 +561,7 @@ export default function EntrySheet({
                     label="New connection"
                     from={mine}
                     deployments={deployments}
+                    externals={links.externals}
                     submitLabel="Add connection"
                     onSubmit={(value) => act(() => createItem("connections", value), "Could not add the connection.")}
                   />

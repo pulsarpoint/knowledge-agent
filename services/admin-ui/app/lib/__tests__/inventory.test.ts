@@ -130,6 +130,13 @@ test("connections and relations read in words", () => {
       labels,
     ),
   ).toBe("api on web-1 (prod) → smtp.example.com :587 smtp");
+  expect(
+    connectionText(
+      { ...connection, to_deployment_id: null, to_service_id: "stripe", port: 443, protocol: "https" },
+      labels,
+      new Map([["stripe", "stripe"]]),
+    ),
+  ).toBe("api on web-1 (prod) → stripe :443 https");
   const names = new Map([
     ["api", "api"],
     ["pg", "pg"],
