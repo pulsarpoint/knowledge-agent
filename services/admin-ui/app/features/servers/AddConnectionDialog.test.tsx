@@ -13,10 +13,15 @@ const services = [
 
 afterEach(() => vi.unstubAllGlobals());
 
-function dialog(props: { from?: string[]; connection?: Connection } = {}) {
+function dialog(props: { from?: string[]; connection?: Connection; services?: typeof services } = {}) {
   const handlers = { onSaved: vi.fn(), onConflict: vi.fn(), onClose: vi.fn() };
   render(
-    <AddConnectionDialog from={props.from ?? ["d1"]} services={services} connection={props.connection} {...handlers} />,
+    <AddConnectionDialog
+      from={props.from ?? ["d1"]}
+      services={props.services ?? services}
+      connection={props.connection}
+      {...handlers}
+    />,
   );
   return handlers;
 }
@@ -40,7 +45,7 @@ test("the target picker groups deployments by environment and server, then exter
     ["prod / app-1", ["nginx"]],
     ["prod / db-1", ["postgres"]],
     ["staging / app-2", ["payments-api"]],
-    ["External services", ["stripe · api.stripe.com"]],
+    ["External services", ["stripe · api.stripe.com", "New external service"]],
     ["Other", ["A host"]],
   ]);
 });
@@ -83,6 +88,59 @@ test("a connection to an external service", async () => {
     to_host: null,
     port: 443,
     protocol: "https",
+  });
+});
+
+test("the External services group shows with no external services yet, offering a new one", async () => {
+  const user = userEvent.setup();
+  dialog({ services: services.filter((service) => service.service_type !== "external") });
+  await user.click(screen.getByRole("combobox", { name: "Target" }));
+  const group = within(screen.getByRole("listbox"))
+    .getAllByRole("group")
+    .find((item) => item.firstChild?.textContent === "External services")!;
+  expect(
+    within(group)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["New external service"]);
+});
+
+test("a new external service is created first, then the connection; a retry reuses the created service", async () => {
+  const user = userEvent.setup();
+  let refuse = true;
+  const calls = api({
+    "POST /api/services": (body) => [201, { id: "v9", revision: 1, ...body }],
+    "POST /api/connections": (body) =>
+      refuse ? [400, { error: { message: "Port must be between 1 and 65535" } }] : created(body),
+  });
+  const { onSaved } = dialog();
+  await user.click(screen.getByRole("combobox", { name: "Target" }));
+  await user.click(screen.getByRole("option", { name: "New external service" }));
+  await user.type(screen.getByLabelText("Name"), "sendgrid");
+  await user.type(screen.getByLabelText("Address"), "api.sendgrid.com");
+  await user.type(screen.getByLabelText("Service description"), "Sends email");
+  await user.type(screen.getByLabelText("Port"), "443");
+  await user.click(screen.getByRole("button", { name: "Add connection" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Port must be between 1 and 65535");
+  refuse = false;
+  await user.click(screen.getByRole("button", { name: "Add connection" }));
+  await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(calls.map((call) => call.key)).toEqual([
+    "POST /api/services",
+    "POST /api/connections",
+    "POST /api/connections",
+  ]);
+  expect(calls[0].body).toEqual({
+    name: "sendgrid",
+    service_type: "external",
+    address: "api.sendgrid.com",
+    description: "Sends email",
+  });
+  expect(calls[2].body).toMatchObject({
+    from_deployment_id: "d1",
+    to_service_id: "v9",
+    to_deployment_id: null,
+    port: 443,
   });
 });
 
