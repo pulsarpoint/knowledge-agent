@@ -6,6 +6,7 @@ import type { EnvironmentAsset } from "~/features/servers/environments";
 import type { Repository } from "~/features/codeProjects/api";
 import type { ServerAsset } from "~/features/servers/api";
 import type { ServiceAsset } from "~/features/servers/services";
+import type { Deployment, Relation } from "~/features/servers/inventory";
 
 const repos: Repository[] = ["API", "Shared"].map((name, index) => ({
   id: `repo-${index}`,
@@ -79,51 +80,85 @@ const environments: EnvironmentAsset[] = ["production", "staging"].map((name, in
   servers: [],
 }));
 
+const savedDeployment: Deployment = {
+  id: "deployment-1",
+  service_id: "service-1",
+  server_id: server.id,
+  environment_id: "env-prod",
+  runtime: "Docker",
+  runtime_name: "payments-api",
+  port: 8080,
+  log_location: "container stdout",
+  deployed_version: "v1.2",
+  revision: 2,
+};
+const builtFrom = (repo: string, id: string): Relation => ({
+  id,
+  from_service_id: "service-1",
+  kind: "built_from",
+  to_service_id: null,
+  to_code_project_id: repo,
+  description: "",
+  revision: 1,
+});
+
+/** The services page against a fake API. Writes answer the saved item: the sent body with an id and a revision;
+ * `fail(url, init)` may answer a write with an error instead. */
 function setup(
   services: ServiceAsset[] = [],
   options: {
-    saveStatus?: number;
     noRepositories?: boolean;
     noEnvironments?: boolean;
     initialEntry?: string;
     onDelete?: () => Promise<Response>;
+    deployments?: Deployment[];
+    relations?: Relation[];
+    fail?: (url: string, init: RequestInit) => Response | undefined;
   } = {},
 ) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === "DELETE" && options.onDelete) return options.onDelete();
-    if (init?.method === "POST" && url.endsWith("/servers"))
+    const method = init?.method ?? "GET";
+    if (method !== "GET") {
+      const failed = options.fail?.(url, init!);
+      if (failed) return failed;
+    }
+    if (method === "DELETE" && options.onDelete) return options.onDelete();
+    if (method === "DELETE") return new Response(JSON.stringify({ id: url.split("/").pop()!.split("?")[0] }));
+    if (method === "POST" && url.endsWith("/servers"))
       return new Response(JSON.stringify({ ...server, id: "new-server" }), { status: 201 });
-    if (init?.method === "POST" || init?.method === "PUT") {
-      return new Response(
-        JSON.stringify(
-          options.saveStatus
-            ? { error: { message: "This service changed. Refresh and reopen the form." } }
-            : { id: "service-1", revision: 4 },
-        ),
-        { status: options.saveStatus ?? 201 },
-      );
+    if (method === "POST" || method === "PUT") {
+      const body = JSON.parse(init!.body as string);
+      const kind = url.split("/")[2];
+      const id = method === "PUT" ? url.split("/")[3] : kind === "services" ? "service-1" : `new-${kind}`;
+      return new Response(JSON.stringify({ ...body, id, revision: (body.revision ?? 0) + 1 }), {
+        status: method === "POST" ? 201 : 200,
+      });
     }
     return new Response(
       JSON.stringify(
-        url.endsWith("/repositories")
-          ? { repositories: options.noRepositories ? [] : repos }
-          : url.endsWith("/storage")
-            ? {
-                locations: [
-                  {
-                    id: "code",
-                    container_path: "/work/data/sources/code",
-                    host_path: "/opt/ka/sources/code",
-                    variable: "CODE_FOLDER",
-                    status: "available",
-                  },
-                ],
-              }
-            : url.endsWith("/servers")
-              ? { servers: [server] }
-              : url.endsWith("/environments")
-                ? { environments: options.noEnvironments ? [] : environments }
-                : { services },
+        url.endsWith("/deployments")
+          ? { deployments: options.deployments ?? [] }
+          : url.endsWith("/relations")
+            ? { relations: options.relations ?? [] }
+            : url.endsWith("/repositories")
+              ? { repositories: options.noRepositories ? [] : repos }
+              : url.endsWith("/storage")
+                ? {
+                    locations: [
+                      {
+                        id: "code",
+                        container_path: "/work/data/sources/code",
+                        host_path: "/opt/ka/sources/code",
+                        variable: "CODE_FOLDER",
+                        status: "available",
+                      },
+                    ],
+                  }
+                : url.endsWith("/servers")
+                  ? { servers: [server] }
+                  : url.endsWith("/environments")
+                    ? { environments: options.noEnvironments ? [] : environments }
+                    : { services },
       ),
     );
   });
@@ -135,6 +170,12 @@ function setup(
   );
   return fetch;
 }
+
+/** The writes sent, in order: [method, url, body]. */
+const writes = (fetch: ReturnType<typeof setup>) =>
+  fetch.mock.calls
+    .filter(([, init]) => init?.method && init.method !== "GET")
+    .map(([url, init]) => [init!.method, url, init!.body ? JSON.parse(init!.body as string) : undefined]);
 
 test("service deletion asks for confirmation and Cancel preserves the service", async () => {
   const fetch = setup([service]);
@@ -165,7 +206,7 @@ test("deletion sends the revision, waits for success and removes the row and its
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: /Delete service/ })).toBeDisabled();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toEqual([
-    ["/api/services/service-1?revision=3&confirmed=true", { method: "DELETE" }],
+    ["/api/services/service-1?revision=3", { method: "DELETE" }],
   ]);
   services.splice(0);
   await act(async () => {
@@ -196,58 +237,125 @@ test("failed deletion keeps the dialog and service available", async () => {
   expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
 });
 
-test("create links several repositories without requiring known deployment details", async () => {
+test("create saves the service, then a built_from relation per code project", async () => {
   const fetch = setup();
   await screen.findByText("Build your service inventory");
   fireEvent.click(screen.getByRole("button", { name: "Add service" }));
   fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "Payments" } });
   expect(screen.queryByLabelText(/Behavior and investigation notes/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Environments" })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "API" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Shared" }));
   fireEvent.click(screen.getByRole("button", { name: "Save service" }));
   await screen.findByRole("status");
-  const request = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
-  expect(JSON.parse(request[1]!.body as string)).toEqual({
-    name: "Payments",
-    service_type: "custom",
-    service_role: "application",
-    owner: "",
+  const built = (repo: string) => ({
+    from_service_id: "service-1",
+    kind: "built_from",
+    to_service_id: null,
+    to_code_project_id: repo,
     description: "",
-    repository_ids: ["repo-0", "repo-1"],
-    deployments: [],
-    dependencies: [],
-    dependents: [],
-    environment_ids: [],
   });
+  expect(writes(fetch)).toEqual([
+    [
+      "POST",
+      "/api/services",
+      { name: "Payments", service_type: "custom", service_role: "application", owner: "", description: "" },
+    ],
+    ["POST", "/api/relations", built("repo-0")],
+    ["POST", "/api/relations", built("repo-1")],
+  ]);
   await waitFor(() => expect(screen.getByRole("button", { name: "Add service" })).toBeEnabled());
 });
 
-test("edit preserves deployment identity and revision while removing a repository link", async () => {
-  const fetch = setup([service]);
+test("edit loads deployments and relations, updates only what changed and removes an unchecked code project", async () => {
+  const fetch = setup([service], {
+    deployments: [savedDeployment],
+    relations: [builtFrom("repo-0", "relation-0"), builtFrom("repo-1", "relation-1")],
+  });
   fireEvent.click(await screen.findByRole("button", { name: "Edit Payments" }));
-  expect(screen.getByRole("combobox", { name: "Environment" })).toHaveTextContent("production");
+  expect(await screen.findByRole("combobox", { name: "Environment" })).toHaveTextContent("production");
+  expect(screen.getByRole("checkbox", { name: "API" })).toBeChecked();
   fireEvent.click(screen.getByRole("checkbox", { name: "Shared" }));
   fireEvent.change(screen.getByLabelText("Deployed version (optional)"), { target: { value: "v1.3" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("status");
-  const request = fetch.mock.calls.find(([, init]) => init?.method === "PUT")!;
-  const value = JSON.parse(request[1]!.body as string);
-  expect(value.revision).toBe(3);
-  expect(value.repository_ids).toEqual(["repo-0"]);
-  expect(value.deployments[0]).toMatchObject({ id: "deployment-1", server_id: "server-1", deployed_version: "v1.3" });
-  expect(value.deployments[0]).not.toHaveProperty("server");
-  expect(value.deployments[0]).not.toHaveProperty("key");
+  expect(writes(fetch)).toEqual([
+    [
+      "PUT",
+      "/api/services/service-1",
+      {
+        name: "Payments",
+        service_type: "custom",
+        service_role: "application",
+        description: "Handles payments",
+        owner: "Backend",
+        revision: 3,
+      },
+    ],
+    ["PUT", "/api/deployments/deployment-1", { deployed_version: "v1.3", revision: 2 }],
+    ["DELETE", "/api/relations/relation-1?revision=1", undefined],
+  ]);
   await waitFor(() => expect(screen.getByRole("button", { name: "Edit Payments" })).toBeEnabled());
 });
 
-test("revision conflicts keep the unsaved form intact", async () => {
-  setup([service], { saveStatus: 409 });
+test("removing a saved deployment deletes it with its revision", async () => {
+  const fetch = setup([service], { deployments: [savedDeployment] });
   fireEvent.click(await screen.findByRole("button", { name: "Edit Payments" }));
-  fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "My unsaved name" } });
+  expect(await screen.findByText(/Removing a saved deployment also removes its network connections/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Remove deployment 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await screen.findByRole("status");
+  expect(writes(fetch).slice(1)).toEqual([["DELETE", "/api/deployments/deployment-1?revision=2", undefined]]);
+});
+
+test("revision conflicts keep the unsaved form intact", async () => {
+  setup([service], {
+    fail: (url) =>
+      url.startsWith("/api/services/")
+        ? new Response(JSON.stringify({ error: { message: "This service changed. Refresh and reopen the form." } }), {
+            status: 409,
+          })
+        : undefined,
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Payments" }));
+  fireEvent.change(await screen.findByLabelText("Service name"), { target: { value: "My unsaved name" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   expect(await screen.findByText("This service changed. Refresh and reopen the form.")).toBeInTheDocument();
   expect(screen.getByLabelText("Service name")).toHaveValue("My unsaved name");
   expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+});
+
+test("a failed write keeps the form open and saving again applies only the rest", async () => {
+  let failing = true;
+  const fetch = setup([postgres], {
+    fail: (url) =>
+      failing && url === "/api/relations"
+        ? new Response(
+            JSON.stringify({ error: { message: "Choose an existing service to relate to in this project" } }),
+            {
+              status: 400,
+            },
+          )
+        : undefined,
+  });
+  await screen.findByRole("button", { name: "Edit PostgreSQL" });
+  fireEvent.click(screen.getByRole("button", { name: "Add service" }));
+  fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "Payments" } });
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "Depends on" })).getByRole("checkbox", { name: "PostgreSQL" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save service" }));
+  expect(await screen.findByText("Choose an existing service to relate to in this project")).toBeInTheDocument();
+  failing = false;
+  fireEvent.click(screen.getByRole("button", { name: "Save service" }));
+  await screen.findByRole("status");
+  expect(writes(fetch).map(([method, url]) => `${method} ${url}`)).toEqual([
+    "POST /api/services",
+    "POST /api/relations",
+    "PUT /api/services/service-1",
+    "POST /api/relations",
+  ]);
+  expect(writes(fetch)[2][2]).toMatchObject({ revision: 1 });
 });
 
 test("server registration assigns the new server without submitting the service", async () => {
@@ -268,11 +376,20 @@ test("server registration assigns the new server without submitting the service"
   await user.click(screen.getByRole("option", { name: "staging" }));
   fireEvent.click(screen.getByRole("button", { name: "Save service" }));
   await screen.findByRole("status");
-  const request = fetch.mock.calls.find(([url, init]) => url.endsWith("/services") && init?.method === "POST")!;
-  expect(JSON.parse(request[1]!.body as string).deployments[0]).toMatchObject({
-    server_id: "new-server",
-    environment: "staging",
-  });
+  expect(writes(fetch).find(([, url]) => url === "/api/deployments")).toEqual([
+    "POST",
+    "/api/deployments",
+    {
+      service_id: "service-1",
+      server_id: "new-server",
+      environment_id: "env-stage",
+      runtime: "",
+      runtime_name: "",
+      port: null,
+      log_location: "",
+      deployed_version: "",
+    },
+  ]);
   await waitFor(() => expect(screen.getByRole("button", { name: "Add service" })).toBeEnabled());
 });
 
@@ -287,6 +404,20 @@ test("missing server selection is explained before saving", async () => {
   await user.click(screen.getByRole("option", { name: "staging" }));
   fireEvent.click(screen.getByRole("button", { name: "Save service" }));
   expect(await screen.findByText("Choose a server for each deployment.")).toBeInTheDocument();
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+});
+
+test("each deployment needs an environment before saving", async () => {
+  const fetch = setup();
+  await screen.findByText("Build your service inventory");
+  fireEvent.click(screen.getByRole("button", { name: "Add service" }));
+  fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "API" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add deployment" }));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("combobox", { name: "Server" }));
+  await user.click(screen.getByRole("option", { name: /App host/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Save service" }));
+  expect(await screen.findByText("Choose an environment for each deployment.")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 });
 
@@ -350,69 +481,12 @@ const reporting: ServiceAsset = {
   service_role: "application",
 };
 
-test("selects multiple available environments without requiring a deployment", async () => {
-  const user = userEvent.setup();
-  const fetch = setup();
-  await screen.findByText("Build your service inventory");
-  await user.click(screen.getByRole("button", { name: "Add service" }));
-  await user.type(screen.getByLabelText("Service name"), "Shared API");
-  await user.click(screen.getByRole("button", { name: "Environments" }));
-  await user.click(screen.getByRole("menuitemcheckbox", { name: "production" }));
-  await user.click(screen.getByRole("menuitemcheckbox", { name: "staging" }));
-  expect(screen.getByRole("menuitemcheckbox", { name: "production" })).toBeChecked();
-  expect(screen.getByRole("menuitemcheckbox", { name: "staging" })).toBeChecked();
-  await user.keyboard("{Escape}");
-  expect(screen.getByRole("button", { name: "Environments" })).toHaveTextContent("2 environments selected");
-  await user.click(screen.getByRole("button", { name: "Save service" }));
-  await screen.findByRole("status");
-  const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
-  expect(body.environment_ids).toEqual(["env-prod", "env-stage"]);
-  expect(body.deployments).toEqual([]);
-});
-
-test("deployment environments stay selected until their deployment is removed", async () => {
-  const user = userEvent.setup();
-  const fetch = setup([service]);
-  await user.click(await screen.findByRole("button", { name: "Edit Payments" }));
-  await user.click(screen.getByRole("button", { name: "Environments" }));
-  expect(screen.getByRole("menuitemcheckbox", { name: "production" })).toBeChecked();
-  expect(screen.getByRole("menuitemcheckbox", { name: "production" })).toHaveAttribute("aria-disabled", "true");
-  await user.keyboard("{Escape}");
-  await user.click(screen.getByRole("button", { name: "Remove deployment 1" }));
-  await user.click(screen.getByRole("button", { name: "Environments" }));
-  await user.click(screen.getByRole("menuitemcheckbox", { name: "production" }));
-  await user.keyboard("{Escape}");
-  await user.click(screen.getByRole("button", { name: "Save changes" }));
-  await screen.findByRole("status");
-  const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string);
-  expect(body.environment_ids).toEqual([]);
-  expect(body.deployments).toEqual([]);
-});
-
 test("empty environment inventory explains how to add one", async () => {
   setup([], { noEnvironments: true });
   fireEvent.click(await screen.findByRole("button", { name: "Add your first service" }));
-  expect(screen.getByRole("button", { name: "Environments" })).toBeDisabled();
-  expect(screen.getByRole("link", { name: "Environments page" })).toHaveAttribute("href", "/environments");
   fireEvent.click(screen.getByRole("button", { name: "Add deployment" }));
   expect(screen.getByRole("combobox", { name: "Environment" })).toBeDisabled();
-});
-
-test("legacy deployment labels remain visible until explicitly linked", async () => {
-  const fetch = setup([
-    {
-      ...service,
-      environments: [],
-      deployments: [{ ...service.deployments[0], environment_id: null, environment: "Old lab" }],
-    },
-  ]);
-  fireEvent.click(await screen.findByRole("button", { name: "Edit Payments" }));
-  expect(screen.getByRole("combobox", { name: "Environment" })).toHaveTextContent("Old lab (unlinked label)");
-  expect(screen.getByText(/This saved label is not linked/)).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await screen.findByRole("status");
-  const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string);
-  expect(body.deployments[0]).toMatchObject({ id: "deployment-1", environment: "Old lab", environment_id: null });
+  expect(screen.getByRole("link", { name: "Environments page" })).toHaveAttribute("href", "/environments");
 });
 
 test("service classification loads saved values and submits changed type and role", async () => {
@@ -426,13 +500,20 @@ test("service classification loads saved values and submits changed type and rol
   await userEvent.click(screen.getByRole("option", { name: "Proxy" }));
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("status");
-  const request = fetch.mock.calls.find(([, init]) => init?.method === "PUT")!;
-  expect(JSON.parse(request[1]!.body as string)).toMatchObject({
-    service_type: "external",
-    service_role: "proxy",
-    deployments: [],
-    repository_ids: [],
-  });
+  expect(writes(fetch)).toEqual([
+    [
+      "PUT",
+      "/api/services/postgres",
+      {
+        name: "PostgreSQL",
+        service_type: "external",
+        service_role: "proxy",
+        description: "Stores application data",
+        owner: "Backend",
+        revision: 3,
+      },
+    ],
+  ]);
 });
 
 test("service list can be filtered by type or role", async () => {
@@ -445,7 +526,23 @@ test("service list can be filtered by type or role", async () => {
   }
 });
 
-test("create selects both relationship directions and retains selections when filtered", async () => {
+const relation = (
+  id: string,
+  kind: "depends_on" | "part_of",
+  from: string,
+  to: string,
+  description: string,
+): Relation => ({
+  id,
+  from_service_id: from,
+  kind,
+  to_service_id: to,
+  to_code_project_id: null,
+  description,
+  revision: 1,
+});
+
+test("create relates the new service in each direction and retains selections when filtered", async () => {
   const fetch = setup([postgres, reporting]);
   fireEvent.click(await screen.findByRole("button", { name: "Add service" }));
   fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "Payments" } });
@@ -459,6 +556,7 @@ test("create selects both relationship directions and retains selections when fi
   fireEvent.change(screen.getByLabelText("Why Reporting depends on Payments (optional)"), {
     target: { value: "Reads payments via API" },
   });
+  fireEvent.click(within(screen.getByRole("group", { name: "Parts" })).getByRole("checkbox", { name: "Reporting" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Filter depends on services" }), {
     target: { value: "missing" },
   });
@@ -466,22 +564,33 @@ test("create selects both relationship directions and retains selections when fi
   expect(dependencies.getByText(/1 selected/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Save service" }));
   await screen.findByRole("status");
-  const request = fetch.mock.calls.find(([url, init]) => url.endsWith("/services") && init?.method === "POST")!;
-  expect(JSON.parse(request[1]!.body as string)).toMatchObject({
-    dependencies: [{ service_id: "postgres", description: "Stores payment history" }],
-    dependents: [{ service_id: "reporting", description: "Reads payments via API" }],
-  });
+  const {
+    id: _1,
+    revision: _2,
+    ...dependsOn
+  } = relation("", "depends_on", "service-1", "postgres", "Stores payment history");
+  const {
+    id: _3,
+    revision: _4,
+    ...usedBy
+  } = relation("", "depends_on", "reporting", "service-1", "Reads payments via API");
+  const { id: _5, revision: _6, ...part } = relation("", "part_of", "reporting", "service-1", "");
+  expect(writes(fetch).slice(1)).toEqual([
+    ["POST", "/api/relations", dependsOn],
+    ["POST", "/api/relations", usedBy],
+    ["POST", "/api/relations", part],
+  ]);
 });
 
 test("edit loads both directions, excludes self and supports removal and reverse description changes", async () => {
-  const linked = {
-    ...service,
-    dependencies: [{ service_id: "postgres", name: "PostgreSQL", description: "Stores payments" }],
-    dependents: [{ service_id: "reporting", name: "Reporting", description: "Reads payments" }],
-  };
-  const fetch = setup([linked, postgres, reporting]);
+  const fetch = setup([service, postgres, reporting], {
+    relations: [
+      relation("r-postgres", "depends_on", "service-1", "postgres", "Stores payments"),
+      relation("r-reporting", "depends_on", "reporting", "service-1", "Reads payments"),
+    ],
+  });
   fireEvent.click(await screen.findByRole("button", { name: "Edit Payments" }));
-  const dependencies = within(screen.getByRole("group", { name: "Depends on" }));
+  const dependencies = within(await screen.findByRole("group", { name: "Depends on" }));
   const dependents = within(screen.getByRole("group", { name: "Used by" }));
   expect(dependencies.queryByRole("checkbox", { name: "Payments" })).toBeNull();
   expect(dependents.queryByRole("checkbox", { name: "Payments" })).toBeNull();
@@ -494,12 +603,10 @@ test("edit loads both directions, excludes self and supports removal and reverse
   });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("status");
-  const request = fetch.mock.calls.find(([, init]) => init?.method === "PUT")!;
-  expect(JSON.parse(request[1]!.body as string)).toMatchObject({
-    revision: service.revision,
-    dependencies: [],
-    dependents: [{ service_id: "reporting", description: "Calls the reporting endpoint" }],
-  });
+  expect(writes(fetch).slice(1)).toEqual([
+    ["DELETE", "/api/relations/r-postgres?revision=1", undefined],
+    ["PUT", "/api/relations/r-reporting", { description: "Calls the reporting endpoint", revision: 1 }],
+  ]);
 });
 
 test("details display relationships and Cancel leaves saved relationships untouched", async () => {
@@ -508,19 +615,23 @@ test("details display relationships and Cancel leaves saved relationships untouc
     dependencies: [{ service_id: "postgres", name: "PostgreSQL", description: "Stores payments" }],
     dependents: [{ service_id: "reporting", name: "Reporting", description: "Reads payments" }],
   };
-  const fetch = setup([linked, postgres, reporting]);
+  const fetch = setup([linked, postgres, reporting], {
+    relations: [relation("r-reporting", "depends_on", "reporting", "service-1", "Reads payments")],
+  });
   fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(within(screen.getByRole("region", { name: "Depends on" })).getByText("Stores payments")).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Used by" })).getByText("Reads payments")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Edit Payments" }));
-  fireEvent.click(within(screen.getByRole("group", { name: "Used by" })).getByRole("checkbox", { name: "Reporting" }));
+  fireEvent.click(
+    within(await screen.findByRole("group", { name: "Used by" })).getByRole("checkbox", { name: "Reporting" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Edit Payments" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Edit Payments" }));
   expect(
-    within(screen.getByRole("group", { name: "Used by" })).getByRole("checkbox", { name: "Reporting" }),
+    within(await screen.findByRole("group", { name: "Used by" })).getByRole("checkbox", { name: "Reporting" }),
   ).toBeChecked();
-  expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+  expect(writes(fetch)).toEqual([]);
 });
 
 test("services remains an inventory page without a graph tab", async () => {

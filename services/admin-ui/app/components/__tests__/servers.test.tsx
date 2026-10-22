@@ -88,7 +88,7 @@ test("confirmed server deletion waits for the API then removes the row", async (
   fireEvent.click(dialog.getByRole("button", { name: "Delete server" }));
   expect(dialog.getByRole("button", { name: /Delete server/ })).toBeDisabled();
   expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
-  expect(fetch.mock.calls[1]).toEqual(["/api/servers/server-1?revision=3&confirmed=true", { method: "DELETE" }]);
+  expect(fetch.mock.calls[1]).toEqual(["/api/servers/server-1?revision=3", { method: "DELETE" }]);
   await act(async () => {
     finish(new Response(JSON.stringify({ id: server.id })));
   });

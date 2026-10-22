@@ -40,8 +40,8 @@ def narrowed_agent(sessions):
             for name in ('runbooks', 'private')
         }
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name,port)
-            VALUES (%s,%s,%s,'Staging',%s,'payments-api',8080)""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name,port)
+            VALUES (%s,%s,%s,%s,'payments-api',8080)""",
             (project, sessions.service, host['id'], environment_id(conn, project, 'Staging')),
         )
     analyst = native_agent(

@@ -50,8 +50,8 @@ def world(store, tmp_path, monkeypatch):
             (nginx, project),
         )
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime,runtime_name,port)
-            VALUES (%s,%s,%s,'Production',%s,'systemd','nginx',80)""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime,runtime_name,port)
+            VALUES (%s,%s,%s,%s,'systemd','nginx',80)""",
             (project, nginx, server['id'], environment),
         )
         conn.execute(

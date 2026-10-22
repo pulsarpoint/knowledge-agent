@@ -63,8 +63,8 @@ def test_a_deployment_in_another_projects_environment_is_refused(store, tmp_path
     with store.connect() as conn:
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             conn.execute(
-                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,environment)
-                VALUES (%s,%s,%s,%s,'Secret')""",
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id)
+                VALUES (%s,%s,%s,%s)""",
                 (UUID(service['project_id']), UUID(service['id']), UUID(host['id']), foreign_id),
             )
 
@@ -72,6 +72,7 @@ def test_a_deployment_in_another_projects_environment_is_refused(store, tmp_path
 def test_migration_maps_exact_labels_and_retains_unmatched_deployments(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute((migrations / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0107_inventory_document.down.sql').read_text(), prepare=False)  # before 0095
         conn.execute(

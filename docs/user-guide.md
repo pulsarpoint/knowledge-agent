@@ -434,16 +434,14 @@ agent to have.
 
 ### 4.6 Environments
 
-`/environments` — named groups of services and servers (e.g. `prod`, `staging`).
-Each asset can belong to several environments.
+`/environments` — named environments such as `prod` or `staging`. An environment has a name and a description; what
+is in it comes from deployments: a service or server is in an environment when one of its deployments is (add
+deployments on the Services page). A service deployed in two environments is in both.
 
-- **Environment list** tab: filter, **Graph**, **Documents**, Edit, Delete; click a
-  name to see its members.
-- **Dependency graph** tab: choose an environment to see the dependencies between its
-  services; click a node for service details.
-- Removing a service/server that a deployment in this environment uses is refused —
-  update the deployment in Services first. Deleting an environment keeps its name as a
-  plain label on former deployments.
+- The list shows each environment with the number of services and servers deployed in it: filter, **Map** (the System
+  map rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is deployed in it.
+- An environment's page (`/environments/:id`) lists its services and servers and links to its **System map**.
+- An environment with deployments cannot be deleted: remove or move its deployments first.
 
 ### 4.7 Services
 
@@ -454,20 +452,25 @@ Each asset can belong to several environments.
 - **Application details**: name (unique), owner/team, **type** (Custom application,
   Built-in software, External service, Unclassified), **primary role** (Application,
   Proxy, Web server, Database, Cache, Message broker, Worker, Other), purpose.
-- **Environments** it belongs to.
-- **Code projects** that make up its source.
-- **Service relationships**: *Depends on* / *Used by*, each with an optional "why".
-  The other service is updated too.
-- **Where it runs**: **Add deployment** (server, environment, runtime/manager,
-  container/unit name, port, deployed version, log location). **Register server**
-  opens the server form inline.
+- **Code projects** that make up its source (each a *built from* relation).
+- **Service relationships** — logical relations, in either direction, each with an optional "why": *Depends on* /
+  *Used by* (depends on), *Part of* / *Parts* (a component or library of another service). Network traffic between
+  deployments is recorded as connections on the System map.
+- **Where it runs**: **Add deployment** — server, **environment** (required), runtime/manager, container/unit name,
+  port, deployed version, log location. **Register server** opens the server form inline. Removing a saved deployment
+  also removes its connections.
+
+**Save** writes the service, then each changed deployment and relation through the inventory API (one request each).
+If one of them is refused (for example a duplicate deployment, or someone changed the service meanwhile), the form
+stays open with the message; what was already saved stays saved, and saving again sends only the rest.
 
 **Details** shows everything above plus code commits and SSH status per deployment,
-and links to the service's documents and environment graph. **Agent context (JSON)**
+and links to the service's documents and environments. **Agent context (JSON)**
 opens `/api/services/{id}/context`, a read-only, credential-free JSON view of the
 service for agents. Note: the *downloaded* commit is not the *deployed* version.
 
-Deleting a service removes its deployments and links but not code projects or servers.
+A service with deployments cannot be deleted: remove its deployments first. Deleting a service removes its relations
+but not code projects or servers.
 
 ### 4.8 Jira
 
@@ -1025,31 +1028,34 @@ with the condition `source equals memory` and `type equals memory.saved`.
 Environments → **System map** draws your inventory — environments, servers, services and code projects — and the
 connections between them. Nothing is drawn by hand: add entries on their own pages, and connect them here.
 
-- **Infrastructure.** Each environment holds its servers (the servers you added to it on the Environments page, and
-  any server with a deployment there), and each server holds the services deployed on it in that environment. A server
-  in two environments appears in both. A server in no environment, or with a deployment that has no environment, sits
-  at the top level. A service that belongs to an environment but is not deployed there sits directly in the
-  environment. Lines are *connects to* connections.
-- **Services.** Every service and code project, with *depends on*, *built from* and *connects to* lines. Archived code
-  projects are left out.
+- **Infrastructure.** Each environment holds the servers with a deployment in it, and each server holds the services
+  deployed on it in that environment. A server in two environments appears in both; a server without deployments sits
+  at the top level. Lines are network **connections** between deployments (with their port and protocol); a connection
+  to an external host ends on a box for that host.
+- **Services.** Every service and code project, with relation lines (*depends on*, *part of*, *built from*) and the
+  connections rolled up to the services (*connects to*). Archived code projects are left out.
 - **Browsing.** **Inside** lists what the current box holds (→ opens it; "+N inside" says it holds more), **Outside**
   lists what its connections reach elsewhere. The breadcrumb goes back up. **Depth** shows up to 3 levels; deeper
   entries fold into their box and lines add up (`connects to ×3`). When both ends of a connection are in one environment, the line stays inside it: it never joins one environment's copy of a server to another's. Everything you choose is in the page address.
 - **Views.** **Diagram** is drawn by D2 with the layout you pick (tala, elk or dagre); **Mermaid** draws the same view
   with Mermaid; **D2** and **JSON** show the source, with **Copy**.
-- **Connections.** Click an entry's name: the panel shows its connections and documents and links to its page.
-  **Connect to…** picks a kind — *depends on* (service → service), *built from* (service → code project) or
-  *connects to* (anything → anything) — an optional description and attributes (one `name: value` per line, at most
-  20), then the target by name. **Edit** changes the description and attributes; to change the ends or the kind,
-  remove the connection and add it again. A *built from* connection starts from the service; a code project's panel offers *connects to* only. The Services page edits the same *depends on* and *built from*
-  connections; an open Services form that someone changed meanwhile asks you to reload.
+- **Connections and relations.** Click an entry's name: the panel links to its page and shows its documents; for a
+  service it also shows its connections and relations. **Add a connection**: **From** one of the service's
+  deployments, **To** another deployment (its port is filled in) or **An external host** (a hostname or IP, which needs
+  a port), the **Port**, the **Protocol** (`tcp` unless you change it: 1–20 lowercase letters, digits or `. + -`) and a
+  description. **Edit** changes an outgoing connection; **Remove** removes it. **Add a relation**: *depends on* or *is
+  part of* another service, or *is built from* a code project, with a description; to change one, remove it and add it
+  again. The Services page edits the same relations. A change someone made meanwhile is refused with a message and the
+  panel reads the current state again.
 - **Documents.** The panel lists the entry's documents from their links: its inventory document (**Inventory**) and
   every other document built for it or linked to it. **Link a document** finds a published document and links it to
   the entry; **Remove** removes that link (the document stays). A link a document was built for can't be removed.
-  Deleting an entry removes its connections and its documents' links to it.
-- **Upgrading from the stored graph.** Service dependencies and code project links become connections. Nodes you drew
-  by hand are gone. Document attachments are not carried over; the documents stay in Docs → Documents and keep the
-  links they were built for (add others with **Link a document**).
+  Deleting an entry removes its documents' links to it.
+- **Upgrading.** From the stored graph: service dependencies and code project links became links (0095); nodes you
+  drew by hand are gone and document attachments are not carried over (the documents keep the links they were built
+  for). From links (0125): *depends on* and *built from* became relations; a *connects to* between two services became
+  one connection per pair of their deployments in the same environment (a *depends on* when there is none); links on
+  servers or environments were dropped. Environment membership without a deployment is gone (0126).
 
 ### 4.22 Prompts
 
@@ -1089,8 +1095,9 @@ Prompts that came with the application are tagged `documentation` plus what they
 
 ### C. Document deployments and infrastructure
 
-1. **Servers**: register hosts. **Environments**: create `production` with its servers and services.
-2. **Services**: add deployments (server + environment + container/unit + port + log path).
+1. **Servers**: register hosts. **Environments**: create `production`.
+2. **Services**: add deployments (server + environment + container/unit + port + log path); the services and servers
+   are then in `production`. On the **System map**, add the connections between the deployments.
 3. **Documents → New → Write with an agent**: in **Settings** pick the environment (or the servers) and ask for the
    deployments to be documented.
 4. The agent connects over SSH to the chosen servers (and to those the environment brings).

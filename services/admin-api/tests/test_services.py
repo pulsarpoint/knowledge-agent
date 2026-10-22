@@ -131,8 +131,8 @@ def test_cross_project_references_and_ids_fail_without_mutation(store, tmp_path)
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with store.connect() as conn:
             conn.execute(
-                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id)
-                VALUES (%s,%s,%s,'prod',%s)""",
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id)
+                VALUES (%s,%s,%s,%s)""",
                 (local_project, local_service, foreign_server, environment_id(conn, local_project, 'prod')),
             )
 

@@ -21,6 +21,7 @@ from test_repositories import HEADERS
 ROOT = Path(__file__).resolve().parents[3]
 MIGRATIONS = ROOT / 'db/migrations'
 UP, DOWN = '0109_tags_not_flags.up.sql', '0109_tags_not_flags.down.sql'
+INVENTORY_DROP_DOWN = '0126_inventory_drop_old.down.sql'  # 0126 drops service_assets, which 0109 changes
 DOCUMENTS = '/api/documentation/documents'
 DRAFTS = '/api/documentation/drafts'
 INVENTORY_OBJECTS = (
@@ -120,6 +121,7 @@ def test_0109_turns_the_flag_into_the_tag_and_drops_both_columns(store):
     other = live(store, 'other', 'Other', server_ids=[server])
     payments = live(store, 'payments', 'Payments', service_ids=[service])
     with store.connect() as conn:
+        run(conn, INVENTORY_DROP_DOWN)
         assert 'inventory' not in columns(conn, 'documents', 'document_details', 'document_drafts_view')
         assert 'operations_notes' not in columns(conn, 'services', 'service_assets')
         assert inventory_objects(conn) == []
@@ -170,6 +172,8 @@ def test_0109_down_refuses_when_two_documents_tagged_inventory_are_built_for_one
     live(store, 'first', 'First', server_ids=[server], tags=['inventory'])
     live(store, 'second', 'Second', server_ids=[server], tags=['inventory'])
     with store.connect() as conn:
+        run(conn, INVENTORY_DROP_DOWN)
+        conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match='would be lost'):
             run(conn, DOWN)
         conn.rollback()

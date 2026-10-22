@@ -78,29 +78,29 @@ state. Generated and uploaded documents appear in the same set.
 
 ## Service inventory and agent context
 
-`ka.services` identifies a logical application within a configured project.
-`ka.inventory_links` (kind `built_from`) links any number of source repositories; repositories
-can be shared. `ka.service_deployments` identifies where each service runs, with
-separate server, environment, runtime identifier, port, log location and reported
-version. This avoids repeating source links across production/staging deployments.
-Composite foreign keys prevent cross-project links. Saves replace associations
-atomically; optimistic revisions detect stale forms and retain deployment IDs.
+`ka.services` identifies a logical application within a configured project. `ka.service_deployments` records
+where each service runs: a server and a required environment (`environment_id`), runtime identifier, port, log
+location and reported version; a service or server is in an environment when one of its deployments is.
+`ka.connections` are network connections from a deployment to another deployment or to an external host, with port and
+protocol; `ka.service_relations` are logical relations (`depends_on`, `part_of` to a service, `built_from` to a code
+project, so code projects can be shared). Composite foreign keys prevent cross-project rows. Everything is written
+through one module, `knowledge_admin/inventory` (`rules.py` validates, `store.py` is the only writer: revision checks,
+delete rules and audit, `api.py` the REST API the UI uses); the UI's forms make one request per item.
 
 The Servers page manages name, hostname/IP, description, tags and an SSH allowed switch; Services can
 register a host with the same form before credentials exist. Updates require the
-current revision and keep service deployment links. The public `ka.server_assets`
-view also supplies the latest metadata to nested service context. Such
-records have `enabled=false`, `username=NULL`, and `allow_sudo=false`. The separate
+current revision. The store reads only a server's public columns (no credentials) for the
+service context. Newly registered servers have `enabled=false`, `username=NULL`, and `allow_sudo=false`. The separate
 `ssh_allowed` permission defaults false and is included in service context; changing
 it does not configure or activate an SSH connection. The database
 requires a username before server access can be enabled. No registration or
 service-save path opens SSH, executes commands, pulls repositories, or probes URLs.
 
-`ka.service_assets` is the public projection consumed by the UI and
-`GET /api/services/{id}/context`. The context response includes a schema
+`inventory/assets.py` builds the service records the UI lists and
+`GET /api/services/{id}/context` returns. The context response includes a schema
 version, generation timestamp, and explicit operator-maintained provenance.
 Only downloaded repositories expose checkout paths; `current_commit` is distinct
-from the operator's `deployed_version`. Credentials are not joined into this view.
+from the operator's `deployed_version`. Credentials are not part of these records.
 The API requires the same global admin authorization as other management routes.
 
 This resource is ready for a future agent-run adapter; current agents do not

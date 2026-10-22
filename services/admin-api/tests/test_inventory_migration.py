@@ -15,6 +15,12 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
+def down(conn):
+    """Back to before 0125: 0126 (which drops the old structures 0125 converts) first."""
+    run(conn, '0126_inventory_drop_old.down.sql')
+    run(conn, DOWN)
+
+
 def service(conn, project, name):
     return conn.execute(
         'INSERT INTO ka.services(project_id,name) VALUES (%s,%s) RETURNING id', (project, name)
@@ -75,7 +81,7 @@ def connections(conn):
 def test_free_text_environments_become_environments(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        run(conn, DOWN)
+        down(conn)
         api, web = service(conn, project, 'api'), service(conn, project, 'web')
         host = server(conn, project, 'prod-1')
         production = environment(conn, project, 'Production')
@@ -99,7 +105,7 @@ def test_free_text_environments_become_environments(store):
 def test_links_become_relations_and_connections(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        run(conn, DOWN)
+        down(conn)
         api, db, cache, lonely = (service(conn, project, n) for n in ('api', 'db', 'cache', 'lonely'))
         repo = repository(conn, project)
         a, b = server(conn, project, 'a'), server(conn, project, 'b')
@@ -140,7 +146,7 @@ def test_links_become_relations_and_connections(store):
 def test_deployments_in_no_shared_environment_keep_a_depends_on(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        run(conn, DOWN)
+        down(conn)
         api, db = service(conn, project, 'api'), service(conn, project, 'db')
         host = server(conn, project, 'a')
         deploy(conn, project, api, host, 'prod', environment(conn, project, 'prod'))
@@ -154,7 +160,7 @@ def test_deployments_in_no_shared_environment_keep_a_depends_on(store):
 def test_down_drops_the_new_tables_and_allows_unlinked_deployments_again(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        run(conn, DOWN)
+        down(conn)
         tables = conn.execute(
             """SELECT count(*) AS n FROM information_schema.tables
             WHERE table_schema='ka' AND table_name IN ('connections','service_relations')"""

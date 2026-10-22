@@ -1,4 +1,5 @@
 import { request } from "~/lib/api";
+import type { RelationKind } from "./inventory";
 
 export type MapName = "infrastructure" | "services";
 export const MAPS: MapName[] = ["infrastructure", "services"];
@@ -16,25 +17,14 @@ export const ENTRY_PAGES: Record<EntryKind, { page: string; label: string }> = {
   environment: { page: "/environments", label: "Environments" },
   code_project: { page: "/code-projects", label: "Code projects" },
 };
-export type LinkKind = "depends_on" | "built_from" | "connects_to";
-export const LINK_LABELS: Record<LinkKind, string> = {
-  depends_on: "depends on",
-  built_from: "built from",
-  connects_to: "connects to",
-};
-/** The kinds a link from this entry can have (as the API allows). */
-export const linkKindsFrom = (kind: EntryKind): LinkKind[] =>
-  kind === "service" ? ["connects_to", "depends_on", "built_from"] : ["connects_to"];
-/** The entry kinds a link of this kind can point at; undefined = any. */
-export const targetKinds = (kind: LinkKind): EntryKind[] | undefined =>
-  kind === "depends_on" ? ["service"] : kind === "built_from" ? ["code_project"] : undefined;
+/** An edge's kind: network connections, or a service relation. */
+export type EdgeKind = "connects_to" | RelationKind;
 export type MapView = "diagram" | "mermaid" | "d2" | "json";
 export const VIEWS: MapView[] = ["diagram", "mermaid", "d2", "json"];
 export const VIEW_LABELS: Record<MapView, string> = { diagram: "Diagram", mermaid: "Mermaid", d2: "D2", json: "JSON" };
 export type Layout = "tala" | "elk" | "dagre";
 export const LAYOUTS: Layout[] = ["tala", "elk", "dagre"];
 export const MAX_DEPTH = 3;
-export const MAX_ATTRIBUTES = 20;
 
 export interface GraphDocument {
   id: string;
@@ -73,7 +63,7 @@ export interface BoundaryNode {
 export interface ViewEdge {
   from: string;
   to: string;
-  type: LinkKind | "part_of";
+  type: EdgeKind;
   count: number;
   ids: string[];
 }
@@ -90,20 +80,6 @@ export interface MapGraph {
   nodes: ViewNode[];
   boundary: BoundaryNode[];
   edges: ViewEdge[];
-}
-export interface Link {
-  id: string;
-  kind: LinkKind;
-  from: MapEntry;
-  to: MapEntry;
-  description: string;
-  attributes: Record<string, string>;
-  revision: number;
-}
-export interface EntryHit {
-  entry_kind: EntryKind;
-  entry_id: string;
-  name: string;
 }
 /** A resource's inventory document: a live document or a brand-new draft (version null, not published). */
 export interface InventoryDocument {
@@ -153,6 +129,9 @@ export function readMapState(params: URLSearchParams): MapState {
     layout: pick(params.get("layout"), LAYOUTS, "tala"),
   };
 }
+/** The System map rooted at an environment, showing its servers and the services deployed on them. */
+export const environmentMapPath = (environmentId: string) =>
+  `/system-map?${mapQuery({ map: "infrastructure", root: `environment:${environmentId}`, depth: 2, view: "diagram", layout: "tala" })}`;
 /** The page URL for a state: the map always, everything else only when it is not the default. */
 export function mapQuery(state: MapState): URLSearchParams {
   const query = new URLSearchParams({ map: state.map });
@@ -181,7 +160,6 @@ const send = (method: string, body: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
-const entryQuery = (entry: EntryRef) => new URLSearchParams({ entry_kind: entry.kind, entry_id: entry.id });
 
 export const getView = (map: MapName, root: string | null, depth: number, signal?: AbortSignal) =>
   request<MapGraph>(viewUrl(map, root, depth, "json"), { signal });
@@ -193,25 +171,6 @@ export const getViewText = (
   layout: Layout,
   signal?: AbortSignal,
 ) => request<string>(viewUrl(map, root, depth, format, layout), { signal }, "text");
-export function searchEntries(q: string, kind?: EntryKind) {
-  const query = new URLSearchParams();
-  if (kind) query.set("kind", kind);
-  query.set("q", q);
-  return request<{ entries: EntryHit[] }>(`/api/map/search?${query}`);
-}
-export const getLinks = (entry: EntryRef) => request<{ links: Link[] }>(`/api/inventory/links?${entryQuery(entry)}`);
-export const createLink = (input: {
-  from: EntryRef;
-  to: EntryRef;
-  kind: LinkKind;
-  description: string;
-  attributes: Record<string, string>;
-}) => request<{ link: Link }>("/api/inventory/links", send("POST", input));
-export const updateLink = (
-  id: string,
-  input: { description: string; attributes: Record<string, string>; revision: number },
-) => request<{ link: Link }>(`/api/inventory/links/${id}`, send("PUT", input));
-export const deleteLink = (id: string) => request<void>(`/api/inventory/links/${id}`, { method: "DELETE" });
 const documentsUrl = (entry: EntryRef) => `/api/inventory/${entry.kind}/${encodeURIComponent(entry.id)}/documents`;
 export const getEntryDocuments = (entry: EntryRef, signal?: AbortSignal) =>
   request<EntryDocuments>(documentsUrl(entry), { signal });
@@ -224,25 +183,3 @@ export const unlinkDocument = (entry: EntryRef, documentId: string) =>
 /** The New page for the entry's inventory document: built for it, tagged `inventory`. */
 export const newInventoryDocumentPath = (entry: EntryRef) =>
   `/documents/new?${new URLSearchParams({ inventory: entry.kind, resource_id: entry.id })}`;
-
-/** Reads the Attributes field — one "name: value" per line — into an object, or says what is wrong. */
-export function parseAttributes(text: string): { value: Record<string, string> } | { problem: string } {
-  const value: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    const colon = line.indexOf(":");
-    const name = colon < 0 ? "" : line.slice(0, colon).trim();
-    if (!name) return { problem: "Write each attribute as name: value." };
-    if (name in value) return { problem: `The attribute "${name}" appears twice.` };
-    value[name] = line.slice(colon + 1).trim();
-  }
-  const entries = Object.entries(value);
-  if (entries.length > MAX_ATTRIBUTES) return { problem: `Use at most ${MAX_ATTRIBUTES} attributes.` };
-  if (entries.some(([name]) => name.length > 64)) return { problem: "Attribute names are 1–64 characters." };
-  if (entries.some(([, text]) => text.length > 500)) return { problem: "Attribute values are at most 500 characters." };
-  return { value };
-}
-export const formatAttributes = (attributes: Record<string, string>) =>
-  Object.entries(attributes)
-    .map(([name, text]) => `${name}: ${text}`)
-    .join("\n");

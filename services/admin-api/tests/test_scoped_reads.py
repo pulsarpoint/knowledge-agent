@@ -62,8 +62,8 @@ def add_db(store, project, *, server=None):
             ).fetchone()['id']
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'postgres')", (service, project))
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
-            VALUES (%s,%s,%s,'Production',%s,'postgres')""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name)
+            VALUES (%s,%s,%s,%s,'postgres')""",
             (project, service, server, environment_id(conn, project, 'Production')),
         )
         saved = live_document(

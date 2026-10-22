@@ -12,33 +12,31 @@ export interface ServiceRepository {
   synced_at: string | null;
   archived: boolean;
 }
-export interface DeploymentInput {
-  id?: string;
-  server_id: string;
-  environment: string;
-  runtime: string;
-  runtime_name: string;
-  environment_id?: string | null;
-  port: number | null;
-  log_location: string;
-  deployed_version: string;
-}
-export interface ServiceDependencyInput {
+export interface ServiceDependency {
   service_id: string;
+  name: string;
   description: string;
 }
+/** The service's own fields, as created and updated through the inventory API. */
 export interface ServiceInput {
   service_type: ServiceType;
   service_role: ServiceRole;
   name: string;
   description: string;
   owner: string;
-  repository_ids: string[];
-  deployments: DeploymentInput[];
-  revision?: number;
-  environment_ids?: string[];
-  dependencies: ServiceDependencyInput[];
-  dependents: ServiceDependencyInput[];
+}
+/** A deployment as the services list shows it: with its environment's name and its server. */
+export interface ServiceDeployment {
+  id: string;
+  server_id: string;
+  environment_id: string;
+  environment: string;
+  runtime: string;
+  runtime_name: string;
+  port: number | null;
+  log_location: string;
+  deployed_version: string;
+  server: ServerAsset;
 }
 export interface ServiceAsset {
   service_type: ServiceType;
@@ -52,9 +50,11 @@ export interface ServiceAsset {
   created_at: string;
   updated_at: string;
   repositories: ServiceRepository[];
-  deployments: (DeploymentInput & { id: string; server: ServerAsset })[];
-  dependencies: (ServiceDependencyInput & { name: string })[];
-  dependents: (ServiceDependencyInput & { name: string })[];
+  deployments: ServiceDeployment[];
+  /** depends_on relations from and to this service. */
+  dependencies: ServiceDependency[];
+  dependents: ServiceDependency[];
+  /** The environments of its deployments. */
   environments: { id: string; name: string }[];
 }
 export const getServices = (signal?: AbortSignal) => request<{ services: ServiceAsset[] }>(`/api/services`, { signal });
@@ -63,13 +63,7 @@ export const getService = (id: string, signal?: AbortSignal) =>
   request<{ service: ServiceAsset }>(`/api/services/${encodeURIComponent(id)}/context`, { signal }).then(
     (value) => value.service,
   );
-export const saveService = (value: ServiceInput, id?: string) =>
-  request<{ id: string; revision: number }>(`/api/services${id ? `/${id}` : ""}`, {
-    method: id ? "PUT" : "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(value),
-  });
 export const deleteService = (id: string, revision: number) =>
-  request<{ id: string }>(`/api/services/${encodeURIComponent(id)}?revision=${revision}&confirmed=true`, {
+  request<{ id: string }>(`/api/services/${encodeURIComponent(id)}?revision=${revision}`, {
     method: "DELETE",
   });

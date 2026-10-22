@@ -1,21 +1,28 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
-import { ChevronDown, Plus, Server, Trash2, X } from "lucide-react";
+import { Plus, Server, Trash2, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { saveService, type DeploymentInput, type ServiceAsset } from "./services";
+import { type ServiceAsset } from "./services";
 import { type EnvironmentAsset } from "./environments";
 import { type Repository } from "~/features/codeProjects/api";
 import { type ServerAsset } from "./api";
+import {
+  afterChange,
+  applyChange,
+  createItem,
+  deploymentChanges,
+  getServiceDeployments,
+  getServiceRelations,
+  relationChanges,
+  updateItem,
+  type Deployment,
+  type DeploymentRow,
+  type Relation,
+  type RelationKind,
+  type RelationValue,
+} from "./inventory";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import { Badge } from "~/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
   Field,
@@ -28,12 +35,96 @@ import {
 } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Skeleton } from "~/components/ui/skeleton";
 import ServerForm from "./ServerForm";
-import ServiceDependencyFields from "./ServiceDependencyFields";
+import ServiceDependencyFields, { type RelatedService } from "./ServiceDependencyFields";
 import { serviceTypes, serviceRoles, type ServiceType, type ServiceRole } from "./serviceClassification";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
+/** The relation lists the form edits: [kind, this service is the "from" end]. */
+const RELATION_LISTS = {
+  dependsOn: ["depends_on", true],
+  usedBy: ["depends_on", false],
+  partOf: ["part_of", true],
+  parts: ["part_of", false],
+} as const satisfies Record<string, readonly [RelationKind, boolean]>;
+type RelationList = keyof typeof RELATION_LISTS;
+type RelationLists = Record<RelationList, RelatedService[]>;
+
+function relationLists(serviceId: string, relations: Relation[]): RelationLists {
+  const list = ([kind, outgoing]: readonly [RelationKind, boolean]) =>
+    relations
+      .filter((r) => r.kind === kind && (outgoing ? r.from_service_id : r.to_service_id) === serviceId)
+      .map((r) => ({ service_id: (outgoing ? r.to_service_id : r.from_service_id)!, description: r.description }));
+  return {
+    dependsOn: list(RELATION_LISTS.dependsOn),
+    usedBy: list(RELATION_LISTS.usedBy),
+    partOf: list(RELATION_LISTS.partOf),
+    parts: list(RELATION_LISTS.parts),
+  };
+}
+
+/** The relations the form wants for the service: the four lists and a built_from per selected code project (a kept
+ * one keeps its description). */
+function wantedRelations(
+  serviceId: string,
+  lists: RelationLists,
+  repositoryIds: string[],
+  saved: Relation[],
+): RelationValue[] {
+  const between = (kind: RelationKind, from: string, to: string, description: string): RelationValue => ({
+    from_service_id: from,
+    kind,
+    to_service_id: to,
+    to_code_project_id: null,
+    description,
+  });
+  return [
+    ...(Object.keys(RELATION_LISTS) as RelationList[]).flatMap((name) => {
+      const [kind, outgoing] = RELATION_LISTS[name];
+      return lists[name].map((item) =>
+        outgoing
+          ? between(kind, serviceId, item.service_id, item.description)
+          : between(kind, item.service_id, serviceId, item.description),
+      );
+    }),
+    ...repositoryIds.map((id) => ({
+      from_service_id: serviceId,
+      kind: "built_from" as const,
+      to_service_id: null,
+      to_code_project_id: id,
+      description:
+        saved.find((r) => r.kind === "built_from" && r.from_service_id === serviceId && r.to_code_project_id === id)
+          ?.description ?? "",
+    })),
+  ];
+}
+
+const deploymentRow = ({
+  id,
+  server_id,
+  environment_id,
+  runtime,
+  runtime_name,
+  port,
+  log_location,
+  deployed_version,
+}: Deployment): DeploymentRow => ({
+  key: id,
+  id,
+  server_id,
+  environment_id,
+  runtime,
+  runtime_name,
+  port,
+  log_location,
+  deployed_version,
+});
+
+/** A service's details, deployments and relations. Saving writes the service, then each changed deployment and
+ * relation through the inventory API; if a write fails the form stays open with what was saved so far, so saving again
+ * applies only the rest. */
 export default function ServiceForm({
   service,
   services,
@@ -56,41 +147,55 @@ export default function ServiceForm({
   const [serviceRole, setServiceRole] = useState<ServiceRole>(service?.service_role ?? "application");
   const [description, setDescription] = useState(service?.description ?? "");
   const [owner, setOwner] = useState(service?.owner ?? "");
-  const [repositoryIds, setRepositoryIds] = useState(service?.repositories.map((repo) => repo.id) ?? []);
-  const [environmentIds, setEnvironmentIds] = useState([
-    ...new Set([
-      ...(service?.environments.map((environment) => environment.id) ?? []),
-      ...(service?.deployments.flatMap((deployment) =>
-        deployment.environment_id ? [deployment.environment_id] : [],
-      ) ?? []),
-    ]),
-  ]);
-  const [dependencies, setDependencies] = useState(
-    service?.dependencies.map(({ service_id, description }) => ({ service_id, description })) ?? [],
-  );
-  const [dependents, setDependents] = useState(
-    service?.dependents.map(({ service_id, description }) => ({ service_id, description })) ?? [],
-  );
-  const [deployments, setDeployments] = useState<(DeploymentInput & { key: string })[]>(
-    service?.deployments.map(({ server, ...deployment }) => ({ ...deployment, key: deployment.id })) ?? [],
-  );
+  // What is saved: the service, its deployments and relations (null while they load).
+  const [saved, setSaved] = useState(service ? { id: service.id, revision: service.revision } : null);
+  const [savedDeployments, setSavedDeployments] = useState<Deployment[] | null>(service ? null : []);
+  const [savedRelations, setSavedRelations] = useState<Relation[] | null>(service ? null : []);
+  // What the form holds.
+  const [repositoryIds, setRepositoryIds] = useState<string[]>([]);
+  const [lists, setLists] = useState<RelationLists>({ dependsOn: [], usedBy: [], partOf: [], parts: [] });
+  const [deployments, setDeployments] = useState<DeploymentRow[]>([]);
   const [servers, setServers] = useState(initialServers);
   const [serverForm, setServerForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!service) return;
+    const controller = new AbortController();
+    Promise.all([
+      getServiceDeployments(service.id, controller.signal),
+      getServiceRelations(service.id, controller.signal),
+    ])
+      .then(([{ deployments }, { relations }]) => {
+        if (controller.signal.aborted) return;
+        setSavedDeployments(deployments);
+        setSavedRelations(relations);
+        setDeployments(deployments.map(deploymentRow));
+        setLists(relationLists(service.id, relations));
+        setRepositoryIds(
+          relations.flatMap((r) =>
+            r.kind === "built_from" && r.from_service_id === service.id ? [r.to_code_project_id!] : [],
+          ),
+        );
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted)
+          setLoadError(
+            reason instanceof ApiError ? reason.message : "Could not load this service's deployments and relations.",
+          );
+      });
+    return () => controller.abort();
+  }, [service?.id]);
 
   function addDeployment(serverId = "") {
-    const environment =
-      environmentIds.length === 1
-        ? environments.find((environment) => environment.id === environmentIds[0])
-        : undefined;
     setDeployments((rows) => [
       ...rows,
       {
         key: crypto.randomUUID(),
         server_id: serverId,
-        environment: environment?.name ?? "",
-        environment_id: environment?.id ?? null,
+        environment_id: environments.length === 1 ? environments[0].id : "",
         runtime: "",
         runtime_name: "",
         port: null,
@@ -99,46 +204,98 @@ export default function ServiceForm({
       },
     ]);
   }
-  function updateDeployment(key: string, changes: Partial<DeploymentInput>) {
+  function updateDeployment(key: string, changes: Partial<DeploymentRow>) {
     setDeployments((rows) => rows.map((row) => (row.key === key ? { ...row, ...changes } : row)));
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (savedDeployments === null || savedRelations === null) return;
     setError(null);
     if (deployments.some((deployment) => !deployment.server_id)) {
       setError("Choose a server for each deployment.");
       return;
     }
-    if (deployments.some((deployment) => !deployment.environment_id && !deployment.id)) {
+    if (deployments.some((deployment) => !deployment.environment_id)) {
       setError("Choose an environment for each deployment.");
       return;
     }
     setSaving(true);
+    let rows = deployments;
+    let savedNow = savedDeployments;
+    let relationsNow = savedRelations;
     try {
-      const result = await saveService(
-        {
-          name,
-          service_type: serviceType,
-          service_role: serviceRole,
-          description,
-          owner,
-          repository_ids: repositoryIds,
-          deployments: deployments.map(({ key, ...deployment }) => deployment),
-          dependencies,
-          dependents,
-          environment_ids: environmentIds,
-          ...(service ? { revision: service.revision } : {}),
-        },
-        service?.id,
-      );
-      onSaved(result.id);
+      const fields = { name, service_type: serviceType, service_role: serviceRole, description, owner };
+      const item = saved
+        ? await updateItem<{ id: string; revision: number }>("services", saved.id, saved.revision, fields)
+        : await createItem<{ id: string; revision: number }>("services", fields);
+      setSaved({ id: item.id, revision: item.revision });
+      for (const change of deploymentChanges(item.id, savedNow, rows)) {
+        const result = await applyChange<Deployment>(change);
+        savedNow = afterChange(savedNow, change, result);
+        setSavedDeployments(savedNow);
+        if (change.key) {
+          rows = rows.map((row) => (row.key === change.key ? { ...row, id: result.id } : row));
+          setDeployments(rows);
+        }
+      }
+      for (const change of relationChanges(
+        relationsNow,
+        wantedRelations(item.id, lists, repositoryIds, relationsNow),
+      )) {
+        relationsNow = afterChange(relationsNow, change, await applyChange<Relation>(change));
+        setSavedRelations(relationsNow);
+      }
+      onSaved(item.id);
     } catch (error) {
       setError(error instanceof ApiError ? error.message : "Could not save this service. Try again.");
     } finally {
       setSaving(false);
     }
   }
+  const others = services.filter((other) => other.id !== saved?.id);
+  const current = name.trim() || "this service";
+  const relationFields: { list: RelationList; title: string; help: string; relationship: (other: string) => string }[] =
+    [
+      {
+        list: "dependsOn",
+        title: "Depends on",
+        help: "Services this service needs to operate.",
+        relationship: (other) => `${current} depends on ${other}`,
+      },
+      {
+        list: "usedBy",
+        title: "Used by",
+        help: "Services that depend on this service.",
+        relationship: (other) => `${other} depends on ${current}`,
+      },
+      {
+        list: "partOf",
+        title: "Part of",
+        help: "Services this one is a component or library of.",
+        relationship: (other) => `${current} is part of ${other}`,
+      },
+      {
+        list: "parts",
+        title: "Parts",
+        help: "Components or libraries of this service.",
+        relationship: (other) => `${other} is part of ${current}`,
+      },
+    ];
 
+  if (savedDeployments === null || savedRelations === null)
+    return loadError ? (
+      <div className="flex flex-col gap-3">
+        <Alert variant="destructive">
+          <AlertTitle>Service could not be opened</AlertTitle>
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+        <Button type="button" variant="outline" className="self-start" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    ) : (
+      <Skeleton className="h-60 w-full" />
+    );
   return (
     <>
       <form onSubmit={submit} className="flex flex-col gap-6 rounded-lg border p-6">
@@ -245,67 +402,6 @@ export default function ServiceForm({
             </Field>
           </FieldGroup>
         </FieldSet>
-        <Field>
-          <FieldLabel htmlFor="service-environments">Environments</FieldLabel>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                id="service-environments"
-                type="button"
-                variant="outline"
-                className="justify-between"
-                disabled={saving || environments.length === 0}
-                aria-label="Environments"
-              >
-                {environmentIds.length
-                  ? `${environmentIds.length} environment${environmentIds.length === 1 ? "" : "s"} selected`
-                  : "Select environments"}
-                <ChevronDown data-icon="inline-end" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-64">
-              <DropdownMenuGroup>
-                {environments.map((environment) => (
-                  <DropdownMenuCheckboxItem
-                    key={environment.id}
-                    checked={environmentIds.includes(environment.id)}
-                    disabled={deployments.some((deployment) => deployment.environment_id === environment.id)}
-                    onSelect={(event) => event.preventDefault()}
-                    onCheckedChange={(checked) =>
-                      setEnvironmentIds((ids) =>
-                        checked ? [...ids, environment.id] : ids.filter((id) => id !== environment.id),
-                      )
-                    }
-                  >
-                    {environment.name}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <div className="flex flex-wrap gap-2">
-            {environments
-              .filter((environment) => environmentIds.includes(environment.id))
-              .map((environment) => (
-                <Badge key={environment.id} variant="secondary">
-                  {environment.name}
-                </Badge>
-              ))}
-          </div>
-          <FieldDescription>
-            Select one or more environments for this service. To deselect an environment used by a deployment, change or
-            remove that deployment first.
-          </FieldDescription>
-          {environments.length === 0 && (
-            <FieldDescription>
-              No environments yet. Create one on the{" "}
-              <Link to="/environments" className="underline">
-                Environments page
-              </Link>
-              , then reopen this form. You can save a service without deployments first.
-            </FieldDescription>
-          )}
-        </Field>
         <FieldSet disabled={saving}>
           <FieldLegend>Code projects</FieldLegend>
           <FieldDescription>
@@ -366,32 +462,31 @@ export default function ServiceForm({
         <FieldSet disabled={saving}>
           <FieldLegend>Service relationships</FieldLegend>
           <FieldDescription>
-            Choose either direction here. Saving also updates the relationship on the other service.
+            Logical relations between services, in either direction. Network connections between deployments are edited
+            on the System map.
           </FieldDescription>
           <FieldGroup className="grid gap-6 md:grid-cols-2">
-            <ServiceDependencyFields
-              direction="dependencies"
-              serviceName={name}
-              services={services.filter((other) => other.id !== service?.id)}
-              value={dependencies}
-              onChange={setDependencies}
-              disabled={saving}
-            />
-            <ServiceDependencyFields
-              direction="dependents"
-              serviceName={name}
-              services={services.filter((other) => other.id !== service?.id)}
-              value={dependents}
-              onChange={setDependents}
-              disabled={saving}
-            />
+            {relationFields.map(({ list, title, help, relationship }) => (
+              <ServiceDependencyFields
+                key={list}
+                name={list}
+                title={title}
+                help={help}
+                relationship={relationship}
+                services={others}
+                value={lists[list]}
+                onChange={(value) => setLists((current) => ({ ...current, [list]: value }))}
+                disabled={saving}
+              />
+            ))}
           </FieldGroup>
         </FieldSet>
         <FieldSet disabled={saving}>
           <FieldLegend>Where it runs</FieldLegend>
           <FieldDescription>
-            Add a deployment for each server and environment. Selecting a deployment adds the service and server to that
-            environment. Leave empty if deployment details are not known yet.
+            Add a deployment for each server and environment it runs in: a service and a server are in an environment
+            through their deployments. Removing a saved deployment also removes its network connections. Leave empty if
+            deployment details are not known yet.
           </FieldDescription>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => addDeployment()}>
@@ -434,30 +529,21 @@ export default function ServiceForm({
                     <FieldDescription>Use Register server to add the first host.</FieldDescription>
                   )}
                 </Field>
-                <Field data-invalid={error !== null && !deployment.environment_id && !deployment.id}>
+                <Field data-invalid={error !== null && !deployment.environment_id}>
                   <FieldLabel htmlFor={`deployment-${deployment.key}-environment`}>Environment</FieldLabel>
                   <Select
-                    value={deployment.environment_id ?? (deployment.id ? "legacy" : "")}
+                    value={deployment.environment_id}
                     disabled={saving || environments.length === 0}
-                    onValueChange={(environment_id) => {
-                      const environment = environments.find((environment) => environment.id === environment_id)!;
-                      updateDeployment(deployment.key, { environment_id, environment: environment.name });
-                      setEnvironmentIds((ids) => (ids.includes(environment_id) ? ids : [...ids, environment_id]));
-                    }}
+                    onValueChange={(environment_id) => updateDeployment(deployment.key, { environment_id })}
                   >
                     <SelectTrigger
                       id={`deployment-${deployment.key}-environment`}
-                      aria-invalid={error !== null && !deployment.environment_id && !deployment.id}
+                      aria-invalid={error !== null && !deployment.environment_id}
                     >
                       <SelectValue placeholder="Choose an environment" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {!deployment.environment_id && deployment.id && (
-                          <SelectItem value="legacy" disabled>
-                            {deployment.environment} (unlinked label)
-                          </SelectItem>
-                        )}
                         {environments.map((environment) => (
                           <SelectItem key={environment.id} value={environment.id}>
                             {environment.name}
@@ -466,11 +552,6 @@ export default function ServiceForm({
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                  {!deployment.environment_id && deployment.id && (
-                    <FieldDescription>
-                      This saved label is not linked to an environment. Select an environment to link it.
-                    </FieldDescription>
-                  )}
                   {environments.length === 0 && (
                     <FieldDescription>
                       Create an environment on the{" "}

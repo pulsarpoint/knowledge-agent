@@ -472,3 +472,31 @@ exactly one of `cron` and `run_at`, and `schedules_run_at_emit` allows `run_at` 
 (the Jira pull always repeats). After its scheduled run a one-time schedule is switched off (`enabled` false,
 `next_run_at` null); the row and its `schedule_runs` stay. The down migration deletes one-time schedules (test data)
 with their history, drops the constraints and the column and makes `cron` NOT NULL again.
+
+## 0125_inventory_model
+
+One inventory model (see [architecture](architecture.md#service-inventory-and-agent-context)). Every deployment is in
+an environment: deployments with only a free-text `environment` label get the environment of that name
+(case-insensitive, created when missing), then `service_deployments.environment_id` is `NOT NULL`, its foreign key no
+longer unlinks deployments when an environment is deleted (an environment with deployments cannot be deleted), and
+deployments get a `revision`. New tables: `ka.connections` (from a deployment to another deployment or to an external
+host, with port, protocol, description, revision and who created it — person, or agent and session) and
+`ka.service_relations` (`depends_on`, `part_of` to a service, `built_from` to a code project). Inventory links are
+converted: `depends_on` and `built_from` become relations; `connects_to` between two services becomes one connection
+per pair of their deployments in the same environment (port and protocol from the link's attributes when valid, else
+the target deployment's port and `tcp`), or a `depends_on` relation when there is no such pair; `connects_to` links
+with an end on a server, environment or code project are dropped. The old tables stay until 0126. The down migration
+drops the new tables (connections and relations are lost; `inventory_links` still holds what it had) and the revision,
+and makes `environment_id` nullable again; environments created for labels stay.
+
+## 0126_inventory_drop_old
+
+Drops what 0125 replaced: `environment_services`, `environment_servers` (membership comes from deployments; a server
+or service that was a member without a deployment there is no longer in that environment), `inventory_links`, the
+`inventory_entries`, `service_assets`, `server_assets` and `environment_assets` views (the inventory module reads the
+tables), and the free-text `service_deployments.environment` with its unique (service, server, environment,
+runtime_name). The deployment identity (service, server, environment_id, runtime_name) is no longer deferrable. The
+down migration recreates them backfilled: the label from the environment's name, membership from deployments, links
+from `depends_on` and `built_from` relations and one `connects_to` per pair of services with a connection (port and
+protocol of the oldest as attributes). Lost on the way down: `part_of` relations and connections to external hosts
+(0125's down drops them with their tables).

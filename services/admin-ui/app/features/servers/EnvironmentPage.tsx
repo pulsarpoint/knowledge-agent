@@ -5,11 +5,13 @@ import { getEnvironment, type EnvironmentAsset } from "./environments";
 import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
+import { environmentMapPath } from "./inventoryMap";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One environment: its Info (description, its services and servers, its documents) and its Chats (ResourceChats). */
+/** One environment: its Info (description, the services and servers deployed in it, its documents) and its Chats
+ * (ResourceChats). */
 export default function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,15 +59,15 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">
               {environment.description || "No description"}
             </p>
-            <Link className="self-start text-sm underline" to={`/environments?view=graph&environment_id=${id}`}>
-              Service graph
+            <Link className="self-start text-sm underline" to={environmentMapPath(environmentId)}>
+              System map
             </Link>
           </div>
           <div className="grid gap-6 md:grid-cols-2">
             <section aria-label="Services" className="flex flex-col gap-2">
               <h2 className="text-lg font-semibold">Services</h2>
               {environment.services.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No services in this environment.</p>
+                <p className="text-sm text-muted-foreground">No services are deployed in this environment.</p>
               ) : (
                 <ul className="flex flex-col gap-1">
                   {environment.services.map((service) => (
@@ -81,7 +83,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
             <section aria-label="Servers" className="flex flex-col gap-2">
               <h2 className="text-lg font-semibold">Servers</h2>
               {environment.servers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No servers in this environment.</p>
+                <p className="text-sm text-muted-foreground">No servers have deployments in this environment.</p>
               ) : (
                 <ul className="flex flex-col gap-1">
                   {environment.servers.map((server) => (

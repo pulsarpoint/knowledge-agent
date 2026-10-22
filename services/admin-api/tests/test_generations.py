@@ -83,8 +83,8 @@ def sessions(store, tmp_path, monkeypatch):
                 (project, service, project_id),
             )
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,
-            runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'payments-api',8080)""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,
+            runtime_name,port) VALUES (%s,%s,%s,%s,'payments-api',8080)""",
             (project, service, server['id'], environment),
         )
     body = {

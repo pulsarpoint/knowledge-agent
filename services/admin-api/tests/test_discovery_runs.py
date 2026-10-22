@@ -165,14 +165,14 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
     postgres = uuid4()
     with world.store.connect() as conn:  # nginx also runs on db-1; postgres runs only there
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
-            VALUES (%s,%s,%s,'Production',%s,'nginx')""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name)
+            VALUES (%s,%s,%s,%s,'nginx')""",
             (world.project, world.nginx, other['id'], environment_id(conn, world.project, 'Production')),
         )
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'postgres')", (postgres, world.project))
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
-            VALUES (%s,%s,%s,'Production',%s,'postgres')""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name)
+            VALUES (%s,%s,%s,%s,'postgres')""",
             (world.project, postgres, other['id'], environment_id(conn, world.project, 'Production')),
         )
     sid = start(world).json()['id']

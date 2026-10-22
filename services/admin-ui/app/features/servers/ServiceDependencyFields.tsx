@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { ServiceAsset, ServiceDependencyInput } from "./services";
+import type { ServiceAsset } from "./services";
+
+export interface RelatedService {
+  service_id: string;
+  description: string;
+}
 import { Checkbox } from "~/components/ui/checkbox";
 import {
   Field,
@@ -13,24 +18,28 @@ import {
 import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
 
+/** One kind of service relation in one direction: the related services, each with an optional description. */
 export default function ServiceDependencyFields({
-  direction,
-  serviceName,
+  name,
+  title,
+  help,
+  relationship,
   services,
   value,
   onChange,
   disabled,
 }: {
-  direction: "dependencies" | "dependents";
-  serviceName: string;
+  name: string;
+  title: string;
+  help: string;
+  /** How the relation reads with the other service, e.g. "Payments depends on PostgreSQL". */
+  relationship: (other: string) => string;
   services: ServiceAsset[];
-  value: ServiceDependencyInput[];
-  onChange: (value: ServiceDependencyInput[]) => void;
+  value: RelatedService[];
+  onChange: (value: RelatedService[]) => void;
   disabled: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const title = direction === "dependencies" ? "Depends on" : "Used by";
-  const currentName = serviceName.trim() || "this service";
   const matching = services.filter((service) =>
     `${service.name} ${service.description}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
@@ -38,10 +47,7 @@ export default function ServiceDependencyFields({
     <FieldSet disabled={disabled}>
       <FieldLegend>{title}</FieldLegend>
       <FieldDescription>
-        {direction === "dependencies"
-          ? "Services this service needs to operate."
-          : "Services that depend on this service."}{" "}
-        {value.length} selected.
+        {help} {value.length} selected.
       </FieldDescription>
       {services.length > 0 ? (
         <>
@@ -55,11 +61,7 @@ export default function ServiceDependencyFields({
           <FieldGroup className="max-h-80 gap-4 overflow-y-auto p-1">
             {matching.map((service) => {
               const selected = value.find((link) => link.service_id === service.id);
-              const id = `${direction}-${service.id}`;
-              const relationship =
-                direction === "dependencies"
-                  ? `${currentName} depends on ${service.name}`
-                  : `${service.name} depends on ${currentName}`;
+              const id = `${name}-${service.id}`;
               return (
                 <FieldGroup key={service.id} className="gap-2">
                   <Field orientation="horizontal" data-disabled={disabled}>
@@ -82,7 +84,7 @@ export default function ServiceDependencyFields({
                   </Field>
                   {selected && (
                     <Field data-disabled={disabled}>
-                      <FieldLabel htmlFor={`${id}-description`}>Why {relationship} (optional)</FieldLabel>
+                      <FieldLabel htmlFor={`${id}-description`}>Why {relationship(service.name)} (optional)</FieldLabel>
                       <Textarea
                         id={`${id}-description`}
                         rows={2}

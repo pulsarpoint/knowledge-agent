@@ -68,8 +68,8 @@ def code_project(conn, project, name: str):
 
 def deployment(conn, project, service_id, server_id):
     return conn.execute(
-        """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
-        VALUES (%s,%s,%s,'production',%s,'app') RETURNING id""",
+        """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name)
+        VALUES (%s,%s,%s,%s,'app') RETURNING id""",
         (project, service_id, server_id, environment_id(conn, project, 'production')),
     ).fetchone()['id']
 

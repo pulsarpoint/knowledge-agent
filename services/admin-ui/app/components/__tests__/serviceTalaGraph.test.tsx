@@ -1,9 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import ServiceDependencyGraph from "~/features/servers/ServiceDependencyGraph";
 import ServiceTalaGraph from "~/features/servers/ServiceTalaGraph";
-import type { ServiceAsset } from "~/features/servers/services";
 
 const engine = vi.hoisted(() => ({ compile: vi.fn(), render: vi.fn(), dispose: vi.fn() }));
 vi.mock("@d2lang/d2", () => ({
@@ -20,47 +18,6 @@ beforeEach(() => {
   );
   engine.dispose.mockResolvedValue(undefined);
 });
-
-test.each(["/environments?environment_id=dev&view=graph", "/environments?environment_id=dev&view=graph&layout=tala"])(
-  "TALA is selected at %s, keeps service details and allows switching layouts",
-  async (url) => {
-    const services = [
-      {
-        id: "api",
-        name: "API",
-        service_type: "custom",
-        service_role: "application",
-        dependencies: [{ service_id: "db", name: "DB", description: "Stores data" }],
-      },
-      { id: "db", name: "DB", service_type: "builtin", service_role: "database", dependencies: [] },
-    ] as ServiceAsset[];
-    const onSelect = vi.fn();
-    render(
-      <MemoryRouter initialEntries={[url]}>
-        <ServiceDependencyGraph services={services} onSelect={onSelect} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByRole("tab", { name: "TALA" })).toHaveAttribute("aria-selected", "true");
-    const image = await screen.findByRole("img", { name: /Service dependencies laid out by TALA/ });
-    expect(image.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
-    expect(engine.compile).toHaveBeenCalledWith(expect.stringContaining("service0 -> service1"), {
-      layout: "tala",
-      pad: 24,
-    });
-    expect(engine.dispose).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Zoom In" })).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("region", { name: "Relationship details" })).getByText("Stores data"),
-    ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "DB" }));
-    expect(onSelect).toHaveBeenCalledWith("db");
-    await userEvent.click(screen.getByRole("tab", { name: "Interactive (Dagre)" }));
-    expect(screen.getByRole("button", { name: "Auto layout" })).toBeInTheDocument();
-    expect(screen.queryByRole("img")).toBeNull();
-    await userEvent.click(screen.getByRole("tab", { name: "TALA" }));
-    expect(await screen.findByRole("img", { name: /Service dependencies laid out by TALA/ })).toBeInTheDocument();
-  },
-);
 
 test("render errors provide a working retry", async () => {
   engine.compile.mockRejectedValueOnce(new Error("Layout failed"));

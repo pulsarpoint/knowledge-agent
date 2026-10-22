@@ -59,8 +59,8 @@ def keyless(ask):
         conn.execute("UPDATE ka.servers SET ssh_allowed=true,enabled=true,username='ops' WHERE id=%s", (server['id'],))
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Ledger')", (service, project))
         conn.execute(
-            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name,port)
-            VALUES (%s,%s,%s,'Production',%s,'ledger',8080)""",
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name,port)
+            VALUES (%s,%s,%s,%s,'ledger',8080)""",
             (project, service, server['id'], environment_id(conn, project, 'Production')),
         )
     return SimpleNamespace(server=server, service=str(service))

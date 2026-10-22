@@ -194,7 +194,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with workspace(db, app_name) as (conn, project):
             access = server_row(conn, project, server_id)
-            server = conn.execute('SELECT * FROM ka.server_assets WHERE id=%s', (server_id,)).fetchone()
+            server = inventory.get(conn, project, 'server', server_id)
             environments = [
                 {'id': e['id'], 'name': e['name']}
                 for e in inventory.list_environments(conn, project, server_id=server_id)

@@ -20,8 +20,8 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `projects`, `principals`, `project_members` | Workspace identity and attributed administrators |
 | `credentials` | Typed encrypted credentials and rotation metadata |
 | `repositories`, `code_project_folders` | Code projects, optional Git sources, one or more mounted folders |
-| `services`, `service_deployments` | Applications (name, type, role, a short description, owner; operating knowledge is in documents) and server/environment deployments |
-| `inventory_links` | Connections between inventory entries (`depends_on`, `built_from`, `connects_to`, with description and string attributes; they replaced `service_dependencies` and `service_repositories` in migration 0095). An entry's documents are the documents linked to it (`document_resources`); the attachments table `inventory_documents` was removed in migration 0107 |
+| `services`, `service_deployments` | Applications (name, type, role, a short description, owner; operating knowledge is in documents) and their deployments: a server and a required environment (`environment_id`); a service or server is in an environment when one of its deployments is |
+| `connections`, `service_relations` | Network connections from a deployment to another deployment or an external host (port, protocol, description), and logical service relations (`depends_on`, `part_of` to a service, `built_from` to a code project); both from migration 0125, which converted `inventory_links` (0095) and 0126 dropped it. An entry's documents are the documents linked to it (`document_resources`); the attachments table `inventory_documents` was removed in migration 0107 |
 | `servers` | Host inventory and SSH connection settings |
 | `documents` | Live documents and drafts in one table (migration 0104). A live row (`is_draft` false) has a stable ID, slug and folder, its current content (canonical Markdown, hash, `version`, source snapshot) and `phase_metadata` (the service phase export layout, `services/<service>/<phase>/`). A draft row (`is_draft`) is either a draft of a live document (`draft_of`, `base_version`) or a brand-new document with its own slug and folder; drafts are promoted or discarded by a person and never exported or listed as documents. Folder and slug are unique across live documents and brand-new drafts. `tags` classify documents; the inventory document of a server, service or environment is the document tagged `inventory` built for it (migration 0109 replaced 0107's `inventory` flag and its checks with the tag; nothing enforces one per resource) |
 | `document_archive` | Earlier live contents of a document (`document_id`, `version`, content, source snapshot), one immutable row per replaced version; promote and save move the live content here |
@@ -90,6 +90,12 @@ Managed document publication into RAG is not yet enabled.
 
 ## Environments
 
+Since migrations 0125 and 0126 an environment's contents come from deployments only: `service_deployments.environment_id`
+is required, the membership tables `environment_services` / `environment_servers`, the `environment_assets` view and the
+free-text `service_deployments.environment` are gone, and an environment with deployments cannot be deleted. The
+`/api/environments` routes create, update and delete the name and description (inventory module, with revision checks
+and audit). The rest of this section is the history up to 0124.
+
 Migration 45 adds `ka.environments` with a stable UUID, name, description, revision,
 creator and timestamps. Names are unique within the workspace, ignoring case.
 `environment_services` and `environment_servers` are many-to-many membership tables;
@@ -156,6 +162,9 @@ classified values until they have been exported or explicitly cleared.
 Environment-scoped architecture is a separate upcoming change.
 
 ## Service dependencies
+
+Since migration 0125 dependencies are `ka.service_relations` rows of kind `depends_on`, written through
+`/api/relations` (0126 dropped `ka.inventory_links`); the rest of this section is their history.
 
 Migration 42 added `ka.service_dependencies`; migration 0095 moved its rows into `ka.inventory_links` (kind `depends_on`,
 columns `from_service_id` and `to_service_id`), and the description below applies to those rows. A row means `service_id` depends on
@@ -304,13 +313,12 @@ existing per-project uniqueness rule. Tags are a non-null one-dimensional text
 array (maximum 32); API validation also bounds each tag to 64 characters, rejects
 empty tags, commas and control characters, and trims/lowercases/deduplicates them.
 Existing records receive an empty description, empty tags and revision 1.
-`ka.server_assets` selects only public inventory and access-policy fields. The
-service projection embeds it, so edits appear in agent context without rewriting
+The inventory store reads only public inventory and access-policy fields (0126 dropped
+the `ka.server_assets` view that did this before). The service records embed them, so edits appear in agent context without rewriting
 deployments. Inventory saves preserve SSH configuration and audit each revision.
-`DELETE /api/servers/{id}?revision=...&confirmed=true` removes an unreferenced
+`DELETE /api/servers/{id}?revision=...` removes an unreferenced
 server and records `server.deleted` in the same transaction. The Servers page
-uses a shadcn confirmation dialog showing the name and hostname. Missing
-confirmation, stale revisions, and servers referenced by service deployments or
+uses a shadcn confirmation dialog showing the name and hostname. Stale revisions, and servers referenced by service deployments or
 connection-test jobs/history are rejected; linked deployments must be removed
 from Services before deletion. No commands are executed on the host.
 Newly registered servers have no username/credential, access disabled,

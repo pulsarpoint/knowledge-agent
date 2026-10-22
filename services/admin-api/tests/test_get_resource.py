@@ -116,8 +116,8 @@ def test_a_service_lists_its_connections_with_port_and_protocol(world):
                 'id'
             ],
             conn.execute(
-                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,
-                runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'db',5432) RETURNING id""",
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,
+                runtime_name,port) VALUES (%s,%s,%s,%s,'db',5432) RETURNING id""",
                 (world.project, db, world.server['id'], world.environment),
             ).fetchone()['id'],
         ]
@@ -229,8 +229,8 @@ def test_lists_stop_at_100(world):
                 (service, world.project, f'svc-{number:03}'),
             )
             conn.execute(
-                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
-                VALUES (%s,%s,%s,'Production',%s,'x')""",
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name)
+                VALUES (%s,%s,%s,%s,'x')""",
                 (world.project, service, world.server['id'], environment_id(conn, world.project, 'Production')),
             )
     found = get(given(world), 'server', world.server['id'])

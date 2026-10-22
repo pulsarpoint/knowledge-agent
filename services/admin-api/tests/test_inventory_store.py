@@ -50,9 +50,6 @@ def test_items_are_created_as_plain_dicts_with_audit(store, world):
     deployment = world['api_a']
     assert (deployment['environment_id'], deployment['port'], deployment['revision']) == (world['prod']['id'], 8080, 1)
     with store.connect() as conn:
-        assert conn.execute(
-            'SELECT environment FROM ka.service_deployments WHERE id=%s', (deployment['id'],)
-        ).fetchone() == {'environment': 'prod'}
         for item, kind in [(world['a'], 'server'), (world['api'], 'service'), (world['prod'], 'environment')]:
             [row] = audit(conn, item['id'])
             assert (row['actor_id'], row['action'], row['resource_type']) == (world['actor'], f'{kind}.created', kind)

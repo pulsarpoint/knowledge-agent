@@ -28,8 +28,10 @@ class Conflict(Exception):
     pass
 
 
-# What a reader gets: public columns only (no SSH credentials, no free-text deployment label).
-SERVER = 'SELECT x.* FROM ka.server_assets x'
+# What a reader gets: public columns only (no SSH credentials).
+SERVER = """SELECT x.id,x.project_id,x.name,x.hostname,x.description,x.tags,x.revision,x.created_at,x.updated_at,
+    x.port AS ssh_port,x.username AS ssh_username,x.enabled AS access_enabled,x.allow_sudo,x.ssh_allowed
+    FROM ka.servers x"""
 SERVICE = """SELECT x.id,x.project_id,x.name,x.description,x.owner,x.service_type::text AS service_type,
     x.service_role::text AS service_role,x.revision,x.created_by,x.created_at,x.updated_at FROM ka.services x"""
 ENVIRONMENT = 'SELECT x.id,x.project_id,x.name,x.description,x.revision,x.created_by,x.created_at,x.updated_at FROM ka.environments x'
@@ -37,9 +39,6 @@ DEPLOYMENT = """SELECT x.id,x.project_id,x.service_id,x.server_id,x.environment_
     x.log_location,x.deployed_version,x.revision FROM ka.service_deployments x"""
 CONNECTION = 'SELECT x.* FROM ka.connections x'
 RELATION = 'SELECT x.* FROM ka.service_relations x'
-DEPLOYMENT_IDENTITY = (
-    'ka.service_deployments_service_id_server_id_environment_runtim_key,ka.service_deployments_environment_identity'
-)
 
 KINDS = {
     'server': {
@@ -207,8 +206,8 @@ def _references(conn, project_id: UUID, kind: str, item: dict, saved: dict | Non
     if kind == 'deployment':
         _require(conn, 'ka.services', project_id, item['service_id'], 'service')
         _require(conn, 'ka.servers', project_id, item['server_id'], 'server')
-        environment = _require(conn, 'ka.environments', project_id, item['environment_id'], 'environment')
-        return {'environment': environment['name']}  # the free-text label, until 0126 drops it
+        _require(conn, 'ka.environments', project_id, item['environment_id'], 'environment')
+        return {}
     if kind == 'connection':
         _require(conn, 'ka.service_deployments', project_id, item['from_deployment_id'], 'deployment to connect from')
         target = _require(
@@ -227,10 +226,6 @@ def _references(conn, project_id: UUID, kind: str, item: dict, saved: dict | Non
 
 
 def _write(conn, kind: str, sql: str, params: list) -> UUID:
-    # A deployment's identity constraints are deferrable (left from the old service form): check them now, so a
-    # duplicate is a Conflict here and not a failed commit.
-    if kind == 'deployment':
-        conn.execute(f'SET CONSTRAINTS {DEPLOYMENT_IDENTITY} IMMEDIATE')
     try:
         with conn.transaction():  # a savepoint: a duplicate leaves the caller's transaction usable
             return conn.execute(sql, params).fetchone()['id']

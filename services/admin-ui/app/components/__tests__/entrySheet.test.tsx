@@ -4,16 +4,53 @@ import { MemoryRouter } from "react-router";
 import EntrySheet from "~/features/servers/EntrySheet";
 
 const api = { kind: "service" as const, id: "api", name: "api" };
-const link = {
-  id: "l1",
-  kind: "connects_to",
-  from: { kind: "service", id: "api", name: "api" },
-  to: { kind: "server", id: "s1", name: "prod-1" },
+const deployment = (id: string, server: string, port: number | null) => ({
+  id,
+  server_id: server,
+  environment_id: "prod",
+  environment: "prod",
+  runtime: "",
+  runtime_name: "",
+  port,
+  log_location: "",
+  deployed_version: "",
+  server: { name: server },
+});
+const SERVICES = {
+  services: [
+    { id: "api", name: "api", deployments: [deployment("d-api", "web-1", 8080)] },
+    { id: "pg", name: "pg", deployments: [deployment("d-pg", "db-1", 5432)] },
+    { id: "worker", name: "worker", deployments: [] },
+  ],
+};
+const connection = {
+  id: "c1",
+  from_deployment_id: "d-api",
+  to_deployment_id: "d-pg",
+  to_host: null,
+  port: 5432,
+  protocol: "postgres",
   description: "reads its database",
-  attributes: { port: "5432" },
   revision: 1,
 };
-const LINKS = "/api/inventory/links?entry_kind=service&entry_id=api";
+const relation = {
+  id: "r1",
+  from_service_id: "worker",
+  kind: "part_of",
+  to_service_id: "api",
+  to_code_project_id: null,
+  description: "",
+  revision: 2,
+};
+const CONNECTIONS = "/api/services/api/connections";
+const RELATIONS = "/api/services/api/relations";
+/** The reads a service entry's sheet makes, with these connections and relations. */
+const reads = (connections: unknown[] = [], relations: unknown[] = []) => ({
+  ["GET /api/services"]: () => ({ json: SERVICES }),
+  ["GET /api/repositories"]: () => ({ json: { repositories: [{ id: "shop", name: "shop" }] } }),
+  [`GET ${CONNECTIONS}`]: () => ({ json: { connections } }),
+  [`GET ${RELATIONS}`]: () => ({ json: { relations } }),
+});
 const DOCS = "/api/inventory/service/api/documents";
 const none = { inventory_document: null, documents: [] };
 /** One entry of the resource's document list (belonging to `api` unless another resource is given). */
@@ -44,9 +81,9 @@ const sheet = (onChanged = vi.fn()) =>
   );
 afterEach(() => vi.unstubAllGlobals());
 
-test("shows the entry's links and documents with a link to its page", async () => {
+test("shows a service's connections and relations in words, and its documents", async () => {
   server({
-    [`GET ${LINKS}`]: () => ({ json: { links: [link] } }),
+    ...reads([connection], [relation]),
     [`GET ${DOCS}`]: () => ({
       json: {
         inventory_document: {
@@ -67,8 +104,12 @@ test("shows the entry's links and documents with a link to its page", async () =
     }),
   });
   sheet();
-  expect(await screen.findByText("connects to → prod-1")).toBeInTheDocument();
-  expect(screen.getByText("reads its database · port: 5432")).toBeInTheDocument();
+  const connections = within(await screen.findByRole("region", { name: "Connections" }));
+  expect(await connections.findByText("api on web-1 (prod) → pg on db-1 (prod) :5432 postgres")).toBeInTheDocument();
+  expect(connections.getByText("reads its database")).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Relations" })).getByText("worker is part of api"),
+  ).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Open in Services" })).toHaveAttribute("href", "/services");
   const documents = within(screen.getByRole("region", { name: "Documents" }));
   expect(await documents.findByRole("link", { name: "Runbook" })).toHaveAttribute("href", "/documents/d1");
@@ -83,69 +124,163 @@ test("shows the entry's links and documents with a link to its page", async () =
   expect(documents.queryByRole("link", { name: "Disk notes" })).toBeNull();
 });
 
-test("connects to an entry: kinds follow the entry, targets follow the kind", async () => {
+test("adds a connection to another deployment with the target's port prefilled", async () => {
   const user = userEvent.setup();
   const onChanged = vi.fn();
   let posted: unknown = null;
   const fetch = server({
-    [`GET ${LINKS}`]: () => ({ json: { links: [] } }),
+    ...reads(),
     [`GET ${DOCS}`]: () => ({ json: none }),
-    ["GET /api/map/search?kind=service&q=wor"]: () => ({
-      json: { entries: [{ entry_kind: "service", entry_id: "w", name: "worker" }] },
-    }),
-    ["POST /api/inventory/links"]: (init) => {
+    ["POST /api/connections"]: (init) => {
       posted = JSON.parse(String(init?.body));
-      return { status: 201, json: { link } };
+      return { status: 201, json: connection };
     },
   });
   sheet(onChanged);
-  const connect = within(await screen.findByRole("region", { name: "Connect" }));
-  await user.click(connect.getByRole("combobox", { name: "Connection kind" }));
+  const form = within(await screen.findByRole("region", { name: "New connection" }));
+  expect(await form.findByRole("combobox", { name: "From" })).toHaveTextContent("api on web-1 (prod)");
+  await user.click(form.getByRole("combobox", { name: "To" }));
   expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-    "connects to",
-    "depends on",
-    "built from",
+    "pg on db-1 (prod)",
+    "An external host",
   ]);
-  await user.click(screen.getByRole("option", { name: "depends on" }));
-  await user.type(connect.getByLabelText("Attributes"), "protocol: grpc");
-  await user.type(connect.getByRole("textbox", { name: "Find an entry" }), "wor");
-  await user.click(connect.getByRole("button", { name: "Find" }));
-  await user.click(await connect.findByRole("button", { name: "Connect: worker" }));
+  await user.click(screen.getByRole("option", { name: "pg on db-1 (prod)" }));
+  expect(form.getByLabelText("Port")).toHaveValue(5432);
+  await user.clear(form.getByLabelText("Protocol"));
+  await user.type(form.getByLabelText("Protocol"), "postgres");
+  await user.type(form.getByLabelText("Description"), "orders");
+  await user.click(form.getByRole("button", { name: "Add connection" }));
   await waitFor(() =>
     expect(posted).toEqual({
-      from: { kind: "service", id: "api" },
-      to: { kind: "service", id: "w" },
-      kind: "depends_on",
-      description: "",
-      attributes: { protocol: "grpc" },
+      from_deployment_id: "d-api",
+      to_deployment_id: "d-pg",
+      to_host: null,
+      port: 5432,
+      protocol: "postgres",
+      description: "orders",
     }),
   );
   expect(onChanged).toHaveBeenCalled();
-  expect(fetch.mock.calls.filter((call) => call[0] === LINKS)).toHaveLength(2); // reloaded after connecting
+  await waitFor(() => expect(fetch.mock.calls.filter((call) => call[0] === CONNECTIONS)).toHaveLength(2));
 });
 
-test("edits a link, shows a conflict, and removes it", async () => {
+test("adds a connection to an external host", async () => {
   const user = userEvent.setup();
+  let posted: unknown = null;
   server({
-    [`GET ${LINKS}`]: () => ({ json: { links: [link] } }),
+    ...reads(),
     [`GET ${DOCS}`]: () => ({ json: none }),
-    ["PUT /api/inventory/links/l1"]: () => ({
-      status: 409,
-      json: { error: { message: "This connection was changed by someone else. Reload and try again." } },
-    }),
-    ["DELETE /api/inventory/links/l1"]: () => ({ status: 204 }),
+    ["POST /api/connections"]: (init) => {
+      posted = JSON.parse(String(init?.body));
+      return { status: 201, json: connection };
+    },
   });
   sheet();
-  await user.click(await screen.findByRole("button", { name: "Edit connects to → prod-1" }));
-  const description = screen.getAllByLabelText("Description")[0]; // the edit form comes before Connect
-  await user.clear(description);
-  await user.type(description, "replica");
-  await user.click(screen.getByRole("button", { name: "Save connection" }));
-  expect(
-    await screen.findByText("This connection was changed by someone else. Reload and try again."),
-  ).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Remove connects to → prod-1" }));
-  await waitFor(() => expect(screen.queryByText(/changed by someone else/)).toBeNull());
+  const form = within(await screen.findByRole("region", { name: "New connection" }));
+  await user.click(await form.findByRole("combobox", { name: "To" }));
+  await user.click(screen.getByRole("option", { name: "An external host" }));
+  await user.type(form.getByLabelText("Host"), "smtp.example.com");
+  await user.type(form.getByLabelText("Port"), "587");
+  await user.clear(form.getByLabelText("Protocol"));
+  await user.type(form.getByLabelText("Protocol"), "smtp");
+  await user.click(form.getByRole("button", { name: "Add connection" }));
+  await waitFor(() =>
+    expect(posted).toEqual({
+      from_deployment_id: "d-api",
+      to_deployment_id: null,
+      to_host: "smtp.example.com",
+      port: 587,
+      protocol: "smtp",
+      description: "",
+    }),
+  );
+});
+
+test("edits a connection, shows a conflict and reloads, and removes it with its revision", async () => {
+  const user = userEvent.setup();
+  let current = 1;
+  let put: unknown = null;
+  const fetch = server({
+    ...reads([connection], []),
+    [`GET ${CONNECTIONS}`]: () => ({ json: { connections: [{ ...connection, revision: current }] } }),
+    [`GET ${DOCS}`]: () => ({ json: none }),
+    ["PUT /api/connections/c1"]: (init) => {
+      put = JSON.parse(String(init?.body));
+      current = 2;
+      return { status: 409, json: { error: { message: "This connection changed since you read it." } } };
+    },
+    ["DELETE /api/connections/c1?revision=2"]: () => ({ json: { id: "c1" } }),
+  });
+  sheet();
+  const text = "api on web-1 (prod) → pg on db-1 (prod) :5432 postgres";
+  await user.click(await screen.findByRole("button", { name: `Edit ${text}` }));
+  const edit = within(screen.getByRole("form", { name: `Edit ${text}` }));
+  await user.clear(edit.getByLabelText("Description"));
+  await user.type(edit.getByLabelText("Description"), "replica");
+  await user.click(edit.getByRole("button", { name: "Save connection" }));
+  expect(await screen.findByText("This connection changed since you read it.")).toBeInTheDocument();
+  expect(put).toEqual({
+    from_deployment_id: "d-api",
+    to_deployment_id: "d-pg",
+    to_host: null,
+    port: 5432,
+    protocol: "postgres",
+    description: "replica",
+    revision: 1,
+  });
+  await waitFor(() => expect(fetch.mock.calls.filter((call) => call[0] === CONNECTIONS)).toHaveLength(2));
+  await user.click(screen.getByRole("button", { name: `Remove ${text}` }));
+  await waitFor(() => expect(fetch.mock.calls.some((call) => call[0] === "/api/connections/c1?revision=2")).toBe(true));
+});
+
+test("adds a built_from relation to a code project and removes a relation", async () => {
+  const user = userEvent.setup();
+  let posted: unknown = null;
+  const fetch = server({
+    ...reads([], [relation]),
+    [`GET ${DOCS}`]: () => ({ json: none }),
+    ["POST /api/relations"]: (init) => {
+      posted = JSON.parse(String(init?.body));
+      return { status: 201, json: relation };
+    },
+    ["DELETE /api/relations/r1?revision=2"]: () => ({ json: { id: "r1" } }),
+  });
+  sheet();
+  const form = within(await screen.findByRole("region", { name: "New relation" }));
+  await user.click(form.getByRole("combobox", { name: "Relation" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "depends on",
+    "is part of",
+    "is built from",
+  ]);
+  await user.click(screen.getByRole("option", { name: "is built from" }));
+  await user.click(form.getByRole("combobox", { name: "Target" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["shop"]);
+  await user.click(screen.getByRole("option", { name: "shop" }));
+  await user.click(form.getByRole("button", { name: "Add relation" }));
+  await waitFor(() =>
+    expect(posted).toEqual({
+      from_service_id: "api",
+      kind: "built_from",
+      to_service_id: null,
+      to_code_project_id: "shop",
+      description: "",
+    }),
+  );
+  await user.click(await screen.findByRole("button", { name: "Remove worker is part of api" }));
+  await waitFor(() => expect(fetch.mock.calls.some((call) => call[0] === "/api/relations/r1?revision=2")).toBe(true));
+});
+
+test("a server entry explains that connections belong to services", async () => {
+  const fetch = server({ ["GET /api/inventory/server/s1/documents"]: () => ({ json: none }) });
+  render(
+    <MemoryRouter>
+      <EntrySheet entry={{ kind: "server", id: "s1", name: "prod-1" }} onClose={() => {}} onChanged={() => {}} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(/Connections and relations belong to services/)).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "New connection" })).toBeNull();
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 });
 
 test("Link a document adds a linked link; Remove link removes it", async () => {
@@ -158,7 +293,7 @@ test("Link a document adds a linked link; Remove link removes it", async () => {
     documents: linked ? [listed("d1", "Runbook", "linked")] : [],
   });
   server({
-    [`GET ${LINKS}`]: () => ({ json: { links: [] } }),
+    ...reads(),
     [`GET ${DOCS}`]: () => ({ json: docs() }),
     ["GET /api/documentation/documents?q=run"]: () => ({
       json: { documents: [{ id: "d1", slug: "runbook", title: "Runbook" }] },
@@ -183,25 +318,4 @@ test("Link a document adds a linked link; Remove link removes it", async () => {
   expect(onChanged).toHaveBeenCalled();
   await user.click(await documents.findByRole("button", { name: "Remove link: Runbook" }));
   await waitFor(() => expect(documents.getByText("No documents are linked.")).toBeInTheDocument());
-});
-
-test("after a stale-revision save the links are fetched again, so Edit reopens the current revision", async () => {
-  const user = userEvent.setup();
-  let current = 1;
-  const fetch = server({
-    [`GET ${LINKS}`]: () => ({ json: { links: [{ ...link, revision: current }] } }),
-    [`GET ${DOCS}`]: () => ({ json: none }),
-    ["PUT /api/inventory/links/l1"]: () => {
-      current = 2;
-      return {
-        status: 409,
-        json: { error: { message: "This connection was changed by someone else. Reload and try again." } },
-      };
-    },
-  });
-  sheet();
-  await user.click(await screen.findByRole("button", { name: "Edit connects to → prod-1" }));
-  await user.click(screen.getByRole("button", { name: "Save connection" }));
-  expect(await screen.findByText(/changed by someone else/)).toBeInTheDocument(); // the message stays visible
-  await waitFor(() => expect(fetch.mock.calls.filter((call) => call[0] === LINKS)).toHaveLength(2));
 });

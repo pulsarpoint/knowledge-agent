@@ -23,8 +23,8 @@ from test_repositories import HEADERS
 @pytest.fixture
 def world(store, tmp_path, monkeypatch):
     """prod holds api on web (8080) and pg on db (5432); api is built from shop, depends on pg, has part worker and
-    connects to pg (postgres) and to smtp.example.com:587. ghost (service) and lonely (server) are prod members only;
-    an old built_from link from pg to old is left in inventory_links."""
+    connects to pg (postgres) and to smtp.example.com:587. ghost (service) and lonely (server) are not deployed; old is a
+    code project nothing is built from."""
     monkeypatch.setattr(inventory_tool, '_store', store)
     monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path / 'data'))
     monkeypatch.setenv('CODE_ROOT', str(tmp_path / 'data' / 'code'))
@@ -77,19 +77,6 @@ def world(store, tmp_path, monkeypatch):
             {'from_deployment_id': api_web, 'to_host': 'smtp.example.com', 'port': 587, 'protocol': 'smtp'},
             author,
         )
-        conn.execute(
-            'INSERT INTO ka.environment_services(project_id,environment_id,service_id) VALUES (%s,%s,%s)',
-            (project, w.prod, w.ghost),
-        )
-        conn.execute(
-            'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
-            (project, w.prod, w.lonely),
-        )
-        conn.execute(
-            """INSERT INTO ka.inventory_links(project_id,from_service_id,to_code_project_id,kind)
-            VALUES (%s,%s,%s,'built_from')""",
-            (project, w.pg, w.old),
-        )
     return w
 
 
@@ -116,7 +103,7 @@ def test_an_environment_brings_what_is_deployed_in_it(world):
         ('server', str(w.web)): via,
         ('server', str(w.db)): via,
         ('code_project', str(w.shop)): f'via service {w.api}',
-    }  # ghost and lonely are members only; pg's old link is not a relation
+    }  # ghost and lonely are not deployed
     with w.store.connect() as conn:
         brought = run_access.bring(conn, w.project, [], [w.prod])
     assert brought['service_ids'] == [str(w.api), str(w.pg)]
@@ -314,4 +301,4 @@ def test_the_map_draws_connections_between_deployments_and_external_hosts(world)
         ('api', 'shop', 'built_from'),
         ('api', 'smtp.example.com', 'connects_to'),
         ('worker', 'api', 'part_of'),
-    ]  # pg's old link is not drawn
+    ]

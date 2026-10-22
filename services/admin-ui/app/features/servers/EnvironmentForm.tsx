@@ -2,55 +2,27 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { X } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { saveEnvironment, type EnvironmentAsset } from "./environments";
-import { type ServiceAsset } from "./services";
-import { type ServerAsset } from "./api";
-import { serviceTypes, serviceRoles } from "./serviceClassification";
+import { saveEnvironment, type Environment, type EnvironmentAsset } from "./environments";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import { Checkbox } from "~/components/ui/checkbox";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-} from "~/components/ui/field";
+import { Field, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
 export default function EnvironmentForm({
   environment,
-  services,
-  servers,
   onSaved,
   onClose,
 }: {
   environment: EnvironmentAsset | null;
-  services: ServiceAsset[];
-  servers: ServerAsset[];
-  onSaved: (environment: EnvironmentAsset) => void;
+  onSaved: (environment: Environment) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(environment?.name ?? "");
   const [description, setDescription] = useState(environment?.description ?? "");
-  const [serviceIds, setServiceIds] = useState(environment?.services.map((service) => service.id) ?? []);
-  const [serverIds, setServerIds] = useState(environment?.servers.map((server) => server.id) ?? []);
-  const [serviceQuery, setServiceQuery] = useState("");
-  const [serverQuery, setServerQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const matchingServices = services.filter((service) =>
-    `${service.name} ${service.description} ${serviceRoles[service.service_role].label}`
-      .toLowerCase()
-      .includes(serviceQuery.trim().toLowerCase()),
-  );
-  const matchingServers = servers.filter((server) =>
-    `${server.name} ${server.hostname} ${server.description}`.toLowerCase().includes(serverQuery.trim().toLowerCase()),
-  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -62,8 +34,6 @@ export default function EnvironmentForm({
         {
           name,
           description,
-          service_ids: serviceIds,
-          server_ids: serverIds,
           ...(environment ? { revision: environment.revision } : {}),
         },
         environment?.id,
@@ -124,102 +94,12 @@ export default function EnvironmentForm({
         </FieldGroup>
       </FieldSet>
       <p className="text-sm text-muted-foreground">
-        Select the services and servers that belong to this environment. Each asset can belong to multiple environments.
+        A service or server is in this environment when one of its deployments is: add deployments on the{" "}
+        <Link className="underline" to="/services">
+          Services page
+        </Link>
+        .
       </p>
-      <FieldGroup className="grid gap-6 md:grid-cols-2">
-        <FieldSet disabled={saving}>
-          <FieldLegend>Services</FieldLegend>
-          <FieldDescription>{serviceIds.length} selected</FieldDescription>
-          {services.length === 0 ? (
-            <FieldDescription>
-              Add services on the{" "}
-              <Link className="underline" to="/services">
-                Services page
-              </Link>
-              , then select them here.
-            </FieldDescription>
-          ) : (
-            <>
-              <Input
-                aria-label="Filter environment services"
-                placeholder="Find a service…"
-                value={serviceQuery}
-                onChange={(event) => setServiceQuery(event.target.value)}
-              />
-              <FieldGroup className="max-h-80 gap-4 overflow-y-auto p-1">
-                {matchingServices.map((service) => (
-                  <Field key={service.id} orientation="horizontal" data-disabled={saving}>
-                    <Checkbox
-                      id={`environment-service-${service.id}`}
-                      disabled={saving}
-                      checked={serviceIds.includes(service.id)}
-                      onCheckedChange={(checked) =>
-                        setServiceIds((ids) =>
-                          checked === true ? [...ids, service.id] : ids.filter((id) => id !== service.id),
-                        )
-                      }
-                    />
-                    <FieldContent>
-                      <FieldLabel htmlFor={`environment-service-${service.id}`}>{service.name}</FieldLabel>
-                      <FieldDescription>
-                        {serviceTypes[service.service_type]} · {serviceRoles[service.service_role].label}
-                      </FieldDescription>
-                    </FieldContent>
-                  </Field>
-                ))}
-                {matchingServices.length === 0 && (
-                  <FieldDescription>No services match. Your selections are kept.</FieldDescription>
-                )}
-              </FieldGroup>
-            </>
-          )}
-        </FieldSet>
-        <FieldSet disabled={saving}>
-          <FieldLegend>Servers</FieldLegend>
-          <FieldDescription>{serverIds.length} selected</FieldDescription>
-          {servers.length === 0 ? (
-            <FieldDescription>
-              Add servers on the{" "}
-              <Link className="underline" to="/servers">
-                Servers page
-              </Link>
-              , then select them here.
-            </FieldDescription>
-          ) : (
-            <>
-              <Input
-                aria-label="Filter environment servers"
-                placeholder="Find a server or hostname…"
-                value={serverQuery}
-                onChange={(event) => setServerQuery(event.target.value)}
-              />
-              <FieldGroup className="max-h-80 gap-4 overflow-y-auto p-1">
-                {matchingServers.map((server) => (
-                  <Field key={server.id} orientation="horizontal" data-disabled={saving}>
-                    <Checkbox
-                      id={`environment-server-${server.id}`}
-                      disabled={saving}
-                      checked={serverIds.includes(server.id)}
-                      onCheckedChange={(checked) =>
-                        setServerIds((ids) =>
-                          checked === true ? [...ids, server.id] : ids.filter((id) => id !== server.id),
-                        )
-                      }
-                    />
-                    <FieldContent>
-                      <FieldLabel htmlFor={`environment-server-${server.id}`}>{server.name}</FieldLabel>
-                      <FieldDescription>{server.hostname}</FieldDescription>
-                    </FieldContent>
-                  </Field>
-                ))}
-                {matchingServers.length === 0 && (
-                  <FieldDescription>No servers match. Your selections are kept.</FieldDescription>
-                )}
-              </FieldGroup>
-            </>
-          )}
-        </FieldSet>
-      </FieldGroup>
       <div className="flex gap-2">
         <Button type="submit" disabled={saving}>
           {saving && <Spinner data-icon="inline-start" />}

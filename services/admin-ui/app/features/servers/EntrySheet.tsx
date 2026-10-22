@@ -2,32 +2,37 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link as RouterLink } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getDocuments, type DocumentSummary } from "~/features/documents/api";
+import { getRepositories } from "~/features/codeProjects/api";
 import {
   ENTRY_LABELS,
   ENTRY_PAGES,
-  LINK_LABELS,
-  createLink,
-  deleteLink,
-  formatAttributes,
   getEntryDocuments,
-  getLinks,
   linkDocument,
-  linkKindsFrom,
-  parseAttributes,
-  searchEntries,
-  targetKinds,
   unlinkDocument,
-  updateLink,
   type EntryDocuments,
-  type EntryHit,
-  type Link,
-  type LinkKind,
   type MapEntry,
 } from "./inventoryMap";
+import {
+  RELATION_LABELS,
+  connectionText,
+  createItem,
+  deleteItem,
+  deploymentLabels,
+  getServiceConnections,
+  getServiceRelations,
+  relationText,
+  updateItem,
+  type Connection,
+  type ConnectionValue,
+  type DeploymentLabel,
+  type Relation,
+  type RelationKind,
+} from "./inventory";
+import { getServices } from "./services";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
@@ -35,233 +40,286 @@ import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
 const say = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
-/** How a link reads from this entry: "depends on → worker" or "billing → connects to". */
-const linkText = (link: Link, entryId: string) =>
-  link.from.id === entryId
-    ? `${LINK_LABELS[link.kind]} → ${link.to.name}`
-    : `${link.from.name} → ${LINK_LABELS[link.kind]}`;
-const linkNote = (link: Link) =>
-  [link.description, ...Object.entries(link.attributes).map(([name, text]) => `${name}: ${text}`)]
-    .filter(Boolean)
-    .join(" · ");
+const EXTERNAL = "external";
 
-function LinkFields({
+/** A connection's fields: from one of the service's deployments to another deployment (its port prefilled) or to an
+ * external host. */
+function ConnectionForm({
   id,
-  description,
-  attributes,
-  onDescription,
-  onAttributes,
-}: {
-  id: string;
-  description: string;
-  attributes: string;
-  onDescription: (text: string) => void;
-  onAttributes: (text: string) => void;
-}) {
-  const parsed = parseAttributes(attributes);
-  const problem = "problem" in parsed ? parsed.problem : null;
-  return (
-    <FieldGroup>
-      <Field>
-        <FieldLabel htmlFor={`${id}-description`}>Description</FieldLabel>
-        <Textarea
-          id={`${id}-description`}
-          value={description}
-          maxLength={4000}
-          rows={2}
-          onChange={(event) => onDescription(event.target.value)}
-        />
-      </Field>
-      <Field data-invalid={problem !== null || undefined}>
-        <FieldLabel htmlFor={`${id}-attributes`}>Attributes</FieldLabel>
-        <Textarea
-          id={`${id}-attributes`}
-          value={attributes}
-          rows={3}
-          spellCheck={false}
-          className="font-mono text-xs"
-          placeholder="port: 5432"
-          aria-invalid={problem !== null}
-          onChange={(event) => onAttributes(event.target.value)}
-        />
-        {problem ? (
-          <FieldError>{problem}</FieldError>
-        ) : (
-          <FieldDescription>Optional; one name: value per line.</FieldDescription>
-        )}
-      </Field>
-    </FieldGroup>
-  );
-}
-
-function EditLink({
-  link,
-  onSaved,
-  onFailed,
+  label,
+  from,
+  deployments,
+  initial,
+  submitLabel,
+  onSubmit,
   onCancel,
 }: {
-  link: Link;
-  onSaved: () => void;
-  onFailed: () => void;
-  onCancel: () => void;
+  id: string;
+  label: string;
+  from: DeploymentLabel[];
+  deployments: DeploymentLabel[];
+  initial?: Connection;
+  submitLabel: string;
+  onSubmit: (value: ConnectionValue) => Promise<boolean>;
+  onCancel?: () => void;
 }) {
-  const [description, setDescription] = useState(link.description);
-  const [attributes, setAttributes] = useState(formatAttributes(link.attributes));
-  const [error, setError] = useState<string | null>(null);
-  const parsed = parseAttributes(attributes);
-  async function save(event: FormEvent) {
+  const [source, setSource] = useState(initial?.from_deployment_id ?? from[0]?.id ?? "");
+  const [target, setTarget] = useState(initial ? (initial.to_deployment_id ?? EXTERNAL) : "");
+  const [host, setHost] = useState(initial?.to_host ?? "");
+  const [port, setPort] = useState(initial?.port?.toString() ?? "");
+  const [protocol, setProtocol] = useState(initial?.protocol ?? "tcp");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [busy, setBusy] = useState(false);
+  const targets = deployments.filter((deployment) => deployment.id !== source);
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!("value" in parsed)) return;
-    setError(null);
-    try {
-      await updateLink(link.id, { description, attributes: parsed.value, revision: link.revision });
-      onSaved();
-    } catch (reason) {
-      setError(say(reason, "Could not save the connection."));
-      onFailed();
+    setBusy(true);
+    const external = target === EXTERNAL;
+    const saved = await onSubmit({
+      from_deployment_id: source,
+      to_deployment_id: external ? null : target,
+      to_host: external ? host.trim() : null,
+      port: port === "" ? null : Number(port),
+      protocol: protocol.trim(),
+      description,
+    });
+    setBusy(false);
+    if (saved && !initial) {
+      setTarget("");
+      setHost("");
+      setPort("");
+      setProtocol("tcp");
+      setDescription("");
     }
   }
   return (
-    <form onSubmit={save} className="flex flex-col gap-2 rounded-md border p-2">
-      <LinkFields
-        id={`link-${link.id}`}
-        description={description}
-        attributes={attributes}
-        onDescription={setDescription}
-        onAttributes={setAttributes}
-      />
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+    <form onSubmit={submit} aria-label={label} className="flex flex-col gap-2 rounded-md border p-2">
+      <FieldGroup className="gap-3">
+        <Field>
+          <FieldLabel htmlFor={`${id}-from`}>From</FieldLabel>
+          <Select value={source} onValueChange={setSource}>
+            <SelectTrigger id={`${id}-from`} className="w-full">
+              <SelectValue placeholder="Choose a deployment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {from.map((deployment) => (
+                  <SelectItem key={deployment.id} value={deployment.id}>
+                    {deployment.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-to`}>To</FieldLabel>
+          <Select
+            value={target}
+            onValueChange={(value) => {
+              setTarget(value);
+              const chosen = deployments.find((deployment) => deployment.id === value);
+              if (chosen) setPort(chosen.port?.toString() ?? "");
+            }}
+          >
+            <SelectTrigger id={`${id}-to`} className="w-full">
+              <SelectValue placeholder="Choose a deployment or an external host" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {targets.map((deployment) => (
+                  <SelectItem key={deployment.id} value={deployment.id}>
+                    {deployment.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value={EXTERNAL}>An external host</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        {target === EXTERNAL && (
+          <Field>
+            <FieldLabel htmlFor={`${id}-host`}>Host</FieldLabel>
+            <Input
+              id={`${id}-host`}
+              value={host}
+              maxLength={253}
+              placeholder="smtp.example.com or 10.0.0.5"
+              onChange={(event) => setHost(event.target.value)}
+            />
+          </Field>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Field>
+            <FieldLabel htmlFor={`${id}-port`}>Port</FieldLabel>
+            <Input
+              id={`${id}-port`}
+              type="number"
+              min={1}
+              max={65535}
+              value={port}
+              onChange={(event) => setPort(event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-protocol`}>Protocol</FieldLabel>
+            <Input
+              id={`${id}-protocol`}
+              value={protocol}
+              maxLength={20}
+              placeholder="tcp, http, postgres…"
+              onChange={(event) => setProtocol(event.target.value)}
+            />
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel htmlFor={`${id}-description`}>Description</FieldLabel>
+          <Textarea
+            id={`${id}-description`}
+            value={description}
+            maxLength={4000}
+            rows={2}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </Field>
+      </FieldGroup>
       <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={!("value" in parsed)}>
-          Save connection
+        <Button type="submit" size="sm" disabled={busy || !source || !target}>
+          {submitLabel}
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+        {onCancel && (
+          <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );
 }
 
-function Connect({ entry, onConnected }: { entry: MapEntry; onConnected: () => void }) {
-  const kinds = linkKindsFrom(entry.kind);
-  const [kind, setKind] = useState<LinkKind>(kinds[0]);
+/** A new relation from this service: the kind, then a service (depends on, is part of) or a code project (is built
+ * from). */
+function RelationForm({
+  serviceId,
+  services,
+  codeProjects,
+  onSubmit,
+}: {
+  serviceId: string;
+  services: { id: string; name: string }[];
+  codeProjects: { id: string; name: string }[];
+  onSubmit: (value: Omit<Relation, "id" | "revision">) => Promise<boolean>;
+}) {
+  const [kind, setKind] = useState<RelationKind>("depends_on");
+  const [target, setTarget] = useState("");
   const [description, setDescription] = useState("");
-  const [attributes, setAttributes] = useState("");
-  const [q, setQ] = useState("");
-  const [hits, setHits] = useState<EntryHit[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const targets = targetKinds(kind);
-  const parsed = parseAttributes(attributes);
-  async function find(event: FormEvent) {
+  const [busy, setBusy] = useState(false);
+  const built = kind === "built_from";
+  const targets = built ? codeProjects : services.filter((service) => service.id !== serviceId);
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
-    try {
-      setHits(
-        (await searchEntries(q.trim(), targets?.length === 1 ? targets[0] : undefined)).entries.filter(
-          (hit) => hit.entry_id !== entry.id,
-        ),
-      );
-    } catch (reason) {
-      setError(say(reason, "Could not search."));
-    }
-  }
-  async function connect(hit: EntryHit) {
-    if (!("value" in parsed)) return;
-    setError(null);
-    try {
-      await createLink({
-        from: { kind: entry.kind, id: entry.id },
-        to: { kind: hit.entry_kind, id: hit.entry_id },
-        kind,
-        description,
-        attributes: parsed.value,
-      });
+    setBusy(true);
+    const saved = await onSubmit({
+      from_service_id: serviceId,
+      kind,
+      to_service_id: built ? null : target,
+      to_code_project_id: built ? target : null,
+      description,
+    });
+    setBusy(false);
+    if (saved) {
+      setTarget("");
       setDescription("");
-      setAttributes("");
-      setHits(null);
-      setQ("");
-      onConnected();
-    } catch (reason) {
-      setError(say(reason, "Could not connect."));
     }
   }
   return (
-    <section aria-label="Connect" className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Connect to…</h3>
-      <Select
-        value={kind}
-        onValueChange={(value) => {
-          setKind(value as LinkKind);
-          setHits(null);
-        }}
-      >
-        <SelectTrigger aria-label="Connection kind" className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {kinds.map((item) => (
-              <SelectItem key={item} value={item}>
-                {LINK_LABELS[item]}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <LinkFields
-        id="connect"
-        description={description}
-        attributes={attributes}
-        onDescription={setDescription}
-        onAttributes={setAttributes}
-      />
-      <form onSubmit={find} className="flex gap-2">
-        <Input
-          aria-label="Find an entry"
-          value={q}
-          placeholder={targets ? `Find a ${ENTRY_LABELS[targets[0]]}` : "Find by name"}
-          onChange={(event) => setQ(event.target.value)}
-        />
-        <Button type="submit" variant="outline">
-          Find
-        </Button>
-      </form>
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {hits &&
-        (hits.length === 0 ? (
-          <p className="text-muted-foreground text-sm">Nothing found.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {hits.map((hit) => (
-              <li key={`${hit.entry_kind}:${hit.entry_id}`} className="flex items-center justify-between gap-2 text-sm">
-                <span>
-                  {hit.name} <span className="text-muted-foreground">· {ENTRY_LABELS[hit.entry_kind]}</span>
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!("value" in parsed)}
-                  aria-label={`Connect: ${hit.name}`}
-                  onClick={() => void connect(hit)}
-                >
-                  Connect
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ))}
-    </section>
+    <form onSubmit={submit} className="flex flex-col gap-2">
+      <FieldGroup className="gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field>
+            <FieldLabel htmlFor="relation-kind">Relation</FieldLabel>
+            <Select
+              value={kind}
+              onValueChange={(value) => {
+                setKind(value as RelationKind);
+                setTarget("");
+              }}
+            >
+              <SelectTrigger id="relation-kind" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {(Object.keys(RELATION_LABELS) as RelationKind[]).map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {RELATION_LABELS[item]}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="relation-target">Target</FieldLabel>
+            <Select value={target} onValueChange={setTarget}>
+              <SelectTrigger id="relation-target" className="w-full">
+                <SelectValue placeholder={built ? "Choose a code project" : "Choose a service"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {targets.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel htmlFor="relation-description">Description</FieldLabel>
+          <Textarea
+            id="relation-description"
+            value={description}
+            maxLength={4000}
+            rows={2}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </Field>
+      </FieldGroup>
+      <Button type="submit" size="sm" className="self-start" disabled={busy || !target}>
+        Add relation
+      </Button>
+    </form>
   );
+}
+
+/** What the sheet of a service shows besides documents: its deployments' connections and its relations. */
+interface ServiceLinks {
+  deployments: Map<string, DeploymentLabel>;
+  names: Map<string, string>;
+  services: { id: string; name: string }[];
+  codeProjects: { id: string; name: string }[];
+  connections: Connection[];
+  relations: Relation[];
+}
+
+async function loadServiceLinks(serviceId: string): Promise<ServiceLinks> {
+  const [{ services }, { repositories }, { connections }, { relations }] = await Promise.all([
+    getServices(),
+    getRepositories(),
+    getServiceConnections(serviceId),
+    getServiceRelations(serviceId),
+  ]);
+  return {
+    deployments: deploymentLabels(services),
+    names: new Map([...services, ...repositories].map((item) => [item.id, item.name])),
+    services: services.map(({ id, name }) => ({ id, name })),
+    codeProjects: repositories.map(({ id, name }) => ({ id, name })),
+    connections,
+    relations,
+  };
 }
 
 function DocumentPicker({ linked, onPick }: { linked: string[]; onPick: (document: DocumentSummary) => void }) {
@@ -318,6 +376,8 @@ function DocumentPicker({ linked, onPick }: { linked: string[]; onPick: (documen
   );
 }
 
+/** An entry of the System map: for a service, its deployments' network connections and its relations (each added,
+ * edited and removed through the inventory API); for every entry, its documents. */
 export default function EntrySheet({
   entry,
   onClose,
@@ -327,14 +387,18 @@ export default function EntrySheet({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [links, setLinks] = useState<Link[] | null>(null);
+  const isService = entry.kind === "service";
+  const [links, setLinks] = useState<ServiceLinks | null>(null);
   const [documents, setDocuments] = useState<EntryDocuments>({ inventory_document: null, documents: [] });
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      const [linked, documented] = await Promise.all([getLinks(entry), getEntryDocuments(entry)]);
-      setLinks(linked.links);
+      const [linked, documented] = await Promise.all([
+        isService ? loadServiceLinks(entry.id) : Promise.resolve(null),
+        getEntryDocuments(entry),
+      ]);
+      setLinks(linked);
       setDocuments(documented);
     } catch (reason) {
       setError(say(reason, "Could not load the entry."));
@@ -343,15 +407,20 @@ export default function EntrySheet({
   useEffect(() => {
     void load();
   }, [load]);
-  async function act(work: () => Promise<unknown>, fallback: string) {
+  /** Runs a write; on success the map and the sheet reload, on failure the message shows and the sheet reloads (a
+   * stale revision is read again). Answers whether it was saved. */
+  async function act(work: () => Promise<unknown>, fallback: string): Promise<boolean> {
     setError(null);
     try {
       await work();
       setEditing(null);
       onChanged();
       await load();
+      return true;
     } catch (reason) {
       setError(say(reason, fallback));
+      await load();
+      return false;
     }
   }
   const page = ENTRY_PAGES[entry.kind];
@@ -359,6 +428,8 @@ export default function EntrySheet({
   const own = documents.documents.filter(
     (document) => document.resource.id === entry.id && document.id !== documents.inventory_document?.id,
   );
+  const deployments = links ? [...links.deployments.values()] : [];
+  const mine = deployments.filter((deployment) => deployment.service_id === entry.id);
   return (
     <Sheet
       open
@@ -382,67 +453,146 @@ export default function EntrySheet({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <section aria-label="Connections" className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium">Connections</h3>
-            {links === null ? (
-              <Spinner />
-            ) : links.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No connections yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2 text-sm">
-                {links.map((link) => {
-                  const text = linkText(link, entry.id);
-                  return (
-                    <li key={link.id} className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span>{text}</span>
-                        <span className="flex gap-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Edit ${text}`}
-                            onClick={() => setEditing(link.id)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Remove ${text}`}
-                            onClick={() => void act(() => deleteLink(link.id), "Could not remove the connection.")}
-                          >
-                            Remove
-                          </Button>
-                        </span>
-                      </div>
-                      {linkNote(link) && <span className="text-muted-foreground text-xs">{linkNote(link)}</span>}
-                      {editing === link.id && (
-                        <EditLink
-                          link={link}
-                          onCancel={() => setEditing(null)}
-                          onFailed={() => void load()}
-                          onSaved={() => {
-                            setEditing(null);
-                            onChanged();
-                            void load();
-                          }}
-                        />
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-          <Connect
-            entry={entry}
-            onConnected={() => {
-              onChanged();
-              void load();
-            }}
-          />
+          {!isService ? (
+            <p className="text-muted-foreground text-sm">
+              Connections and relations belong to services: open a service on the map to edit them.
+            </p>
+          ) : links === null ? (
+            <Spinner />
+          ) : (
+            <>
+              <section aria-label="Connections" className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">Connections</h3>
+                {links.connections.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No connections yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2 text-sm">
+                    {links.connections.map((connection) => {
+                      const text = connectionText(connection, links.deployments);
+                      const outgoing = mine.some((deployment) => deployment.id === connection.from_deployment_id);
+                      return (
+                        <li key={connection.id} className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{text}</span>
+                            <span className="flex gap-1">
+                              {outgoing && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label={`Edit ${text}`}
+                                  onClick={() => setEditing(connection.id)}
+                                >
+                                  Edit
+                                </Button>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                aria-label={`Remove ${text}`}
+                                onClick={() =>
+                                  void act(
+                                    () => deleteItem("connections", connection.id, connection.revision),
+                                    "Could not remove the connection.",
+                                  )
+                                }
+                              >
+                                Remove
+                              </Button>
+                            </span>
+                          </div>
+                          {connection.description && (
+                            <span className="text-muted-foreground text-xs">{connection.description}</span>
+                          )}
+                          {editing === connection.id && (
+                            <ConnectionForm
+                              key={connection.revision}
+                              id={`connection-${connection.id}`}
+                              label={`Edit ${text}`}
+                              from={mine}
+                              deployments={deployments}
+                              initial={connection}
+                              submitLabel="Save connection"
+                              onCancel={() => setEditing(null)}
+                              onSubmit={(value) =>
+                                act(
+                                  () => updateItem("connections", connection.id, connection.revision, value),
+                                  "Could not save the connection.",
+                                )
+                              }
+                            />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+              <section aria-label="New connection" className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">Add a connection</h3>
+                {mine.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    This service has no deployments. Add one on the Services page to connect it.
+                  </p>
+                ) : (
+                  <ConnectionForm
+                    id="new-connection"
+                    label="New connection"
+                    from={mine}
+                    deployments={deployments}
+                    submitLabel="Add connection"
+                    onSubmit={(value) => act(() => createItem("connections", value), "Could not add the connection.")}
+                  />
+                )}
+              </section>
+              <section aria-label="Relations" className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">Relations</h3>
+                {links.relations.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No relations yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2 text-sm">
+                    {links.relations.map((relation) => {
+                      const text = relationText(relation, links.names);
+                      return (
+                        <li key={relation.id} className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{text}</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`Remove ${text}`}
+                              onClick={() =>
+                                void act(
+                                  () => deleteItem("relations", relation.id, relation.revision),
+                                  "Could not remove the relation.",
+                                )
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                          {relation.description && (
+                            <span className="text-muted-foreground text-xs">{relation.description}</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+              <section aria-label="New relation" className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">Add a relation</h3>
+                <RelationForm
+                  serviceId={entry.id}
+                  services={links.services}
+                  codeProjects={links.codeProjects}
+                  onSubmit={(value) => act(() => createItem("relations", value), "Could not add the relation.")}
+                />
+              </section>
+            </>
+          )}
           <section aria-label="Documents" className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">Documents</h3>
             {!documents.inventory_document && own.length === 0 ? (

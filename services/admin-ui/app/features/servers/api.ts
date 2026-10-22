@@ -31,6 +31,6 @@ export const saveServer = (value: ServerInput, id?: string) =>
     body: JSON.stringify(value),
   });
 export const deleteServer = (id: string, revision: number) =>
-  request<{ id: string }>(`/api/servers/${encodeURIComponent(id)}?revision=${revision}&confirmed=true`, {
+  request<{ id: string }>(`/api/servers/${encodeURIComponent(id)}?revision=${revision}`, {
     method: "DELETE",
   });

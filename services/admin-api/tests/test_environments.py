@@ -166,6 +166,7 @@ def test_migration_reapply_and_populated_rollback_protection(store):
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'Retained')", (project,))
         # 0104's views read documents.phase_metadata, which 0073's rollback drops: roll 0104 back first (0107 before it).
+        conn.execute((migrations / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0107_inventory_document.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0104_document_model.down.sql').read_text(), prepare=False)

@@ -15,11 +15,15 @@ DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
 RESOURCE_RUNS = ('0106_resource_runs.down.sql', '0106_resource_runs.up.sql')
 # 0107 adds documents.inventory over 0104's tables: rolled back before 0106 (0109, replacing it with a tag, first).
 TAGS_NOT_FLAGS = ('0109_tags_not_flags.down.sql', '0109_tags_not_flags.up.sql')
+# 0126 drops the old inventory structures (service_assets, inventory_links, ...) that 0109 and older migrations change:
+# rolled back first.
+INVENTORY_DROP = ('0126_inventory_drop_old.down.sql', '0126_inventory_drop_old.up.sql')
 INVENTORY_DOCUMENT = ('0107_inventory_document.down.sql', '0107_inventory_document.up.sql')
 
 
 def roll_back_0104(store) -> None:
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / INVENTORY_DROP[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / TAGS_NOT_FLAGS[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / INVENTORY_DOCUMENT[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / RESOURCE_RUNS[0]).read_text(), prepare=False)

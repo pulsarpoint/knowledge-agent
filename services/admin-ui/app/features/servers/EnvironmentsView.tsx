@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { Eye, FileText, Layers, Network, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteEnvironment, getEnvironments, type EnvironmentAsset } from "./environments";
-import { getServices, type ServiceAsset } from "./services";
-import { getServers, type ServerAsset } from "./api";
+import { environmentMapPath } from "./inventoryMap";
 import { RowAction, RowActions } from "./RowAction";
 import EnvironmentForm from "./EnvironmentForm";
-import ServiceDependencyGraph from "./ServiceDependencyGraph";
-import ServiceDetails from "./ServiceDetails";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -25,23 +22,13 @@ import { Button, buttonVariants } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
-import { Field, FieldLabel } from "~/components/ui/field";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
+/** The environments with what is deployed in them; each one's map is the System map rooted at it. */
 export default function EnvironmentsView() {
-  const [params, setParams] = useSearchParams();
-  const view = params.get("view") === "graph" ? "graph" : "list";
-  const environmentId = params.get("environment_id");
-  const [selectedService, setSelectedService] = useState<string | null>(null);
-  const [data, setData] = useState<{
-    environments: EnvironmentAsset[];
-    services: ServiceAsset[];
-    servers: ServerAsset[];
-  } | null>(null);
+  const [data, setData] = useState<{ environments: EnvironmentAsset[] } | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +42,10 @@ export default function EnvironmentsView() {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([getEnvironments(controller.signal), getServices(controller.signal), getServers(controller.signal)])
-      .then(([environments, services, servers]) => {
+    getEnvironments(controller.signal)
+      .then((environments) => {
         if (!controller.signal.aborted) {
-          setData({ ...environments, ...services, ...servers });
+          setData(environments);
           setError(null);
         }
       })
@@ -76,16 +63,6 @@ export default function EnvironmentsView() {
     setForm({ environment });
     setSelected(null);
     setNotice(null);
-  }
-  function openGraph(environmentId: string) {
-    setParams((previous) => {
-      const next = new URLSearchParams(previous);
-      next.set("view", "graph");
-      next.set("environment_id", environmentId);
-      return next;
-    });
-    setSelectedService(null);
-    setSelected(null);
   }
   async function confirmDelete() {
     if (deleteTarget === null || deleting) return;
@@ -119,10 +96,6 @@ export default function EnvironmentsView() {
       ].some((value) => value.toLowerCase().includes(query.trim().toLowerCase())),
     ) ?? [];
   const detail = data?.environments.find((environment) => environment.id === selected);
-  const graphEnvironment = data?.environments.find((environment) => environment.id === environmentId);
-  const memberIds = new Set(graphEnvironment?.services.map((service) => service.id));
-  const graphServices = data?.services.filter((service) => memberIds.has(service.id)) ?? [];
-  const serviceDetail = graphServices.find((service) => service.id === selectedService);
 
   return (
     <div className="flex flex-col gap-6">
@@ -165,24 +138,13 @@ export default function EnvironmentsView() {
         <EnvironmentForm
           key={form.environment?.id ?? "new"}
           environment={form.environment}
-          services={data.services}
-          servers={data.servers}
           onClose={() => {
             setForm(null);
             setRefresh((value) => value + 1);
           }}
           onSaved={(environment) => {
-            setData((current) =>
-              current
-                ? {
-                    ...current,
-                    environments: [...current.environments.filter((item) => item.id !== environment.id), environment],
-                  }
-                : null,
-            );
             setForm(null);
-            if (view === "graph") openGraph(environment.id);
-            else setSelected(environment.id);
+            setSelected(environment.id);
             setNotice(`Environment “${environment.name}” saved.`);
             setRefresh((value) => value + 1);
           }}
@@ -190,23 +152,7 @@ export default function EnvironmentsView() {
       )}
       {data === null && loading && <Skeleton className="h-48 w-full" />}
       {data && !form && (
-        <Tabs
-          value={view}
-          onValueChange={(value) => {
-            setParams((previous) => {
-              const next = new URLSearchParams(previous);
-              if (value === "graph") next.set("view", "graph");
-              else next.delete("view");
-              return next;
-            });
-            setSelectedService(null);
-          }}
-          className="min-w-0"
-        >
-          <TabsList aria-label="Environment views">
-            <TabsTrigger value="list">Environment list</TabsTrigger>
-            <TabsTrigger value="graph">Dependency graph</TabsTrigger>
-          </TabsList>
+        <>
           {data.environments.length === 0 ? (
             <Empty className="border">
               <EmptyHeader>
@@ -215,7 +161,7 @@ export default function EnvironmentsView() {
                 </EmptyMedia>
                 <EmptyTitle>No environments yet</EmptyTitle>
                 <EmptyDescription>
-                  Group your services and servers into environments such as Development, Staging, or Production.
+                  Add environments such as Development, Staging, or Production, then deploy services into them.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
@@ -225,171 +171,98 @@ export default function EnvironmentsView() {
               </EmptyContent>
             </Empty>
           ) : (
-            <>
-              <TabsContent value="list" className="flex flex-col gap-4 data-[state=inactive]:hidden">
-                <Input
-                  aria-label="Filter environments"
-                  placeholder="Filter by environment, service, server, or hostname…"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-                <div className="rounded-lg border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Environment</TableHead>
-                        <TableHead>Services</TableHead>
-                        <TableHead>Servers</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {matching.map((environment) => (
-                        <TableRow key={environment.id}>
-                          <TableCell className="max-w-sm whitespace-normal align-top">
-                            <Link
-                              className="font-medium underline"
-                              to={`/environments/${encodeURIComponent(environment.id)}`}
-                            >
-                              {environment.name}
-                            </Link>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {environment.description || "No description"}
-                            </p>
-                          </TableCell>
-                          <TableCell className="align-top">{environment.services.length}</TableCell>
-                          <TableCell className="align-top">{environment.servers.length}</TableCell>
-                          <TableCell className="align-top">
-                            <RowActions>
-                              <RowAction
-                                label="Details"
-                                name={environment.name}
-                                onClick={() => setSelected(environment.id)}
-                              >
-                                <Eye />
-                              </RowAction>
-                              <RowAction
-                                label="Graph"
-                                name={environment.name}
-                                onClick={() => openGraph(environment.id)}
-                              >
-                                <Network />
-                              </RowAction>
-                              <RowAction
-                                label="Documents"
-                                name={environment.name}
-                                to={`/documents?environment_id=${environment.id}`}
-                              >
-                                <FileText />
-                              </RowAction>
-                              <RowAction
-                                label="Edit"
-                                name={environment.name}
-                                disabled={loading || error !== null || deleting}
-                                onClick={() => openForm(environment)}
-                              >
-                                <Pencil />
-                              </RowAction>
-                              <RowAction
-                                label="Delete"
-                                name={environment.name}
-                                destructive
-                                disabled={loading || error !== null || deleting}
-                                onClick={() => {
-                                  setDeleteTarget(environment);
-                                  setDeleteError(null);
-                                  setNotice(null);
-                                }}
-                              >
-                                <Trash2 />
-                              </RowAction>
-                            </RowActions>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {matching.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={4} className="text-center">
-                            No environments match this filter.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </TabsContent>
-              <TabsContent value="graph" className="flex flex-col gap-6">
-                <Field className="max-w-sm">
-                  <FieldLabel htmlFor="graph-environment">Environment</FieldLabel>
-                  <Select
-                    value={graphEnvironment?.id ?? ""}
-                    onValueChange={openGraph}
-                    disabled={loading || error !== null}
-                  >
-                    <SelectTrigger id="graph-environment">
-                      <SelectValue placeholder="Choose an environment" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {data.environments.map((environment) => (
-                          <SelectItem key={environment.id} value={environment.id}>
-                            {environment.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {graphEnvironment ? (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      Saved service dependencies between members of {graphEnvironment.name}.
-                    </p>
-                    {graphServices.length > 0 ? (
-                      <ServiceDependencyGraph
-                        key={graphEnvironment.id}
-                        services={graphServices}
-                        onSelect={setSelectedService}
-                      />
-                    ) : (
-                      <Empty className="border">
-                        <EmptyHeader>
-                          <EmptyTitle>No services in this environment</EmptyTitle>
-                          <EmptyDescription>
-                            Select services in the environment configuration to show their dependencies.
-                          </EmptyDescription>
-                        </EmptyHeader>
-                        <EmptyContent>
-                          <Button
-                            variant="outline"
-                            disabled={loading || error !== null}
-                            onClick={() => openForm(graphEnvironment)}
+            <div className="flex flex-col gap-4">
+              <Input
+                aria-label="Filter environments"
+                placeholder="Filter by environment, service, server, or hostname…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Environment</TableHead>
+                      <TableHead>Services</TableHead>
+                      <TableHead>Servers</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {matching.map((environment) => (
+                      <TableRow key={environment.id}>
+                        <TableCell className="max-w-sm whitespace-normal align-top">
+                          <Link
+                            className="font-medium underline"
+                            to={`/environments/${encodeURIComponent(environment.id)}`}
                           >
-                            Select services
-                          </Button>
-                        </EmptyContent>
-                      </Empty>
+                            {environment.name}
+                          </Link>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {environment.description || "No description"}
+                          </p>
+                        </TableCell>
+                        <TableCell className="align-top">{environment.services.length}</TableCell>
+                        <TableCell className="align-top">{environment.servers.length}</TableCell>
+                        <TableCell className="align-top">
+                          <RowActions>
+                            <RowAction
+                              label="Details"
+                              name={environment.name}
+                              onClick={() => setSelected(environment.id)}
+                            >
+                              <Eye />
+                            </RowAction>
+                            <RowAction label="Map" name={environment.name} to={environmentMapPath(environment.id)}>
+                              <Network />
+                            </RowAction>
+                            <RowAction
+                              label="Documents"
+                              name={environment.name}
+                              to={`/documents?environment_id=${environment.id}`}
+                            >
+                              <FileText />
+                            </RowAction>
+                            <RowAction
+                              label="Edit"
+                              name={environment.name}
+                              disabled={loading || error !== null || deleting}
+                              onClick={() => openForm(environment)}
+                            >
+                              <Pencil />
+                            </RowAction>
+                            <RowAction
+                              label="Delete"
+                              name={environment.name}
+                              destructive
+                              disabled={loading || error !== null || deleting}
+                              onClick={() => {
+                                setDeleteTarget(environment);
+                                setDeleteError(null);
+                                setNotice(null);
+                              }}
+                            >
+                              <Trash2 />
+                            </RowAction>
+                          </RowActions>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {matching.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center">
+                          No environments match this filter.
+                        </TableCell>
+                      </TableRow>
                     )}
-                    {serviceDetail && (
-                      <ServiceDetails service={serviceDetail} onClose={() => setSelectedService(null)} />
-                    )}
-                  </>
-                ) : (
-                  <Empty className="border">
-                    <EmptyHeader>
-                      <EmptyTitle>{environmentId ? "Environment not available" : "Choose an environment"}</EmptyTitle>
-                      <EmptyDescription>
-                        Select an environment above to view dependencies between its services.
-                      </EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                )}
-              </TabsContent>
-            </>
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
-        </Tabs>
+        </>
       )}
-      {detail && !form && view === "list" && (
+      {detail && !form && (
         <Card aria-label="Environment details">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
@@ -417,7 +290,7 @@ export default function EnvironmentsView() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">No services selected.</p>
+                <p className="text-sm text-muted-foreground">No services deployed here.</p>
               )}
               <Link to="/services" className="text-sm underline">
                 Manage services
@@ -435,7 +308,7 @@ export default function EnvironmentsView() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">No servers selected.</p>
+                <p className="text-sm text-muted-foreground">No servers deployed here.</p>
               )}
               <Link to="/servers" className="text-sm underline">
                 Manage servers
@@ -454,8 +327,8 @@ export default function EnvironmentsView() {
           <AlertDialogHeader>
             <AlertDialogTitle className="break-words">Delete “{deleteTarget?.name}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes the environment and its membership links. Services, servers, and their deployment
-              records are preserved. This cannot be undone.
+              This permanently deletes the environment. An environment with deployments cannot be deleted: remove or
+              move its deployments first. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && (

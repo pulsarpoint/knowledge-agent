@@ -112,13 +112,13 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
           <h3 className="font-semibold">Environments</h3>
           <div className="flex flex-wrap gap-2">
             {service.environments.map((environment) => (
-              <Link key={environment.id} to={`/environments?view=graph&environment_id=${environment.id}`}>
+              <Link key={environment.id} to={`/environments/${encodeURIComponent(environment.id)}`}>
                 <Badge variant="secondary">{environment.name}</Badge>
               </Link>
             ))}
           </div>
           {service.environments.length === 0 && (
-            <p className="text-sm text-muted-foreground">No environments assigned.</p>
+            <p className="text-sm text-muted-foreground">Not deployed in any environment.</p>
           )}
         </section>
         <Separator />
