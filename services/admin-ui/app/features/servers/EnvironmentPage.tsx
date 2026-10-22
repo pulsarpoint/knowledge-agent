@@ -17,6 +17,8 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  // Bumped by a workspace change: the documents list (with its servers' documents) is read again.
+  const [documents, setDocuments] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -64,8 +66,9 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
               System map
             </Link>
           </div>
-          <EnvironmentWorkspace environmentId={environmentId} />
+          <EnvironmentWorkspace environmentId={environmentId} onChanged={() => setDocuments((value) => value + 1)} />
           <EntryDocuments
+            key={documents}
             entry={{ kind: "environment", id: environmentId, name: environment.name }}
             onChanged={() => setVersion((value) => value + 1)}
           />

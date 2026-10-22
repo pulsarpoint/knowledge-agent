@@ -148,6 +148,17 @@ test("the column shows the fields, the deployment here, where else it runs, conn
     "→ smtp.example.com :25 tcp",
     "← nginx on app-1 (prod) :8000 http",
   ]);
+  const connectionsPart = within(column.getByRole("region", { name: "Connections" }));
+  expect(connectionsPart.getByRole("link", { name: "→ stripe :443 https" })).toHaveAttribute("href", "/services/v4");
+  expect(connectionsPart.getByRole("link", { name: "→ postgres on db-1 (prod) :5432 tcp" })).toHaveAttribute(
+    "href",
+    "/services/v2",
+  );
+  expect(connectionsPart.getByRole("link", { name: "← nginx on app-1 (prod) :8000 http" })).toHaveAttribute(
+    "href",
+    "/services/v3",
+  );
+  expect(connectionsPart.queryByRole("link", { name: "→ smtp.example.com :25 tcp" })).not.toBeInTheDocument();
   expect(
     within(column.getByRole("region", { name: "Relations" }))
       .getAllByRole("listitem")

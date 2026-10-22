@@ -51,11 +51,12 @@ export interface ViewNode {
   internal_edges: number;
   documents: GraphDocument[];
 }
-/** A node outside the view: an entry, or an external host a connection reaches (not an entry: nothing to open). */
+/** A node outside the view: an entry, an external service a connection reaches (kind "external_service", opened as
+ * the service it is: entry_kind "service"), or an external host (not an entry: nothing to open). */
 export interface BoundaryNode {
   id: string;
   name: string;
-  kind: EntryKind | "external_host";
+  kind: EntryKind | "external_service" | "external_host";
   entry_kind: EntryKind | "external_host";
   entry_id: string;
 }

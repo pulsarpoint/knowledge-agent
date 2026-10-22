@@ -463,20 +463,25 @@ environment when one of its deployments is; a service deployed in two environmen
     name, port, version, log location.
   - The selected **service** (the service column; the service page shows the same panel):
     - its fields (type, role, owner, description, and the address of an external service) with **Edit**, and a link
-      to its page;
+      to its page. The service page also shows the agent context link, each code project's folder and each
+      deployment's SSH status;
     - **Deployment here** (runtime, runtime name, port, version) with Edit and Remove (removing a deployment also
       removes its connections), and **Also runs on**: its other environments and servers, each a link to that
       workspace. The service page lists every deployment under **Runs on** instead;
     - **Connections** out (→) and in (←), each with Edit and Remove. **+** adds a connection from the deployment here
       (on the service page, from the deployment you choose) to a deployment of another service (the picker groups them
-      by environment and server), to an **external service**, or to a host, with port, protocol and description;
+      by environment and server), to an **external service** (a recorded one, or **New external service**: name,
+      address and description, created with the connection), or to a host, with port, protocol and description. Each
+      connection's other service is a link to its page. A connection to an external service belongs to no deployment
+      of it, so it is listed under every deployment of that service;
     - **Relations**: depends on, part of, and the reverse (needed by, has part), each with Remove; **+** adds a
       depends on or part of relation to another service;
     - **Code projects** the service is built from, each with Remove; **+** adds one;
     - **Documents**: the service's inventory document and documents, as on any resource page.
 
     Every change sends the revision it read. When someone changed the item meanwhile, the column says "This was
-    changed meanwhile. Reload to see the latest." and reloads.
+    changed meanwhile. Reload to see the latest." and reloads; other refusals, such as a duplicate, show their own
+    message.
 - The selection is in the URL (`?server=<id>&service=<id>`), so links, reload and Back keep it; a server or service
   that is no longer in the environment selects nothing. Narrow screens show one column at a time, with a back link to
   the previous one. The workspace reloads after every change.
@@ -509,9 +514,9 @@ opens `/api/services/{id}/context`, a read-only, credential-free JSON view of th
 service for agents. Note: the *downloaded* commit is not the *deployed* version.
 
 **External services**: a service of type External service stands for a system outside your environments (a payment
-provider, a SaaS API). Give it an **Address** (a hostname or IP address; the field is shown for this type only) and
-connect deployments to it by name instead of repeating its host on each connection; it can have documents and
-relations like any service and needs no deployment. A service that connections point to keeps the type External
+provider, a SaaS API). Give it an **Address** (a hostname or IP address; the field is shown for this type only; Add
+service and New external service in Add connection have it too) and connect deployments to it by name instead of
+repeating its host on each connection; it can have documents and relations like any service and needs no deployment. A service that connections point to keeps the type External
 service until those connections are removed. A bare host on a connection is still possible for an address nobody has
 described yet.
 

@@ -23,8 +23,15 @@ const count = (n: number) => (n === 0 ? "no services" : n === 1 ? "1 service" : 
 
 /** The environment's workspace: its servers, the services on the selected server, and the selected service. The
  * selection lives in the URL (`?server=&service=`); an id that is no longer in the environment selects nothing. Narrow
- * screens show the deepest selected column, with a back link. Every change reloads the model. */
-export default function EnvironmentWorkspace({ environmentId }: { environmentId: string }) {
+ * screens show the deepest selected column, with a back link. Every change reloads the model, then calls `onChanged`
+ * (the page reloads its documents list, which has its servers' documents). */
+export default function EnvironmentWorkspace({
+  environmentId,
+  onChanged,
+}: {
+  environmentId: string;
+  onChanged?: () => void;
+}) {
   const [model, setModel] = useState<EnvironmentModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +54,10 @@ export default function EnvironmentWorkspace({ environmentId }: { environmentId:
       });
     return () => controller.abort();
   }, [environmentId, version]);
-  const reload = () => setVersion((value) => value + 1);
+  const reload = () => {
+    setVersion((value) => value + 1);
+    onChanged?.();
+  };
 
   /** Changes the selection, keeping the page's other params (such as the open chat). */
   const select = (changes: { server?: string | null; service?: string | null }) =>

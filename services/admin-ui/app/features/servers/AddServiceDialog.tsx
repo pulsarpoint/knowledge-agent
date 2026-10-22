@@ -68,7 +68,9 @@ export default function AddServiceDialog({
     try {
       let serviceId = choice === NEW ? created : choice;
       if (!serviceId) {
-        serviceId = (await createItem<ServiceAsset>("services", service)).id;
+        const { address, ...fields } = service;
+        const value = fields.service_type === "external" ? { ...fields, address: address?.trim() ?? "" } : fields;
+        serviceId = (await createItem<ServiceAsset>("services", value)).id;
         setCreated(serviceId);
       }
       await createItem<Deployment>("deployments", {
@@ -158,6 +160,18 @@ export default function AddServiceDialog({
                       </SelectContent>
                     </Select>
                   </Field>
+                  {service.service_type === "external" && (
+                    <Field>
+                      <FieldLabel htmlFor="add-service-address">Address</FieldLabel>
+                      <Input
+                        id="add-service-address"
+                        maxLength={253}
+                        value={service.address ?? ""}
+                        onChange={(event) => change("address")(event.target.value)}
+                        placeholder="api.stripe.com or 10.0.0.5"
+                      />
+                    </Field>
+                  )}
                   <Field>
                     <FieldLabel htmlFor="add-service-role">Role</FieldLabel>
                     <Select value={service.service_role} onValueChange={(value) => change("service_role")(value)}>

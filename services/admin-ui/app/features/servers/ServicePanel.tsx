@@ -160,13 +160,15 @@ export default function ServicePanel({
           item.to_host ??
           (item.to_service_id ? names.get(item.to_service_id) : labels.get(item.to_deployment_id ?? "")?.label) ??
           "an unknown target";
-        return { item, text: `→ ${target}${tail(item)}` };
+        const to = item.to_service_id ?? labels.get(item.to_deployment_id ?? "")?.service_id;
+        return { item, text: `→ ${target}${tail(item)}`, to };
       }),
     ...data.connections
       .filter((item) => hereIds.has(item.to_deployment_id ?? "") || item.to_service_id === serviceId)
       .map((item) => ({
         item,
         text: `← ${labels.get(item.from_deployment_id)?.label ?? "an unknown deployment"}${tail(item)}`,
+        to: labels.get(item.from_deployment_id)?.service_id,
       })),
   ];
   const named = (id: string | null) => (id && names.get(id)) || "an unknown service";
@@ -265,10 +267,11 @@ export default function ServicePanel({
           <p className="text-sm text-muted-foreground">No connections.</p>
         ) : (
           <List>
-            {connections.map(({ item, text }) => (
+            {connections.map(({ item, text, to }) => (
               <Row
                 key={`${item.id}${text[0]}`}
                 text={text}
+                href={to ? `/services/${encodeURIComponent(to)}` : undefined}
                 name={text}
                 onEdit={() => setOpen({ kind: "connection", connection: item })}
                 onRemove={() => void remove("connections", item)}
@@ -370,20 +373,29 @@ function Part({
 
 const List = ({ children }: { children: ReactNode }) => <ul className="flex flex-col gap-1">{children}</ul>;
 
+/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service). */
 function Row({
   text,
+  href,
   name,
   onEdit,
   onRemove,
 }: {
   text: string;
+  href?: string;
   name: string;
   onEdit?: () => void;
   onRemove: () => void;
 }) {
   return (
     <li className="flex items-center justify-between gap-2 text-sm">
-      <span className="min-w-0 break-words">{text}</span>
+      {href ? (
+        <Link className="min-w-0 break-words underline-offset-4 hover:underline" to={href}>
+          {text}
+        </Link>
+      ) : (
+        <span className="min-w-0 break-words">{text}</span>
+      )}
       <RowActions>
         {onEdit && (
           <RowAction label="Edit" name={name} onClick={onEdit}>

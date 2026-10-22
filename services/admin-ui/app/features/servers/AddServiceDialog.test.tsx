@@ -127,6 +127,30 @@ test("adding a new service creates it, then its deployment", async () => {
   expect(calls.at(-1)!.body).toEqual({ service_id: "v9", ...deployment });
 });
 
+test("a new external service has an Address field, sent with the service", async () => {
+  const user = userEvent.setup();
+  const calls = api({
+    "GET /api/services": () => [200, { services }],
+    "POST /api/services": (body) => [201, { ...asset("v9", body.name), ...body }],
+    "POST /api/deployments": (body) => [201, saved(body)],
+  });
+  const onAdded = dialog();
+  await user.click(await screen.findByRole("combobox", { name: "Service" }));
+  await user.click(screen.getByRole("option", { name: "A new service" }));
+  await user.type(screen.getByLabelText("Name"), "smtp relay");
+  expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "Type" }));
+  await user.click(screen.getByRole("option", { name: "External service" }));
+  await user.type(screen.getByLabelText("Address"), " smtp.example.com ");
+  await user.click(screen.getByRole("button", { name: "Add service" }));
+  await vi.waitFor(() => expect(onAdded).toHaveBeenCalledWith("v9"));
+  expect(calls.find((call) => call.key === "POST /api/services")!.body).toMatchObject({
+    name: "smtp relay",
+    service_type: "external",
+    address: "smtp.example.com",
+  });
+});
+
 test("a refused deployment keeps the dialog; saving again does not create the new service twice", async () => {
   const user = userEvent.setup();
   let refuse = true;

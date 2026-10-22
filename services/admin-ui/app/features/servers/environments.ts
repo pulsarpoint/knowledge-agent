@@ -5,7 +5,7 @@ export interface EnvironmentInput {
   description: string;
   revision?: number;
 }
-/** An environment as saved; its services and servers are those deployed in it (EnvironmentAsset). */
+/** An environment as saved; EnvironmentAsset adds its services (those deployed in it) and its member servers. */
 export interface Environment {
   id: string;
   project_id: string;
@@ -15,7 +15,7 @@ export interface Environment {
   created_at: string;
   updated_at: string;
 }
-/** An environment with the services and servers deployed in it. */
+/** An environment with the services deployed in it and its member servers (with or without deployments). */
 export interface EnvironmentAsset {
   id: string;
   project_id: string;

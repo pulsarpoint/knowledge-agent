@@ -82,10 +82,10 @@ function Where() {
   const location = useLocation();
   return <output data-testid="where">{location.search}</output>;
 }
-function show(search = "") {
+function show(search = "", onChanged?: () => void) {
   render(
     <MemoryRouter initialEntries={[`/environments/e1${search}`]}>
-      <EnvironmentWorkspace environmentId="e1" />
+      <EnvironmentWorkspace environmentId="e1" onChanged={onChanged} />
       <Where />
     </MemoryRouter>,
   );
@@ -188,8 +188,10 @@ test("Remove from environment of an empty member reloads and clears the selectio
       return [204, null];
     },
   });
-  show("?server=s3");
+  const onChanged = vi.fn();
+  show("?server=s3", onChanged);
   await user.click(await screen.findByRole("button", { name: "Remove from environment cache-1" }));
+  await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1)); // the page reloads its documents list
   expect(await screen.findByRole("button", { name: /^app-1/ })).toBeInTheDocument();
   await screen.findByText(
     (_, element) => element?.getAttribute("data-testid") === "where" && element.textContent === "",
