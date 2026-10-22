@@ -81,6 +81,7 @@ def test_create_update_and_delete_an_item_with_revisions_and_audit(client, store
     assert {k: updated.json()[k] for k in change} == change
     stale = client.put(url, headers=HEADERS, json={'revision': 1, **change})
     assert stale.status_code == 409 and 'changed since you read it' in stale.json()['error']['message']
+    assert stale.json()['error']['code'] == 'STALE_REVISION'  # the UI tells a stale read from other refusals
     assert client.delete(url, headers=HEADERS, params={'revision': 1}).status_code == 409
     deleted = client.delete(url, headers=HEADERS, params={'revision': 2})
     assert deleted.status_code == 200 and deleted.json() == {'id': item['id']}
@@ -161,6 +162,7 @@ def test_duplicates_are_a_409_and_change_nothing(client, world):
         409,
         'A service with this name already exists',
     )
+    assert 'code' not in client.post('/api/services', headers=HEADERS, json={'name': 'api'}).json()['error']
     duplicate = {k: world['api_a'][k] for k in ('service_id', 'server_id', 'environment_id')}
     assert client.post('/api/deployments', headers=HEADERS, json=duplicate).status_code == 409
     assert [s['name'] for s in client.get('/api/services', headers=HEADERS).json()['services']] == ['api', 'db']

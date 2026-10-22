@@ -1,10 +1,13 @@
-import { request } from "~/lib/api";
+import { ApiError, request } from "~/lib/api";
 import type { ServiceAsset } from "./services";
 
 /** The inventory's one REST API (admin-api inventory/api.py): create, update and delete each item; the lists the pages
- * read. Updates and deletes send the revision that was read; a stale one is a 409 with a message. */
+ * read. Updates and deletes send the revision that was read; a stale one is a 409 with the code STALE_REVISION (other
+ * 409s, such as a duplicate, have no code and their own message). */
 export type ItemKind = "servers" | "services" | "environments" | "deployments" | "connections" | "relations";
 export type RelationKind = "depends_on" | "part_of" | "built_from";
+/** Whether a write was refused because the item changed since it was read. */
+export const isStale = (e: unknown) => e instanceof ApiError && e.status === 409 && e.code === "STALE_REVISION";
 
 export interface Deployment {
   id: string;
@@ -175,10 +178,19 @@ export function deploymentLabels(services: ServiceAsset[]): Map<string, Deployme
     ),
   );
 }
-/** How a connection reads: "api on web-1 (prod) → pg on db-1 (prod) :5432 postgres". */
-export function connectionText(connection: Connection, deployments: Map<string, DeploymentLabel>): string {
+/** How a connection reads: "api on web-1 (prod) → pg on db-1 (prod) :5432 postgres"; an external service target by
+ * its name in `services`. */
+export function connectionText(
+  connection: Connection,
+  deployments: Map<string, DeploymentLabel>,
+  services: Map<string, string> = new Map(),
+): string {
   const name = (id: string | null) => (id && deployments.get(id)?.label) || "an unknown deployment";
-  const target = connection.to_host ?? name(connection.to_deployment_id);
+  const target =
+    connection.to_host ??
+    (connection.to_service_id
+      ? (services.get(connection.to_service_id) ?? "an unknown service")
+      : name(connection.to_deployment_id));
   const port = connection.port === null ? "" : ` :${connection.port}`;
   return `${name(connection.from_deployment_id)} → ${target}${port} ${connection.protocol}`;
 }

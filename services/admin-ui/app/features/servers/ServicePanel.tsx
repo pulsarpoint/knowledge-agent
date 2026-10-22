@@ -8,6 +8,7 @@ import {
   getServiceConnections,
   getServiceDeployments,
   getServiceRelations,
+  isStale,
   updateItem,
   type Connection,
   type Deployment,
@@ -32,7 +33,6 @@ import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
 const CONFLICT = "This was changed meanwhile. Reload to see the latest.";
-const isConflict = (e: unknown) => e instanceof ApiError && e.status === 409;
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 /** How a deployment reads: "docker · payments · :8000 · 1.4". */
@@ -115,7 +115,7 @@ export default function ServicePanel({
       await deleteItem(kind, item.id, item.revision);
       changed();
     } catch (e) {
-      if (isConflict(e)) conflict();
+      if (isStale(e)) conflict();
       else setError(message(e, "Could not remove it. Try again."));
     }
   }
@@ -426,7 +426,7 @@ function EditSheet({
       await save();
       onSaved();
     } catch (e) {
-      if (isConflict(e)) onConflict();
+      if (isStale(e)) onConflict();
       else setError(message(e, "Could not save. Try again."));
     } finally {
       setSaving(false);

@@ -158,9 +158,23 @@ test("editing a connection sends the revision it read", async () => {
 
 test("a stale revision on save is a conflict for the panel", async () => {
   const user = userEvent.setup();
-  api({ "PUT /api/connections/c1": () => [409, { error: { message: "This connection changed since you read it" } }] });
+  api({
+    "PUT /api/connections/c1": () => [
+      409,
+      { error: { message: "This connection changed since you read it", code: "STALE_REVISION" } },
+    ],
+  });
   const { onSaved, onConflict } = dialog({ connection: saved });
   await user.click(screen.getByRole("button", { name: "Save connection" }));
   await vi.waitFor(() => expect(onConflict).toHaveBeenCalled());
   expect(onSaved).not.toHaveBeenCalled();
+});
+
+test("a duplicate on save shows the API's message, not a conflict", async () => {
+  const user = userEvent.setup();
+  api({ "PUT /api/connections/c1": () => [409, { error: { message: "This connection already exists" } }] });
+  const { onConflict } = dialog({ connection: saved });
+  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("This connection already exists");
+  expect(onConflict).not.toHaveBeenCalled();
 });

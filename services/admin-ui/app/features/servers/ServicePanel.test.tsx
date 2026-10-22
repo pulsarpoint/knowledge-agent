@@ -203,7 +203,7 @@ test("a stale revision on remove shows the conflict text and reloads", async () 
     routes({
       "DELETE /api/relations/rel2?revision=5": () => [
         409,
-        { error: { message: "This relation changed since you read it" } },
+        { error: { message: "This relation changed since you read it", code: "STALE_REVISION" } },
       ],
     }),
   );
@@ -218,7 +218,10 @@ test("two people edit the same connection: the second save gets the conflict tex
   const user = userEvent.setup();
   const calls = api(
     routes({
-      "PUT /api/connections/c2": () => [409, { error: { message: "This connection changed since you read it" } }],
+      "PUT /api/connections/c2": () => [
+        409,
+        { error: { message: "This connection changed since you read it", code: "STALE_REVISION" } },
+      ],
     }),
   );
   panel();
@@ -230,6 +233,37 @@ test("two people edit the same connection: the second save gets the conflict tex
   expect(calls.find((call) => call.key === "PUT /api/connections/c2")!.body).toMatchObject({ port: 8080, revision: 3 });
   expect(screen.queryByRole("button", { name: "Save connection" })).not.toBeInTheDocument();
   await vi.waitFor(() => expect(loads(calls)).toBe(2));
+});
+
+test("another refusal on save, such as a duplicate, shows the API's own message and keeps the sheet open", async () => {
+  const user = userEvent.setup();
+  api(routes({ "PUT /api/connections/c2": () => [409, { error: { message: "This connection already exists" } }] }));
+  panel();
+  await user.click(await screen.findByRole("button", { name: "Edit ← nginx on app-1 (prod) :8000 http" }));
+  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("This connection already exists");
+  expect(screen.queryByText(CONFLICT)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save connection" })).toBeInTheDocument();
+});
+
+test("another 409 on remove shows the API's own message", async () => {
+  const user = userEvent.setup();
+  api(routes({ "DELETE /api/relations/rel2?revision=5": () => [409, { error: { message: "Refused for a reason" } }] }));
+  panel();
+  await user.click(await screen.findByRole("button", { name: "Remove Needed by nginx" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Refused for a reason");
+});
+
+test("a duplicate on the fields sheet shows the API's own message", async () => {
+  const user = userEvent.setup();
+  api(
+    routes({ "PUT /api/services/v1": () => [409, { error: { message: "A service with this name already exists" } }] }),
+  );
+  panel();
+  await user.click(await screen.findByRole("button", { name: "Edit payments-api" }));
+  await user.click(screen.getByRole("button", { name: "Save service" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("A service with this name already exists");
+  expect(screen.getByRole("button", { name: "Save service" })).toBeInTheDocument();
 });
 
 test("Add connection starts from the deployment here and reloads after saving", async () => {

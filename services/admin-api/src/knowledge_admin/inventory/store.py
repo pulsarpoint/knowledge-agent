@@ -8,8 +8,8 @@ A deployment's server is always a member of the deployment's environment: creati
 membership when it is missing.
 
 author: {'actor_id': principal id or None, 'agent_id': agent id or None, 'session_id': agent session id or None}.
-Errors: rules.Invalid (bad values or a missing reference), NotFound (the item is not in this project), Conflict (stale
-revision, duplicate, or a delete refused while deployments use the item).
+Errors: rules.Invalid (bad values or a missing reference), NotFound (the item is not in this project), Conflict (a
+stale revision, which is Stale, a duplicate, or a delete refused while deployments use the item).
 
 The one write path covers the inventory structure; a server's SSH settings and connection-test results are written by
 the operations code (servers/operations_store.py, operations_api.py)."""
@@ -29,6 +29,10 @@ class NotFound(LookupError):
 
 class Conflict(Exception):
     pass
+
+
+class Stale(Conflict):
+    """The item changed since the caller read it (the revision sent is not the current one)."""
 
 
 # What a reader gets: public columns only (no SSH credentials); a server with the environments it is in.
@@ -260,9 +264,7 @@ def _locked(conn, kind: str, project_id: UUID, item_id: UUID, revision: int) -> 
     if row is None:
         raise NotFound(f'{kind.capitalize()} not found')
     if row['revision'] != revision:
-        raise Conflict(
-            f'This {kind} changed since you read it (now revision {row["revision"]}). Read it again and retry'
-        )
+        raise Stale(f'This {kind} changed since you read it (now revision {row["revision"]}). Read it again and retry')
     return row
 
 

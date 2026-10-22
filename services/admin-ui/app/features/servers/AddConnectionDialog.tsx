@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
-import { createItem, deploymentLabels, updateItem, type Connection } from "./inventory";
+import { createItem, deploymentLabels, isStale, updateItem, type Connection } from "./inventory";
 import type { ServiceAsset } from "./services";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -93,7 +93,7 @@ export default function AddConnectionDialog({
       else await createItem("connections", { from_deployment_id: fromId, ...value });
       onSaved();
     } catch (e) {
-      if (connection && e instanceof ApiError && e.status === 409) onConflict();
+      if (connection && isStale(e)) onConflict();
       else setError(e instanceof ApiError ? e.message : "Could not save the connection. Try again.");
     } finally {
       setSaving(false);

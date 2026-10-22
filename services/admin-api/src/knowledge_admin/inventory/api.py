@@ -5,7 +5,7 @@ inventory entry's documents.
 Writes: POST /<kind>s with the item's fields (201, the saved item); PUT /<kind>s/{id} with `revision` and the fields to
 change (omitted fields keep their values); DELETE /<kind>s/{id}?revision=N. Store errors map to 400 (rules.Invalid, with
 its message), 404 (store.NotFound) and 409 (store.Conflict: a stale revision, a duplicate, or a delete refused while
-deployments use the item). The store records every change in the audit log with the person.
+deployments use the item; a stale revision also carries the code STALE_REVISION). The store records every change in the audit log with the person.
 
 Membership: PUT /environments/{id}/servers/{server_id} puts the server in the environment (204, also when it was there);
 DELETE removes it (204; 400 while the server has deployments there, 404 when it is not a member)."""
@@ -46,6 +46,7 @@ ENTRY_TABLES = {
 ENTRY_LABELS = {'service': 'service', 'server': 'server', 'environment': 'environment', 'code_project': 'code project'}
 # Entry kind → the document link field of its resources (documents.store.LINK_COLUMNS).
 LINK_FIELDS = {kind: f'{column[:-3]}_ids' for kind, column in ENTRY_COLUMNS.items()}
+STALE_REVISION = 'STALE_REVISION'  # the 409 code of a stale revision (store.Stale); other 409s carry no code
 ALREADY_LINKED = 'This document is already linked.'
 NOT_LINKED = 'This document is not linked.'
 
@@ -82,6 +83,8 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
             raise HTTPException(400, str(exc)) from None
         except store.NotFound as exc:
             raise HTTPException(404, str(exc)) from None
+        except store.Stale as exc:
+            raise HTTPException(409, {'message': str(exc), 'code': STALE_REVISION}) from None
         except store.Conflict as exc:
             raise HTTPException(409, str(exc)) from None
 
