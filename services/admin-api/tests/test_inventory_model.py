@@ -23,11 +23,25 @@ def rows() -> dict:
     environment = {'id': I['prod'], 'name': 'prod', 'description': 'Production', 'revision': 3}
     secret = {'ssh_port': 22, 'ssh_username': 'root', 'access_enabled': True, 'allow_sudo': True, 'ssh_allowed': True}
     servers = [
-        {'id': I['b'], 'name': 'b', 'hostname': 'b.internal', 'description': 'DB box', 'tags': ['db'], **secret},
-        {'id': I['a'], 'name': 'A', 'hostname': 'a.internal', 'description': '', 'tags': [], **secret},
-        {'id': I['c'], 'name': 'c', 'hostname': 'c.internal', 'description': '', 'tags': [], **secret},
+        {
+            'id': I['b'],
+            'name': 'b',
+            'hostname': 'b.internal',
+            'description': 'DB box',
+            'tags': ['db'],
+            'revision': 2,
+            **secret,
+        },
+        {'id': I['a'], 'name': 'A', 'hostname': 'a.internal', 'description': '', 'tags': [], 'revision': 2, **secret},
+        {'id': I['c'], 'name': 'c', 'hostname': 'c.internal', 'description': '', 'tags': [], 'revision': 2, **secret},
     ]
-    service = {'service_type': 'internal', 'service_role': 'application', 'description': '', 'owner': 'team'}
+    service = {
+        'service_type': 'internal',
+        'service_role': 'application',
+        'description': '',
+        'owner': 'team',
+        'revision': 4,
+    }
     services = [
         {'id': I['db'], 'name': 'db', **service},
         {'id': I['api'], 'name': 'api', **service},
@@ -110,7 +124,7 @@ def rows() -> dict:
 
 def test_servers_hold_their_deployments_in_the_environment_and_no_secret_fields():
     model = build_model(**rows())
-    assert model['environment'] == {'id': I['prod'], 'name': 'prod', 'description': 'Production'}
+    assert model['environment'] == {'id': I['prod'], 'name': 'prod', 'description': 'Production', 'revision': 3}
     assert [s['name'] for s in model['servers']] == ['A', 'b']  # c has no deployment in prod
     assert model['servers'][0] == {
         'id': I['a'],
@@ -118,6 +132,7 @@ def test_servers_hold_their_deployments_in_the_environment_and_no_secret_fields(
         'hostname': 'a.internal',
         'description': '',
         'tags': [],
+        'revision': 2,
         'deployments': [
             {
                 'id': I['api_a'],
@@ -128,6 +143,7 @@ def test_servers_hold_their_deployments_in_the_environment_and_no_secret_fields(
                 'port': 8080,
                 'version': '1.2',
                 'log_location': '/var/log/api_a',
+                'revision': 1,
             }
         ],
     }
@@ -144,6 +160,7 @@ def test_services_are_those_deployed_in_the_environment():
             'service_role': 'application',
             'description': '',
             'owner': 'team',
+            'revision': 4,
         },
         {
             'id': I['db'],
@@ -152,6 +169,7 @@ def test_services_are_those_deployed_in_the_environment():
             'service_role': 'application',
             'description': '',
             'owner': 'team',
+            'revision': 4,
         },
     ]
 
@@ -168,6 +186,7 @@ def test_connections_touching_the_environment_name_the_end_outside_it():
         'port': 5432,
         'protocol': 'tcp',
         'description': 'c1',
+        'revision': 1,
     }
     assert by_description['c2']['outside'] == {
         'deployment_id': I['web_c'],
@@ -200,6 +219,7 @@ def test_relations_of_services_in_the_environment_both_directions_with_names():
         'to_code_project_id': None,
         'to_code_project': None,
         'description': 'r2',
+        'revision': 1,
     }
     assert by_id[I['r3']]['to_code_project'] == 'repo' and by_id[I['r3']]['to_service'] is None
 
@@ -244,6 +264,8 @@ def test_the_model_endpoint_reads_the_rows(client, world, store):  # noqa: F811
     ]
     assert [s['name'] for s in model['services']] == ['api', 'db']
     assert len(model['connections']) == 3
+    items = [*model['servers'], *model['servers'][0]['deployments'], *model['services'], *model['connections']]
+    assert all(item['revision'] == 1 for item in [*items, *model['relations']])
     outside = [c['outside'] for c in model['connections'] if 'outside' in c]
     assert outside == [{'deployment_id': api_stage['id'], 'environment': 'stage', 'server': 'b', 'service': 'api'}]
     assert model['external'] == [{'host': 'mail.example.com', 'ports': [25]}]

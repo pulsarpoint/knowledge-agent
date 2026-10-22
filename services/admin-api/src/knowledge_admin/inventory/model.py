@@ -3,9 +3,18 @@
 services. build_model is pure: it takes the project's rows (store.load_model_rows) and picks named fields only, so
 nothing secret (SSH username, port, access or credential settings) reaches it."""
 
-SERVER_FIELDS = ('id', 'name', 'hostname', 'description', 'tags')
-SERVICE_FIELDS = ('id', 'name', 'service_type', 'service_role', 'description', 'owner')
-CONNECTION_FIELDS = ('id', 'from_deployment_id', 'to_deployment_id', 'to_host', 'port', 'protocol', 'description')
+SERVER_FIELDS = ('id', 'name', 'hostname', 'description', 'tags', 'revision')
+SERVICE_FIELDS = ('id', 'name', 'service_type', 'service_role', 'description', 'owner', 'revision')
+CONNECTION_FIELDS = (
+    'id',
+    'from_deployment_id',
+    'to_deployment_id',
+    'to_host',
+    'port',
+    'protocol',
+    'description',
+    'revision',
+)
 
 
 def _pick(row: dict, fields: tuple) -> dict:
@@ -44,6 +53,7 @@ def build_model(
             'port': d['port'],
             'version': d['deployed_version'],
             'log_location': d['log_location'],
+            'revision': d['revision'],
         }
 
     def on_server(server_id) -> list[dict]:
@@ -91,13 +101,14 @@ def build_model(
             'to_code_project_id': r['to_code_project_id'],
             'to_code_project': name_of(code_project_by_id, r['to_code_project_id']),
             'description': r['description'],
+            'revision': r['revision'],
         }
         for r in relations
         if r['from_service_id'] in service_ids or r['to_service_id'] in service_ids
     ]
 
     return {
-        'environment': _pick(environment, ('id', 'name', 'description')),
+        'environment': _pick(environment, ('id', 'name', 'description', 'revision')),
         'servers': model_servers,
         'services': [_pick(s, SERVICE_FIELDS) for s in _by_name([service_by_id[i] for i in service_ids])],
         'connections': model_connections,
