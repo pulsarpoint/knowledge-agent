@@ -118,7 +118,7 @@ export default function EnvironmentWorkspace({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
+      <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(12rem,1fr)_minmax(14rem,1fr)_minmax(0,2fr)] md:items-start">
         <section aria-label="Servers" className={cn("min-w-0 flex-col gap-2 rounded-lg border p-3", shown(1))}>
           <h2 className="text-lg font-semibold">Servers</h2>
           {model.servers.length === 0 ? (
@@ -130,11 +130,11 @@ export default function EnvironmentWorkspace({
                   <button
                     type="button"
                     aria-pressed={item.id === server?.id}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 aria-pressed:bg-muted"
+                    className="flex min-w-0 flex-1 flex-col items-start rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 aria-pressed:bg-muted"
                     onClick={() => select({ server: item.id, service: null })}
                   >
-                    <span className="min-w-0 break-words font-medium">{item.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{count(item.deployments.length)}</span>
+                    <span className="max-w-full font-medium [overflow-wrap:anywhere]">{item.name}</span>
+                    <span className="text-xs text-muted-foreground">{count(item.deployments.length)}</span>
                   </button>
                   <RowActions>
                     <RowAction label="Edit" name={item.name} onClick={() => void edit(item)}>
@@ -168,7 +168,7 @@ export default function EnvironmentWorkspace({
               <ChevronLeft data-icon="inline-start" />
               Back to servers
             </Button>
-            <h2 className="break-words text-lg font-semibold">Services on {server.name}</h2>
+            <h2 className="text-lg font-semibold [overflow-wrap:anywhere]">Services on {server.name}</h2>
             <Link className="self-start text-sm underline" to={`/servers/${encodeURIComponent(server.id)}`}>
               {server.hostname || "Server page"}
             </Link>
@@ -181,12 +181,14 @@ export default function EnvironmentWorkspace({
                     <button
                       type="button"
                       aria-pressed={item.id === deployment?.id}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 aria-pressed:bg-muted"
+                      className="flex w-full min-w-0 flex-col items-start rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 aria-pressed:bg-muted"
                       onClick={() => select({ service: item.service_id })}
                     >
-                      <span className="min-w-0 break-words font-medium">{item.service_name}</span>
+                      <span className="max-w-full font-medium [overflow-wrap:anywhere]">{item.service_name}</span>
                       {item.runtime_name && item.runtime_name !== item.service_name && (
-                        <span className="shrink-0 text-xs text-muted-foreground">{item.runtime_name}</span>
+                        <span className="max-w-full truncate text-xs text-muted-foreground" title={item.runtime_name}>
+                          {item.runtime_name}
+                        </span>
                       )}
                     </button>
                   </li>

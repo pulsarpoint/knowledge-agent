@@ -26,11 +26,14 @@ export default function ResourceChats({
   info,
   actions,
   blockedReason = null,
+  wide = false,
 }: {
   resource: ChatResource;
   info: ReactNode;
   actions?: ReactNode;
   blockedReason?: string | null;
+  /** The page needs the full width even with the chat closed (the environment workspace). */
+  wide?: boolean;
 }) {
   const [params, setParams] = useSearchParams();
   const chat = params.get("chat");
@@ -47,7 +50,7 @@ export default function ResourceChats({
   const shownVersion = useRef("");
   const scope = { kind: resource.type, id: resource.id, name: resource.name };
   const settings = useAgentSettings(open ? scope : null);
-  useWidePage(open);
+  useWidePage(open || wide);
 
   useEffect(() => {
     const controller = new AbortController();

@@ -24,6 +24,7 @@ import EntryDocuments from "./EntryDocuments";
 import { RowAction, RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
 import { Field, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
@@ -207,7 +208,7 @@ export default function ServicePanel({
               .join(" · ")}
           </p>
           {service.address && <p className="font-mono text-sm">{service.address}</p>}
-          {service.description && <p className="whitespace-pre-wrap break-words text-sm">{service.description}</p>}
+          {service.description && <Description text={service.description} />}
           {workspace && (
             <Link className="self-start text-sm underline" to={`/services/${encodeURIComponent(serviceId)}`}>
               Service page
@@ -390,11 +391,11 @@ function Row({
   return (
     <li className="flex items-center justify-between gap-2 text-sm">
       {href ? (
-        <Link className="min-w-0 break-words underline-offset-4 hover:underline" to={href}>
+        <Link className="min-w-0 underline-offset-4 [overflow-wrap:anywhere] hover:underline" to={href}>
           {text}
         </Link>
       ) : (
-        <span className="min-w-0 break-words">{text}</span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
       )}
       <RowActions>
         {onEdit && (
@@ -644,5 +645,29 @@ function DeploymentSheet({
       <TextField id="deployment-version" label="Version" value={version} onChange={setVersion} max={200} />
       <TextField id="deployment-log" label="Log location" value={logLocation} onChange={setLogLocation} max={1000} />
     </EditSheet>
+  );
+}
+
+/** A long description shows its first lines, with Show more / Show less. */
+function Description({ text }: { text: string }) {
+  const [full, setFull] = useState(false);
+  const long = text.length > 300 || text.split("\n").length > 4;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <p className={cn("whitespace-pre-wrap text-sm [overflow-wrap:anywhere]", long && !full && "line-clamp-4")}>
+        {text}
+      </p>
+      {long && (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto p-0"
+          onClick={() => setFull((value) => !value)}
+        >
+          {full ? "Show less" : "Show more"}
+        </Button>
+      )}
+    </div>
   );
 }

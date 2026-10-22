@@ -345,3 +345,18 @@ test("editing the deployment here sends its revision", async () => {
     revision: 2,
   });
 });
+
+test("a long description shows its first lines, with Show more and Show less", async () => {
+  const long = "Runs nightly backups. ".repeat(30);
+  api(
+    routes({
+      "GET /api/services": () => [200, { services: [{ ...services[0], description: long }] }],
+    }),
+  );
+  panel();
+  const column = within(await screen.findByRole("region", { name: "payments-api" }));
+  expect(column.getByText(long.trim())).toHaveClass("line-clamp-4");
+  await userEvent.click(column.getByRole("button", { name: "Show more" }));
+  expect(column.getByText(long.trim())).not.toHaveClass("line-clamp-4");
+  expect(column.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+});

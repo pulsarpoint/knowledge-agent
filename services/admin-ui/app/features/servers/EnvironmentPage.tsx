@@ -53,6 +53,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
   const id = encodeURIComponent(environmentId);
   return (
     <ResourceChats
+      wide
       resource={{ type: "environment", id: environmentId, name: environment.name }}
       info={
         <>
