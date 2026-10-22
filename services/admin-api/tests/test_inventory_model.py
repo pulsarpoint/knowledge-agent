@@ -21,7 +21,7 @@ I = ids(
 def rows() -> dict:
     """prod: api on a, db on b; stage: web and api on c. Connections inside prod, prod → stage, stage → prod, prod →
     an external host, and inside stage. Relations api → db, web → api, api → repo, lib → web."""
-    environment = {'id': I['prod'], 'name': 'prod', 'description': 'Production', 'revision': 3}
+    environment = {'id': I['prod'], 'name': 'prod', 'description': 'Production', 'revision': 3, 'status': 'confirmed'}
     secret = {'ssh_port': 22, 'ssh_username': 'root', 'access_enabled': True, 'allow_sudo': True, 'ssh_allowed': True}
     servers = [
         {
@@ -31,10 +31,29 @@ def rows() -> dict:
             'description': 'DB box',
             'tags': ['db'],
             'revision': 2,
+            'status': 'confirmed',
             **secret,
         },
-        {'id': I['a'], 'name': 'A', 'hostname': 'a.internal', 'description': '', 'tags': [], 'revision': 2, **secret},
-        {'id': I['c'], 'name': 'c', 'hostname': 'c.internal', 'description': '', 'tags': [], 'revision': 2, **secret},
+        {
+            'id': I['a'],
+            'name': 'A',
+            'hostname': 'a.internal',
+            'description': '',
+            'tags': [],
+            'revision': 2,
+            'status': 'confirmed',
+            **secret,
+        },
+        {
+            'id': I['c'],
+            'name': 'c',
+            'hostname': 'c.internal',
+            'description': '',
+            'tags': [],
+            'revision': 2,
+            'status': 'confirmed',
+            **secret,
+        },
     ]
     service = {
         'service_type': 'internal',
@@ -42,6 +61,7 @@ def rows() -> dict:
         'description': '',
         'owner': 'team',
         'revision': 4,
+        'status': 'confirmed',
     }
     services = [
         {'id': I['db'], 'name': 'db', **service},
@@ -63,6 +83,7 @@ def rows() -> dict:
             'log_location': f'/var/log/{key}',
             'deployed_version': '1.2',
             'revision': 1,
+            'status': 'confirmed',
         }
 
     deployments = [
@@ -83,6 +104,7 @@ def rows() -> dict:
             'protocol': 'tcp',
             'description': key,
             'revision': 1,
+            'status': 'confirmed',
             'session_id': uuid4(),
         }
 
@@ -104,6 +126,7 @@ def rows() -> dict:
             'to_code_project_id': I[to_code_project] if to_code_project else None,
             'description': key,
             'revision': 1,
+            'status': 'confirmed',
         }
 
     relations = [
@@ -121,13 +144,22 @@ def rows() -> dict:
         'connections': connections,
         'relations': relations,
         'code_projects': code_projects,
-        'memberships': [{'environment_id': d['environment_id'], 'server_id': d['server_id']} for d in deployments],
+        'memberships': [
+            {'environment_id': d['environment_id'], 'server_id': d['server_id'], 'status': 'confirmed'}
+            for d in deployments
+        ],
     }
 
 
 def test_servers_hold_their_deployments_in_the_environment_and_no_secret_fields():
     model = build_model(**rows())
-    assert model['environment'] == {'id': I['prod'], 'name': 'prod', 'description': 'Production', 'revision': 3}
+    assert model['environment'] == {
+        'id': I['prod'],
+        'name': 'prod',
+        'description': 'Production',
+        'revision': 3,
+        'status': 'confirmed',
+    }
     assert [s['name'] for s in model['servers']] == ['A', 'b']  # c has no deployment in prod
     assert model['servers'][0] == {
         'id': I['a'],
@@ -136,6 +168,8 @@ def test_servers_hold_their_deployments_in_the_environment_and_no_secret_fields(
         'description': '',
         'tags': [],
         'revision': 2,
+        'status': 'confirmed',
+        'membership_status': 'confirmed',
         'deployments': [
             {
                 'id': I['api_a'],
@@ -147,6 +181,7 @@ def test_servers_hold_their_deployments_in_the_environment_and_no_secret_fields(
                 'version': '1.2',
                 'log_location': '/var/log/api_a',
                 'revision': 1,
+                'status': 'confirmed',
             }
         ],
     }
@@ -164,6 +199,7 @@ def test_services_are_those_deployed_in_the_environment():
             'description': '',
             'owner': 'team',
             'revision': 4,
+            'status': 'confirmed',
         },
         {
             'id': I['db'],
@@ -173,6 +209,7 @@ def test_services_are_those_deployed_in_the_environment():
             'description': '',
             'owner': 'team',
             'revision': 4,
+            'status': 'confirmed',
         },
     ]
 
@@ -192,6 +229,7 @@ def test_connections_touching_the_environment_name_the_end_outside_it():
         'protocol': 'tcp',
         'description': 'c1',
         'revision': 1,
+        'status': 'confirmed',
     }
     assert by_description['c2']['outside'] == {
         'deployment_id': I['web_c'],
@@ -225,6 +263,7 @@ def test_relations_of_services_in_the_environment_both_directions_with_names():
         'to_code_project': None,
         'description': 'r2',
         'revision': 1,
+        'status': 'confirmed',
     }
     assert by_id[I['r3']]['to_code_project'] == 'repo' and by_id[I['r3']]['to_service'] is None
 
@@ -237,7 +276,13 @@ def test_an_empty_environment():
 
 def test_a_member_server_without_deployments_is_listed_empty():
     model = build_model(
-        **{**rows(), 'memberships': [*rows()['memberships'], {'environment_id': I['prod'], 'server_id': I['c']}]}
+        **{
+            **rows(),
+            'memberships': [
+                *rows()['memberships'],
+                {'environment_id': I['prod'], 'server_id': I['c'], 'status': 'confirmed'},
+            ],
+        }
     )
     assert [(s['name'], len(s['deployments'])) for s in model['servers']] == [('A', 1), ('b', 1), ('c', 0)]
     assert model['servers'][2]['deployments'] == []
@@ -254,6 +299,7 @@ def test_external_services_the_connections_reach_with_their_ports():
         'owner': '',
         'address': 'mail.example.com',
         'revision': 2,
+        'status': 'confirmed',
     }
     r['services'].append(mail)
 
@@ -270,6 +316,7 @@ def test_external_services_the_connections_reach_with_their_ports():
             'address': 'mail.example.com',
             'description': 'Mail relay',
             'revision': 2,
+            'status': 'confirmed',
             'ports': [25, 587],  # web_c is in stage
         }
     ]
@@ -277,6 +324,27 @@ def test_external_services_the_connections_reach_with_their_ports():
     assert (x1['to_service_id'], x1['to_service_name'], 'outside' in x1) == (I['mail'], 'mail', False)
     assert [s['name'] for s in model['services']] == ['api', 'db']  # an external service is not deployed here
     assert model['external'] == build_model(**rows())['external']
+
+
+def test_every_entry_carries_its_status_and_the_model_counts_its_drafts():
+    r = rows()
+    assert build_model(**r)['drafts'] == 0
+    r['environment']['status'] = 'draft'
+    r['servers'][0]['status'] = 'draft'  # b
+    r['memberships'][1]['status'] = 'draft'  # b in prod
+    r['deployments'][1]['status'] = 'draft'  # db_b
+    r['services'][0]['status'] = 'draft'  # db
+    r['connections'][0]['status'] = 'draft'  # c1
+    r['connections'][3]['status'] = 'draft'  # c4, in stage only: not counted
+    r['relations'][0]['status'] = 'draft'  # r1
+    model = build_model(**r)
+    assert model['drafts'] == 7
+    assert model['environment']['status'] == 'draft'
+    b = next(s for s in model['servers'] if s['name'] == 'b')
+    assert (b['status'], b['membership_status'], b['deployments'][0]['status']) == ('draft', 'draft', 'draft')
+    assert [(s['name'], s['status']) for s in model['services']] == [('api', 'confirmed'), ('db', 'draft')]
+    assert [c['status'] for c in model['connections']][:2] == ['draft', 'confirmed']
+    assert {x['id']: x['status'] for x in model['relations']}[I['r1']] == 'draft'
 
 
 # The endpoint
@@ -291,7 +359,7 @@ def test_the_project_is_every_environment_model_and_what_none_holds():
     project_rows['relations'].append(
         {**project_rows['relations'][0], 'id': uuid4(), 'from_service_id': I['lib'], 'to_service_id': lonely['id']}
     )
-    prod, stage = rows()['environment'], {'id': I['stage'], 'name': 'stage', 'description': '', 'revision': 1}
+    prod, stage = rows()['environment'], {**rows()['environment'], 'id': I['stage'], 'name': 'stage', 'revision': 1}
     project = build_project([stage, prod], **project_rows)
     assert project['models'] == [build_model(environment, **project_rows) for environment in (prod, stage)]
     unplaced = project['unplaced']

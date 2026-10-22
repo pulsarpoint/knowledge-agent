@@ -4,8 +4,8 @@ service names it), the external services and the bare external hosts its connect
 relations of its services. build_model is pure: it takes the project's rows (store.load_model_rows) and picks named
 fields only, so nothing secret (SSH username, port, access or credential settings) reaches it."""
 
-SERVER_FIELDS = ('id', 'name', 'hostname', 'description', 'tags', 'revision')
-SERVICE_FIELDS = ('id', 'name', 'service_type', 'service_role', 'description', 'owner', 'revision')
+SERVER_FIELDS = ('id', 'name', 'hostname', 'description', 'tags', 'status', 'revision')
+SERVICE_FIELDS = ('id', 'name', 'service_type', 'service_role', 'description', 'owner', 'status', 'revision')
 CONNECTION_FIELDS = (
     'id',
     'from_deployment_id',
@@ -15,6 +15,7 @@ CONNECTION_FIELDS = (
     'port',
     'protocol',
     'description',
+    'status',
     'revision',
 )
 
@@ -41,6 +42,7 @@ def _relation(r: dict, service_by_id: dict, code_project_by_id: dict) -> dict:
         'to_code_project_id': r['to_code_project_id'],
         'to_code_project': name_of(code_project_by_id, r['to_code_project_id']),
         'description': r['description'],
+        'status': r['status'],
         'revision': r['revision'],
     }
 
@@ -64,8 +66,8 @@ def build_model(
     inside = [d for d in deployments if d['environment_id'] == environment['id']]
     inside_ids = {d['id'] for d in inside}
     service_ids = {d['service_id'] for d in inside}
-    member_ids = {m['server_id'] for m in memberships if m['environment_id'] == environment['id']}
-    member_ids |= {d['server_id'] for d in inside}
+    membership_status = {m['server_id']: m['status'] for m in memberships if m['environment_id'] == environment['id']}
+    member_ids = set(membership_status) | {d['server_id'] for d in inside}
 
     def deployment(d: dict) -> dict:
         return {
@@ -77,6 +79,7 @@ def build_model(
             'port': d['port'],
             'version': d['deployed_version'],
             'log_location': d['log_location'],
+            'status': d['status'],
             'revision': d['revision'],
         }
 
@@ -85,7 +88,11 @@ def build_model(
         return sorted(found, key=lambda d: (d['service_name'].lower(), d['runtime_name'] or '', str(d['id'])))
 
     model_servers = [
-        {**_pick(s, SERVER_FIELDS), 'deployments': on_server(s['id'])}
+        {
+            **_pick(s, SERVER_FIELDS),
+            'membership_status': membership_status.get(s['id'], 'confirmed'),
+            'deployments': on_server(s['id']),
+        }
         for s in _by_name([server_by_id[i] for i in member_ids])
     ]
 
@@ -124,8 +131,8 @@ def build_model(
         if r['from_service_id'] in service_ids or r['to_service_id'] in service_ids
     ]
 
-    return {
-        'environment': _pick(environment, ('id', 'name', 'description', 'revision')),
+    model = {
+        'environment': _pick(environment, ('id', 'name', 'description', 'status', 'revision')),
         'servers': model_servers,
         'services': [_pick(s, SERVICE_FIELDS) for s in _by_name([service_by_id[i] for i in service_ids])],
         'connections': model_connections,
@@ -133,12 +140,25 @@ def build_model(
         'external': [{'host': host, 'ports': sorted(ports)} for host, ports in sorted(external.items())],
         'external_services': [
             {
-                **_pick(s, ('id', 'name', 'address', 'description', 'revision')),
+                **_pick(s, ('id', 'name', 'address', 'description', 'status', 'revision')),
                 'ports': sorted(external_services[s['id']]),
             }
             for s in _by_name([service_by_id[i] for i in external_services])
         ],
     }
+    return {**model, 'drafts': _drafts(model)}
+
+
+def _drafts(model: dict) -> int:
+    """How many entries of the model are drafts (a server's membership counts on its own)."""
+    entries = {('environment', model['environment']['id'], model['environment']['status'])}
+    for server in model['servers']:
+        entries.add(('server', server['id'], server['status']))
+        entries.add(('membership', server['id'], server['membership_status']))
+        entries |= {('deployment', d['id'], d['status']) for d in server['deployments']}
+    for kind in ('services', 'external_services', 'connections', 'relations'):
+        entries |= {(kind.removeprefix('external_'), item['id'], item['status']) for item in model[kind]}
+    return sum(1 for entry in entries if entry[2] == 'draft')
 
 
 def build_project(

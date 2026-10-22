@@ -30,7 +30,7 @@ def inventory(deployments=None, connections=(), relations=(), documents=None, me
     deployments = DEPLOYMENTS if deployments is None else deployments
 
     def item(name: str, **fields) -> dict:
-        return {'id': E[name], 'name': name, 'description': '', 'revision': 1, **fields}
+        return {'id': E[name], 'name': name, 'description': '', 'revision': 1, 'status': 'confirmed', **fields}
 
     server = {'hostname': 'h', 'tags': []}
     service = {'service_type': 'internal', 'service_role': 'application', 'owner': None}
@@ -53,6 +53,7 @@ def inventory(deployments=None, connections=(), relations=(), documents=None, me
                 'deployed_version': None,
                 'log_location': None,
                 'revision': 1,
+                'status': 'confirmed',
             }
             for deployment, (service_id, server_id, environment_id) in deployments.items()
         ],
@@ -67,6 +68,7 @@ def inventory(deployments=None, connections=(), relations=(), documents=None, me
                 'protocol': None,
                 'description': '',
                 'revision': 1,
+                'status': 'confirmed',
             }
             for c in connections
         ],
@@ -79,15 +81,19 @@ def inventory(deployments=None, connections=(), relations=(), documents=None, me
                 'to_code_project_id': r['to'][1] if r['to'][0] == 'code_project' else None,
                 'description': '',
                 'revision': 1,
+                'status': 'confirmed',
             }
             for r in relations
         ],
         'code_projects': [{'id': E['code'], 'name': 'api-code'}, {'id': E['old-code'], 'name': 'old-code'}],
         'memberships': [
-            {'environment_id': environment_id, 'server_id': server_id}
+            {'environment_id': environment_id, 'server_id': server_id, 'status': 'confirmed'}
             for _, server_id, environment_id in deployments.values()
         ]
-        + [{'environment_id': E[environment], 'server_id': E[server]} for environment, server in members],
+        + [
+            {'environment_id': E[environment], 'server_id': E[server], 'status': 'confirmed'}
+            for environment, server in members
+        ],
     }
     return {
         **build_project(environments, **rows),

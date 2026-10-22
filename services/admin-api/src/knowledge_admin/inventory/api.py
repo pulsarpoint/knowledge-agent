@@ -8,7 +8,11 @@ its message), 404 (store.NotFound) and 409 (store.Conflict: a stale revision, a 
 deployments use the item; a stale revision also carries the code STALE_REVISION). The store records every change in the audit log with the person.
 
 Membership: PUT /environments/{id}/servers/{server_id} puts the server in the environment (204, also when it was there);
-DELETE removes it (204; 400 while the server has deployments there, 404 when it is not a member)."""
+DELETE removes it (204; 400 while the server has deployments there, 404 when it is not a member).
+
+Drafts: POST /inventory/{kind}/{id}/confirm confirms a draft with every draft it needs, POST .../discard deletes it with
+every draft that needs it; the body is {revision} (the revision read; a membership, id <environment id>:<server id>, has
+none). One transaction; the response lists the entries reached {confirmed|discarded: [{kind, id, name}]}."""
 
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -37,6 +41,7 @@ WRITERS = {
     'relations': (store.create_relation, store.update_relation, store.delete_relation),
 }
 EntryKind = Literal['service', 'server', 'environment', 'code_project']
+DraftKind = Literal['environment', 'server', 'service', 'deployment', 'connection', 'relation', 'membership']
 ENTRY_TABLES = {
     'service': 'services',
     'server': 'servers',
@@ -49,6 +54,11 @@ LINK_FIELDS = {kind: f'{column[:-3]}_ids' for kind, column in ENTRY_COLUMNS.item
 STALE_REVISION = 'STALE_REVISION'  # the 409 code of a stale revision (store.Stale); other 409s carry no code
 ALREADY_LINKED = 'This document is already linked.'
 NOT_LINKED = 'This document is not linked.'
+
+
+class Revision(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: int | None = None
 
 
 class DocumentChoice(BaseModel):
@@ -139,6 +149,24 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
                 conn, project_id, environment_id, server_id, author
             ),
         )
+
+    @router.post('/inventory/{kind}/{item_id}/confirm')
+    def confirm(kind: DraftKind, item_id: str, value: Revision, request: Request) -> dict:
+        return {
+            'confirmed': write(
+                request,
+                lambda conn, project_id, author: store.confirm(conn, project_id, kind, item_id, value.revision, author),
+            )
+        }
+
+    @router.post('/inventory/{kind}/{item_id}/discard')
+    def discard(kind: DraftKind, item_id: str, value: Revision, request: Request) -> dict:
+        return {
+            'discarded': write(
+                request,
+                lambda conn, project_id, author: store.discard(conn, project_id, kind, item_id, value.revision, author),
+            )
+        }
 
     # Reads
 

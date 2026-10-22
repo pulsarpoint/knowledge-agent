@@ -42,8 +42,10 @@ def test_round_trip_lists_what_is_deployed_edit_and_audit(store, inventory):
     assert client.get(url, headers=HEADERS).json()['services'] == []  # nothing deployed there yet
     deploy(client, service, host, environment)
     environment = client.get(url, headers=HEADERS).json()
-    assert environment['services'] == [{'id': service['id'], 'name': 'API'}]
-    assert environment['servers'] == [{'id': host['id'], 'name': 'App host', 'hostname': 'app.internal'}]
+    assert environment['services'] == [{'id': service['id'], 'name': 'API', 'status': 'confirmed'}]
+    assert environment['servers'] == [
+        {'id': host['id'], 'name': 'App host', 'hostname': 'app.internal', 'status': 'confirmed'}
+    ]
     second = client.post('/api/environments', headers=HEADERS, json={'name': 'Staging'}).json()
     listing = client.get('/api/environments', headers=HEADERS).json()['environments']
     assert [row['name'] for row in listing] == ['Development', 'Staging']

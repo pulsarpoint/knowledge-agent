@@ -30,6 +30,7 @@ def service_asset(service: dict, rows: dict) -> dict:
                 'port': d['port'],
                 'log_location': d['log_location'],
                 'deployed_version': d['deployed_version'],
+                'status': d['status'],
                 'server': {k: v for k, v in rows['servers'][d['server_id']].items() if k != 'project_id'},
             }
             for d in rows['deployments']
@@ -114,11 +115,11 @@ def environment_assets(conn, project_id: UUID, environment_id: UUID | None = Non
         {
             **environment,
             'services': _by_name(
-                {'id': key, 'name': services[key]['name']}
+                {'id': key, 'name': services[key]['name'], 'status': services[key]['status']}
                 for key in {d['service_id'] for d in deployments if d['environment_id'] == environment['id']}
             ),
             'servers': _by_name(
-                {'id': s['id'], 'name': s['name'], 'hostname': s['hostname']}
+                {'id': s['id'], 'name': s['name'], 'hostname': s['hostname'], 'status': s['status']}
                 for s in servers.values()
                 if environment['id'] in s['environment_ids']
             ),

@@ -324,3 +324,68 @@ def test_an_external_service_with_an_address_is_a_connection_target(client, worl
         json={'from_deployment_id': world['api_a']['id'], 'to_service_id': world['db']['id']},
     )
     assert error(custom) == (400, 'Connect to an external service, or to a deployment of this service.')
+
+
+def draft(store, kind: str, values: dict) -> dict:
+    from knowledge_admin.inventory import store as inventory
+
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        return getattr(inventory, f'create_{kind}')(conn, project, values, {'actor_id': None}, status='draft')
+
+
+def test_confirm_and_discard_list_the_entries_they_reach(client, store, world):
+    cache = draft(store, 'service', {'name': 'cache'})
+    deployment = draft(
+        store,
+        'deployment',
+        {'service_id': cache['id'], 'server_id': world['b']['id'], 'environment_id': world['prod']['id']},
+    )
+    url = f'/api/inventory/deployment/{deployment["id"]}/confirm'
+    stale = client.post(url, headers=HEADERS, json={'revision': 2})
+    assert stale.status_code == 409 and stale.json()['error']['code'] == 'STALE_REVISION'
+    response = client.post(url, headers=HEADERS, json={'revision': 1})
+    assert response.status_code == 200, response.text
+    assert [(e['kind'], e['name']) for e in response.json()['confirmed']] == [
+        ('deployment', 'cache on b in prod'),
+        ('service', 'cache'),
+    ]
+    assert (
+        client.get(f'/api/services/{cache["id"]}/context', headers=HEADERS).json()['service']['status'] == 'confirmed'
+    )
+    refused = client.post(url, headers=HEADERS, json={'revision': 2})
+    assert error(refused) == (400, 'This deployment is already confirmed.')
+    assert audit_actions(store, cache['id'])[-1] == ('service.confirmed', True)
+
+    queue = draft(store, 'service', {'name': 'queue'})
+    response = client.post(f'/api/inventory/service/{queue["id"]}/discard', headers=HEADERS, json={'revision': 1})
+    assert response.status_code == 200, response.text
+    assert response.json() == {'discarded': [{'kind': 'service', 'id': str(queue['id']), 'name': 'queue'}]}
+    gone = client.post(f'/api/inventory/service/{queue["id"]}/discard', headers=HEADERS, json={'revision': 1})
+    assert gone.status_code == 404
+    assert (
+        client.post(f'/api/inventory/server/{uuid4()}/confirm', headers=HEADERS, json={'revision': 1}).status_code
+        == 404
+    )
+    confirmed = client.post(f'/api/inventory/service/{cache["id"]}/discard', headers=HEADERS, json={'revision': 2})
+    assert error(confirmed) == (400, 'Only a draft can be discarded.')
+
+
+def test_a_membership_is_named_by_environment_and_server(client, store, world):
+    test = draft(store, 'environment', {'name': 'test'})
+    from knowledge_admin.inventory import store as inventory
+
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        inventory.add_server_to_environment(conn, project, test['id'], world['a']['id'], {}, status='draft')
+    membership = f'{test["id"]}:{world["a"]["id"]}'
+    response = client.post(f'/api/inventory/membership/{membership}/confirm', headers=HEADERS, json={})
+    assert response.status_code == 200, response.text
+    assert response.json()['confirmed'] == [
+        {'kind': 'membership', 'id': membership, 'name': 'a in test'},
+        {'kind': 'environment', 'id': str(test['id']), 'name': 'test'},
+    ]
+    listed = client.get('/api/environments', headers=HEADERS).json()['environments']
+    assert {e['name']: e['status'] for e in listed} == {'prod': 'confirmed', 'test': 'confirmed'}
+    bad = client.post('/api/inventory/membership/nonsense/discard', headers=HEADERS, json={})
+    assert bad.status_code == 400

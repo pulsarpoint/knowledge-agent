@@ -6,6 +6,9 @@ rules.py, check that referenced items exist in the project, check the revision o
 audit event with the person and, for agent runs, the agent and session.
 A deployment's server is always a member of the deployment's environment: creating or moving a deployment adds the
 membership when it is missing.
+Every entry is a draft (an agent's write, status='draft') or confirmed (a person's, the default). Updating keeps the
+status; an agent cannot update a confirmed entry. A confirmed entry never needs a draft: a person's write confirms the
+drafts it refers to. confirm and discard (people only) follow rules.confirm_reach and rules.discard_reach.
 
 author: {'actor_id': principal id or None, 'agent_id': agent id or None, 'session_id': agent session id or None}.
 Errors: rules.Invalid (bad values or a missing reference), NotFound (the item is not in this project), Conflict (a
@@ -36,17 +39,18 @@ class Stale(Conflict):
 
 
 # What a reader gets: public columns only (no SSH credentials); a server with the environments it is in.
-SERVER = """SELECT x.id,x.project_id,x.name,x.hostname,x.description,x.tags,x.revision,x.created_at,x.updated_at,
+SERVER = """SELECT x.id,x.project_id,x.name,x.hostname,x.description,x.tags,x.status,x.revision,x.created_at,x.updated_at,
     x.port AS ssh_port,x.username AS ssh_username,x.enabled AS access_enabled,x.allow_sudo,x.ssh_allowed,
     ARRAY(SELECT m.environment_id FROM ka.environment_servers m WHERE m.server_id=x.id ORDER BY m.environment_id)
     AS environment_ids
     FROM ka.servers x"""
 SERVICE = """SELECT x.id,x.project_id,x.name,x.description,x.owner,x.service_type::text AS service_type,
-    x.service_role::text AS service_role,x.address,x.revision,x.created_by,x.created_at,x.updated_at
+    x.service_role::text AS service_role,x.address,x.status,x.revision,x.created_by,x.created_at,x.updated_at
     FROM ka.services x"""
-ENVIRONMENT = 'SELECT x.id,x.project_id,x.name,x.description,x.revision,x.created_by,x.created_at,x.updated_at FROM ka.environments x'
+ENVIRONMENT = """SELECT x.id,x.project_id,x.name,x.description,x.status,x.revision,x.created_by,x.created_at,x.updated_at
+    FROM ka.environments x"""
 DEPLOYMENT = """SELECT x.id,x.project_id,x.service_id,x.server_id,x.environment_id,x.runtime,x.runtime_name,x.port,
-    x.log_location,x.deployed_version,x.revision FROM ka.service_deployments x"""
+    x.log_location,x.deployed_version,x.status,x.revision FROM ka.service_deployments x"""
 CONNECTION = 'SELECT x.* FROM ka.connections x'
 RELATION = 'SELECT x.* FROM ka.service_relations x'
 
@@ -188,14 +192,14 @@ def _project_rows(conn, project_id: UUID) -> dict:
             (project_id,),
         ).fetchall(),
         'memberships': conn.execute(
-            'SELECT environment_id,server_id FROM ka.environment_servers WHERE project_id=%s', (project_id,)
+            'SELECT environment_id,server_id,status FROM ka.environment_servers WHERE project_id=%s', (project_id,)
         ).fetchall(),
     }
 
 
 def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
     """The rows model.build_model takes: the environment (NotFound when it is not in the project) and the project's
-    servers, services, deployments, connections, relations, code projects and memberships."""
+    servers, services, deployments, connections, relations, code projects and memberships (each with its status)."""
     return {'environment': get(conn, project_id, 'environment', environment_id), **_project_rows(conn, project_id)}
 
 
@@ -325,10 +329,17 @@ def _audit(conn, project_id: UUID, author: dict, action: str, kind: str, item_id
     )
 
 
-def _create(conn, project_id: UUID, kind: str, values: dict, author: dict) -> dict:
+def _check_status(status: str) -> None:
+    if status not in STATUSES:
+        raise Invalid(f'status must be one of: {", ".join(STATUSES)}')
+
+
+def _create(conn, project_id: UUID, kind: str, values: dict, author: dict, status: str) -> dict:
+    """A person's item is confirmed (with the drafts it needs); an agent's is a draft."""
+    _check_status(status)
     lock_project(conn, project_id)
     item = KINDS[kind]['rule'](values)
-    columns = {**item, **_references(conn, project_id, kind, item)}
+    columns = {**item, **_references(conn, project_id, kind, item), 'status': status}
     if kind == 'server':
         columns['enabled'] = False  # SSH access is set up separately
     if kind in ('connection', 'relation'):
@@ -344,16 +355,24 @@ def _create(conn, project_id: UUID, kind: str, values: dict, author: dict) -> di
         f'INSERT INTO {KINDS[kind]["table"]}({",".join(names)}) VALUES ({",".join(["%s"] * len(names))}) RETURNING id',
         [project_id, *columns.values()],
     )
-    _audit(conn, project_id, author, f'{kind}.created', kind, item_id, {'revision': 1, **item})
+    _audit(conn, project_id, author, f'{kind}.created', kind, item_id, {'revision': 1, 'status': status, **item})
     if kind == 'deployment':
-        _add_member(conn, project_id, item['environment_id'], item['server_id'], author)
+        _add_member(conn, project_id, item['environment_id'], item['server_id'], author, status)
+    if status == 'confirmed':
+        _confirm_needs(conn, project_id, kind, item_id, author)
     return _get(conn, kind, item_id)
 
 
-def _update(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, changes: dict, author: dict) -> dict:
-    """Changes are merged into the saved item; the whole item is validated again."""
+def _update(
+    conn, project_id: UUID, kind: str, item_id: UUID, revision: int, changes: dict, author: dict, status: str
+) -> dict:
+    """Changes are merged into the saved item; the whole item is validated again. The item keeps its status: a person
+    (status 'confirmed') may change a draft or a confirmed item, an agent (status 'draft') only a draft."""
+    _check_status(status)
     lock_project(conn, project_id)
     row = _locked(conn, kind, project_id, item_id, revision)
+    if status == 'draft' and row['status'] == 'confirmed':
+        raise Invalid(rules.confirmed_refusal(kind))
     saved = {field: row[field] for field in KINDS[kind]['fields']}
     if kind == 'connection' and 'to_deployment_id' in changes and 'port' not in changes:
         saved['port'] = None  # a new target brings its own port
@@ -372,8 +391,24 @@ def _update(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, cha
     )
     _audit(conn, project_id, author, f'{kind}.updated', kind, item_id, {'revision': revision + 1, **item})
     if kind == 'deployment':
-        _add_member(conn, project_id, item['environment_id'], item['server_id'], author)
+        _add_member(conn, project_id, item['environment_id'], item['server_id'], author, row['status'])
+    if row['status'] == 'confirmed':
+        _confirm_needs(conn, project_id, kind, item_id, author)
     return _get(conn, kind, item_id)
+
+
+def _refuse_with_jobs(conn, server_id: UUID) -> None:
+    if conn.execute('SELECT 1 FROM ka.jobs WHERE server_id=%s LIMIT 1', (server_id,)).fetchone():
+        raise Conflict('This server has connection-test jobs or history and cannot be deleted')
+
+
+def _delete_own_key(conn, credential_id: UUID | None) -> None:
+    """A deleted server's own SSH key, unless another server uses it."""
+    conn.execute(
+        """DELETE FROM ka.credentials c WHERE id=%s AND kind='ssh_private_key'
+        AND NOT EXISTS (SELECT 1 FROM ka.servers s WHERE s.credential_id=c.id)""",
+        (credential_id,),
+    )
 
 
 def _refuse_with_deployments(conn, kind: str, item_id: UUID) -> None:
@@ -390,8 +425,8 @@ def _delete(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, aut
     details = {'revision': revision, **{field: row[field] for field in KINDS[kind]['fields']}}
     if kind in ('server', 'service', 'environment'):
         _refuse_with_deployments(conn, kind, item_id)
-    if kind == 'server' and conn.execute('SELECT 1 FROM ka.jobs WHERE server_id=%s LIMIT 1', (item_id,)).fetchone():
-        raise Conflict('This server has connection-test jobs or history and cannot be deleted')
+    if kind == 'server':
+        _refuse_with_jobs(conn, item_id)
     if kind == 'deployment':
         details['connection_ids'] = [
             r['id']
@@ -407,35 +442,188 @@ def _delete(conn, project_id: UUID, kind: str, item_id: UUID, revision: int, aut
         ]
     conn.execute(f'DELETE FROM {KINDS[kind]["table"]} WHERE id=%s', (item_id,))
     if kind == 'server':
-        conn.execute(  # the server's own key, unless another server uses it
-            """DELETE FROM ka.credentials c WHERE id=%s AND kind='ssh_private_key'
-            AND NOT EXISTS (SELECT 1 FROM ka.servers s WHERE s.credential_id=c.id)""",
-            (row['credential_id'],),
-        )
+        _delete_own_key(conn, row['credential_id'])
     _audit(conn, project_id, author, f'{kind}.deleted', kind, item_id, details)
     return {'id': item_id}
 
 
-def _add_member(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict) -> bool:
+def _add_member(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict, status: str) -> bool:
+    """Adds the membership with this status when it is missing (a draft one is confirmed by _confirm_needs)."""
     added = conn.execute(
-        """INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)
+        """INSERT INTO ka.environment_servers(project_id,environment_id,server_id,status) VALUES (%s,%s,%s,%s)
         ON CONFLICT DO NOTHING RETURNING server_id""",
-        (project_id, environment_id, server_id),
+        (project_id, environment_id, server_id, status),
     ).fetchone()
     if added is not None:
-        _audit(conn, project_id, author, 'membership.added', 'environment', environment_id, {'server_id': server_id})
+        details = {'server_id': server_id, 'status': status}
+        _audit(conn, project_id, author, 'membership.added', 'environment', environment_id, details)
     return added is not None
+
+
+# Drafts: confirm and discard (rules.confirm_reach and rules.discard_reach say what they reach)
+
+STATUSES = ('draft', 'confirmed')
+TABLES = {kind: spec['table'] for kind, spec in KINDS.items()}
+DISCARD_ORDER = ('connection', 'relation', 'deployment', 'membership', 'service', 'server', 'environment')
+
+
+def _reach_rows(conn, project_id: UUID) -> dict:
+    """The project's entries as rules' draft functions take them: by kind, then id (a membership by
+    rules.membership_id), each with its status, name and the ids it refers to."""
+
+    def by_id(sql: str) -> dict:
+        return {row['id']: row for row in conn.execute(sql, (project_id,))}
+
+    rows = {
+        kind: by_id(f'SELECT id,name,status FROM {TABLES[kind]} WHERE project_id=%s')
+        for kind in ('environment', 'server', 'service')
+    }
+    rows['deployment'] = by_id(
+        'SELECT id,service_id,server_id,environment_id,status FROM ka.service_deployments WHERE project_id=%s'
+    )
+    rows['connection'] = by_id(
+        """SELECT id,from_deployment_id,to_deployment_id,to_service_id,to_host,status FROM ka.connections
+        WHERE project_id=%s"""
+    )
+    rows['relation'] = by_id(
+        """SELECT id,from_service_id,kind,to_service_id,to_code_project_id,status FROM ka.service_relations
+        WHERE project_id=%s"""
+    )
+    rows['code_project'] = by_id('SELECT id,name FROM ka.repositories WHERE project_id=%s')
+    rows['membership'] = {
+        rules.membership_id(row['environment_id'], row['server_id']): row
+        for row in conn.execute(
+            'SELECT environment_id,server_id,status FROM ka.environment_servers WHERE project_id=%s', (project_id,)
+        )
+    }
+    return rows
+
+
+def _entry_key(kind: str, item_id):
+    """The entry's key in the reach rows: its id, or for a membership '<environment id>:<server id>'."""
+    if kind not in rules.DRAFT_KINDS:
+        raise Invalid(f'kind must be one of: {", ".join(rules.DRAFT_KINDS)}')
+    try:
+        if kind == 'membership':
+            environment_id, server_id = str(item_id).split(':')
+            return rules.membership_id(UUID(environment_id), UUID(server_id))
+        return item_id if isinstance(item_id, UUID) else UUID(str(item_id))
+    except ValueError:
+        raise Invalid('Choose an entry by its id (a membership by <environment id>:<server id>)') from None
+
+
+def _lock_entry(conn, project_id: UUID, kind: str, key, revision: int | None) -> None:
+    """The named entry, locked: NotFound when it is not in the project, Stale when the revision is not the current
+    one. A membership has no revision."""
+    if kind == 'membership':
+        environment_id, server_id = key.split(':')
+        found = conn.execute(
+            """SELECT 1 FROM ka.environment_servers WHERE project_id=%s AND environment_id=%s AND server_id=%s
+            FOR UPDATE""",
+            (project_id, environment_id, server_id),
+        ).fetchone()
+        if found is None:
+            raise NotFound('This server is not in this environment')
+        return
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        raise Invalid('revision is required: the revision you read')
+    _locked(conn, kind, project_id, key, revision)
+
+
+def _listed(entries: list[tuple], rows: dict) -> list[dict]:
+    return [{'kind': kind, 'id': key, 'name': rules.entry_name(kind, key, rows)} for kind, key in entries]
+
+
+def _confirm_entries(conn, project_id: UUID, entries: list[tuple], rows: dict, author: dict) -> list[dict]:
+    listed = _listed(entries, rows)
+    for kind, key in entries:
+        if kind == 'membership':
+            row = rows['membership'][key]
+            conn.execute(
+                "UPDATE ka.environment_servers SET status='confirmed' WHERE environment_id=%s AND server_id=%s",
+                (row['environment_id'], row['server_id']),
+            )
+            details = {'server_id': row['server_id']}
+            _audit(conn, project_id, author, 'membership.confirmed', 'environment', row['environment_id'], details)
+            continue
+        revision = conn.execute(
+            f"UPDATE {TABLES[kind]} SET status='confirmed',revision=revision+1 WHERE id=%s RETURNING revision",
+            (key,),
+        ).fetchone()['revision']
+        _audit(conn, project_id, author, f'{kind}.confirmed', kind, key, {'revision': revision})
+    return listed
+
+
+def _confirm_needs(conn, project_id: UUID, kind: str, item_id: UUID, author: dict) -> None:
+    """A confirmed item never needs a draft: the drafts it needs are confirmed with it."""
+    if kind in ('deployment', 'connection', 'relation'):
+        rows = _reach_rows(conn, project_id)
+        _confirm_entries(conn, project_id, rules.needs(kind, item_id, rows), rows, author)
+
+
+def confirm(conn, project_id: UUID, kind: str, item_id, revision: int | None, author: dict) -> list[dict]:
+    """Confirms the draft and every draft it needs; returns them [{kind, id, name}], the draft first. Invalid when it
+    is confirmed already; NotFound, Stale: nothing changes."""
+    key = _entry_key(kind, item_id)
+    lock_project(conn, project_id)
+    _lock_entry(conn, project_id, kind, key, revision)
+    rows = _reach_rows(conn, project_id)
+    return _confirm_entries(conn, project_id, rules.confirm_reach(kind, key, rows), rows, author)
+
+
+def discard(conn, project_id: UUID, kind: str, item_id, revision: int | None, author: dict) -> list[dict]:
+    """Deletes the draft and every draft that needs it; returns them [{kind, id, name}], the draft first. Invalid when
+    it is confirmed or a confirmed entry needs it; NotFound, Stale: nothing changes."""
+    key = _entry_key(kind, item_id)
+    lock_project(conn, project_id)
+    _lock_entry(conn, project_id, kind, key, revision)
+    rows = _reach_rows(conn, project_id)
+    entries = rules.discard_reach(kind, key, rows)
+    listed = _listed(entries, rows)
+    for entry_kind in DISCARD_ORDER:
+        for entry in listed:
+            if entry['kind'] != entry_kind:
+                continue
+            if entry_kind == 'membership':
+                row = rows['membership'][entry['id']]
+                conn.execute(
+                    'DELETE FROM ka.environment_servers WHERE environment_id=%s AND server_id=%s',
+                    (row['environment_id'], row['server_id']),
+                )
+                details = {'server_id': row['server_id'], 'name': entry['name']}
+                _audit(conn, project_id, author, 'membership.discarded', 'environment', row['environment_id'], details)
+                continue
+            if entry_kind == 'server':
+                _refuse_with_jobs(conn, entry['id'])
+            deleted = conn.execute(f'DELETE FROM {TABLES[entry_kind]} WHERE id=%s RETURNING *', (entry['id'],))
+            if entry_kind == 'server':
+                _delete_own_key(conn, deleted.fetchone()['credential_id'])
+            details = {'name': entry['name']}
+            _audit(conn, project_id, author, f'{entry_kind}.discarded', entry_kind, entry['id'], details)
+    return listed
 
 
 # Writes
 
 
-def add_server_to_environment(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict) -> bool:
-    """Puts the server in the environment; True when added, False when it was a member already (nothing written)."""
+def add_server_to_environment(
+    conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict, status: str = 'confirmed'
+) -> bool:
+    """Puts the server in the environment; True when added (or, by a person, a draft membership confirmed), False when
+    it was a member already (nothing written). A person's membership is confirmed with the drafts it needs."""
+    _check_status(status)
     lock_project(conn, project_id)
     get(conn, project_id, 'environment', environment_id)
     get(conn, project_id, 'server', server_id)
-    return _add_member(conn, project_id, environment_id, server_id, author)
+    added = _add_member(conn, project_id, environment_id, server_id, author, status)
+    if status == 'draft':
+        return added
+    rows = _reach_rows(conn, project_id)
+    key = rules.membership_id(environment_id, server_id)
+    was_draft = rows['membership'][key]['status'] == 'draft'
+    entries = rules.confirm_reach('membership', key, rows) if was_draft else rules.needs('membership', key, rows)
+    _confirm_entries(conn, project_id, entries, rows, author)
+    return added or was_draft
 
 
 def remove_server_from_environment(conn, project_id: UUID, environment_id: UUID, server_id: UUID, author: dict) -> None:
@@ -457,12 +645,14 @@ def remove_server_from_environment(conn, project_id: UUID, environment_id: UUID,
     _audit(conn, project_id, author, 'membership.removed', 'environment', environment_id, {'server_id': server_id})
 
 
-def create_server(conn, project_id: UUID, values: dict, author: dict) -> dict:
-    return _create(conn, project_id, 'server', values, author)
+def create_server(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
+    return _create(conn, project_id, 'server', values, author, status)
 
 
-def update_server(conn, project_id: UUID, server_id: UUID, revision: int, changes: dict, author: dict) -> dict:
-    return _update(conn, project_id, 'server', server_id, revision, changes, author)
+def update_server(
+    conn, project_id: UUID, server_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
+) -> dict:
+    return _update(conn, project_id, 'server', server_id, revision, changes, author, status)
 
 
 def delete_server(conn, project_id: UUID, server_id: UUID, revision: int, author: dict) -> dict:
@@ -470,12 +660,14 @@ def delete_server(conn, project_id: UUID, server_id: UUID, revision: int, author
     return _delete(conn, project_id, 'server', server_id, revision, author)
 
 
-def create_service(conn, project_id: UUID, values: dict, author: dict) -> dict:
-    return _create(conn, project_id, 'service', values, author)
+def create_service(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
+    return _create(conn, project_id, 'service', values, author, status)
 
 
-def update_service(conn, project_id: UUID, service_id: UUID, revision: int, changes: dict, author: dict) -> dict:
-    return _update(conn, project_id, 'service', service_id, revision, changes, author)
+def update_service(
+    conn, project_id: UUID, service_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
+) -> dict:
+    return _update(conn, project_id, 'service', service_id, revision, changes, author, status)
 
 
 def delete_service(conn, project_id: UUID, service_id: UUID, revision: int, author: dict) -> dict:
@@ -483,14 +675,14 @@ def delete_service(conn, project_id: UUID, service_id: UUID, revision: int, auth
     return _delete(conn, project_id, 'service', service_id, revision, author)
 
 
-def create_environment(conn, project_id: UUID, values: dict, author: dict) -> dict:
-    return _create(conn, project_id, 'environment', values, author)
+def create_environment(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
+    return _create(conn, project_id, 'environment', values, author, status)
 
 
 def update_environment(
-    conn, project_id: UUID, environment_id: UUID, revision: int, changes: dict, author: dict
+    conn, project_id: UUID, environment_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
 ) -> dict:
-    return _update(conn, project_id, 'environment', environment_id, revision, changes, author)
+    return _update(conn, project_id, 'environment', environment_id, revision, changes, author, status)
 
 
 def delete_environment(conn, project_id: UUID, environment_id: UUID, revision: int, author: dict) -> dict:
@@ -498,14 +690,16 @@ def delete_environment(conn, project_id: UUID, environment_id: UUID, revision: i
     return _delete(conn, project_id, 'environment', environment_id, revision, author)
 
 
-def create_deployment(conn, project_id: UUID, values: dict, author: dict) -> dict:
+def create_deployment(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
     """Puts the server in the environment when it is not there yet."""
-    return _create(conn, project_id, 'deployment', values, author)
+    return _create(conn, project_id, 'deployment', values, author, status)
 
 
-def update_deployment(conn, project_id: UUID, deployment_id: UUID, revision: int, changes: dict, author: dict) -> dict:
+def update_deployment(
+    conn, project_id: UUID, deployment_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
+) -> dict:
     """Moved to another environment or server: that server is put in that environment when it is not there yet."""
-    return _update(conn, project_id, 'deployment', deployment_id, revision, changes, author)
+    return _update(conn, project_id, 'deployment', deployment_id, revision, changes, author, status)
 
 
 def delete_deployment(conn, project_id: UUID, deployment_id: UUID, revision: int, author: dict) -> dict:
@@ -513,25 +707,29 @@ def delete_deployment(conn, project_id: UUID, deployment_id: UUID, revision: int
     return _delete(conn, project_id, 'deployment', deployment_id, revision, author)
 
 
-def create_connection(conn, project_id: UUID, values: dict, author: dict) -> dict:
+def create_connection(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
     """Without a port, a connection to a deployment takes that deployment's port."""
-    return _create(conn, project_id, 'connection', values, author)
+    return _create(conn, project_id, 'connection', values, author, status)
 
 
-def update_connection(conn, project_id: UUID, connection_id: UUID, revision: int, changes: dict, author: dict) -> dict:
-    return _update(conn, project_id, 'connection', connection_id, revision, changes, author)
+def update_connection(
+    conn, project_id: UUID, connection_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
+) -> dict:
+    return _update(conn, project_id, 'connection', connection_id, revision, changes, author, status)
 
 
 def delete_connection(conn, project_id: UUID, connection_id: UUID, revision: int, author: dict) -> dict:
     return _delete(conn, project_id, 'connection', connection_id, revision, author)
 
 
-def create_relation(conn, project_id: UUID, values: dict, author: dict) -> dict:
-    return _create(conn, project_id, 'relation', values, author)
+def create_relation(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
+    return _create(conn, project_id, 'relation', values, author, status)
 
 
-def update_relation(conn, project_id: UUID, relation_id: UUID, revision: int, changes: dict, author: dict) -> dict:
-    return _update(conn, project_id, 'relation', relation_id, revision, changes, author)
+def update_relation(
+    conn, project_id: UUID, relation_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
+) -> dict:
+    return _update(conn, project_id, 'relation', relation_id, revision, changes, author, status)
 
 
 def delete_relation(conn, project_id: UUID, relation_id: UUID, revision: int, author: dict) -> dict:

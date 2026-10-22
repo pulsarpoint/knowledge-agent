@@ -249,3 +249,142 @@ def relation(values: dict) -> dict:
         'to_code_project_id': to_code_project,
         'description': _text(values, 'description', 4000),
     }
+
+
+# Drafts. An agent writes drafts; a person confirms a draft (with every draft it needs) or discards it (with every draft
+# that needs it). The functions below work over the project's rows keyed by kind, then id: environment, server,
+# service, deployment, connection and relation by id, membership by membership_id(environment, server), and
+# code_project (names only). Each row has its status ('draft' or 'confirmed') and the ids it refers to.
+
+DRAFT_KINDS = ('environment', 'server', 'service', 'deployment', 'connection', 'relation', 'membership')
+
+
+def confirmed_refusal(kind: str) -> str:
+    """Why an agent cannot change a confirmed entry."""
+    return (
+        f'This {kind} is confirmed; only a person can change it. Add a new draft instead, or describe the change in '
+        'your answer.'
+    )
+
+
+def membership_id(environment_id, server_id) -> str:
+    return f'{environment_id}:{server_id}'
+
+
+def _needs(kind: str, row: dict) -> list[tuple[str, object]]:
+    """The entries this one cannot exist without."""
+    if kind == 'membership':
+        return [('server', row['server_id']), ('environment', row['environment_id'])]
+    if kind == 'deployment':
+        return [
+            ('server', row['server_id']),
+            ('service', row['service_id']),
+            ('membership', membership_id(row['environment_id'], row['server_id'])),
+            ('environment', row['environment_id']),
+        ]
+    if kind == 'connection':
+        ends = [('deployment', row['from_deployment_id']), ('deployment', row['to_deployment_id'])]
+        return [end for end in [*ends, ('service', row['to_service_id'])] if end[1] is not None]
+    if kind == 'relation':  # a code project is never a draft
+        ends = [('service', row['from_service_id']), ('service', row['to_service_id'])]
+        return [end for end in ends if end[1] is not None]
+    return []
+
+
+def _dependants(kind: str, key, rows: dict) -> list[tuple[str, object]]:
+    """The entries that cannot exist without this one."""
+    found: list[tuple[str, object]] = []
+    if kind in ('environment', 'server'):
+        found += [('membership', k) for k, m in rows['membership'].items() if m[f'{kind}_id'] == key]
+        found += [('deployment', k) for k, d in rows['deployment'].items() if d[f'{kind}_id'] == key]
+    if kind == 'membership':
+        found += [
+            ('deployment', k)
+            for k, d in rows['deployment'].items()
+            if membership_id(d['environment_id'], d['server_id']) == key
+        ]
+    if kind == 'service':
+        found += [('deployment', k) for k, d in rows['deployment'].items() if d['service_id'] == key]
+        found += [('connection', k) for k, c in rows['connection'].items() if c['to_service_id'] == key]
+        found += [
+            ('relation', k) for k, r in rows['relation'].items() if key in (r['from_service_id'], r['to_service_id'])
+        ]
+    if kind == 'deployment':
+        found += [
+            ('connection', k)
+            for k, c in rows['connection'].items()
+            if key in (c['from_deployment_id'], c['to_deployment_id'])
+        ]
+    return found
+
+
+def _walk(start: tuple[str, object], step) -> list[tuple[str, object]]:
+    """Every entry reached from start by repeating step (breadth first), start left out."""
+    seen, queue, found = {start}, [start], []
+    while queue:
+        for entry in step(*queue.pop(0)):
+            if entry not in seen:
+                seen.add(entry)
+                queue.append(entry)
+                found.append(entry)
+    return found
+
+
+def _is_draft(rows: dict, entry: tuple[str, object]) -> bool:
+    return rows[entry[0]][entry[1]]['status'] == 'draft'
+
+
+def needs(kind: str, key, rows: dict) -> list[tuple[str, object]]:
+    """The drafts this entry needs, directly or through other entries (it left out)."""
+    found = _walk((kind, key), lambda k, i: _needs(k, rows[k][i]))
+    return [entry for entry in found if _is_draft(rows, entry)]
+
+
+def confirm_reach(kind: str, key, rows: dict) -> list[tuple[str, object]]:
+    """What confirming this draft confirms: the draft, then every draft it needs."""
+    if not _is_draft(rows, (kind, key)):
+        raise Invalid(f'This {kind} is already confirmed.')
+    return [(kind, key), *needs(kind, key, rows)]
+
+
+def discard_reach(kind: str, key, rows: dict) -> list[tuple[str, object]]:
+    """What discarding this draft removes: the draft, then every entry that needs it. Refused when one of those is
+    confirmed (a confirmed entry is never removed by a discard)."""
+    if not _is_draft(rows, (kind, key)):
+        raise Invalid('Only a draft can be discarded.')
+    found = _walk((kind, key), lambda k, i: _dependants(k, i, rows))
+    for entry in found:
+        if not _is_draft(rows, entry):
+            raise Invalid(
+                f'A confirmed {entry[0]} ({entry_name(*entry, rows)}) needs this draft. Remove that {entry[0]} first, '
+                'or confirm the draft.'
+            )
+    return [(kind, key), *found]
+
+
+def entry_name(kind: str, key, rows: dict) -> str:
+    """How a person reads the entry in a list: its name, or what it joins."""
+    row = rows[kind][key]
+
+    def name(of: str, item_id) -> str:
+        return rows[of][item_id]['name']
+
+    if kind == 'membership':
+        return f'{name("server", row["server_id"])} in {name("environment", row["environment_id"])}'
+    if kind == 'deployment':
+        where = f'{name("service", row["service_id"])} on {name("server", row["server_id"])}'
+        return f'{where} in {name("environment", row["environment_id"])}'
+    if kind == 'connection':
+        start = rows['deployment'][row['from_deployment_id']]['service_id']
+        if row['to_deployment_id'] is not None:
+            end = name('service', rows['deployment'][row['to_deployment_id']]['service_id'])
+        elif row['to_service_id'] is not None:
+            end = name('service', row['to_service_id'])
+        else:
+            end = row['to_host']
+        return f'{name("service", start)} → {end}'
+    if kind == 'relation':
+        end = row['to_service_id']
+        target = name('service', end) if end is not None else name('code_project', row['to_code_project_id'])
+        return f'{name("service", row["from_service_id"])} {row["kind"]} {target}'
+    return row['name']

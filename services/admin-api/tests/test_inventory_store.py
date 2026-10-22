@@ -391,3 +391,159 @@ def test_deleting_an_external_service_removes_its_connections(store, world):
         assert inventory.list_connections(conn, p) == []
         [*_, row] = audit(conn, mail['id'])
         assert (row['action'], row['details']['connection_ids']) == ('service.deleted', [str(connection['id'])])
+
+
+# Drafts
+
+
+@pytest.fixture
+def drafts(store, world):
+    """Drafts in a draft environment test: server c (member), service cache, cache on c, a connection api_a → cache_c,
+    a relation api depends_on cache."""
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        d = {'test': inventory.create_environment(conn, p, {'name': 'test'}, author, status='draft')}
+        d['c'] = inventory.create_server(conn, p, {'name': 'c', 'hostname': 'c.internal'}, author, status='draft')
+        d['cache'] = inventory.create_service(conn, p, {'name': 'cache'}, author, status='draft')
+        values = {'service_id': d['cache']['id'], 'server_id': d['c']['id'], 'environment_id': d['test']['id']}
+        d['cache_c'] = inventory.create_deployment(conn, p, values, author, status='draft')
+        values = {'from_deployment_id': world['api_a']['id'], 'to_deployment_id': d['cache_c']['id']}
+        d['link'] = inventory.create_connection(conn, p, values, author, status='draft')
+        values = {'from_service_id': world['api']['id'], 'kind': 'depends_on', 'to_service_id': d['cache']['id']}
+        d['uses'] = inventory.create_relation(conn, p, values, author, status='draft')
+    return d
+
+
+def statuses(conn, d) -> dict:
+    found = {}
+    for key, table in [
+        ('test', 'environments'),
+        ('c', 'servers'),
+        ('cache', 'services'),
+        ('cache_c', 'service_deployments'),
+        ('link', 'connections'),
+        ('uses', 'service_relations'),
+    ]:
+        row = conn.execute(f'SELECT status FROM ka.{table} WHERE id=%s', (d[key]['id'],)).fetchone()
+        found[key] = None if row is None else row['status']
+    row = conn.execute(
+        'SELECT status FROM ka.environment_servers WHERE environment_id=%s AND server_id=%s',
+        (d['test']['id'], d['c']['id']),
+    ).fetchone()
+    found['membership'] = None if row is None else row['status']
+    return found
+
+
+def test_drafts_are_created_and_stay_drafts_when_a_person_updates_them(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        assert set(statuses(conn, drafts).values()) == {'draft'}  # the deployment's membership too
+        assert world['api']['status'] == 'confirmed' and drafts['cache']['status'] == 'draft'
+        cache = inventory.update_service(conn, p, drafts['cache']['id'], 1, {'owner': 'ops'}, author)
+        assert (cache['status'], cache['revision']) == ('draft', 2)
+        agent = {**author, 'agent_id': 'ops-agent'}
+        cache = inventory.update_service(conn, p, drafts['cache']['id'], 2, {'owner': 'dev'}, agent, status='draft')
+        assert cache['status'] == 'draft'
+        refused = 'This service is confirmed; only a person can change it. Add a new draft instead, or describe the change in your answer.'
+        with pytest.raises(Invalid) as error:
+            inventory.update_service(conn, p, world['api']['id'], 1, {'owner': 'x'}, agent, status='draft')
+        assert str(error.value) == refused
+
+
+def test_confirming_a_connection_confirms_everything_it_needs_in_one_go(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        confirmed = inventory.confirm(conn, p, 'connection', drafts['link']['id'], 1, author)
+        assert confirmed[0] == {'kind': 'connection', 'id': drafts['link']['id'], 'name': 'api → cache'}
+        assert {(e['kind'], e['name']) for e in confirmed} == {
+            ('connection', 'api → cache'),
+            ('deployment', 'cache on c in test'),
+            ('service', 'cache'),
+            ('server', 'c'),
+            ('membership', 'c in test'),
+            ('environment', 'test'),
+        }
+        membership = next(e for e in confirmed if e['kind'] == 'membership')
+        assert membership['id'] == f'{drafts["test"]["id"]}:{drafts["c"]["id"]}'
+        found = statuses(conn, drafts)
+        assert found.pop('uses') == 'draft' and set(found.values()) == {'confirmed'}
+        cache = inventory.get(conn, p, 'service', drafts['cache']['id'])
+        assert cache['revision'] == 2  # confirming is a change: a stale read is refused
+        [row] = [r for r in audit(conn, drafts['cache']['id']) if r['action'] == 'service.confirmed']
+        assert row['actor_id'] == world['actor']
+        assert [r['details']['server_id'] for r in actions(conn, drafts['test']['id'], 'membership.confirmed')] == [
+            str(drafts['c']['id'])
+        ]
+        with pytest.raises(Invalid, match='^This service is already confirmed.$'):
+            inventory.confirm(conn, p, 'service', drafts['cache']['id'], 2, author)
+
+
+def test_a_stale_revision_confirms_or_discards_nothing(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        inventory.update_connection(conn, p, drafts['link']['id'], 1, {'description': 'cache reads'}, author)
+        with pytest.raises(inventory.Stale):
+            inventory.confirm(conn, p, 'connection', drafts['link']['id'], 1, author)
+        with pytest.raises(inventory.Stale):
+            inventory.discard(conn, p, 'service', drafts['cache']['id'], 7, author)
+        assert set(statuses(conn, drafts).values()) == {'draft'}
+        with pytest.raises(inventory.NotFound):
+            inventory.confirm(conn, p, 'server', uuid4(), 1, author)
+        with pytest.raises(inventory.NotFound):
+            inventory.discard(conn, p, 'membership', f'{drafts["test"]["id"]}:{world["a"]["id"]}', None, author)
+        with pytest.raises(Invalid):
+            inventory.confirm(conn, p, 'server', drafts['c']['id'], None, author)
+
+
+def test_discarding_a_service_removes_its_drafts_and_never_a_confirmed_entry(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        discarded = inventory.discard(conn, p, 'service', drafts['cache']['id'], 1, author)
+        assert discarded[0] == {'kind': 'service', 'id': drafts['cache']['id'], 'name': 'cache'}
+        assert {e['kind'] for e in discarded} == {'service', 'deployment', 'connection', 'relation'}
+        found = statuses(conn, drafts)
+        assert (found['cache'], found['cache_c'], found['link'], found['uses']) == (None, None, None, None)
+        assert (found['test'], found['c'], found['membership']) == ('draft', 'draft', 'draft')
+        assert inventory.get(conn, p, 'deployment', world['api_a']['id'])['status'] == 'confirmed'
+        assert [r['action'] for r in audit(conn, drafts['cache']['id'])][-1] == 'service.discarded'
+        assert [r['action'] for r in audit(conn, drafts['link']['id'])][-1] == 'connection.discarded'
+        with pytest.raises(Invalid, match='^Only a draft can be discarded.$'):
+            inventory.discard(conn, p, 'service', world['api']['id'], 1, author)
+        membership = f'{drafts["test"]["id"]}:{drafts["c"]["id"]}'
+        assert inventory.discard(conn, p, 'membership', membership, None, author) == [
+            {'kind': 'membership', 'id': membership, 'name': 'c in test'}
+        ]
+        assert [e['kind'] for e in inventory.discard(conn, p, 'environment', drafts['test']['id'], 1, author)] == [
+            'environment'
+        ]
+
+
+def test_discarding_a_draft_environment_or_server_takes_its_drafts(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        discarded = inventory.discard(conn, p, 'environment', drafts['test']['id'], 1, author)
+        assert {e['kind'] for e in discarded} == {'environment', 'membership', 'deployment', 'connection'}
+        found = statuses(conn, drafts)
+        assert (found['c'], found['cache'], found['uses']) == ('draft', 'draft', 'draft')
+        assert {e['kind'] for e in inventory.discard(conn, p, 'server', drafts['c']['id'], 1, author)} == {'server'}
+
+
+def test_a_person_writing_a_confirmed_entry_confirms_the_drafts_it_needs(store, world, drafts):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        values = {
+            'service_id': drafts['cache']['id'],
+            'server_id': world['a']['id'],
+            'environment_id': world['prod']['id'],
+        }
+        deployment = inventory.create_deployment(conn, p, values, author)
+        assert deployment['status'] == 'confirmed'
+        assert inventory.get(conn, p, 'service', drafts['cache']['id'])['status'] == 'confirmed'
+        assert inventory.add_server_to_environment(conn, p, drafts['test']['id'], drafts['c']['id'], author) is True
+        found = statuses(conn, drafts)
+        assert (found['membership'], found['test'], found['c'], found['cache_c']) == (
+            'confirmed',
+            'confirmed',
+            'confirmed',
+            'draft',
+        )
