@@ -59,14 +59,16 @@ def validate(cron: str, timezone: str) -> None:
         raise ScheduleError(TOO_OFTEN)
 
 
-def run_time(run_at: datetime, timezone: str, now: datetime) -> datetime:
-    """When a one-time schedule runs: a time without an offset is read in the schedule's time zone. It must be ahead."""
+def run_time(run_at: datetime, timezone: str, now: datetime, kept: datetime | None = None) -> datetime:
+    """When a one-time schedule runs, to the minute: a time without an offset is read in the schedule's time zone. It
+    must be ahead, unless it is the time the schedule already has (kept), e.g. when a finished schedule is renamed."""
     if timezone not in available_timezones():
         raise ScheduleError(BAD_TIMEZONE)
     aware = run_at if run_at.tzinfo else run_at.replace(tzinfo=ZoneInfo(timezone))
-    if aware <= now:
+    aware = aware.astimezone(UTC).replace(second=0, microsecond=0)
+    if aware <= now and aware != kept:
         raise ScheduleError(PAST)
-    return aware.astimezone(UTC)
+    return aware
 
 
 def describe(cron: str) -> str:

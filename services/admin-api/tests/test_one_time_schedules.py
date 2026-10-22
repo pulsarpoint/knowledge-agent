@@ -20,7 +20,7 @@ UP, DOWN = '0124_one_time_schedules.up.sql', '0124_one_time_schedules.down.sql'
 
 
 def later(**delta) -> datetime:
-    return (datetime.now(UTC) + timedelta(**delta)).replace(microsecond=0)
+    return (datetime.now(UTC) + timedelta(**delta)).replace(second=0, microsecond=0)
 
 
 def once(**changes) -> dict:
@@ -60,10 +60,11 @@ def row(store, schedule_id) -> dict:
 
 
 def due(store, schedule_id) -> None:
-    """The time has come: run_at and next_run_at move into the past."""
+    """The time has come: run_at and next_run_at move into the past (to the minute, as the API stores run_at)."""
     with store.connect() as conn:
         conn.execute(
-            "UPDATE ka.schedules SET run_at=now()-interval '1 minute',next_run_at=now()-interval '1 minute' "
+            "UPDATE ka.schedules SET run_at=date_trunc('minute', now())-interval '1 minute',"
+            "next_run_at=date_trunc('minute', now())-interval '1 minute' "
             'WHERE id=%s',
             (schedule_id,),
         )
@@ -108,6 +109,7 @@ def test_bad_one_time_schedules_are_refused(store, tmp_path):
         (once(cron='0 6 * * *'), BOTH_OR_NEITHER),
         ({k: v for k, v in once().items() if k != 'run_at'}, BOTH_OR_NEITHER),
         (once(target_kind='jira.pull', name=None), REPEATS),
+        (once(target_kind='jira.pull', name=None, run_at=later(minutes=-5).isoformat()), REPEATS),
     ]:
         response = client.post('/api/schedules', headers=HEADERS, json=body)
         assert response.status_code == 400 and error(response) == message, response.text
@@ -237,3 +239,54 @@ def test_the_checks_and_the_migration_down_and_up(store):
         )
         migrate(conn, UP)
         a_row(conn, project, run_at=later(hours=1))
+
+
+def test_a_run_time_is_kept_to_the_minute(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    exact = later(hours=2) + timedelta(seconds=42, microseconds=5)
+    schedule = create(client, run_at=exact.isoformat())
+    assert datetime.fromisoformat(schedule['run_at']) == later(hours=2)
+
+
+def test_a_finished_schedule_stays_editable_with_its_time(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    schedule = create(client)
+    due(store, schedule['id'])
+    scheduler.run_once(store)
+    finished = listed(client, schedule)
+    renamed = edit(client, finished, name='Renamed check')
+    assert renamed.status_code == 200, renamed.text
+    saved = renamed.json()['schedule']
+    assert saved['name'] == 'Renamed check' and saved['enabled'] is False and saved['next_run_at'] is None
+    assert saved['run_at'] == finished['run_at']
+    # as the editor sends it: the same time as a local date and time in the schedule's zone
+    local = datetime.fromisoformat(saved['run_at']).astimezone(ZoneInfo('Europe/Belgrade')).strftime('%Y-%m-%dT%H:%M')
+    zoned = edit(client, saved, run_at=local, timezone='Europe/Belgrade', name='Zoned check')
+    assert zoned.status_code == 200, zoned.text
+    assert zoned.json()['schedule']['enabled'] is False and zoned.json()['schedule']['next_run_at'] is None
+    current = zoned.json()['schedule']
+    switched_on = edit(client, current, enabled=True)
+    assert switched_on.status_code == 400 and error(switched_on) == PAST
+    moved = edit(client, current, run_at=later(minutes=-30).isoformat())
+    assert moved.status_code == 400 and error(moved) == PAST
+    assert history(store, schedule['id']) == ['schedule']
+
+
+def test_a_one_time_schedule_claimed_again_after_its_lease_ran_out_fires_once(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    schedule = create(client)
+    due(store, schedule['id'])
+    stale = scheduler.claim(store)
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE ka.schedules SET lease_expires_at=now()-interval '1 second' WHERE id=%s", (schedule['id'],)
+        )
+    fresh = scheduler.claim(store)
+    for claimed in (stale, fresh):
+        status, message = scheduler.run(store, claimed, scheduler.TARGETS)
+        assert status == 'succeeded'
+    scheduler.finish(store, fresh, 'succeeded', 'done')
+    scheduler.finish(store, stale, 'succeeded', 'late')
+    assert len(events(store)) == 1
+    saved = row(store, schedule['id'])
+    assert saved['enabled'] is False and saved['next_run_at'] is None and history(store, schedule['id']) == ['schedule']

@@ -19,7 +19,7 @@ from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.events.matching import type_matches
 from knowledge_admin.events.schedule_event import TYPE as FIRED
-from knowledge_admin.events.schedules import ScheduleError, describe, next_after, run_time, upcoming, validate
+from knowledge_admin.events.schedules import PAST, ScheduleError, describe, next_after, run_time, upcoming, validate
 
 FIELDS = """id,name,target_kind,target_id,cron,run_at,timezone,enabled,next_run_at,
     coalesce(lease_expires_at > now(), false) AS running,last_run_at,last_finished_at,last_status,last_message,revision,params"""
@@ -111,13 +111,14 @@ def renamed(conditions: list[dict], old: str, new: str) -> list[dict]:
     return [subject_is(new) if condition == subject_is(old) else condition for condition in conditions]
 
 
-def checked(value: Timetable) -> datetime | None:
-    """Refuse a timetable the schedule may not use; a one-time schedule's run time, in UTC."""
+def checked(value: Timetable, kept: datetime | None = None) -> datetime | None:
+    """Refuse a timetable the schedule may not use; a one-time schedule's run time, in UTC. The time the schedule
+    already has (kept) may be in the past."""
     if (value.cron is None) == (value.run_at is None):
         raise HTTPException(400, BOTH_OR_NEITHER)
     try:
         if value.run_at is not None:
-            return run_time(value.run_at, value.timezone, datetime.now(UTC))
+            return run_time(value.run_at, value.timezone, datetime.now(UTC), kept)
         validate(value.cron, value.timezone)
     except ScheduleError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -216,8 +217,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.post('/schedules', status_code=201)
     def create(value: NewSchedule, request: Request) -> dict:
-        run_at = checked(value)
         kind_checked(value.target_kind, value)
+        run_at = checked(value)
         if value.target_kind == 'event.emit' and value.name is None:
             raise HTTPException(400, NO_NAME)
         db = database()
@@ -292,7 +293,6 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.put('/schedules/{schedule_id}')
     def save(schedule_id: UUID, value: ScheduleInput, request: Request) -> dict:
-        run_at = checked(value)
         db = database()
         with workspace(db, app) as (conn, project):
             current = conn.execute(
@@ -305,7 +305,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
             kind_checked(current['target_kind'], value)
+            run_at = checked(value, current['run_at'])
             enabled = turned_on(value.enabled, current, run_at)
+            if enabled and run_at is not None and run_at <= datetime.now(UTC) and not current['enabled']:
+                raise HTTPException(400, PAST)  # a time that has passed cannot be switched back on
             next_run = current['next_run_at'] if current['run_requested'] else first_run(value, run_at, enabled)
             params = current['params'] if value.params is None else value.params.model_dump(exclude_none=True)
             name = value.name or current['name']

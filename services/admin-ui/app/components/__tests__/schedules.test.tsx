@@ -671,6 +671,39 @@ test("editing a one-time schedule shows its time in its zone and saves a new one
   );
 });
 
+test("a finished one-time schedule keeps its time when renamed", async () => {
+  const user = userEvent.setup();
+  const finished = once({
+    run_at: "2026-10-01T08:00:00Z",
+    timezone: "Europe/Belgrade",
+    enabled: false,
+    next_run_at: null,
+    last_finished_at: "2026-10-01T08:00:03Z",
+    last_status: "succeeded",
+  });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [finished] }],
+    "PUT /api/schedules/o-1": () => [
+      200,
+      { schedule: { ...finished, name: "Old release check", revision: 2, handlers: undefined } },
+    ],
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  expect(screen.getByLabelText("Date and time")).toHaveValue("2026-10-01T10:00");
+  const name = screen.getByLabelText("Name");
+  await user.clear(name);
+  await user.type(name, "Old release check");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Old release check")).toBeInTheDocument();
+  expect(body(fetch, "PUT /api/schedules/o-1")).toEqual({
+    name: "Old release check",
+    run_at: "2026-10-01T10:00",
+    timezone: "Europe/Belgrade",
+    revision: 1,
+  });
+});
+
 test("the Jira editor has no Repeating / Once switch", async () => {
   const user = userEvent.setup();
   api({

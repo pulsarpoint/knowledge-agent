@@ -850,7 +850,10 @@ An Emit event schedule is **Repeating** (a timetable, below) or **Once**: a **Da
 zone, which must be in the future (`Choose a time in the future.`). The Jira tickets schedule always repeats and shows
 no such switch. A one-time schedule shows `Once at <time>` as its next run; when the time comes it runs once and
 switches itself off, keeping its row and history, and then shows `Ran once at <time>`. **Run now** runs it without
-using up its time. **Edit** it to a new future time to run it again (it is switched back on).
+using up its time. **Edit** it to a new future time to run it again (it is switched back on, as is a paused schedule
+moved to a new time or switched from Repeating to Once); an edit that keeps its time, such as a rename, leaves it as
+it is, even after the time has passed. Times are kept to the minute; a time that falls in a daylight-saving change is
+read as the first matching clock time.
 
 **Delete** removes a schedule and its history; the handlers of an Emit event schedule stay (they no longer match any
 event). Each row shows what
