@@ -164,10 +164,13 @@ function show(url = "/services/v1", actions?: React.ReactNode) {
   return router;
 }
 
-async function openSwitcher(name: string | RegExp = /^Conversation: /) {
-  await userEvent.click(within(screen.getByTestId("resource-chat")).getByRole("button", { name }));
-  return within(await screen.findByRole("menu"));
+/** Opens the Conversations sheet from the chat panel's header; returns its list. */
+async function openConversations() {
+  await userEvent.click(within(screen.getByTestId("resource-chat")).getByRole("button", { name: "Conversations" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Conversations" }));
+  return sheet;
 }
+const panelTitle = () => screen.getByTestId("conversation-title");
 
 test("the page shows Info and Chat, no Chats list; no chat until one is asked for", async () => {
   api({
@@ -195,7 +198,7 @@ test("the page shows Info and Chat, no Chats list; no chat until one is asked fo
   expect(live.requested.filter(Boolean)).toEqual([]);
 });
 
-test("the switcher lists the resource's conversations with their status, the open one marked; picking one opens it", async () => {
+test("Conversations opens a side sheet listing the resource's conversations with their status, the open one marked; picking one opens it", async () => {
   live.sessions.r1 = detail("r1", "closed");
   live.sessions.r2 = detail("r2", "waiting");
   api({
@@ -205,21 +208,18 @@ test("the switcher lists the resource's conversations with their status, the ope
   show();
   fireEvent.click(screen.getByRole("button", { name: "Chat" })); // the latest open chat
   expect(await screen.findByRole("heading", { name: "Chat r2" })).toBeInTheDocument();
-  await waitFor(() =>
-    expect(
-      within(screen.getByTestId("resource-chat")).getByRole("button", { name: /^Conversation: / }),
-    ).toHaveTextContent("Disk usage"),
-  );
-  const menu = await openSwitcher();
-  const items = menu.getAllByRole("menuitemradio");
+  await waitFor(() => expect(panelTitle()).toHaveTextContent("Disk usage"));
+  const menu = await openConversations();
+  const items = within(menu.getByRole("list", { name: "Conversations" })).getAllByRole("button");
   expect(items).toHaveLength(2);
   expect(items[0]).toHaveTextContent("Disk usage");
   expect(items[0]).toHaveTextContent("Waiting for you");
-  expect(items[0]).toHaveAttribute("aria-checked", "true");
+  expect(items[0]).toHaveAttribute("aria-current", "true");
   expect(items[1]).toHaveTextContent("Is it up?");
   expect(items[1]).toHaveTextContent("Finished");
-  expect(items[1]).toHaveAttribute("aria-checked", "false");
+  expect(items[1]).not.toHaveAttribute("aria-current");
   await userEvent.click(items[1]);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Conversations" })).toBeNull());
   expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r1"));
 });
@@ -303,12 +303,13 @@ test("New chat in the chat panel starts a new conversation from the resource and
   fireEvent.click(within(screen.getByTestId("resource-chat")).getByRole("button", { name: "New chat" }));
   const pane = await screen.findByRole("region", { name: "Ask agent" });
   expect(await within(pane).findByRole("heading", { name: "New conversation" })).toBeInTheDocument();
-  // the switcher shows the new conversation and still lists the old one, none of them marked
-  const menu = await openSwitcher("Conversation: New conversation");
-  const old = menu.getByRole("menuitemradio", { name: /Open one/ });
-  expect(old).toHaveAttribute("aria-checked", "false");
+  // the panel says New conversation; Conversations still lists the old one, not marked
+  expect(panelTitle()).toHaveTextContent("New conversation");
+  const menu = await openConversations();
+  const old = menu.getByRole("button", { name: /Open one/ });
+  expect(old).not.toHaveAttribute("aria-current");
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Conversations" })).toBeNull());
   await waitFor(() => expect(within(pane).getByRole("button", { name: "Settings" })).toBeEnabled());
   fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Is it up?" } });
   fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
@@ -318,19 +319,20 @@ test("New chat in the chat panel starts a new conversation from the resource and
   expect(body).not.toHaveProperty("tools");
   expect(body.resources.service_ids).toContain("v1");
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r9"));
-  const after = await openSwitcher("Conversation: Is it up?");
-  expect(after.getByRole("menuitemradio", { name: /Is it up\?/ })).toHaveAttribute("aria-checked", "true");
-  expect(after.getByRole("menuitemradio", { name: /Open one/ })).toBeInTheDocument();
+  await waitFor(() => expect(panelTitle()).toHaveTextContent("Is it up?"));
+  const after = await openConversations();
+  expect(after.getByRole("button", { name: /Is it up\?/ })).toHaveAttribute("aria-current", "true");
+  expect(after.getByRole("button", { name: /Open one/ })).toBeInTheDocument();
 });
 
-test("with no conversations yet the switcher says so", async () => {
+test("with no conversations yet the Conversations sheet says so", async () => {
   api(base());
   show();
   await waitFor(() => expect(fetch).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "Chat" }));
-  const menu = await openSwitcher("Conversation: New conversation");
-  expect(menu.getByText("No earlier conversations")).toBeInTheDocument();
-  expect(menu.queryByRole("menuitemradio")).toBeNull();
+  const menu = await openConversations();
+  expect(menu.getByText("No earlier conversations.")).toBeInTheDocument();
+  expect(menu.queryByRole("list", { name: "Conversations" })).toBeNull();
 });
 
 test("the service page shows the service's information in the service panel; no Chats tab", async () => {
@@ -898,8 +900,8 @@ test("New chat while a ?chat= is open shows an empty new chat; the URL gets the 
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r9"));
   expect(await screen.findByRole("heading", { name: "Chat r9" })).toBeInTheDocument();
   // the old chat still opens from the list
-  const menu = await openSwitcher("Conversation: Fresh");
-  await userEvent.click(menu.getByRole("menuitemradio", { name: /Old one/ }));
+  const menu = await openConversations();
+  await userEvent.click(menu.getByRole("button", { name: /Old one/ }));
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r1"));
   expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
 });

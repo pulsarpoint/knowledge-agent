@@ -289,12 +289,12 @@ was published.") and **Discard draft** discards the draft. When the document cha
 
 #### Chats and Discover
 
-**Chat** opens the chat panel on the latest open chat (or a new one). The panel's header has, on the left, the
-**conversation switcher**: it shows the open conversation's title ("New conversation" for a new one not started yet)
-and lists every conversation about the server (service, environment), newest first, each with its status and last
-activity, the open one marked; picking one opens it. With none: "No earlier conversations". On the right, **New chat**
-starts a new conversation (the switcher still lists the old ones) and **Hide chat** closes the panel. There is no Chats
-tab. The chat stays hidden until you ask for it;
+**Chat** opens the chat panel on the latest open chat (or a new one). The panel's header shows the open conversation's
+title ("New conversation" for a new one not started yet), then **Conversations**, **New chat** and **Hide chat**.
+**Conversations** opens a sheet on the right (like **Run details**) listing every conversation about the server
+(service, environment), newest first, each with its status and last activity, the open one marked; picking one opens it
+and closes the sheet. With none: "No earlier conversations." **New chat** starts a new conversation (Conversations
+still lists the old ones). There is no Chats tab. The chat stays hidden until you ask for it;
 on very wide screens (2xl) it opens beside the Info, below that as a second tab (**Info** / **Chat**). The URL keeps
 the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of another page is refused.
 
@@ -334,8 +334,8 @@ environment when one of its deployments is; a service deployed in two environmen
 - The list shows each environment with the number of services and servers in it: filter, **Map** (the System map
   rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
 - An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat** and
-  **Discover** on the right; Chat opens the agent chat beside the page, its switcher lists the earlier chats about
-  the environment) and two tabs, the open one kept in the URL (`?view=documents`; none: Workspace):
+  **Discover** on the right; Chat opens the agent chat beside the page, its Conversations sheet lists the earlier
+  chats about the environment) and two tabs, the open one kept in the URL (`?view=documents`; none: Workspace):
   - **Documents**: the environment's own inventory document and documents (a server's or service's documents are in
     its column of the workspace);
   - **Workspace**, of three columns:

@@ -1,21 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
-import { ChevronsUpDown, MessageSquare, Plus, X } from "lucide-react";
+import { History, MessageSquare, Plus, X } from "lucide-react";
 import { getSessions, resourceTag, statusLabels, type ResourceType, type RunSummary } from "./api";
 import { useAgentSettings } from "./agentSettings";
 import { useWidePage } from "~/lib/widePage";
 import { cn } from "~/lib/utils";
 import AgentChat from "./AgentChat";
 import { Button } from "~/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
+import { Alert, AlertDescription } from "~/components/ui/alert";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 /** One tab of a resource page laid out in tabs (`pages`). */
@@ -32,8 +25,9 @@ export interface ChatResource {
 }
 
 /** A server's, service's or environment's page: its Info (from the page) with Chat (the latest open chat, else a new one)
- * and the page's actions beside it. The chat panel's header has the conversation switcher (every conversation about this
- * resource: the runs tagged with it, newest first, the open one marked), New chat (a new conversation) and Hide chat.
+ * and the page's actions beside it. The chat panel's header has the open conversation's title, Conversations (a right-side
+ * sheet like Run details: every conversation about this resource, the runs tagged with it, newest first, the open one
+ * marked; picking one opens it), New chat (a new conversation) and Hide chat.
  * The chat panel is hidden until Chat is clicked; `?chat=<id>` opens that chat (a chat of another resource is refused by the
  * chat itself) and follows the shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs
  * Info / Chat. With `pages`, the page is laid out in tabs of the given pages; `?view=<value>` keeps the open tab (none or
@@ -69,6 +63,7 @@ export default function ResourceChats({
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [listFailed, setListFailed] = useState(false);
   const [listed, setListed] = useState(0);
+  const [listing, setListing] = useState(false); // the Conversations sheet is open
   const shownVersion = useRef("");
   const scope = { kind: resource.type, id: resource.id, name: resource.name };
   const settings = useAgentSettings(open ? scope : null);
@@ -158,36 +153,53 @@ export default function ResourceChats({
   );
   const shown = initialRunId === null ? null : (runs?.find((item) => item.id === initialRunId) ?? null);
   const title = initialRunId === null ? "New conversation" : (shown?.title ?? "Conversation");
-  const switcher = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" size="sm" variant="outline" aria-label={`Conversation: ${title}`} className="min-w-0">
-          <span className="truncate">{title}</span>
-          <ChevronsUpDown data-icon="inline-end" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-w-sm">
-        {listFailed && (
-          <DropdownMenuItem onSelect={() => setListed((n) => n + 1)}>
-            Could not load the conversations. Retry
-          </DropdownMenuItem>
-        )}
-        {runs !== null && runs.length === 0 && <DropdownMenuLabel>No earlier conversations</DropdownMenuLabel>}
-        {runs !== null && runs.length > 0 && (
-          <DropdownMenuRadioGroup value={initialRunId ?? ""} onValueChange={pick}>
-            {runs.map((item) => (
-              <DropdownMenuRadioItem key={item.id} value={item.id} className="flex-col items-start gap-0.5">
-                <span className="break-words font-medium">{item.title}</span>
-                <span className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span>{statusLabels[item.status]}</span>
-                  <span>{new Date(item.last_activity_at).toLocaleString()}</span>
-                </span>
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+  const conversations = (
+    <Sheet open={listing} onOpenChange={setListing}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-sm">
+        <SheetHeader>
+          <SheetTitle>Conversations</SheetTitle>
+          <SheetDescription>Every conversation about {resource.name}, newest first.</SheetDescription>
+        </SheetHeader>
+        <div className="mt-4 flex flex-col gap-2 px-4">
+          {listFailed && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                Could not load the conversations.{" "}
+                <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+          {runs !== null && runs.length === 0 && (
+            <p className="text-sm text-muted-foreground">No earlier conversations.</p>
+          )}
+          {runs !== null && runs.length > 0 && (
+            <ul aria-label="Conversations" className="flex flex-col divide-y rounded-lg border">
+              {runs.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    aria-current={item.id === initialRunId ? "true" : undefined}
+                    onClick={() => {
+                      setListing(false);
+                      pick(item.id);
+                    }}
+                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted/50 aria-[current]:bg-muted"
+                  >
+                    <span className="font-medium [overflow-wrap:anywhere]">{item.title}</span>
+                    <span className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span>{statusLabels[item.status]}</span>
+                      <span>{new Date(item.last_activity_at).toLocaleString()}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 
   return (
@@ -235,7 +247,17 @@ export default function ResourceChats({
             className={cn("min-w-0 2xl:sticky 2xl:top-4", tab === "info" ? "hidden 2xl:block" : "block")}
           >
             <div className="flex items-center gap-2">
-              <div className="mr-auto min-w-0">{switcher}</div>
+              <h2
+                data-testid="conversation-title"
+                className="mr-auto min-w-0 truncate text-sm font-semibold"
+                title={title}
+              >
+                {title}
+              </h2>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setListing(true)}>
+                <History data-icon="inline-start" />
+                Conversations
+              </Button>
               <Button type="button" size="sm" variant="outline" onClick={newChat}>
                 <Plus data-icon="inline-start" />
                 New chat
@@ -245,6 +267,7 @@ export default function ResourceChats({
                 Hide chat
               </Button>
             </div>
+            {conversations}
             {/* One chat per New chat click: a new key starts it on a new conversation. */}
             <AgentChat
               key={`${tag}:${fresh}`}
