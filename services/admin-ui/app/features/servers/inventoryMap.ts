@@ -111,6 +111,10 @@ export interface EntryDocument {
   is_draft?: boolean;
   /** A live document with a draft waiting. */
   draft_waiting?: boolean;
+  /** The document's revision (a new document's draft's: the draft's): Delete and Discard draft send it. */
+  revision: number;
+  /** The document's other live links (beside `resource`): the Delete dialog names them. */
+  linked_elsewhere: { type: string; id: string; name: string }[];
 }
 /** An entry's documents, from the documents' links: its inventory document (a code project has none; the live document
  * tagged `inventory` built for it, the most recently updated if several, else a brand-new draft so tagged) and the
@@ -199,6 +203,6 @@ export const linkDocument = (entry: EntryRef, documentId: string) =>
 /** Removes the document's `linked` link to the entry (a built-for link can't be removed). */
 export const unlinkDocument = (entry: EntryRef, documentId: string) =>
   request<EntryDocuments>(`${documentsUrl(entry)}/${encodeURIComponent(documentId)}`, { method: "DELETE" });
-/** The New page for the entry's inventory document: built for it, tagged `inventory`. */
-export const newInventoryDocumentPath = (entry: EntryRef) =>
-  `/documents/new?${new URLSearchParams({ inventory: entry.kind, resource_id: entry.id })}`;
+/** The New page for a document built for the entry. */
+export const newDocumentPath = (entry: EntryRef) =>
+  `/documents/new?${new URLSearchParams({ resource: entry.kind, resource_id: entry.id })}`;

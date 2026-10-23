@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { AGENT_KINDS, emptyIds } from "~/lib/resources";
-import { INVENTORY_TAG } from "~/features/documents/api";
 import {
   getSessionOptions,
   isResourceScope,
@@ -158,28 +157,17 @@ export function pickReason(options: AgentOptions, settings: AgentSettings): stri
 }
 
 const SCOPE_FIELD = { server: "server_ids", service: "service_ids", environment: "environment_ids" } as const;
-/** A server, service or environment scope always has its resource chosen (the run is about it); so does an inventory document's resource (Start adds it too), a server only when the run can
- * use it (one without usable SSH is left out, and the start says so). */
-export function withScope(scope: ChatScope, settings: AgentSettings, options?: AgentOptions): AgentSettings {
-  const resource = isResourceScope(scope)
-    ? { type: scope.kind, id: scope.id }
-    : scope.kind === "new-document"
-      ? scope.inventoryFor
-      : undefined;
-  if (!resource) return settings;
-  if (
-    !isResourceScope(scope) &&
-    resource.type === "server" &&
-    !options?.resources.servers.some((item) => item.id === resource.id && item.usable)
-  )
-    return settings;
+/** A server, service or environment scope always has its resource chosen (the run is about it). */
+export function withScope(scope: ChatScope, settings: AgentSettings): AgentSettings {
+  if (!isResourceScope(scope)) return settings;
+  const resource = { type: scope.kind, id: scope.id };
   const field = SCOPE_FIELD[resource.type];
   if (settings.chosen[field].includes(resource.id)) return settings;
   return { ...settings, chosen: { ...settings.chosen, [field]: [...settings.chosen[field], resource.id] } };
 }
 
 export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
-  const settings = withScope(scope, raw, options);
+  const settings = withScope(scope, raw);
   if (scope.kind === "agent") {
     // a saved agent keeps its own model and prompt; the run only narrows it (a document as the agent has it)
     const picked = settings.documents ?? [];
@@ -215,15 +203,8 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (scope.kind === "new-document") {
-    // the Title and Folder become the one document the run may write (from New inventory document: tagged inventory,
-    // built for the resource)
-    const document: NewDocument = {
-      folder: scope.folder.trim(),
-      name: scope.title.trim(),
-      ...(scope.inventoryFor
-        ? { tags: [INVENTORY_TAG], [`${scope.inventoryFor.type}_id`]: scope.inventoryFor.id }
-        : {}),
-    };
+    // the Title and Folder become the one document the run may write
+    const document: NewDocument = { folder: scope.folder.trim(), name: scope.title.trim() };
     return {
       started_from: { new_document: document },
       message: message.trim(),

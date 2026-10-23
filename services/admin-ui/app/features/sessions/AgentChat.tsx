@@ -337,7 +337,7 @@ export default function AgentChat({
               )}
               {runId === null && settings.options && settings.settings && (
                 <p aria-label="Current settings" className="text-xs text-muted-foreground">
-                  {settingsSummary(settings.options, withScope(scope, settings.settings, settings.options))}
+                  {settingsSummary(settings.options, withScope(scope, settings.settings))}
                 </p>
               )}
               {refused && (

@@ -222,10 +222,10 @@ test("shows the server, its services and documents, and its chats", async () => 
   await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(await screen.findByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");
   expect(screen.queryByRole("region", { name: "Services" })).not.toBeInTheDocument();
-  expect(screen.getByText("No inventory document yet.")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "New inventory document" })).toHaveAttribute(
+  expect(screen.queryByText("No inventory document yet.")).toBeNull();
+  expect(screen.getByRole("link", { name: "New document" })).toHaveAttribute(
     "href",
-    "/documents/new?inventory=server&resource_id=s1",
+    "/documents/new?resource=server&resource_id=s1",
   );
   await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
   const chats = await screen.findByRole("region", { name: "Chats" });
@@ -316,8 +316,7 @@ test("empty services and documents are explained", async () => {
   show();
   expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
-  expect(await screen.findByText("No inventory document yet.")).toBeInTheDocument();
-  expect(screen.getByText("No documents yet.")).toBeInTheDocument();
+  expect(await screen.findByText("No documents yet.")).toBeInTheDocument();
 });
 
 test("a draft server and a draft deployment show Draft; the services table confirms the deployment", async () => {

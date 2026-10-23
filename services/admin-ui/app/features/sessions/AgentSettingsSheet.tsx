@@ -41,12 +41,8 @@ export default function AgentSettingsSheet({
   onStartNew: () => void;
 }) {
   // Memoised: a fresh object every render would clear the preview on unrelated re-renders.
-  const scopeResource = isResourceScope(scope)
-    ? `${scope.kind}:${scope.id}`
-    : scope.kind === "new-document" && scope.inventoryFor
-      ? `${scope.inventoryFor.type}:${scope.inventoryFor.id}`
-      : null;
-  const settings = useMemo(() => withScope(scope, given, options), [scopeResource, given, options]);
+  const scopeResource = isResourceScope(scope) ? `${scope.kind}:${scope.id}` : null;
+  const settings = useMemo(() => withScope(scope, given), [scopeResource, given]);
   const agent = options.agent;
   const locked = session !== null && session.status !== "closed";
   // A saved agent's model and prompt: the run's own while it is open, else the agent's current ones.

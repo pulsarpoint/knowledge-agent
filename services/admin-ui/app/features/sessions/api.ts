@@ -49,12 +49,11 @@ export const resourceChatPath = (resource: { type: ResourceType; id: string }, c
   `/${resource.type}s/${encodeURIComponent(resource.id)}${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
 
 /** What a chat is about: a document (Ask agent), a saved agent (its Test tab), a new document (Documents → New: the
- * Title and Folder the editor holds now; `inventoryFor`: from New inventory document, the resource it is built for) or a
- * server, service or environment (its page's chats). */
+ * Title and Folder the editor holds now) or a server, service or environment (its page's chats). */
 export type ChatScope =
   | { kind: "document"; id: string; title: string }
   | { kind: "agent"; id: string; name: string }
-  | { kind: "new-document"; folder: string; title: string; inventoryFor?: { type: ResourceType; id: string } }
+  | { kind: "new-document"; folder: string; title: string }
   | { kind: ResourceType; id: string; name: string };
 export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
 export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>

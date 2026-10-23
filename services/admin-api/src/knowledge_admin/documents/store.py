@@ -723,6 +723,11 @@ LISTED = """WITH r(position,type,id,name) AS (SELECT * FROM unnest(%s::int[],%s:
 # What the Documents tab lists: live documents, and the drafts of new documents (a draft of a live document is no row).
 LIVE, NEW_DRAFTS = 'NOT d.is_draft', 'd.is_draft AND d.draft_of IS NULL'
 DRAFTS_WAITING = 'SELECT DISTINCT draft_of FROM ka.documents WHERE is_draft AND draft_of = ANY(%s)'
+# The listed documents' revisions and live links (the Documents tab's Delete names a document's other links).
+REVISIONS = 'SELECT id,revision FROM ka.documents WHERE id = ANY(%s)'
+LIVE_LINKS = f"""SELECT r.document_id,r.resource_type AS type,{RESOURCE_ID} AS id,{RESOURCE_NAME} AS name
+    FROM ka.document_resources r {RESOURCE_JOINS} WHERE r.document_id = ANY(%s) AND r.removed_at IS NULL
+    ORDER BY r.created_at,r.id"""
 # The document drafts (new documents and drafts of documents) of an environment, its member servers and its services:
 # a draft belongs to a resource through its document's links or its own (a pending link, added on publish). One row
 # per draft, under the first resource (environment, servers, services; built for before linked), by resource and title.
@@ -808,7 +813,8 @@ def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dic
     markdown, version, is_draft, published}, a live document or a brand-new draft (version null, published false), or
     None) and its document list (resource_document_list: its and its children's live documents, the live inventory
     document first). The Documents tab also lists the drafts of new documents (is_draft) and flags a live document
-    that has a draft waiting (draft_waiting): one row per document."""
+    that has a draft waiting (draft_waiting): one row per document. Each row has its revision (Delete, and a new
+    document's draft's Discard, send it) and linked_elsewhere: the document's other live links {type, id, name}."""
     live = resource_document_list(conn, project, kind, resource_id)
     waiting = {row['draft_of'] for row in conn.execute(DRAFTS_WAITING, ([item['id'] for item in live],))}
     new = [
@@ -816,10 +822,26 @@ def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dic
         for item in resource_document_list(conn, project, kind, resource_id, documents=NEW_DRAFTS)
         if not has_inventory_tag(item['tags'])  # an inventory draft shows as the inventory document
     ]
+    rows = [{**item, 'is_draft': False, 'draft_waiting': item['id'] in waiting} for item in live] + [
+        {**item, 'is_draft': True, 'draft_waiting': False} for item in new
+    ]
+    ids = [item['id'] for item in rows]
+    revisions = {row['id']: row['revision'] for row in conn.execute(REVISIONS, (ids,))}
+    links = conn.execute(LIVE_LINKS, (ids,)).fetchall()
+
+    def elsewhere(item: dict) -> list[dict]:
+        own = (item['resource']['type'], item['resource']['id'])
+        return [
+            {'type': link['type'], 'id': link['id'], 'name': link['name']}
+            for link in links
+            if link['document_id'] == item['id'] and (link['type'], link['id']) != own
+        ]
+
     return {
         'inventory_document': inventory_document(conn, project, kind, resource_id),
-        'documents': [{**item, 'is_draft': False, 'draft_waiting': item['id'] in waiting} for item in live]
-        + [{**item, 'is_draft': True, 'draft_waiting': False} for item in new],
+        'documents': [
+            {**item, 'revision': revisions[item['id']], 'linked_elsewhere': elsewhere(item)} for item in rows
+        ],
     }
 
 

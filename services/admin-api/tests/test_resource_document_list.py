@@ -121,7 +121,11 @@ def expected(world, found) -> dict:
 
 def without_connection(items: list[dict]) -> list[dict]:
     return [
-        {key: value for key, value in item.items() if key not in ('connection', 'is_draft', 'draft_waiting')}
+        {
+            key: value
+            for key, value in item.items()
+            if key not in ('connection', 'is_draft', 'draft_waiting', 'revision', 'linked_elsewhere')
+        }
         for item in items
     ]
 
@@ -191,3 +195,26 @@ def test_get_resource_lists_only_documents_the_run_could_read(world):
 
 def test_an_unknown_resource_is_404(world):
     assert world.client.get(f'/api/inventory/server/{uuid4()}/documents', headers=HEADERS).status_code == 404
+
+
+def test_each_row_has_its_revision_and_its_other_links(world):
+    """What the Documents tab's Edit / Delete need: the row's revision (Delete and Discard send it) and the document's
+    other live links (linked_elsewhere: named in the Delete dialog), the row's own resource left out."""
+    found = documents_of(world)
+    server, nginx = world.server['id'], world.nginx
+    with world.store.connect() as conn:
+        conn.execute('UPDATE ka.documents SET revision=4 WHERE id=%s', (found['shared'],))
+        draft = conn.execute("SELECT id FROM ka.documents WHERE slug='web-1-draft'").fetchone()['id']
+    answer = world.client.get(f'/api/inventory/server/{server}/documents', headers=HEADERS).json()
+    rows = {item['id']: item for item in answer['documents']}
+    shared = rows[str(found['shared'])]
+    assert shared['revision'] == 4
+    assert shared['linked_elsewhere'] == [{'type': 'service', 'id': str(nginx), 'name': 'nginx'}]
+    assert rows[str(found['zeta'])]['linked_elsewhere'] == []
+    # a child's document: its other links are those beside the child's own
+    assert rows[str(found['runbook'])]['resource']['id'] == str(nginx)
+    assert all(link['id'] != str(nginx) for link in rows[str(found['runbook'])]['linked_elsewhere'])
+    # the draft of a new document: discard takes its id and revision
+    assert rows[str(draft)]['is_draft'] is True
+    assert rows[str(draft)]['revision'] == 1
+    assert rows[str(draft)]['linked_elsewhere'] == []

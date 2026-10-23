@@ -236,30 +236,140 @@ describe("a resource page", () => {
     expect(screen.queryByRole("link", { name: "New inventory document" })).toBeNull();
   });
 
-  test("without one: No inventory document yet, and New inventory document opens New built for the resource", async () => {
+  test("the header's New document opens the New page built for the resource; no inventory-document box without one", async () => {
     api({ [RESOURCE_DOCS]: () => [200, { inventory_document: null, documents: [] }] });
     show("/servers/s1");
-    expect(await screen.findByText("No inventory document yet.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "New inventory document" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "New document" })).toHaveAttribute(
       "href",
-      "/documents/new?inventory=server&resource_id=s1",
+      "/documents/new?resource=server&resource_id=s1",
     );
+    expect(screen.queryByText("No inventory document yet.")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Inventory document" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "New inventory document" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connections and documents" })).toBeNull();
   });
 });
 
-describe("New inventory document", () => {
-  test("the New page is built for the resource (locked), its Tags start with inventory; Save sends the tag", async () => {
+describe("a resource page's document actions", () => {
+  const web1 = { type: "server", id: "s1", name: "web-1" };
+  const row = (id: string, title: string, extra: object = {}) => ({
+    id,
+    title,
+    tags: [],
+    description_short: "",
+    connection: "built_for",
+    resource: web1,
+    is_draft: false,
+    draft_waiting: false,
+    revision: 3,
+    linked_elsewhere: [],
+    ...extra,
+  });
+  const listed = {
+    inventory_document: null,
+    documents: [
+      row("d1", "Disk runbook", {
+        linked_elsewhere: [
+          { type: "service", id: "svc-9", name: "nginx" },
+          { type: "environment", id: "e1", name: "Production" },
+        ],
+      }),
+      row("d2", "Backup plan", { is_draft: true, revision: 1 }),
+      row("d3", "Plain"),
+    ],
+  };
+
+  test("Edit opens the document's page: a live document's and a new document's draft's", async () => {
+    api({ [RESOURCE_DOCS]: () => [200, listed] });
+    show("/servers/s1");
+    expect(await screen.findByRole("link", { name: "Edit Disk runbook" })).toHaveAttribute("href", "/documents/d1");
+    expect(screen.getByRole("link", { name: "Edit Backup plan" })).toHaveAttribute("href", "/documents/d2");
+  });
+
+  test("Delete asks first, naming the other resources it is linked to; Cancel deletes nothing, Delete document deletes and reloads", async () => {
+    const changed = vi.fn();
+    const calls = api({
+      [RESOURCE_DOCS]: () => [200, listed],
+      "DELETE /api/documentation/documents/d1?revision=3&confirmed=true": () => [200, {}],
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/servers/:serverId",
+          element: <EntryDocuments entry={{ kind: "server", id: "s1", name: "web-1" }} onChanged={changed} />,
+        },
+      ],
+      { initialEntries: ["/servers/s1"] },
+    );
+    render(<RouterProvider router={router} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Disk runbook" }));
+    let dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Delete Disk runbook?")).toBeInTheDocument();
+    expect(within(dialog).getByText(/It is deleted everywhere, with its history\./)).toBeInTheDocument();
+    expect(within(dialog).getByText(/It is also linked to: nginx, Production\./)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(calls.some((c) => c.key.startsWith("DELETE"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Disk runbook" }));
+    dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
+    await waitFor(() => expect(changed).toHaveBeenCalled());
+    expect(calls.filter((c) => c.key.startsWith("DELETE"))).toHaveLength(1);
+    await waitFor(() => expect(calls.filter((c) => c.key === RESOURCE_DOCS)).toHaveLength(2));
+  });
+
+  test("a document only linked here: no 'also linked to'", async () => {
+    api({ [RESOURCE_DOCS]: () => [200, listed] });
+    show("/servers/s1");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Plain" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).queryByText(/also linked to/)).toBeNull();
+  });
+
+  test("a stale revision shows the API's message above the list and reloads it", async () => {
+    const calls = api({
+      [RESOURCE_DOCS]: () => [200, listed],
+      "DELETE /api/documentation/documents/d3?revision=3&confirmed=true": () => [
+        409,
+        { error: { message: "The document changed; reload and try again." } },
+      ],
+    });
+    show("/servers/s1");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Plain" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete document" }));
+    expect(await screen.findByText("The document changed; reload and try again.")).toBeInTheDocument();
+    await waitFor(() => expect(calls.filter((c) => c.key === RESOURCE_DOCS)).toHaveLength(2));
+    expect(screen.getByText("The document changed; reload and try again.")).toBeInTheDocument();
+  });
+
+  test("a new document's draft: Discard draft discards it with its revision", async () => {
+    const calls = api({
+      [RESOURCE_DOCS]: () => [200, listed],
+      "POST /api/documentation/drafts/d2/discard": () => [200, {}],
+    });
+    show("/servers/s1");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Backup plan" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Discard draft Backup plan?")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Delete document" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Discard draft" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d2/discard")?.body).toEqual({ revision: 1 }),
+    );
+    await waitFor(() => expect(calls.filter((c) => c.key === RESOURCE_DOCS)).toHaveLength(2));
+  });
+});
+
+describe("New document for a resource", () => {
+  test("the New page is built for the resource (locked), with no tags; Save sends no inventory tag", async () => {
     const calls = api({
       "GET /api/documentation/resources": () => [200, resources],
       "POST /api/documentation/drafts": () => [201, { id: "d5" }],
-      "GET /api/documentation/documents/d5": () => [
-        200,
-        { ...document, id: "d5", is_draft: true, published: false, tags: ["inventory"] },
-      ],
+      "GET /api/documentation/documents/d5": () => [200, { ...document, id: "d5", is_draft: true, published: false }],
     });
-    const router = show("/documents/new?inventory=server&resource_id=s1");
-    expect(await screen.findByText("New inventory document for server web-1.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Tags")).toHaveValue("inventory");
+    const router = show("/documents/new?resource=server&resource_id=s1");
+    expect(await screen.findByText("New document for server web-1.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tags")).toHaveValue("");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "web-1 overview" } });
     fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# web-1" } });
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Linked resources" }), { button: 0, ctrlKey: false });
@@ -274,7 +384,7 @@ describe("New inventory document", () => {
       description: "",
       purpose: "explanation",
       audience: "both",
-      tags: ["inventory"],
+      tags: [],
       markdown: "# web-1",
       resource_ids: { ...noIds, server_ids: ["s1"] },
     });

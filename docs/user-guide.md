@@ -355,20 +355,24 @@ A server's name opens its page (`/servers/:id`): a header (details, SSH state; *
 **Discover** on the right) and tabs **Overview** (the services deployed on it), **Documents** and **Chats**; the open tab
 is kept in the URL (`?view=documents`, `?view=chats`). Services (`/services/:id`: Overview is the service panel) and
 environments (`/environments/:id`: the first tab is the Workspace) have the same kind of page. In the environment
-workspace, the selected service's column has its own tabs **Details** and **Documents**. **Connections and documents**
-in a Documents tab opens the same panel as the System map.
+workspace, the selected service's column has its own tabs **Details** and **Documents**.
 
 A server's, service's or environment's **inventory document** is the document tagged `inventory` built for it (the
 most recently updated one when several; the others are in its Documents list): the Documents tab shows it rendered, with **Open** to
-edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"). Without one,
-it says "No inventory document yet." with **New inventory document**: the New document page opens built for the
-resource with its Tags starting as `inventory`, and **Save** creates the draft of its inventory document. Below it, the **Documents** list shows every
+edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"); without one
+there is no box. **New document** in the tab's header opens the New document page built for the resource
+(`/documents/new?resource=server&resource_id=…`: "New document for server web-1.", the resource locked in Linked
+resources, no tags), and **Save** creates its draft. Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
 the title (opens the document), its tags (each opens the Documents list filtered by it), the first line of its
 description, and "· <name>" when it belongs to a child. The resource's inventory document comes first, then its other
 documents, then the children's, grouped by child; a document linked to several of them is listed once. With none:
-"No documents yet.".
+"No documents yet.". Each row has two icon buttons: **Edit** opens the document's page (a new document's draft opens
+at `/documents/<id>` too), and **Delete** asks first — "Delete <title>?", "It is deleted everywhere, with its
+history." and, when the document is linked to other resources, "It is also linked to: <names>." — with **Cancel** and
+**Delete document**. For a new document's draft it asks "Discard draft <title>?" and **Discard draft** discards the
+draft. When the document changed meanwhile, the server's message is shown above the list and the list reloads.
 
 #### Chats and Discover
 
@@ -490,7 +494,7 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
   opens the **Documents** tab, whose **Drafts to review** section at the top lists every one of them: its title (a link
   to the draft), the service, server or environment it belongs to, and "New document" or "New version". The
   environment's own documents follow below. On a resource's Documents tab a new document's draft is listed marked
-  "Draft — not published", and a document with a draft waiting shows "Draft waiting"; **Connections and documents**
+  "Draft — not published", and a document with a draft waiting shows "Draft waiting"; the System map's entry panel
   lists a new document's draft only once it is published.
 - **After the agent's turn.** The workspace, the header's count, the Documents tabs (with Drafts to review), the server
   page and the service panel reload after each turn of the page's chat, so what the agent drafted appears without a
