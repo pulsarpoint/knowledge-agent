@@ -718,8 +718,16 @@ LISTED = """WITH r(position,type,id,name) AS (SELECT * FROM unnest(%s::int[],%s:
     FROM r JOIN ka.document_resources l ON l.removed_at IS NULL AND CASE r.type
         WHEN 'server' THEN l.server_id=r.id WHEN 'service' THEN l.service_id=r.id
         WHEN 'environment' THEN l.environment_id=r.id ELSE l.code_project_id=r.id END
-    JOIN ka.documents d ON d.id=l.document_id AND d.project_id=%s AND NOT d.is_draft
+    JOIN ka.documents d ON d.id=l.document_id AND d.project_id=%s AND {documents}
     ORDER BY d.id,r.position,l.connection='built_for' DESC"""
+# What the Documents tab lists: live documents, and the drafts of new documents (a draft of a live document is no row).
+LIVE, NEW_DRAFTS = 'NOT d.is_draft', 'd.is_draft AND d.draft_of IS NULL'
+DRAFTS_WAITING = 'SELECT DISTINCT draft_of FROM ka.documents WHERE is_draft AND draft_of = ANY(%s)'
+# The document drafts (new documents and drafts of documents) linked to an environment, its servers and its services.
+ENVIRONMENT_DRAFTS = """SELECT count(*)::int AS n FROM ka.document_drafts_view v WHERE v.project_id=%(project)s AND (
+    %(environment)s=ANY(v.environment_ids)
+    OR v.server_ids && ARRAY(SELECT server_id FROM ka.environment_servers WHERE environment_id=%(environment)s)
+    OR v.service_ids && ARRAY(SELECT service_id FROM ka.service_deployments WHERE environment_id=%(environment)s))"""
 
 
 def description_short(description: str | None) -> str:
@@ -729,7 +737,13 @@ def description_short(description: str | None) -> str:
     return first if len(first) <= SHORT_DESCRIPTION else first[:SHORT_DESCRIPTION].rstrip() + '…'
 
 
-def resource_document_list(conn, project: UUID, kind: str, resource_id: UUID) -> list[dict]:
+def environment_document_drafts(conn, project: UUID, environment_id: UUID) -> int:
+    """How many document drafts wait for review in an environment: drafts of new documents and of live documents
+    linked to the environment, its member servers or its services."""
+    return conn.execute(ENVIRONMENT_DRAFTS, {'project': project, 'environment': environment_id}).fetchone()['n']
+
+
+def resource_document_list(conn, project: UUID, kind: str, resource_id: UUID, *, documents: str = LIVE) -> list[dict]:
     """Every live document of a resource and of its direct children (CHILDREN): {id, title, tags, description_short,
     connection, resource {type, id, name}}. A document linked to several of them appears once, under the resource
     itself when linked there, else under the first child. The resource's live inventory document (inventory_document)
@@ -739,7 +753,7 @@ def resource_document_list(conn, project: UUID, kind: str, resource_id: UUID) ->
     for child_type, query in CHILDREN[kind]:
         resources += [(child_type, row['id'], row['name']) for row in conn.execute(query, (resource_id,)).fetchall()]
     rows = conn.execute(
-        LISTED,
+        LISTED.format(documents=documents),
         (
             list(range(len(resources))),
             [item[0] for item in resources],
@@ -771,10 +785,19 @@ def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dic
     """The documents of an inventory entry from their links: its inventory document (inventory_document: {id, title,
     markdown, version, is_draft, published}, a live document or a brand-new draft (version null, published false), or
     None) and its document list (resource_document_list: its and its children's live documents, the live inventory
-    document first)."""
+    document first). The Documents tab also lists the drafts of new documents (is_draft) and flags a live document
+    that has a draft waiting (draft_waiting): one row per document."""
+    live = resource_document_list(conn, project, kind, resource_id)
+    waiting = {row['draft_of'] for row in conn.execute(DRAFTS_WAITING, ([item['id'] for item in live],))}
+    new = [
+        item
+        for item in resource_document_list(conn, project, kind, resource_id, documents=NEW_DRAFTS)
+        if not has_inventory_tag(item['tags'])  # an inventory draft shows as the inventory document
+    ]
     return {
         'inventory_document': inventory_document(conn, project, kind, resource_id),
-        'documents': resource_document_list(conn, project, kind, resource_id),
+        'documents': [{**item, 'is_draft': False, 'draft_waiting': item['id'] in waiting} for item in live]
+        + [{**item, 'is_draft': True, 'draft_waiting': False} for item in new],
     }
 
 

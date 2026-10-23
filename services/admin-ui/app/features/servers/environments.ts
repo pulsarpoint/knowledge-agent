@@ -128,6 +128,17 @@ export interface EnvironmentModel {
   }[];
   /** How many of its entries are drafts (a server's membership counts on its own). */
   drafts: number;
+  /** Document drafts waiting for the environment, its servers and its services (not counted in `drafts`). */
+  document_drafts?: number;
+}
+/** The header line "N drafts to review" (inventory and document drafts together; "(1 document)" names the document
+ * ones when there are inventory drafts too), or null when nothing waits. */
+export function draftsLabel(drafts: number, documentDrafts: number): string | null {
+  const total = drafts + documentDrafts;
+  if (total === 0) return null;
+  const text = total === 1 ? "1 draft to review" : `${total} drafts to review`;
+  if (drafts === 0 || documentDrafts === 0) return text;
+  return `${text} (${documentDrafts} ${documentDrafts === 1 ? "document" : "documents"})`;
 }
 const membership = (environmentId: string, serverId: string) =>
   `/api/environments/${encodeURIComponent(environmentId)}/servers/${encodeURIComponent(serverId)}`;

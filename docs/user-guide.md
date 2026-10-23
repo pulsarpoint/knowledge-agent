@@ -484,7 +484,10 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
   deployment, and a service with a draft connection (from or to it) or a draft relation, which its service panel
   shows. The filter covers the servers and services columns; the service panel always lists all its connections and
   relations. The environment's header says "N drafts to review" while it has drafts; the link opens the workspace with
-  the Drafts filter (an open chat stays open).
+  the Drafts filter (an open chat stays open). The count includes document drafts (new documents, and drafts of
+  documents) linked to the environment, its servers and its services; the text then says "3 drafts to review (1
+  document)". When only document drafts wait, the link opens the **Documents** tab. On a resource's Documents tab a new
+  document's draft is listed marked "Draft — not published", and a document with a draft waiting shows "Draft waiting".
 - **After the agent's turn.** The workspace, the header's count, the server page and the service panel reload after
   each turn of the page's chat, so what the agent drafted appears without a reload.
 - **Map.** On the System map, draft boxes and lines are dashed (a line that adds up several connections is dashed only

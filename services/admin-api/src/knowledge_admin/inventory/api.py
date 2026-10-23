@@ -224,9 +224,13 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
     @router.get('/environments/{environment_id}/model')
     def environment_model(environment_id: UUID) -> dict:
         """The environment model (inventory/model.py): servers with deployments, services, connections, external hosts
-        and relations; nothing secret."""
+        and relations; nothing secret. document_drafts: the document drafts waiting for the
+        environment, its servers and its services (inventory drafts are counted in drafts)."""
         return read(
-            lambda conn, project_id: model.build_model(**store.load_model_rows(conn, project_id, environment_id)),
+            lambda conn, project_id: {
+                **model.build_model(**store.load_model_rows(conn, project_id, environment_id)),
+                'document_drafts': documents.environment_document_drafts(conn, project_id, environment_id),
+            },
             ('environment', environment_id),
         )
 

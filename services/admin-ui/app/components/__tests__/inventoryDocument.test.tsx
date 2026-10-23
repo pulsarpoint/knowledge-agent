@@ -170,6 +170,41 @@ describe("a resource page", () => {
     expect(within(rows[2]).getByText("· nginx")).toBeInTheDocument();
   });
 
+  test("a new document's draft is marked Draft — not published and a document with a draft waiting says so", async () => {
+    const web1 = { type: "server", id: "s1", name: "web-1" };
+    const item = (id: string, title: string, extra: object) => ({
+      id,
+      title,
+      tags: [],
+      description_short: "",
+      connection: "built_for",
+      resource: web1,
+      is_draft: false,
+      draft_waiting: false,
+      ...extra,
+    });
+    api({
+      [RESOURCE_DOCS]: () => [
+        200,
+        {
+          inventory_document: null,
+          documents: [
+            item("d1", "Disk runbook", { draft_waiting: true }),
+            item("d2", "Backup plan", { is_draft: true }),
+            item("d3", "Plain", {}),
+          ],
+        },
+      ],
+    });
+    show("/servers/s1");
+    const list = await screen.findByRole("list", { name: "Documents" });
+    const [runbook, backup, plain] = within(list).getAllByRole("listitem");
+    expect(within(runbook).getByText("Draft waiting")).toBeInTheDocument();
+    expect(within(backup).getByText("Draft — not published")).toBeInTheDocument();
+    expect(within(backup).getByRole("link", { name: "Backup plan" })).toHaveAttribute("href", "/documents/d2");
+    expect(within(plain).queryByText(/Draft/)).toBeNull();
+  });
+
   test("an empty documents list says No documents yet.", async () => {
     api({ [RESOURCE_DOCS]: () => [200, { inventory_document: null, documents: [] }] });
     show("/servers/s1");

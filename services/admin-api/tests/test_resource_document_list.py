@@ -120,7 +120,10 @@ def expected(world, found) -> dict:
 
 
 def without_connection(items: list[dict]) -> list[dict]:
-    return [{key: value for key, value in item.items() if key != 'connection'} for item in items]
+    return [
+        {key: value for key, value in item.items() if key not in ('connection', 'is_draft', 'draft_waiting')}
+        for item in items
+    ]
 
 
 def test_description_short_is_the_first_line_cut_at_160():
@@ -142,10 +145,16 @@ def test_each_resource_lists_its_and_its_childrens_documents(world):
     }
     for kind, resource_id in ids.items():
         answer = world.client.get(f'/api/inventory/{kind}/{resource_id}/documents', headers=HEADERS).json()
-        assert without_connection(answer['documents']) == want[kind], kind
+        live = [item for item in answer['documents'] if not item['is_draft']]  # drafts: test_document_drafts_review
+        assert without_connection(live) == want[kind], kind
     server = world.client.get(f'/api/inventory/server/{ids["server"]}/documents', headers=HEADERS).json()
     assert server['inventory_document']['id'] == str(found['zeta'])
-    assert [item['connection'] for item in server['documents']] == ['built_for', 'linked', 'linked', 'linked']
+    assert [item['connection'] for item in server['documents'] if not item['is_draft']] == [
+        'built_for',
+        'linked',
+        'linked',
+        'linked',
+    ]
 
 
 def test_get_resource_lists_the_same_documents(world):

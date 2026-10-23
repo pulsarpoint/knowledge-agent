@@ -107,6 +107,10 @@ export interface EntryDocument {
   description_short: string;
   connection: "built_for" | "linked";
   resource: { type: EntryKind; id: string; name: string };
+  /** The draft of a new document (not published yet). */
+  is_draft?: boolean;
+  /** A live document with a draft waiting. */
+  draft_waiting?: boolean;
 }
 /** An entry's documents, from the documents' links: its inventory document (a code project has none; the live document
  * tagged `inventory` built for it, the most recently updated if several, else a brand-new draft so tagged) and the

@@ -82,6 +82,7 @@ def brief(answer: dict) -> dict:
             {'id': item['id'], 'title': item['title'], 'connection': item['connection']}
             | ({'tags': item['tags']} if item['tags'] else {})
             for item in answer['documents']
+            if not item['is_draft']  # new documents' drafts: test_document_drafts_review
         ],
     }
 

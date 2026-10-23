@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
-import { getEnvironment, getEnvironmentModel, type EnvironmentAsset } from "./environments";
+import { draftsLabel, getEnvironment, getEnvironmentModel, type EnvironmentAsset } from "./environments";
 import { DraftBadge } from "./ConfirmDraftSheet";
 import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
@@ -12,13 +12,14 @@ import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
 
 /** One environment: a header (name, description, System map, "N drafts to review" linking to the workspace's
- * Drafts filter; Discover and Chat on the right) and tabs:
+ * Drafts filter, or to the Documents tab when only document drafts wait; Discover and Chat on the right) and tabs:
  * Workspace (its servers and services), Documents (the environment's own) and Chats (ResourceChats). */
 export default function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [drafts, setDrafts] = useState(0);
+  const [documentDrafts, setDocumentDrafts] = useState(0);
   // Bumped after each turn of the page chat: its agent may have written drafts.
   const [chatTurns, setChatTurns] = useState(0);
   const [params] = useSearchParams();
@@ -36,7 +37,11 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
       });
     // The drafts count comes from the environment model; without it the header just leaves the line out.
     getEnvironmentModel(environmentId, controller.signal).then(
-      (model) => !controller.signal.aborted && setDrafts(model.drafts),
+      (model) => {
+        if (controller.signal.aborted) return;
+        setDrafts(model.drafts);
+        setDocumentDrafts(model.document_drafts ?? 0);
+      },
       () => {},
     );
     return () => controller.abort();
@@ -64,6 +69,10 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
   const draftsLink = new URLSearchParams(params);
   draftsLink.delete("view");
   draftsLink.set("drafts", "only");
+  // Only document drafts waiting: the Documents tab.
+  const documentsLink = new URLSearchParams(params);
+  documentsLink.set("view", "documents");
+  const label = draftsLabel(drafts, documentDrafts);
   return (
     <ResourceChats
       wide
@@ -83,9 +92,12 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
             <Link className="underline" to={environmentMapPath(environmentId)}>
               System map
             </Link>
-            {drafts > 0 && (
-              <Link className="font-medium underline" to={`/environments/${id}?${draftsLink}`}>
-                {drafts === 1 ? "1 draft to review" : `${drafts} drafts to review`}
+            {label && (
+              <Link
+                className="font-medium underline"
+                to={`/environments/${id}?${drafts > 0 ? draftsLink : documentsLink}`}
+              >
+                {label}
               </Link>
             )}
           </div>

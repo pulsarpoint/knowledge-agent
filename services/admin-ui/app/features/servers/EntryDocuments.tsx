@@ -86,6 +86,8 @@ export default function EntryDocuments({
                   <Link className="font-medium underline" to={`/documents/${encodeURIComponent(item.id)}`}>
                     {item.title}
                   </Link>
+                  {item.is_draft && <Badge variant="outline">Draft — not published</Badge>}
+                  {item.draft_waiting && <Badge variant="outline">Draft waiting</Badge>}
                   <TagLinks tags={item.tags} />
                   {item.resource.id !== entry.id && (
                     <span className="text-xs text-muted-foreground">· {item.resource.name}</span>

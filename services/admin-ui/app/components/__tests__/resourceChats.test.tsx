@@ -510,6 +510,52 @@ test("the environment header links its drafts to the workspace's Drafts filter",
   );
 });
 
+test("the header counts document drafts: apart in the text, and alone they link to the Documents tab", async () => {
+  const environment = { id: "e1", name: "Production", description: "", status: "confirmed", revision: 1 };
+  let model = { drafts: 2, document_drafts: 1 };
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      { ...environment, created_at: at, updated_at: at, services: [], servers: [] },
+    ],
+    "GET /api/environments/e1/model": () => [
+      200,
+      {
+        environment,
+        servers: [],
+        services: [],
+        connections: [],
+        relations: [],
+        external: [],
+        external_services: [],
+        ...model,
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+  });
+  const { unmount } = render(
+    <MemoryRouter initialEntries={["/environments/e1"]}>
+      <EnvironmentPage environmentId="e1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "3 drafts to review (1 document)" })).toHaveAttribute(
+    "href",
+    "/environments/e1?drafts=only",
+  );
+  unmount();
+  model = { drafts: 0, document_drafts: 2 };
+  render(
+    <MemoryRouter initialEntries={["/environments/e1"]}>
+      <EnvironmentPage environmentId="e1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "2 drafts to review" })).toHaveAttribute(
+    "href",
+    "/environments/e1?view=documents",
+  );
+});
+
 test("the header link to the drafts keeps the open chat and goes to the workspace", async () => {
   const environment = { id: "e1", name: "Production", description: "", status: "confirmed", revision: 1 };
   live.sessions.r1 = detail("r1", "waiting", ["environments/e1"]);
