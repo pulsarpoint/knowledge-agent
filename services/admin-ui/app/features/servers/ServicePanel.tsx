@@ -21,6 +21,7 @@ import { serviceRoles, serviceTypes, type ServiceRole, type ServiceType } from "
 import AddConnectionDialog from "./AddConnectionDialog";
 import AddRelationDialog from "./AddRelationDialog";
 import { DraftActions, DraftBadge, type DraftTarget } from "./ConfirmDraftSheet";
+import ConfirmRemove, { type Removal } from "./ConfirmRemove";
 import EntryDocuments from "./EntryDocuments";
 import { RowAction, RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -88,6 +89,7 @@ export default function ServicePanel({
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [open, setOpen] = useState<Open | null>(null);
+  const [removal, setRemoval] = useState<Removal | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,6 +121,9 @@ export default function ServicePanel({
     changed();
     setError(CONFLICT);
   };
+  /** Asks first: "Remove <what>?" with what it means, then removes. */
+  const ask = (kind: ItemKind, item: { id: string; revision: number }, what: string, description: string) =>
+    setRemoval({ title: `Remove ${what}?`, description, action: "Remove", run: () => void remove(kind, item) });
   async function remove(kind: ItemKind, item: { id: string; revision: number }) {
     setError(null);
     try {
@@ -253,7 +258,14 @@ export default function ServicePanel({
                   draft={draftOf("deployment", item)}
                   onDone={changed}
                   onEdit={() => setOpen({ kind: "deployment", deployment: item })}
-                  onRemove={() => void remove("deployments", item)}
+                  onRemove={() =>
+                    ask(
+                      "deployments",
+                      item,
+                      workspace ? `the deployment of ${service.name} here` : `the deployment on ${place(item.id)}`,
+                      "Its connections are removed with it.",
+                    )
+                  }
                 />
               );
             })}
@@ -295,7 +307,9 @@ export default function ServicePanel({
                 draft={draftOf("connection", item)}
                 onDone={changed}
                 onEdit={() => setOpen({ kind: "connection", connection: item })}
-                onRemove={() => void remove("connections", item)}
+                onRemove={() =>
+                  ask("connections", item, `the connection ${text}`, "The services stay; only this connection goes.")
+                }
               />
             ))}
           </List>
@@ -314,7 +328,9 @@ export default function ServicePanel({
                 name={text}
                 draft={draftOf("relation", item)}
                 onDone={changed}
-                onRemove={() => void remove("relations", item)}
+                onRemove={() =>
+                  ask("relations", item, `the relation “${text}”`, "Both services stay; only this relation goes.")
+                }
               />
             ))}
           </List>
@@ -337,7 +353,14 @@ export default function ServicePanel({
                 name={text}
                 draft={draftOf("relation", item)}
                 onDone={changed}
-                onRemove={() => void remove("relations", item)}
+                onRemove={() =>
+                  ask(
+                    "relations",
+                    item,
+                    `code project ${text} from ${service.name}`,
+                    "The code project stays; only the link goes.",
+                  )
+                }
               />
             ))}
           </List>
@@ -370,6 +393,7 @@ export default function ServicePanel({
         details
       )}
 
+      <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
       {open?.kind === "fields" && (
         <ServiceFieldsSheet service={service} onSaved={changed} onConflict={conflict} onClose={() => setOpen(null)} />
       )}

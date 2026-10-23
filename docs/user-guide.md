@@ -364,6 +364,9 @@ environment when one of its deployments is; a service deployed in two environmen
     - **Code projects** the service is built from, each with Remove; **+** adds one;
     - **Documents**: the service's inventory document and documents, as on any resource page.
 
+    Every Remove (a deployment, connection, relation or code project, and Remove from environment in the servers
+    column) asks first in a dialog that names what goes; Cancel removes nothing.
+
     Every change sends the revision it read. When someone changed the item meanwhile, the column says "This was
     changed meanwhile. Reload to see the latest." and reloads; other refusals, such as a duplicate, show their own
     message.

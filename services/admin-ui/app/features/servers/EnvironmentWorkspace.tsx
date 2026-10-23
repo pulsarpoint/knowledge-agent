@@ -18,6 +18,7 @@ import AddServiceDialog from "./AddServiceDialog";
 import ServerForm from "./ServerForm";
 import ServicePanel from "./ServicePanel";
 import { RowAction, RowActions } from "./RowAction";
+import ConfirmRemove, { type Removal } from "./ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -98,6 +99,7 @@ export default function EnvironmentWorkspace({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [removal, setRemoval] = useState<Removal | null>(null);
   const [adding, setAdding] = useState<"server" | "service" | null>(null);
   const [editing, setEditing] = useState<ServerAsset | null>(null);
   const [params, setParams] = useSearchParams();
@@ -187,6 +189,7 @@ export default function EnvironmentWorkspace({
 
   return (
     <div className="flex flex-col gap-3">
+      <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
       {loadError && (
         <Alert variant="destructive">
           <AlertDescription>{loadError}</AlertDescription>
@@ -267,7 +270,18 @@ export default function EnvironmentWorkspace({
                     <RowAction label="Edit" name={item.name} onClick={() => void edit(item)}>
                       <Pencil />
                     </RowAction>
-                    <RowAction label="Remove from environment" name={item.name} onClick={() => void remove(item)}>
+                    <RowAction
+                      label="Remove from environment"
+                      name={item.name}
+                      onClick={() =>
+                        setRemoval({
+                          title: `Remove ${item.name} from ${model.environment.name}?`,
+                          description: "The server stays recorded; it is only no longer in this environment.",
+                          action: "Remove from environment",
+                          run: () => void remove(item),
+                        })
+                      }
+                    >
                       <Unlink />
                     </RowAction>
                   </RowActions>

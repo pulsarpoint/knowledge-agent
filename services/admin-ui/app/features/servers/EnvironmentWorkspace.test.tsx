@@ -177,6 +177,9 @@ test("Remove from environment shows the refusal while deployments exist", async 
   });
   show("?server=s1");
   await user.click(await screen.findByRole("button", { name: "Remove from environment app-1" }));
+  await user.click(
+    within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove from environment" }),
+  );
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Remove the deployments on this server in this environment first.",
   );
@@ -197,6 +200,9 @@ test("Remove from environment of an empty member reloads and clears the selectio
   const onChanged = vi.fn();
   show("?server=s3", onChanged);
   await user.click(await screen.findByRole("button", { name: "Remove from environment cache-1" }));
+  await user.click(
+    within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove from environment" }),
+  );
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1)); // the page reloads its documents list
   expect(await screen.findByRole("button", { name: /^app-1/ })).toBeInTheDocument();
   await screen.findByText(
@@ -218,6 +224,7 @@ test("column 3 is the service panel; a change there reloads the workspace", asyn
   expect(service.getByRole("region", { name: "Connections" })).toBeInTheDocument();
   expect(service.getByRole("link", { name: "Service page" })).toHaveAttribute("href", "/services/v1");
   await user.click(service.getByRole("button", { name: "Remove the deployment here" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2));
 });
 

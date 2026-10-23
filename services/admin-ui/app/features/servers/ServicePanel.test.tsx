@@ -199,12 +199,16 @@ test("remove buttons send the revision they read, then reload", async () => {
   );
   const onChanged = panel();
   await user.click(await screen.findByRole("button", { name: "Remove → postgres on db-1 (prod) :5432 tcp" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
   await user.click(await screen.findByRole("button", { name: "Remove Part of billing" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
   await user.click(await screen.findByRole("button", { name: "Remove payments-repo" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(3));
   await user.click(await screen.findByRole("button", { name: "Remove the deployment here" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(4));
   expect(calls.filter((call) => call.key.startsWith("DELETE")).map((call) => call.key)).toEqual([
     "DELETE /api/connections/c1?revision=3",
@@ -227,6 +231,7 @@ test("a stale revision on remove shows the conflict text and reloads", async () 
   );
   const onChanged = panel();
   await user.click(await screen.findByRole("button", { name: "Remove Needed by nginx" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(CONFLICT);
   await vi.waitFor(() => expect(loads(calls)).toBe(2));
   expect(onChanged).toHaveBeenCalled();
@@ -269,6 +274,7 @@ test("another 409 on remove shows the API's own message", async () => {
   api(routes({ "DELETE /api/relations/rel2?revision=5": () => [409, { error: { message: "Refused for a reason" } }] }));
   panel();
   await user.click(await screen.findByRole("button", { name: "Remove Needed by nginx" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Refused for a reason");
 });
 
@@ -453,4 +459,17 @@ test("a new refresh number reloads the panel (the page chat's agent may have wri
   expect(loads(calls)).toBe(1);
   rerender(view(1));
   await vi.waitFor(() => expect(loads(calls)).toBe(2));
+});
+
+test("Remove asks first: Cancel removes nothing, the dialog names what goes", async () => {
+  const user = userEvent.setup();
+  const calls = api(routes());
+  panel();
+  await user.click(await screen.findByRole("button", { name: "Remove payments-repo" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Remove code project payments-repo from payments-api?")).toBeInTheDocument();
+  expect(dialog.getByText("The code project stays; only the link goes.")).toBeInTheDocument();
+  await user.click(dialog.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  expect(calls.some((call) => call.key.startsWith("DELETE"))).toBe(false);
 });
