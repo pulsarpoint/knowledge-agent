@@ -24,10 +24,11 @@ export interface ChatResource {
 }
 
 /** A server's, service's or environment's page: its Info (from the page) and its Chats (the runs tagged with it, open first),
- * with Chat (the latest open chat, else a new one), New chat and the page's actions. The chat panel is hidden until one of
+ * with Chat (the latest open chat, else a new one) and the page's actions; the chat panel's header has New chat (a new
+ * conversation) and Hide chat. The chat panel is hidden until one of
  * those is clicked; `?chat=<id>` opens that chat (a chat of another resource is refused by the chat itself) and follows the
  * shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs Info / Chat.
- * With `pages`, `info` is the page's header (Chat, New chat and the actions beside it) and the page is laid out in tabs:
+ * With `pages`, `info` is the page's header (Chat and the actions beside it) and the page is laid out in tabs:
  * the given pages, then Chats; `?view=<value>` keeps the open tab (none: the first). `onSessionChange` is called when the
  * shown chat's turns or status change (a page reloads what the chat's agent may have changed). */
 export default function ResourceChats({
@@ -145,10 +146,6 @@ export default function ResourceChats({
         <MessageSquare data-icon="inline-start" />
         Chat
       </Button>
-      <Button type="button" size="sm" variant="outline" onClick={newChat}>
-        <Plus data-icon="inline-start" />
-        New chat
-      </Button>
       {actions}
     </div>
   );
@@ -165,7 +162,7 @@ export default function ResourceChats({
         </Alert>
       )}
       {runs !== null && runs.length === 0 && (
-        <p className="text-sm text-muted-foreground">No chats yet. Start one with Chat or New chat.</p>
+        <p className="text-sm text-muted-foreground">No chats yet. Start one with Chat.</p>
       )}
       {runs !== null && runs.length > 0 && (
         <ul className="flex flex-col divide-y rounded-lg border">
@@ -253,7 +250,11 @@ export default function ResourceChats({
             data-testid="resource-chat"
             className={cn("min-w-0 2xl:sticky 2xl:top-4", tab === "info" ? "hidden 2xl:block" : "block")}
           >
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={newChat}>
+                <Plus data-icon="inline-start" />
+                New chat
+              </Button>
               <Button type="button" size="sm" variant="ghost" onClick={hide}>
                 <X data-icon="inline-start" />
                 Hide chat
