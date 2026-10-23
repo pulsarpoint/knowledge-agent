@@ -19,7 +19,7 @@ from test_repositories import HEADERS
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0113_agent_access.up.sql', '0113_agent_access.down.sql'
 DROP_UP, DROP_DOWN = '0114_drop_agent_resource_tables.up.sql', '0114_drop_agent_resource_tables.down.sql'
-EMPTY = {'resources': [], 'roles': {'content_editor': False}}
+EMPTY = {'resources': []}
 
 
 def run(conn, name: str) -> None:
@@ -146,7 +146,7 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
             {'type': 'skill', 'id': skill},
             {'type': 'mcp_server', 'id': mcp},
         ],
-        'roles': {'content_editor': False},
+        'roles': {'content_editor': False},  # what 0113 wrote (ignored now)
     }
     assert rows[fixed]['instructions'] == 'Check the disk first.' and rows[off]['instructions'] == ''
     with w.store.connect() as conn:
@@ -190,7 +190,6 @@ def test_a_saved_agent_run_is_given_its_whole_access_with_children(world):
             entry('service', w.nginx, 'nginx', 'Front proxy for the shop'),
             entry('code_project', w.shop, 'Shop', '', folder_paths=[]),
         ],
-        'roles': {'content_editor': False},
     }
     picked = start(w, agent, resources={'service_ids': [str(w.nginx)]})  # a subset: its children come with it
     assert picked.status_code == 201, picked.text
@@ -237,27 +236,27 @@ def test_environments_and_documents_may_be_picked_when_the_agent_has_them(world)
             [
                 ('environment', w.environment),
                 ('service', w.nginx),
-                {'type': 'document', 'id': document, 'editable': True},
+                {'type': 'document', 'id': document},
             ],
         )
     response = start(
         w,
         agent,
-        resources={'environment_ids': [str(w.environment)], 'documents': [{'id': str(document), 'editable': True}]},
+        resources={'environment_ids': [str(w.environment)], 'documents': [{'id': str(document)}]},
     )
     assert response.status_code == 201, response.text
     access = stored_access(w, response.json()['id'])
     assert access['resources'] == [
         entry('environment', w.environment, 'Production', 'Live'),
-        {**entry('document', document, 'nginx runbook', ''), 'editable': True},
+        {**entry('document', document, 'nginx runbook', '')},
         entry('service', w.nginx, 'nginx', 'Front proxy for the shop', f'via environment {w.environment}'),
         entry('server', w.server['id'], 'web-1', 'Shop front end', f'via environment {w.environment}'),
         entry('code_project', w.shop, 'Shop', '', f'via service {w.nginx}', folder_paths=[]),
     ]
-    read_only = start(w, agent, resources={'documents': [{'id': str(document), 'editable': False}]})
-    assert read_only.status_code == 201, read_only.text  # a read-only pick narrows the editable entry
+    read_only = start(w, agent, resources={'documents': [{'id': str(document)}]})
+    assert read_only.status_code == 201, read_only.text  # a pick of the document alone
     assert stored_access(w, read_only.json()['id'])['resources'] == [
-        {**entry('document', document, 'nginx runbook', ''), 'editable': False}
+        {**entry('document', document, 'nginx runbook', '')}
     ]
 
 
@@ -285,19 +284,6 @@ def test_an_environment_brings_its_services_and_servers_although_the_agent_holds
     picked = start(w, agent, resources={'service_ids': [str(w.nginx)]})  # a child is not the agent's to pick
     assert picked.status_code == 400
     assert picked.json()['error']['message'] == f"service {w.nginx} is not in the agent's access"
-
-
-def test_the_content_editor_role_comes_from_the_agent(world):
-    w = world
-    agent = a_saved_agent(w)
-    with w.store.connect() as conn:
-        give(conn, agent, [('service', w.nginx)])
-    off = start(w, agent)
-    assert off.status_code == 201 and stored_access(w, off.json()['id'])['roles'] == {'content_editor': False}
-    with w.store.connect() as conn:
-        give(conn, agent, [('service', w.nginx)], content_editor=True)
-    on = start(w, agent)
-    assert on.status_code == 201 and stored_access(w, on.json()['id'])['roles'] == {'content_editor': True}
 
 
 def test_a_deleted_resource_in_the_access_is_skipped(world):
@@ -367,7 +353,7 @@ def test_an_expert_narrows_its_own_access(world):
         ('code_project', f'via service {w.nginx}'),  # what it picked brings its children
         ('server', f'via service {w.nginx}'),
     ]
-    assert not narrowed['access']['roles']['content_editor']
+    assert 'roles' not in narrowed['access']
     try:
         experts.load(w.store, w.project, offered, {'code_project_ids': [str(w.shop)]})
     except ValueError as exc:
@@ -387,19 +373,6 @@ def test_a_server_without_usable_ssh_stays_in_the_run_and_may_be_picked(world):
         server, deployed = stored_access(w, response.json()['id'])['resources']
         assert (server['type'], server['id'], server['source']) == ('server', w.server['id'], 'given')
         assert (deployed['id'], deployed['source']) == (str(w.nginx), f'via server {w.server["id"]}')
-
-
-def test_an_expert_is_a_content_editor_only_when_it_and_its_caller_are(world):
-    w = world
-    expert = a_saved_agent(w, 'Writer expert')
-    with w.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Writing.' WHERE id=%s", (expert,))
-        [offered] = [item for item in experts.offered(conn, None) if item['id'] == expert]
-    for own, caller, expected in ((True, True, True), (True, False, False), (False, True, False)):
-        with w.store.connect() as conn:
-            give(conn, expert, [('service', w.nginx)], content_editor=own)
-        config, _ = experts.load(w.store, w.project, offered, None, caller)
-        assert config['access']['roles'] == {'content_editor': expected}, (own, caller)
 
 
 # --- 0114 ----------------------------------------------------------------------------------------------------------

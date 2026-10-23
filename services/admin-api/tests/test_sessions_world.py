@@ -36,7 +36,7 @@ def ask(sessions):
         'resources': {
             'service_ids': [s.service],
             'server_ids': [web['id']],
-            'documents': [{'id': document['id'], 'editable': True}],
+            'documents': [{'id': document['id']}],
         },
         'expert_ids': [],
     }

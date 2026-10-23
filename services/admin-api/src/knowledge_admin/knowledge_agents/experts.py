@@ -6,7 +6,6 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
 from knowledge_admin.sessions.run_access import KINDS, agent_access, picks
 
@@ -71,12 +70,10 @@ def load(
     project_id,
     entry: Mapping[str, Any],
     resources: Mapping[str, list[str]] | None,
-    caller_content_editor: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """The expert's configuration for one call (its current settings), with its access object: its own agent's access,
-    narrowed to the given resources (which the caller already checked are its own; none given: everything it has),
-    a content editor only when its agent and the calling run both are; and its
-    decrypted credentials. ValueError: a message for the model (also a given resource outside its access).
+    narrowed to the given resources (which the caller already checked are its own; none given: everything it has; it
+    never gets the document or inventory write tools: runner.instructions_and_tools); and its decrypted credentials. ValueError: a message for the model (also a given resource outside its access).
     Synchronous: the caller runs it in a thread."""
     from knowledge_admin.agents.runner import load_credentials  # agents imports this package
 
@@ -98,13 +95,7 @@ def load(
         ):
             raise unavailable
         # its access object, built as a run start builds one for its agent
-        access = agent_access(
-            conn,
-            project_id,
-            config,
-            picks(resources) or None,
-            content_editor=caller_content_editor and access_rules.is_content_editor(config['access']),
-        )
+        access = agent_access(conn, project_id, config, picks(resources) or None)
         config = {**config, 'access': access, 'project_id': str(project_id)}
     config.pop('record', None)
     config['experts'] = []  # an expert never calls experts

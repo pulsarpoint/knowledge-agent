@@ -192,12 +192,12 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
         ...settings.chosen,
         documents: options.resources.documents
           .filter((item) => picked.includes(item.id))
-          .map((item) => ({ id: item.id, editable: item.editable })),
+          .map((item) => ({ id: item.id })),
       },
     };
   }
   if (isResourceScope(scope)) {
-    // a chat on a server, service or environment: the resource is always among its resources (it may not change content)
+    // a chat on a server, service or environment: the resource is always among its resources
     return {
       started_from:
         scope.kind === "server"
@@ -231,7 +231,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       prompt_id: settings.promptKey === OWN ? null : settings.promptKey,
       system_prompt: settings.systemPrompt.trim(),
       context: "",
-      resources: { ...settings.chosen, documents: [{ new: document, editable: true }] },
+      resources: { ...settings.chosen, documents: [{ new: document }] },
       expert_ids: settings.experts,
     };
   }
@@ -244,7 +244,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     context: `Document: ${scope.title} (id ${scope.id})`,
     resources: {
       ...settings.chosen,
-      documents: options.resources.documents.map((item) => ({ id: item.id, editable: item.editable })),
+      documents: options.resources.documents.map((item) => ({ id: item.id })),
     },
     expert_ids: settings.experts,
   };

@@ -42,7 +42,7 @@ def test_ad_hoc_runs_pin_no_resource_sections(world):
     for started_from, change in (
         ({'server_id': world.server['id']}, {}),
         ({'environment_id': str(world.environment)}, {}),
-        ({'new_document': NEW}, {'resources': {'documents': [{'new': NEW, 'editable': True}]}}),
+        ({'new_document': NEW}, {'resources': {'documents': [{'new': NEW}]}}),
     ):
         _, config = stored(world.store, start(world, started_from, **change))
         assert not set(SECTIONS) & set(config), started_from
@@ -92,7 +92,7 @@ def config_of(*entries: dict, grounded: bool = False) -> dict:
         'instructions': '',
         'grounded': grounded,
         'project_id': PROJECT,
-        'access': {'resources': [{**item, 'source': 'given'} for item in entries], 'roles': {'content_editor': False}},
+        'access': {'resources': [{**item, 'source': 'given'} for item in entries]},
     }
 
 

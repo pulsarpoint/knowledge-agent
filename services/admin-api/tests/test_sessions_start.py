@@ -19,9 +19,7 @@ def test_options_mark_the_documents_links_and_unusable_servers(ask):
     assert not servers['prod-1']['linked'] and servers['prod-1']['reason'] == 'SSH is not set up for this server.'
     assert [item['name'] for item in options['resources']['services'] if item['linked']] == ['Payments']
     assert options['default_prompt_id'] == next(p['id'] for p in options['prompts'] if p['name'] == 'Revise a document')
-    assert options['resources']['documents'] == [
-        {'id': ask.document['id'], 'name': 'Payments runbook', 'linked': True, 'editable': True}
-    ]
+    assert options['resources']['documents'] == [{'id': ask.document['id'], 'name': 'Payments runbook', 'linked': True}]
     assert 'tools' not in options  # every run gets every tool
     assert ask.s.gpt in {item['id'] for item in options['models']}
 
@@ -38,13 +36,11 @@ def test_preview_is_exactly_what_start_pins(ask):
         'Add a section on log rotation.',
     )
     pinned = session['config']
-    assert of(pinned, 'document') == [
-        {**entry('document', ask.document['id'], 'Payments runbook', editable=True), 'source': 'given'}
-    ]
+    assert of(pinned, 'document') == [{**entry('document', ask.document['id'], 'Payments runbook'), 'source': 'given'}]
     assert preview.json()['config'] == pinned
     assert preview.json()['first_message'] == ask.body['message']
     assert 'tools' not in pinned and pinned['experts'] == []  # every run gets every tool
-    assert pinned['access']['roles'] == {'content_editor': True}  # a revision is a writing run
+    assert 'roles' not in pinned['access']  # every run drafts within its access
     assert 'You revise documents.' in pinned['system_prompt']['content']
     assert '# Context\n\nDocument: Payments runbook' in pinned['system_prompt']['content']
     assert '## Backup' not in pinned['system_prompt']['content']  # no document text or outline is appended
@@ -84,7 +80,7 @@ def test_start_is_audited(ask):
         details = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent_run.created'").fetchone()[
             'details'
         ]
-    assert details['document_id'] == ask.document['id'] and details['content_editor'] is True
+    assert details['document_id'] == ask.document['id'] and 'content_editor' not in details
     assert 'tools_off' not in details and 'subagents' not in details
     assert 'kind' not in details
 
@@ -174,14 +170,12 @@ def test_no_starting_point_is_refused_for_an_ad_hoc_run(ask):
         assert response.json()['error']['message'].endswith('Choose what the agent starts from.')
 
 
-def test_the_editable_document_must_exist_and_twice_listed_documents_are_one_editable_entry(ask):
-    gone = post(ask, resources={**ask.body['resources'], 'documents': [{'id': str(uuid4()), 'editable': True}]})
+def test_a_given_document_must_exist_and_twice_listed_documents_are_one_entry(ask):
+    gone = post(ask, resources={**ask.body['resources'], 'documents': [{'id': str(uuid4())}]})
     assert gone.status_code == 404 and gone.json()['error']['message'] == 'Document not found'
-    twice = [{'id': ask.document['id'], 'editable': False}, {'id': ask.document['id'], 'editable': True}]
+    twice = [{'id': ask.document['id']}, {'id': ask.document['id']}]
     pinned = post(ask, '/preview', resources={**ask.body['resources'], 'documents': twice}).json()['config']
-    assert of(pinned, 'document') == [
-        {**entry('document', ask.document['id'], 'Payments runbook', editable=True), 'source': 'given'}
-    ]
+    assert of(pinned, 'document') == [{**entry('document', ask.document['id'], 'Payments runbook'), 'source': 'given'}]
 
 
 def test_nothing_but_the_context_is_appended_to_the_prompt(ask):
@@ -194,7 +188,7 @@ def test_a_draft_id_is_not_a_document_a_run_can_start_from_or_be_given(ask):
     assert draft.status_code == 201, draft.text
     for change in (
         {'started_from': {'document_id': draft.json()['id']}},
-        {'resources': {**ask.body['resources'], 'documents': [{'id': draft.json()['id'], 'editable': True}]}},
+        {'resources': {**ask.body['resources'], 'documents': [{'id': draft.json()['id']}]}},
     ):
         refused = post(ask, '/preview', **change)
         assert refused.status_code == 404 and refused.json()['error']['message'] == 'Document not found', change

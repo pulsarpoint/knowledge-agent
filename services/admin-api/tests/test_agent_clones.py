@@ -34,14 +34,14 @@ def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
     with store.connect() as conn:
         conn.execute(
             """UPDATE ka.agents SET system_prompt='Answer from evidence.',
-            access=jsonb_set(access,'{roles,content_editor}','true') WHERE id='operations'"""
+            access=access || '{"roles": {"content_editor": true}}' WHERE id='operations'"""
         )
         credentials = conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n']
     copy_id = clone(client)['id']
     original = get_agent_config('operations', conninfo=store.conninfo)
     copied = get_agent_config(copy_id, conninfo=store.conninfo)
     assert comparable(copied) == comparable(original)
-    assert sections(copied) == sections(original) and copied['access']['roles'] == {'content_editor': True}
+    assert sections(copied) == sections(original) and 'roles' not in copied['access']  # an old role: ignored
     assert of(copied, 'server')[0]['private_key_ref'] == of(original, 'server')[0]['private_key_ref']
     with store.connect() as conn:  # the saved key is referenced, not duplicated
         assert conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n'] == credentials

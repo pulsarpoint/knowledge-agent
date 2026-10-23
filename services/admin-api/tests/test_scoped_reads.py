@@ -90,7 +90,7 @@ def assert_scoped(config, *, web, web_document, db, service=None, project=None, 
     if project:
         assert get(config, 'code_project', project) == refused('code_project', none)
     assert call(config, 'get_document', document_id=web_document)['id'] == web_document
-    assert call(config, 'get_document', document_id=db.document) == NO_DOCUMENT
+    assert call(config, 'get_document', document_id=db.document).startswith(NO_DOCUMENT)
 
 
 @pytest.fixture
@@ -129,14 +129,14 @@ def test_a_document_attached_to_a_given_service_or_code_project_is_readable(scop
     with world.store.connect() as conn:
         conn.execute('DELETE FROM ka.document_resources WHERE document_id=%s', (runbook,))
         link_document(conn, world.project, runbook, 'code_project_id', world.shop)
-    assert call(config, 'get_document', document_id=runbook) == NO_DOCUMENT
+    assert call(config, 'get_document', document_id=runbook).startswith(NO_DOCUMENT)
     given = {
         **config,
         'access': access(('server', world.server['id']), ('service', world.nginx), ('code_project', world.shop)),
     }
     assert call(given, 'get_document', document_id=runbook)['title'] == 'nginx runbook'
     assert get(given, 'code_project', world.shop)['name'] == 'Shop'
-    assert call(config, 'get_document', document_id=runbook) == NO_DOCUMENT
+    assert call(config, 'get_document', document_id=runbook).startswith(NO_DOCUMENT)
     assert get(config, 'code_project', world.shop) == refused('code_project', ('code_project',))
 
 

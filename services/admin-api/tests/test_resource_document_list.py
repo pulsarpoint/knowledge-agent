@@ -168,7 +168,7 @@ def test_get_resource_lists_only_documents_the_run_could_read(world):
     alone = given(world, servers=False, services=False, code=False)
     listed = get(alone, 'environment', world.environment)['documents']
     assert [item['title'] for item in listed] == ['Production notes']
-    assert read(alone, str(found['runbook'])) == 'This document is not available in this run.'
+    assert read(alone, str(found['runbook'])).startswith('This document is not available in this run.')
     # web-1 without nginx: nginx's runbook is left out; Alpha shared (also linked to web-1) stays under web-1.
     no_services = given(world, services=False)
     titles = [item['title'] for item in get(no_services, 'server', world.server['id'])['documents']]

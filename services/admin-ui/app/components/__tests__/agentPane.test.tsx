@@ -161,7 +161,7 @@ test("no open run: an empty conversation with the settings summary; the first me
         environment_ids: [],
         code_project_ids: [],
         collection_ids: [],
-        documents: [{ id: "doc-1", editable: true }],
+        documents: [{ id: "doc-1" }],
       },
       expert_ids: [],
     }),

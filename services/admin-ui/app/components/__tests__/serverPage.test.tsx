@@ -262,7 +262,6 @@ test("Chat opens a new conversation; the first message starts a run from the ser
   await waitFor(() => expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(true));
   const body = calls.find((c) => c.key === "POST /api/sessions")!.body;
   expect(body.started_from).toEqual({ server_id: "s1" });
-  expect(body).not.toHaveProperty("content_editor"); // a plain chat: the backend rule (no content editor)
   expect(body).not.toHaveProperty("tools");
   expect(body.message).toBe("Disk usage?");
   expect(body.resources.server_ids).toContain("s1");

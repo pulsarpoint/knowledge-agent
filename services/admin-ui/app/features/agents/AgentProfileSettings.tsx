@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { CONTENT_EDITOR_HELP, EXPERT_HELP, saveAgent, type AgentProfile } from "./api";
+import { EXPERT_HELP, saveAgent, type AgentProfile } from "./api";
 import { codeCompatible, getLlmSettings, type ModelProfile } from "~/features/llm/api";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -16,7 +16,7 @@ const NO_MODEL = "none";
 /** A model this agent can run. */
 const fits = (model: ModelProfile) => model.enabled && model.api_format !== "embeddings" && codeCompatible(model);
 
-/** The agent's General tab details: name, purpose, model, instructions, the Content editor role and its switches. Its
+/** The agent's General tab details: name, purpose, model, instructions and its switches. Its
  * resources are saved on the Resources tab; saving here keeps them as they are saved. */
 export default function AgentProfileSettings({
   profile,
@@ -66,7 +66,7 @@ export default function AgentProfileSettings({
     try {
       const saved = await saveAgent({
         ...draft,
-        access: { resources: profile.access.resources, roles: draft.access.roles },
+        access: { resources: profile.access.resources },
       });
       setDraft(saved);
       setDirty(false);
@@ -178,20 +178,6 @@ export default function AgentProfileSettings({
                   <FieldDescription>
                     Additional notes for every run. The system prompt below always applies.
                   </FieldDescription>
-                </Field>
-                <Field orientation="horizontal">
-                  <Switch
-                    id="agent-content-editor"
-                    disabled={busy}
-                    checked={draft.access.roles.content_editor}
-                    onCheckedChange={(content_editor) =>
-                      change({ access: { ...draft.access, roles: { ...draft.access.roles, content_editor } } })
-                    }
-                  />
-                  <div>
-                    <FieldLabel htmlFor="agent-content-editor">Content editor</FieldLabel>
-                    <FieldDescription>{CONTENT_EDITOR_HELP}</FieldDescription>
-                  </div>
                 </Field>
                 <Field orientation="horizontal">
                   <Switch

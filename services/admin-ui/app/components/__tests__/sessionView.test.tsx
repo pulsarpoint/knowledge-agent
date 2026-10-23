@@ -644,8 +644,8 @@ test("a resource chat links to its resource's page on that chat", async () => {
 
 test("a refused tool call shows as an error on that call", async () => {
   serve({ ...detail, purpose: "revision", target_document_id: "doc-1" }, [
-    toolCall("save_document"),
-    toolResult("save_document", "This document is not available in this run.", true),
+    toolCall("update_document"),
+    toolResult("update_document", "This document is not available in this run.", true),
   ]);
   render(
     <MemoryRouter>

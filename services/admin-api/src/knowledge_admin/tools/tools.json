@@ -153,19 +153,31 @@
     "name": "get_document",
     "group": "inventory",
     "label": "Read document",
-    "summary": "Read a document given to this run or linked to a resource given to it."
+    "summary": "Read a document (this run's draft of it, if any) given to this run or linked to a resource in it."
   },
   {
     "name": "propose_document",
     "group": "inventory",
     "label": "Propose document",
-    "summary": "Propose a document for review (content editor runs started from a server, service or environment)."
+    "summary": "Propose a document for review (runs started from a server, service or environment)."
   },
   {
-    "name": "save_document",
+    "name": "list_documents",
     "group": "documents",
-    "label": "Save a document",
-    "summary": "Save this run's draft of a document it may edit."
+    "label": "List documents",
+    "summary": "The documents of a server, service or environment, with this run's drafts."
+  },
+  {
+    "name": "new_document",
+    "group": "documents",
+    "label": "New document",
+    "summary": "Draft a new document for a server, service or environment."
+  },
+  {
+    "name": "update_document",
+    "group": "documents",
+    "label": "Update a document",
+    "summary": "Save this run's draft of a document with its whole new text."
   },
   {
     "name": "edit_document",

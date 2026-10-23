@@ -6,10 +6,12 @@ import asyncio
 from access_helpers import entry
 from agents import Runner
 from knowledge_admin.agents.runner import agent, get_prompt
-from knowledge_admin.tools.catalog import CATALOG, INVENTORY_WRITES, WAKEUPS
+from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, WAKEUPS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
-EVERY = {name for name in CATALOG if name != 'run_subagent'} - WAKEUPS - INVENTORY_WRITES  # no Subagents host
+EVERY = (
+    {name for name in CATALOG if name != 'run_subagent'} - WAKEUPS - INVENTORY_WRITES - DOCUMENT_WRITES
+)  # no Subagents host
 
 
 def rows(cfg, on: dict[str, str | None], mcp: dict[str, tuple[str, str | None]] = {}):

@@ -36,7 +36,7 @@ const writer: profiles.AgentProfile = {
   model_id: "claude",
   system_prompt: "You are an expert technical writer.",
   instructions: "",
-  access: { resources: [], roles: { content_editor: false } },
+  access: { resources: [] },
 };
 const NO_COUNTS = {
   server: 0,
@@ -187,14 +187,12 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   expect(screen.queryByRole("tab")).toBeNull();
 });
 
-test("General switches Content editor and saves Instructions", async () => {
+test("General has no role switch and saves Instructions", async () => {
   const user = userEvent.setup();
   open("/agents/search");
-  const editor = await screen.findByRole("switch", { name: "Content editor" });
-  expect(editor).not.toBeChecked();
-  expect(screen.getByText("Lets this agent propose documents and edit editable documents.")).toBeVisible();
+  await screen.findByRole("switch", { name: "Answer only from documents" });
+  expect(screen.queryByRole("switch", { name: /editor/i })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Resources" })).toBeNull();
-  await user.click(editor);
   await user.type(screen.getByRole("textbox", { name: "Instructions" }), "Check the runbook first.");
   await user.click(screen.getByRole("button", { name: "Save details" }));
   await waitFor(() =>
@@ -202,7 +200,7 @@ test("General switches Content editor and saves Instructions", async () => {
       expect.objectContaining({
         id: "search",
         instructions: "Check the runbook first.",
-        access: { resources: [], roles: { content_editor: true } },
+        access: { resources: [] },
       }),
     ),
   );
@@ -210,7 +208,7 @@ test("General switches Content editor and saves Instructions", async () => {
 
 test("General has no inventory role: every agent writes inventory drafts", async () => {
   open("/agents/search");
-  await screen.findByRole("switch", { name: "Content editor" });
+  await screen.findByRole("switch", { name: "Answer only from documents" });
   const switches = screen.getAllByRole("switch").map((item) => item.getAttribute("id"));
   expect(switches).not.toContain("agent-inventory-editor");
   expect(screen.queryByText(/add and change servers, services/)).not.toBeInTheDocument();

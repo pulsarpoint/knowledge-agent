@@ -299,7 +299,6 @@ test("New chat starts a run from the resource that may not change content and op
   await waitFor(() => expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(true));
   const body = calls.find((c) => c.key === "POST /api/sessions")!.body;
   expect(body.started_from).toEqual({ service_id: "v1" });
-  expect(body).not.toHaveProperty("content_editor");
   expect(body).not.toHaveProperty("tools");
   expect(body.resources.service_ids).toContain("v1");
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r9"));

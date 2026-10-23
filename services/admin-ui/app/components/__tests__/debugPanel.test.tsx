@@ -51,9 +51,8 @@ const view = {
     resources: [
       { type: "server", id: "s1", name: "web-1", description_short: "Shop front end", source: "given" },
       { type: "service", id: "n1", name: "nginx", description_short: "", source: "via server s1" },
-      { type: "document", id: "d1", name: "Runbook", description_short: "", source: "given", editable: true },
+      { type: "document", id: "d1", name: "Runbook", description_short: "", source: "given" },
     ],
-    roles: { content_editor: false },
   },
   model: { id: "m1", name: "GPT" },
 };
@@ -104,18 +103,16 @@ test("an existing run: GET debug shows Instructions with Copy, Prompt, Tools, Re
   expect(rows.map((row) => row.textContent)).toEqual([
     "Serverweb-1Given",
     "ServicenginxVia server web-1", // a child names the resource it came with
-    "DocumentRunbookeditableGiven",
+    "DocumentRunbookGiven",
   ]);
-  const roles = screen.getByRole("region", { name: "Roles" });
-  expect(within(roles).getByText("Content editor: off")).toBeInTheDocument();
-  expect(within(roles).getAllByRole("paragraph")).toHaveLength(1); // content editor is the one role
+  expect(screen.queryByRole("region", { name: "Roles" })).toBeNull(); // no roles: every run drafts within its access
   expect(within(screen.getByRole("region", { name: "Model" })).getByText("GPT")).toBeInTheDocument();
   expect(calls.map((call) => call.key)).toEqual(["GET /api/sessions/r1/debug"]);
 });
 
-test("a run with no resources says so; a writing run is a content editor", async () => {
+test("a run with no resources says so", async () => {
   api({
-    "GET /api/sessions/r1/debug": () => [200, { ...view, access: { resources: [], roles: { content_editor: true } } }],
+    "GET /api/sessions/r1/debug": () => [200, { ...view, access: { resources: [] } }],
   });
   render(
     <MemoryRouter>
@@ -124,7 +121,6 @@ test("a run with no resources says so; a writing run is a content editor", async
   );
   const resources = await screen.findByRole("region", { name: "Resources" });
   expect(within(resources).getByText("None.")).toBeInTheDocument();
-  expect(screen.getByText("Content editor: on")).toBeInTheDocument();
 });
 
 test("what the start left out is said above the instructions", async () => {
@@ -204,7 +200,6 @@ test("in a chat: Debug before the first message previews the next start", async 
   expect(screen.getByTestId("conversation").parentElement).toHaveClass("hidden");
   const preview = calls.find((call) => call.key === "POST /api/sessions/preview")!.body;
   expect(preview.started_from).toEqual({ server_id: "s1" });
-  expect(preview).not.toHaveProperty("content_editor");
   expect(calls.some((call) => call.key.includes("/debug"))).toBe(false);
 });
 

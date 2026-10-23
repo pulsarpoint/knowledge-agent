@@ -160,7 +160,6 @@ test("a server offers services and documents; the options; Review shows the prom
   expect(started.prompt_id).toBeNull();
   expect(started.system_prompt).toBe(prompt.value.trim());
   expect(started.system_prompt).toMatch(/Be brief\.$/);
-  expect(started.content_editor).toBe(true);
   expect(started).not.toHaveProperty("tools");
   expect(started).not.toHaveProperty("subagents");
   expect(started.message).toBe("Propose services and documents for this server.");
@@ -185,7 +184,6 @@ test("documents only: the prompt and message ask for documents, the run may stil
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
   await waitFor(() => expect(calls.some((call) => call.key === "POST /api/sessions")).toBe(true));
   const started = calls.find((call) => call.key === "POST /api/sessions")!.body;
-  expect(started.content_editor).toBe(true);
   expect(started.message).toBe("Propose documents for this server.");
 });
 
@@ -232,7 +230,6 @@ test("a service offers documents only and starts from the service", async () => 
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r7"));
   const started = calls.find((call) => call.key === "POST /api/sessions")!.body;
   expect(started.started_from).toEqual({ service_id: "v1" });
-  expect(started.content_editor).toBe(true);
   expect(started.tags).toEqual(["proposals"]);
 });
 

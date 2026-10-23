@@ -514,3 +514,13 @@ kept, and the seeded description follows. A prompt whose text a person changed i
 (service proposals are not restored), removes the new prompt version where it is still the active, newest version with
 0129's text (the version before it is active again), and restores 0106's seed for new workspaces; workspaces created
 after 0129 keep the new text.
+
+## 0130_draft_links
+
+An agent's draft of a live document may hold `linked` links to servers, services, environments and code projects:
+`update_document(..., resource=...)` stores the link with the draft, and promoting the draft adds it to the document
+(`documents/store.py` `promote_draft`; a link the document already has stays as it is). The trigger
+`document_resources_owner` now refuses only a `built_for` link on a draft of a live document (what a document was built
+for stays the document's own) and also checks a changed `connection`. Brand-new drafts held their links before. The down
+migration deletes the links drafts of live documents hold (they were never published) and restores the trigger that
+refuses any link on such a draft.

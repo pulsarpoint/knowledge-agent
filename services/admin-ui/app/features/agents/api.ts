@@ -11,21 +11,17 @@ export const ACCESS_TYPES = [
   { type: "mcp_server", label: "MCP servers", one: "MCP server", many: "MCP servers" },
 ] as const;
 export type AccessType = (typeof ACCESS_TYPES)[number]["type"];
-/** One reference of an agent's access as the editor shows it: `missing` when the resource no longer exists;
- * `editable` for documents only. */
+/** One reference of an agent's access as the editor shows it: `missing` when the resource no longer exists. */
 export interface AccessEntry {
   type: AccessType;
   id: string;
   name: string;
   description_short: string;
-  editable?: boolean;
   missing?: boolean;
 }
 export interface AgentAccess {
   resources: AccessEntry[];
-  roles: { content_editor: boolean }; // a missing role is off
 }
-export const CONTENT_EDITOR_HELP = "Lets this agent propose documents and edit editable documents.";
 export const EXPERT_HELP = "Other agents can call this agent as a tool. Its When to use text tells them when.";
 /** "1 server · 2 documents", or "No resources". */
 export function countsSummary(counts: Partial<Record<AccessType, number>>): string {
@@ -67,8 +63,7 @@ export const getAgents = () => request<{ agents: AgentSummary[] }>("/api/agents"
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string) => request<Record<string, unknown>>(path(id) + "/config");
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + "/options");
-/** Saves the agent: its details and its access object as references (missing ones are dropped; a document's
- * editable is sent, read-only when unset). */
+/** Saves the agent: its details and its access object as references (missing ones are dropped). */
 export const saveAgent = (value: AgentProfile) => {
   const {
     revision,
@@ -93,12 +88,7 @@ export const saveAgent = (value: AgentProfile) => {
       documents_grounded,
       instructions,
       access: {
-        resources: access.resources
-          .filter((item) => !item.missing)
-          .map(({ type, id, editable }) =>
-            type === "document" ? { type, id, editable: Boolean(editable) } : { type, id },
-          ),
-        roles: { content_editor: access.roles.content_editor },
+        resources: access.resources.filter((item) => !item.missing).map(({ type, id }) => ({ type, id })),
       },
       ...(expert !== undefined ? { expert } : {}),
       ...(model_id !== undefined ? { model_id } : {}),

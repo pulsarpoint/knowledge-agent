@@ -128,7 +128,6 @@ def test_down_restores_discovery_runs_and_up_again_round_trips(world):
             'model_id': world.model,
             'system_prompt': 'You answer.',
             'message': 'Disk?',
-            'content_editor': True,
             'tags': ['proposals'],
         },
     )

@@ -20,7 +20,7 @@ from knowledge_admin.knowledge_agents.subagents import (
     referenced_credentials,
     subagent_config,
 )
-from knowledge_admin.tools.catalog import CATALOG, INVENTORY_WRITES, WAKEUPS
+from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, WAKEUPS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
 MODEL = {
@@ -74,7 +74,7 @@ ENTRIES = [
 ]
 
 
-def parent(without=(), content_editor=False, **change) -> dict:
+def parent(without=(), **change) -> dict:
     """A fixed lead agent's pinned configuration: its access holds an SSH server, a service, two code projects with
     graphs, a collection, a skill and an MCP server (but the ids in without); instructions."""
     value = {
@@ -91,7 +91,7 @@ def parent(without=(), content_editor=False, **change) -> dict:
         'record': {'run_key': 'run:x'},
     }
     value.update(change)
-    return with_access(value, [item for item in ENTRIES if item['id'] not in without], content_editor)
+    return with_access(value, [item for item in ENTRIES if item['id'] not in without])
 
 
 def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_the_given_resources_and_its_own_prompt():
@@ -101,7 +101,9 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_the_given_r
     sub = subagent_config(lead, {**NO_RESOURCES, 'code_project_ids': ['worker']})
     assert lead == before  # the parent's configuration is untouched
     _, tools, experts, _ = instructions_and_tools(sub, subagents=False)
-    offered = [name for name in CATALOG if name != 'run_subagent' and name not in WAKEUPS | INVENTORY_WRITES]
+    offered = [
+        name for name in CATALOG if name != 'run_subagent' and name not in WAKEUPS | INVENTORY_WRITES | DOCUMENT_WRITES
+    ]
     assert [tool.name for tool in tools] == offered and experts == []
     assert [s['id'] for s in selected_servers(sub)] == ['docs'] and 'tools' not in sub
     assert [p['id'] for p in entries(sub['access'], 'code_project')] == ['worker']
@@ -117,7 +119,7 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_the_given_r
         ('code_project', 'worker'),
         ('mcp_server', 'docs'),
     ]
-    assert sub['access']['roles'] == {'content_editor': False}
+    assert 'roles' not in sub['access']
 
 
 def test_without_resources_a_subagent_keeps_the_parents_lists():
@@ -136,11 +138,11 @@ def test_without_resources_a_subagent_keeps_the_parents_lists():
 
 
 def test_a_subagent_never_gets_more_than_its_parent_and_never_changes_content():
-    lead = parent(without=['worker'], content_editor=True)
+    lead = parent(without=['worker'])
     with pytest.raises(ValueError, match="code project worker is not in the agent's access"):
         subagent_config(lead, {**NO_RESOURCES, 'code_project_ids': ['worker']})
     sub = subagent_config(lead, None)
-    assert sub['access']['roles'] == {'content_editor': False}
+    assert 'roles' not in sub['access']
 
 
 WIDER = "{kind} {id} is not in the agent's access"  # access.narrow: a subagent never gets more than its parent
@@ -217,7 +219,7 @@ def test_a_subagents_mcp_servers_offer_every_tool(config, responses_api):
     assert [name for name in names if 'lookup' in name] and 'run_subagent' not in names
 
 
-def test_a_subagent_drops_an_old_access_objects_inventory_editor_role():
+def test_a_subagent_drops_an_old_access_objects_roles():
     lead = parent()
-    lead['access']['roles'] = {'content_editor': True, 'inventory_editor': True}  # stored before the role went
-    assert subagent_config(lead, None)['access']['roles'] == {'content_editor': False}
+    lead['access']['roles'] = {'content_editor': True, 'inventory_editor': True}  # stored before the roles went
+    assert 'roles' not in subagent_config(lead, None)['access']

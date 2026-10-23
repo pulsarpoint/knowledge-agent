@@ -116,7 +116,7 @@ function complete(type: ResourceType, step: Step, given: ProposalOptions): boole
 }
 
 /** The start request of a wizard run: the resource chat's settings (model, resources, experts), the generated prompt as
- * the system prompt (no library prompt), the content editor role (the run may propose) and the tag `proposals`. */
+ * the system prompt (no library prompt) and the tag `proposals`. */
 export function wizardInput(
   resource: { type: ResourceType; id: string; name: string },
   agentOptions: AgentOptions,
@@ -130,7 +130,6 @@ export function wizardInput(
     ...base,
     prompt_id: null,
     system_prompt: prompt.trim(),
-    content_editor: true,
     tags: ["proposals"],
   };
 }

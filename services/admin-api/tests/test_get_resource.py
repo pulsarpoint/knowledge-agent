@@ -230,8 +230,8 @@ def test_get_document_reads_the_documents_get_resource_lists_and_caps_them(world
     monkeypatch.setattr(document_tools, 'MAX_MARKDOWN', 5)
     capped = read(config, doc_id)
     assert capped['markdown'] == '# web' and capped['truncated']
-    assert read(config, str(uuid4())) == 'This document is not available in this run.'
-    assert read(config, 'not-an-id') == 'This document is not available in this run.'
+    assert read(config, str(uuid4())).startswith('This document is not available in this run.')
+    assert read(config, 'not-an-id').startswith('This document is not available in this run.')
 
 
 def test_an_environments_documents_are_listed_and_readable_when_it_was_given(world):
@@ -243,7 +243,7 @@ def test_an_environments_documents_are_listed_and_readable_when_it_was_given(wor
     assert (document['id'], document['title']) == (str(saved['id']), 'Production notes')
     assert read(config, document['id'])['title'] == 'Production notes'
     hidden = given(world, environments=False)
-    assert read(hidden, document['id']) == 'This document is not available in this run.'
+    assert read(hidden, document['id']).startswith('This document is not available in this run.')
 
 
 def test_another_workspace_is_not_visible(world):
@@ -404,10 +404,12 @@ def test_get_document_reads_only_documents_linked_to_resources_the_run_was_given
         link_document(conn, world.project, linked['id'], 'service_id', world.nginx)
     config = given(world)
     # Built for a server the run was not given, linked to nothing it was given: refused.
-    assert read(config, str(elsewhere['id'])) == 'This document is not available in this run.'
+    assert read(config, str(elsewhere['id'])).startswith('This document is not available in this run.')
     # Also linked to a service the run was given: readable.
     assert read(config, str(linked['id']))['title'] == 'db-1 linked'
-    assert read(given(world, services=False), str(linked['id'])) == 'This document is not available in this run.'
+    assert read(given(world, services=False), str(linked['id'])).startswith(
+        'This document is not available in this run.'
+    )
     # A removed link no longer gives access.
     with world.store.connect() as conn:
         conn.execute(
@@ -415,4 +417,4 @@ def test_get_document_reads_only_documents_linked_to_resources_the_run_was_given
             WHERE document_id=%s AND service_id=%s""",
             (linked['id'], world.nginx),
         )
-    assert read(config, str(linked['id'])) == 'This document is not available in this run.'
+    assert read(config, str(linked['id'])).startswith('This document is not available in this run.')

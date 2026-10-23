@@ -138,19 +138,10 @@ SECTIONS: dict[str, str] = {
 
 
 def _access(access: Mapping[str, Any]) -> dict[str, Any]:
-    """The stored access object in a comparable form: references sorted, editable on documents only."""
-    references = [
-        {
-            'type': r['type'],
-            'id': str(r['id']),
-            **({'editable': bool(r.get('editable'))} if r['type'] == 'document' else {}),
-        }
-        for r in access.get('resources', [])
-    ]
-    return {
-        'resources': sorted(references, key=lambda r: (r['type'], r['id'])),
-        'content_editor': bool(access.get('roles', {}).get('content_editor')),
-    }
+    """The stored access object in a comparable form: references sorted (keys an older object may still carry, such
+    as roles, are left out)."""
+    references = [{'type': r['type'], 'id': str(r['id'])} for r in access.get('resources', [])]
+    return {'resources': sorted(references, key=lambda r: (r['type'], r['id']))}
 
 
 def sections(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -394,22 +385,13 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
             raise ValueError('Agent configuration requires a single application database')
         project_id = projects[0]['id'] if projects else None
         access = agent['access']
-        editable = {
-            str(item['id']): bool(item.get('editable'))
-            for item in access.get('resources', [])
-            if item['type'] == 'document'
-        }
         found = access_ids(access, 'document')
         rows = (
             {str(row['id']): row for row in conn.execute(DOCUMENTS, (project_id, found))}
             if found and project_id
             else {}
         )
-        documents = [
-            entry('document', {'id': key, 'name': rows[key]['title']}, editable=editable[key])
-            for key in found
-            if key in rows
-        ]
+        documents = [entry('document', {'id': key, 'name': rows[key]['title']}) for key in found if key in rows]
         ids = {type_: access_ids(access, type_) for type_ in LOADED}
         resources = load_entries(conn, project_id, ids, documents)
         return jsonable_encoder(
@@ -425,6 +407,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'instructions': agent['instructions'],
                 'settings_revision': None,
                 'grounded': bool(agent['documents_grounded']),  # its "Answer only from documents" switch
-                'access': {'resources': resources, 'roles': access.get('roles', {})},
+                'access': {'resources': resources},
             }
         )

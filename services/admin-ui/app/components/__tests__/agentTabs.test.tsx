@@ -61,7 +61,7 @@ beforeEach(() => {
     model_id: null,
     system_prompt: `${id} instructions`,
     instructions: "",
-    access: { resources: [], roles: { content_editor: false } },
+    access: { resources: [] },
     counts: {
       server: 0,
       service: 0,

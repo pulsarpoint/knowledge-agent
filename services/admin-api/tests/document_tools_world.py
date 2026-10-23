@@ -47,8 +47,8 @@ def rev(docs, monkeypatch):
             (sid, docs.project, actor, a_model(conn, actor), docs.runbook, Jsonb({})),
         )
     config = {'project_id': str(docs.project), 'session_id': str(sid)}
-    # a revision run writes its document
-    with_access(config, [entry('document', docs.runbook, 'Runbook', editable=True)], content_editor=True)
+    # a revision run drafts its document
+    with_access(config, [entry('document', docs.runbook, 'Runbook')])
     return SimpleNamespace(docs=docs, sid=sid, config=config)
 
 

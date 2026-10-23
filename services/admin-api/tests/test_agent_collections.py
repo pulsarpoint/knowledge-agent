@@ -95,7 +95,7 @@ def test_profile_api_grants_collections(store, tmp_path):
     assert [(c['name'], c['description_short']) for c in options['collection']] == [('jira', 'About jira')]
     agent = client.get('/api/agents/search', headers=HEADERS).json()
     assert 'all_folders' not in agent and 'folder_ids' not in agent
-    jira = {'resources': [{'type': 'collection', 'id': str(ids['jira'])}], 'roles': {'content_editor': False}}
+    jira = {'resources': [{'type': 'collection', 'id': str(ids['jira'])}]}
     saved = update(client, agent, access=jira)
     assert saved.status_code == 200, saved.text
     found = client.get('/api/agents/search', headers=HEADERS).json()['access']['resources']

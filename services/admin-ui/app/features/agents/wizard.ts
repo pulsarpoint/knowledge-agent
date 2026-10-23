@@ -6,11 +6,10 @@ export interface WizardResource {
   name: string;
   description?: string;
 }
-/** A reference of a proposed agent's access; `editable` for documents only. */
+/** A reference of a proposed agent's access. */
 export interface WizardReference {
   type: AccessType;
   id: string;
-  editable?: boolean;
 }
 export interface AgentProposal {
   name: string;
@@ -20,7 +19,7 @@ export interface AgentProposal {
   instructions: string;
   model_id: string | null;
   enabled: boolean;
-  access: { resources: WizardReference[]; roles: { content_editor: boolean } };
+  access: { resources: WizardReference[] };
 }
 export interface WizardOptions {
   prompt: string;

@@ -136,11 +136,9 @@ class ProposeDocument(Proposal):
 
 
 def check_propose_document(access: dict, started_from: dict | None = None, **_) -> str | None:
-    """None when allowed, else the refusal text: a content editor, and the resource the run started from (what it
-    proposes for) in its list. A run not started from a resource is refused by the tool (NOT_DISCOVERY)."""
-    if not access_rules.is_content_editor(access):
-        return access_rules.NOT_EDITOR
-    if started_from and not access_rules.can_propose(access, started_from['type'], started_from['id']):
+    """None when allowed, else the refusal text: the resource the run started from (what it proposes for) in its
+    list. A run not started from a resource is refused by the tool (NOT_DISCOVERY)."""
+    if started_from and not access_rules.can_use(access, started_from['type'], started_from['id']):
         return access_rules.refuse_use(started_from['type'])
     return None
 

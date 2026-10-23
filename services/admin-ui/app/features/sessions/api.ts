@@ -248,12 +248,10 @@ export interface AccessResource {
   name: string;
   description_short: string;
   source: string;
-  editable?: boolean;
 }
-/** A run's access object: the resources it may use and its roles (fixed at start). */
+/** A run's access object: the resources it may use (fixed at start). */
 export interface RunAccess {
   resources: AccessResource[];
-  roles: { content_editor: boolean };
 }
 /** What a run's model receives (its Debug tab): the assembled instructions, where the prompt came from, the tools as the
  * model sees them, and what the run may use (its access object). Secrets are redacted. */
@@ -334,7 +332,7 @@ export interface AgentOptions {
     environments: AgentBringer[];
     code_projects: AgentResource[];
     collections: AgentResource[];
-    documents: { id: string; name: string; linked: boolean; editable: boolean }[];
+    documents: { id: string; name: string; linked: boolean }[];
   };
   experts: { id: string; name: string; when_to_use: string }[];
 }
@@ -367,11 +365,9 @@ export interface StartInput {
   system_prompt?: string;
   context: string;
   resources: AgentResources & {
-    documents: ({ id: string; editable: boolean } | { new: NewDocument; editable: true })[];
+    documents: ({ id: string } | { new: NewDocument })[];
   };
   expert_ids: string[];
-  /** An ad-hoc run that may change content asks for the content editor role (the Propose wizard). */
-  content_editor?: boolean;
 }
 /** A resource's chats (listed by tag) also carry their proposal counts. */
 export type RunSummary = SessionSummary & {
@@ -384,7 +380,7 @@ export type RunSummary = SessionSummary & {
 export const agentRunPath = (documentId: string, runId: string) =>
   `/documents/${encodeURIComponent(documentId)}/agent/${encodeURIComponent(runId)}`;
 
-const SAVE_TOOLS = ["save_document", "edit_document", "save_doc", "edit_doc"];
+const SAVE_TOOLS = ["update_document", "edit_document"];
 /** Whether the turn saved the document's draft: a save or edit call that did not fail. */
 export const savedIn = (turn: Turn) =>
   turn.work.some(

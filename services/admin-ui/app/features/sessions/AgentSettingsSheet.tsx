@@ -17,7 +17,7 @@ import { Textarea } from "~/components/ui/textarea";
 /** The documents of a document's run show above the resource kinds, always on. */
 const DOCUMENTS = { key: "documents", field: "documents", plural: "Documents" };
 
-/** The Ask agent settings for a document, or the narrowing of a saved agent: editable before a conversation starts (Preview shows the JSON the next message
+/** The Ask agent settings for a document, or the narrowing of a saved agent: changeable before a conversation starts (Preview shows the JSON the next message
  * starts with), read-only while a conversation is open (its saved configuration; Start new chat with these settings). */
 export default function AgentSettingsSheet({
   open,
@@ -60,7 +60,6 @@ export default function AgentSettingsSheet({
     setPreview(null);
   }, [settings, previewMessage]); // a changed input makes the preview stale
   const { chosen, experts } = settings;
-  const documents = new Map(options.resources.documents.map((item) => [item.id, item]));
   const choosePrompt = (key: string) =>
     onChange({
       promptKey: key,
@@ -167,7 +166,7 @@ export default function AgentSettingsSheet({
                   if (key === "documents")
                     return {
                       locked: !agent,
-                      note: documents.get(item.id)?.editable ? "The agent may change it (as a draft)." : "Read only.",
+                      note: "The agent may change it (as a draft).",
                     };
                   const server =
                     key === "servers" ? options.resources.servers.find((entry) => entry.id === item.id) : undefined;

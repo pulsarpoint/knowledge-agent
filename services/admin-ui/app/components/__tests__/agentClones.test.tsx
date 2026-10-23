@@ -36,7 +36,7 @@ const base: profiles.AgentProfile = {
   model_id: null,
   system_prompt: "Operate servers.",
   instructions: "",
-  access: { resources: [], roles: { content_editor: false } },
+  access: { resources: [] },
   cloned_from: null,
   original: null,
 };

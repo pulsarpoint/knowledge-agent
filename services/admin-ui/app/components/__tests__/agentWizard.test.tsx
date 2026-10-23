@@ -27,9 +27,8 @@ const proposal: api.AgentProposal = {
       { type: "mcp_server", id: "mcp" },
       { type: "service", id: "service" },
       { type: "server", id: "server" },
-      { type: "document", id: "doc", editable: false },
+      { type: "document", id: "doc" },
     ],
-    roles: { content_editor: true },
   },
 };
 const options: api.WizardOptions = {
@@ -69,7 +68,7 @@ async function open() {
   return { user, created, close };
 }
 
-test("generates a reviewable proposal, edits resources and the Content editor switch, then creates once", async () => {
+test("generates a reviewable proposal, edits resources (no role switch, no per-document picks), then creates once", async () => {
   const { user, created } = await open();
   await user.click(screen.getByRole("button", { name: "Show design context" }));
   expect(
@@ -86,9 +85,7 @@ test("generates a reviewable proposal, edits resources and the Content editor sw
   expect(screen.getByLabelText("Proposed resources")).toHaveTextContent(
     "1 server · 1 service · 1 code project · 1 collection · 1 document · 1 skill · 1 MCP server",
   );
-  const editor = screen.getByRole("switch", { name: "Content editor" });
-  expect(editor).toBeChecked();
-  await user.click(editor);
+  expect(screen.queryByRole("switch", { name: /editor/i })).toBeNull();
   await user.click(screen.getByRole("tab", { name: "Resources" }));
   const projects = screen.getByRole("group", { name: "Code projects" });
   expect(within(projects).getByRole("checkbox", { name: "Payments" })).toBeChecked();
@@ -96,7 +93,7 @@ test("generates a reviewable proposal, edits resources and the Content editor sw
   expect(screen.getByRole("checkbox", { name: "jira-tickets" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Staging" })).toBeChecked();
   await user.click(screen.getByRole("checkbox", { name: "Production" }));
-  await user.click(screen.getByRole("switch", { name: "Editable Runbook" }));
+  expect(screen.queryByRole("switch", { name: "Editable Runbook" })).toBeNull();
   await user.click(screen.getByRole("tab", { name: "Prompt" }));
   expect(screen.getByLabelText("System prompt")).toHaveAttribute("maxLength", "100000");
   fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Use evidence and cite sources." } });
@@ -107,8 +104,8 @@ test("generates a reviewable proposal, edits resources and the Content editor sw
     name: "Reviewed agent",
     system_prompt: "Use evidence and cite sources.",
     instructions: "Check exit codes.",
-    access: { roles: { content_editor: false } },
   });
+  expect(sent.access).not.toHaveProperty("roles");
   expect(sent).not.toHaveProperty("resources");
   expect(sent).not.toHaveProperty("servers");
   for (const field of ["tools", "subagents", "subagent_blocked"]) expect(sent).not.toHaveProperty(field);
@@ -118,7 +115,7 @@ test("generates a reviewable proposal, edits resources and the Content editor sw
     { type: "mcp_server", id: "mcp" },
     { type: "service", id: "service" },
     { type: "server", id: "server" },
-    { type: "document", id: "doc", editable: true },
+    { type: "document", id: "doc" },
     { type: "environment", id: "env" },
   ]);
   expect(created).toHaveBeenCalledWith("new-agent");
@@ -182,7 +179,7 @@ test("start blank opens an empty proposal without generating and can create with
       name: "Blank helper",
       system_prompt: "Answer carefully.",
       model_id: null,
-      access: { resources: [], roles: { content_editor: false } },
+      access: { resources: [] },
     }),
   );
   expect(created).toHaveBeenCalledWith("new-agent");

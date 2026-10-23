@@ -31,7 +31,7 @@ const agent: profiles.AgentProfile = {
   model_id: null,
   system_prompt: "",
   instructions: "",
-  access: { resources: [], roles: { content_editor: false } },
+  access: { resources: [] },
 };
 
 beforeEach(() => {

@@ -66,7 +66,7 @@ def test_delete_keeps_every_resource_its_access_referenced(store, tmp_path):
         ('skill', skill['id']),
         ('mcp_server', mcp['id']),
     ]
-    access = {'resources': [{'type': t, 'id': i} for t, i in references], 'roles': {'content_editor': False}}
+    access = {'resources': [{'type': t, 'id': i} for t, i in references]}
     agent = update(client, agent, access=access, instructions='Inspect.').json()
     assert len(agent['access']['resources']) == len(references)
     response = client.put(

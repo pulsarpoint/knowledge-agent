@@ -24,7 +24,7 @@ def preview(s, prompt='You document.', **resources):
         'message': 'Write it.',
         'model_id': s.gpt,
         'system_prompt': prompt,
-        'resources': {**resources, 'documents': [{'new': NEW, 'editable': True}]},
+        'resources': {**resources, 'documents': [{'new': NEW}]},
     }
     return s.client.post('/api/sessions/preview', headers=HEADERS, json=body)
 

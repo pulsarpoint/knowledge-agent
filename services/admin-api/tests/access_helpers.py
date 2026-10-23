@@ -12,36 +12,25 @@ def entry(type_: str, id_, name: str = '', **extra) -> dict[str, Any]:
     return {'type': type_, 'id': str(id_), 'name': name, 'description_short': '', **extra}
 
 
-def access_of(entries=(), content_editor: bool = False) -> dict[str, Any]:
-    return {
-        'resources': [{**item, 'source': 'given'} for item in entries],
-        'roles': {'content_editor': content_editor},
-    }
+def access_of(entries=()) -> dict[str, Any]:
+    return {'resources': [{**item, 'source': 'given'} for item in entries]}
 
 
-def with_access(config: dict[str, Any], entries=(), content_editor: bool = False) -> dict[str, Any]:
+def with_access(config: dict[str, Any], entries=()) -> dict[str, Any]:
     """The configuration with an access object of these entries (set in place, and returned)."""
-    config['access'] = access_of(entries, content_editor)
+    config['access'] = access_of(entries)
     return config
 
 
-def give(conn, agent_id: str, resources: list, content_editor: bool = False) -> None:
-    """Store a saved agent's access object: resources as (type, id) or {type, id, editable}."""
+def give(conn, agent_id: str, resources: list) -> None:
+    """Store a saved agent's access object: resources as (type, id) or {type, id}."""
     entries = [
         {**item, 'id': str(item['id'])} if isinstance(item, dict) else {'type': item[0], 'id': str(item[1])}
         for item in resources
     ]
     conn.execute(
         'UPDATE ka.agents SET access=%s WHERE id=%s',
-        (
-            Jsonb(
-                {
-                    'resources': entries,
-                    'roles': {'content_editor': content_editor},
-                }
-            ),
-            agent_id,
-        ),
+        (Jsonb({'resources': entries}), agent_id),
     )
 
 

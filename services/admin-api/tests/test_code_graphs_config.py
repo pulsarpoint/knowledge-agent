@@ -74,8 +74,8 @@ def test_a_run_gets_only_the_graphs_of_its_code_projects(store, saved_agent, gra
     config = get_agent_config('operations', conninfo=store.conninfo)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        only_other = agent_access(conn, project, config, [{'type': 'code_project', 'id': other}], content_editor=False)
-        nothing = agent_access(conn, project, config, [], content_editor=False)
+        only_other = agent_access(conn, project, config, [{'type': 'code_project', 'id': other}])
+        nothing = agent_access(conn, project, config, [])
     assert [(p['id'], p['graph_path']) for p in of({'access': only_other}, 'code_project')] == [
         (other, GRAPH['graph_path'])
     ]

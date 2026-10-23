@@ -18,7 +18,6 @@ def start(world, started_from: dict) -> str:
             'model_id': world.model,
             'system_prompt': 'You propose.',
             'message': 'Propose documents.',
-            'content_editor': True,
             'tags': ['proposals'],
         },
     )

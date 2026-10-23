@@ -48,6 +48,8 @@ INVENTORY_WRITES = frozenset(
         'save_inventory_draft',
     }
 )
+# Document writes: only a session turn (its drafts are the session's), never a subagent or an expert.
+DOCUMENT_WRITES = frozenset({'new_document', 'update_document', 'edit_document'})
 
 
 @dataclass(frozen=True)

@@ -16,7 +16,7 @@ from test_repositories import HEADERS
 
 
 def echoed(proposal: dict) -> dict:
-    """A proposal as generate returns it (every access entry with its editable flag)."""
+    """A proposal as generate returns it."""
     return AgentProposal.model_validate(proposal).model_dump(mode='json')
 
 
@@ -45,7 +45,6 @@ def wizard(store, saved_agent):
                 {'type': 'skill', 'id': skill['id']},
                 {'type': 'mcp_server', 'id': mcp['id']},
             ],
-            'roles': {'content_editor': False},
         },
     }
     return client, catalog, proposal, ssh
@@ -87,7 +86,7 @@ def test_wizard_roundtrip_every_resource(store, wizard):
     assert config['model']['api_key_ref']['id'] == proposal['model_id']
     held = {(item['type'], item['id']) for item in config['access']['resources']}
     assert held == {(item['type'], item['id']) for item in proposal['access']['resources']}
-    assert config['access']['roles'] == proposal['access']['roles']
+    assert 'roles' not in config['access']
     assert [c['name'] for c in of(config, 'collection')] == ['payments']
     server = of(config, 'server')[0]
     assert server['username'] == 'operator'  # the server's own SSH settings
@@ -120,13 +119,11 @@ def test_wizard_roundtrip_every_resource(store, wizard):
         {
             'access': {
                 'resources': [{'type': 'collection', 'id': str(uuid4())}],
-                'roles': {'content_editor': False},
             }
         },
         {
             'access': {
                 'resources': [{'type': 'printer', 'id': str(uuid4())}],
-                'roles': {'content_editor': False},
             }
         },
         {'model_id': str(uuid4())},
@@ -250,7 +247,7 @@ BLANK = {
     'instructions': '',
     'model_id': None,
     'enabled': True,
-    'access': {'resources': [], 'roles': {'content_editor': False}},
+    'access': {'resources': []},
 }
 
 
@@ -291,7 +288,6 @@ def test_proposal_rejects_an_unknown_resource_type(wizard):
 
     unknown = {
         'resources': [{'type': 'printer', 'id': str(uuid4())}],
-        'roles': {'content_editor': False},
     }
     with pytest.raises(ValidationError, match="'server'"):
         AgentProposal.model_validate({**proposal, 'access': unknown})
@@ -305,7 +301,6 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
         calls.append(json.loads(task))
         invented = {
             'resources': [{'type': 'server', 'id': str(uuid4())}],
-            'roles': {'content_editor': False},
         }
         output = {**proposal, 'access': invented} if len(calls) == 1 else proposal
         return SimpleNamespace(final_output=AgentProposal.model_validate(output))
@@ -347,13 +342,11 @@ def test_generation_offers_the_models_that_fit_an_agent(store, wizard, monkeypat
     assert 'agent_type' not in tasks[0]  # the designer is not told an agent type
 
 
-def test_a_proposal_has_only_the_content_editor_role(wizard, monkeypatch):
+def test_a_proposal_has_no_roles(wizard, monkeypatch):
     client, _, proposal, _ = wizard
     with pytest.raises(ValidationError):
-        AgentProposal.model_validate(
-            {**proposal, 'access': {**proposal['access'], 'roles': {'content_editor': True, 'inventory_editor': True}}}
-        )
-    proposed = {**proposal, 'access': {**proposal['access'], 'roles': {'content_editor': True}}}
+        AgentProposal.model_validate({**proposal, 'access': {**proposal['access'], 'roles': {'content_editor': True}}})
+    proposed = {**proposal, 'access': {**proposal['access']}}
 
     async def run(*args, **kwargs):
         return SimpleNamespace(final_output=AgentProposal.model_validate(proposed))
@@ -363,4 +356,4 @@ def test_a_proposal_has_only_the_content_editor_role(wizard, monkeypatch):
         '/api/agents/wizard/generate', headers=HEADERS, json={'role': 'Payments', 'model_id': proposal['model_id']}
     )
     assert result.status_code == 200, result.text
-    assert result.json()['proposal']['access']['roles'] == {'content_editor': True}
+    assert 'roles' not in result.json()['proposal']['access']

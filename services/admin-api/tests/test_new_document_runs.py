@@ -1,5 +1,5 @@
 """Writing a new document with an agent: a new document is a resource the run may edit; the agent writes it with
-save_document; the first save creates the new-document draft."""
+update_document; the first save creates the new-document draft."""
 
 import asyncio, json
 from uuid import UUID, uuid4
@@ -11,7 +11,7 @@ from knowledge_admin.agents.runner import ssh_servers
 from knowledge_admin.capabilities import inventory
 from knowledge_admin import access as access_rules
 from knowledge_admin.access import refuse_use
-from knowledge_admin.capabilities.document_tools import _run_links
+from knowledge_admin.capabilities.document_tools import DRAFT_NOTE, _run_links
 from knowledge_admin.sessions.run_access import built_for
 from knowledge_admin.data_root import FOLDER_RULE
 from live_documents import live_document, replace_live_document
@@ -32,7 +32,7 @@ def body(s, **change):
         'message': 'Write the API reference.',
         'model_id': s.gpt,
         'system_prompt': 'You document systems.',
-        'resources': {'code_project_ids': [s.repo], 'documents': [{'new': NEW, 'editable': True}]},
+        'resources': {'code_project_ids': [s.repo], 'documents': [{'new': NEW}]},
         **change,
     }
 
@@ -77,7 +77,7 @@ def test_a_new_document_start_pins_a_new_entry_and_records_purpose_documents(ses
     [entry] = of(session['config'], 'document')
     assert (
         entry['id'].startswith('new:')
-        and entry['editable']
+        and 'editable' not in entry
         and entry['new']
         and entry['slug'] == 'payments-api-reference'
     )
@@ -90,10 +90,13 @@ def test_the_first_save_creates_the_new_document_draft_and_later_saves_update_it
     monkeypatch.setattr(inventory, '_store', s.store)
     session, config, new_id = started(s)
     assert call(config, 'get_document', document_id=new_id) == 'Not written yet.'
-    with pytest.raises(ValueError, match='Write the document with save_document first.'):
+    with pytest.raises(ValueError, match='Write the document with update_document first.'):
         call(config, 'edit_document', document_id=new_id, old_text='a', new_text='b')
     assert drafts(s, session['id']) == []
-    assert call(config, 'save_document', document_id=new_id, markdown='# API\n\nFirst.') == 'Saved draft (3 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# API\n\nFirst.')
+        == f'Saved draft (3 lines). {DRAFT_NOTE}'
+    )
     run = UUID(session['id'])
     first = {
         'document_id': None,
@@ -112,20 +115,20 @@ def test_the_first_save_creates_the_new_document_draft_and_later_saves_update_it
     assert (
         call(
             config,
-            'save_document',
+            'update_document',
             document_id=new_id,
-            markdown='# API\n\nSecond.',
+            content='# API\n\nSecond.',
             title='API reference',
             description='Endpoints',
         )
-        == 'Saved draft (3 lines).'
+        == f'Saved draft (3 lines). {DRAFT_NOTE}'
     )
     assert drafts(s, run) == [
         {**first, 'markdown': '# API\n\nSecond.', 'title': 'API reference', 'description': 'Endpoints', 'revision': 2}
     ]
     assert (
         call(config, 'edit_document', document_id=new_id, old_text='Second.', new_text='Third.')
-        == 'Saved draft (3 lines).'
+        == f'Saved draft (3 lines). {DRAFT_NOTE}'
     )
     assert drafts(s, run) == [
         {**first, 'markdown': '# API\n\nThird.', 'title': 'API reference', 'description': 'Endpoints', 'revision': 3}
@@ -160,9 +163,11 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
     session, config, new_id = started(s)
     run = UUID(session['id'])
     assert call(config, 'get_document', document_id=new_id) == 'Not written yet.'
-    with pytest.raises(ValueError, match='Write the document with save_document first.'):
+    with pytest.raises(ValueError, match='Write the document with update_document first.'):
         call(config, 'edit_document', document_id=new_id, old_text='Old', new_text='New')
-    assert call(config, 'save_document', document_id=new_id, markdown='# New') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# New') == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     first = {
         'document_id': UUID(str(document)),
         'edited': False,
@@ -178,7 +183,9 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
     }
     assert drafts(s, run) == [first]
     assert metadata(s, run) == [('reference', 'people', ['payments'])]
-    assert call(config, 'save_document', document_id=new_id, markdown='# Newer') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# Newer') == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     assert drafts(s, run) == [{**first, 'markdown': '# Newer', 'revision': 2}]
     assert json.loads(call(config, 'get_document', document_id=new_id))['reads'] == 'your draft'
 
@@ -222,13 +229,13 @@ def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_doc
     assert (
         call(
             config,
-            'save_document',
+            'update_document',
             document_id=new_id,
-            markdown='# API',
+            content='# API',
             title='API reference',
             description='Endpoints',
         )
-        == 'Saved draft (1 lines).'
+        == f'Saved draft (1 lines). {DRAFT_NOTE}'
     )
     [draft] = draft_ids(s, run)
     document = UUID(str(promote(s, draft)['document_id']))
@@ -246,8 +253,9 @@ def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_doc
             tags=['payments'],
         )
         version = conn.execute('SELECT version FROM ka.documents WHERE id=%s', (document,)).fetchone()
-    assert call(config, 'save_document', document_id=new_id, markdown='# API v2') == (
-        f'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version {version["version"]}.'
+    assert call(config, 'update_document', document_id=new_id, content='# API v2') == (
+        f'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version {version["version"]}. '
+        + DRAFT_NOTE
     )
     [row] = drafts(s, run)  # the promoted draft is the live document now
     assert {
@@ -276,7 +284,7 @@ def test_a_promoted_new_document_links_the_resources_chosen_for_the_run(sessions
             resources={
                 'code_project_ids': [s.repo],
                 'service_ids': [s.service],
-                'documents': [{'new': NEW, 'editable': True}],
+                'documents': [{'new': NEW}],
             },
         ),
     )
@@ -284,7 +292,9 @@ def test_a_promoted_new_document_links_the_resources_chosen_for_the_run(sessions
     session = response.json()
     config = {**session['config'], 'session_id': session['id']}
     new_id = of(session['config'], 'document')[0]['id']
-    assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# API') == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     [draft] = draft_ids(s, session['id'])
     created = s.client.get(f'/api/documentation/documents/{promote(s, draft)["document_id"]}', headers=HEADERS).json()
     assert created['code_project_ids'] == [s.repo] and created['service_ids'] == [s.service]
@@ -312,7 +322,7 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
     resources = {
         'environment_ids': [s.environment],
         'code_project_ids': [s.repo],
-        'documents': [{'new': NEW, 'editable': True}],
+        'documents': [{'new': NEW}],
     }
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, resources=resources))
     assert response.status_code == 201, response.text
@@ -321,7 +331,9 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
     assert sorted(ids(session['config'], 'code_project')) == sorted([s.repo, s.worker])
     config = {**session['config'], 'session_id': session['id']}
     new_id = of(session['config'], 'document')[0]['id']
-    assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# API') == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     [draft] = draft_ids(s, session['id'])
     assert resource_ids(s, draft) == {
         'code_project_ids': [s.repo],
@@ -367,11 +379,11 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
     session, config, _ = started(s)
     _, _, other = started(s)
     for document_id in ('new:' + str(uuid4()), other):
-        refused = call(config, 'save_document', document_id=document_id, markdown='# Mine')
-        # the refusal names the documents the run may change: its own new document
-        assert refused.startswith(refuse_use('document') + ' Documents you may change: ')
+        refused = call(config, 'update_document', document_id=document_id, content='# Mine')
+        # the refusal names the documents the run may use: its own new document
+        assert refused.startswith(refuse_use('document') + ' Documents you may use: ')
         assert of(config, 'document')[0]['id'] in refused
-        assert call(config, 'get_document', document_id=document_id) == refuse_use('document')
+        assert call(config, 'get_document', document_id=document_id) == refused
     assert drafts(s, session['id']) == [] and all_drafts(s) == 0
 
 
@@ -415,9 +427,11 @@ def test_two_runs_cannot_draft_the_same_new_document(sessions, monkeypatch):
     monkeypatch.setattr(inventory, '_store', s.store)
     _, config, new_id = started(s)
     second, other, other_id = started(s)
-    assert call(config, 'save_document', document_id=new_id, markdown='# Mine') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# Mine') == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     with pytest.raises(ValueError) as refused:
-        call(other, 'save_document', document_id=other_id, markdown='# Theirs')
+        call(other, 'update_document', document_id=other_id, content='# Theirs')
     assert str(refused.value) == (
         'A document or draft named payments-api-reference already exists in this folder. Choose another name.'
     )
@@ -428,7 +442,7 @@ def test_a_new_document_run_is_refused_when_a_brand_new_draft_holds_its_name(ses
     s = sessions
     monkeypatch.setattr(inventory, '_store', s.store)
     session, config, new_id = started(s)
-    call(config, 'save_document', document_id=new_id, markdown='# Mine')
+    call(config, 'update_document', document_id=new_id, content='# Mine')
     [draft] = draft_ids(s, session['id'])
     with s.store.connect() as conn:
         before = conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n']
@@ -442,7 +456,9 @@ def test_a_new_document_run_is_refused_when_a_brand_new_draft_holds_its_name(ses
     # once promoted, the name is a live document's: a run starts and drafts that document
     promote(s, draft)
     again, other, other_id = started(s)
-    assert call(other, 'save_document', document_id=other_id, markdown='# Next') == 'Saved draft (1 lines).'
+    assert (
+        call(other, 'update_document', document_id=other_id, content='# Next') == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     [row] = drafts(s, again['id'])
     assert (row['document_id'], row['base_version'], row['slug']) == (draft, 1, None)
 
@@ -463,11 +479,11 @@ def test_a_brand_new_draft_a_person_edited_is_theirs_until_they_decide(sessions,
     s = sessions
     monkeypatch.setattr(inventory, '_store', s.store)
     session, config, new_id = started(s)
-    call(config, 'save_document', document_id=new_id, markdown='# API', title='API reference')
+    call(config, 'update_document', document_id=new_id, content='# API', title='API reference')
     [draft] = draft_ids(s, session['id'])
     edited = edit_by_person(s, draft)
     for tool, arguments in (
-        ('save_document', {'markdown': '# Mine'}),
+        ('update_document', {'content': '# Mine'}),
         ('edit_document', {'old_text': 'A', 'new_text': 'B'}),
     ):
         with pytest.raises(ValueError) as refused:
@@ -479,15 +495,18 @@ def test_a_brand_new_draft_a_person_edited_is_theirs_until_they_decide(sessions,
     assert draft_ids(s, session['id']) == [draft]
     if decision == 'promote':
         promote(s, draft)
-        assert call(config, 'save_document', document_id=new_id, markdown='# API v2') == (
-            'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version 1.'
+        assert call(config, 'update_document', document_id=new_id, content='# API v2') == (
+            f'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version 1. {DRAFT_NOTE}'
         )
         [row] = drafts(s, session['id'])
         assert (row['document_id'], row['base_version'], row['slug'], row['markdown']) == (draft, 1, None, '# API v2')
     else:
         url = f'/api/documentation/drafts/{draft}/discard'
         assert s.client.post(url, headers=HEADERS, json={'revision': edited['revision']}).status_code == 200
-        assert call(config, 'save_document', document_id=new_id, markdown='# Fresh') == 'Saved draft (1 lines).'
+        assert (
+            call(config, 'update_document', document_id=new_id, content='# Fresh')
+            == f'Saved draft (1 lines). {DRAFT_NOTE}'
+        )
         [row] = drafts(s, session['id'])
         assert (row['document_id'], row['slug'], row['markdown']) == (None, 'payments-api-reference', '# Fresh')
 
@@ -501,7 +520,7 @@ def inventory_body(s, **change):
     resources = {
         'code_project_ids': [s.repo],
         'environment_ids': [s.environment],
-        'documents': [{'new': new, 'editable': True}],
+        'documents': [{'new': new}],
     }
     return body(s, started_from={'new_document': new}, resources=resources, **change)
 
@@ -531,7 +550,10 @@ def test_an_inventory_run_saves_the_inventory_draft_built_for_exactly_its_resour
     assert s.repo in ids(session['config'], 'code_project')
     config = {**session['config'], 'session_id': session['id']}
     new_id = of(session['config'], 'document')[0]['id']
-    assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# Payments')
+        == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     [draft] = draft_ids(s, session['id'])
     assert resource_ids(s, draft) == {
         'code_project_ids': [],
@@ -544,7 +566,10 @@ def test_an_inventory_run_saves_the_inventory_draft_built_for_exactly_its_resour
         assert conn.execute('SELECT tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()['tags'] == ['inventory']
     found = s.client.get(f'/api/inventory/service/{s.service}/documents', headers=HEADERS).json()
     assert found['inventory_document']['id'] == str(draft)
-    assert call(config, 'save_document', document_id=new_id, markdown='# Payments\n\nMore.') == 'Saved draft (3 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# Payments\n\nMore.')
+        == f'Saved draft (3 lines). {DRAFT_NOTE}'
+    )
     assert draft_ids(s, session['id']) == [draft]
 
 
@@ -558,7 +583,10 @@ def test_an_inventory_run_writes_another_document_tagged_inventory_when_its_reso
     session = response.json()
     config = {**session['config'], 'session_id': session['id']}
     new_id = of(session['config'], 'document')[0]['id']
-    assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# Payments')
+        == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     [draft] = draft_ids(s, session['id'])
     with s.store.connect() as conn:
         assert conn.execute('SELECT tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()['tags'] == ['inventory']
@@ -607,7 +635,7 @@ def inventory_start(s, kind: str, resource_id: str, **change):
     new = {**NEW, 'tags': ['inventory'], f'{kind}_id': resource_id}
     change = {
         'started_from': {'new_document': new},
-        'resources': {'documents': [{'new': new, 'editable': True}]},
+        'resources': {'documents': [{'new': new}]},
         **change,
     }
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
@@ -680,7 +708,10 @@ def test_an_inventory_run_for_a_server_without_ssh_starts_without_it_and_says_so
     # it writes the server's inventory document: built for the server, which is in its access object
     [entry] = access_rules.listing(config['access'], 'document')
     assert entry['built_for'] == [['server', s.server['id']]]
-    assert call(config, 'save_document', document_id=entry['id'], markdown='# prod-1') == 'Saved draft (1 lines).'
+    assert (
+        call(config, 'update_document', document_id=entry['id'], content='# prod-1')
+        == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
     debug = s.client.get(f'/api/sessions/{session["id"]}/debug', headers=HEADERS).json()
     assert debug['notes'] == [note]
 

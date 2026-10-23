@@ -61,15 +61,10 @@ test("the calls use /api/sessions", async () => {
   expect(sessionPath("a/b")).toBe("/sessions/a%2Fb");
 });
 
-test("a turn saved its draft with the new or the old save tools", () => {
+test("a turn saved its draft with update_document or edit_document", () => {
   const turn = (name: string) =>
     ({ work: [{ kind: "tool", name, isError: false, preview: "Saved draft (3 lines)." }] }) as unknown as Turn;
-  expect(["save_document", "edit_document", "save_doc", "edit_doc"].map((name) => savedIn(turn(name)))).toEqual([
-    true,
-    true,
-    true,
-    true,
-  ]);
+  expect(["update_document", "edit_document"].map((name) => savedIn(turn(name)))).toEqual([true, true]);
   expect(savedIn(turn("get_document"))).toBe(false);
 });
 

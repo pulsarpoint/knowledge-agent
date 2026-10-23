@@ -99,7 +99,7 @@ def test_debug_shows_the_instructions_and_tools_the_runner_sends(world):
         ('server', 'web-1', 'given'),
         ('service', 'nginx', f'via server {world.server["id"]}'),
     ]
-    assert shown['access']['roles'] == {'content_editor': False}
+    assert set(shown['access']) == {'resources'}  # no roles
 
 
 def test_the_preview_shows_the_same_before_the_run_starts(world):
@@ -144,9 +144,9 @@ def test_a_library_prompt_and_its_version_and_a_wizard_prompt(world):
     assert shown['prompt_source'] == 'library'
     edited = debug(world, start(world, prompt_id=str(prompt_id), system_prompt=content + '\nAnd be brief.'))
     assert edited['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': None}
-    wizard = debug(world, start(world, tags=['proposals'], content_editor=True))
+    wizard = debug(world, start(world, tags=['proposals']))
     assert wizard['prompt_source'] == 'wizard' and wizard['prompt'] is None
-    assert wizard['access']['roles'] == {'content_editor': True}
+    assert 'roles' not in wizard['access']
 
 
 def test_secrets_never_show(world):

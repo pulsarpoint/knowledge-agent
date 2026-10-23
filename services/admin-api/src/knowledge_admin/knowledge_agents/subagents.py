@@ -5,7 +5,7 @@ and Generate documents), whose runner puts the turn's Subagents into the run con
 The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with its
 access object narrowed, the built-in prompt, no instructions, no skills and no experts. A subagent gets every tool but
 run_subagent (its run has no Subagents host) and every tool of the MCP servers in its access; what a tool may do is
-decided by its check against the subagent's access (the parent's, narrowed, content editor off).
+decided by its check against the subagent's access (the parent's, narrowed); it has no write tools.
 
 Running (Subagents): one per native turn, in parallel up to AGENT_MAX_SUBAGENTS, each recorded in the turn's record
 with parent_call_id and counted in the session's totals; Stop cancels them with the turn. Expert calls (ask_<name>,
@@ -66,13 +66,13 @@ def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]
 def subagent_access(parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
     """The parent's access narrowed (access.narrow, never widened) to what the subagent is given: the given resources
     (None: all of the parent's but its documents and skills, which a subagent never gets) and the parent's MCP servers;
-    content editor off (a subagent never changes content; it has no inventory write tools either)."""
+    a subagent never changes content: it has no document or inventory write tools (runner.instructions_and_tools)."""
     if resources is None:
         picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
     else:
         picked = picks(resources)
     picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server']
-    return access_rules.narrow(dict(parent), picked, ['content_editor'])
+    return access_rules.narrow(dict(parent), picked)
 
 
 def referenced_credentials(config: Mapping[str, Any], credentials: Mapping[str, str]) -> dict[str, str]:
@@ -142,7 +142,7 @@ class Subagents:
     (knowledge_admin.agents.runner.agent) as its own task, with the parent's scratch workspace, no history, no turn or time
     limit, SubagentEvents hooks and `model_filter`. A subagent gets only the parent turn's credentials its
     configuration references; an expert gets its own configuration and credentials from `load_expert(entry, given
-    resources, whether the calling run is a content editor)` (experts.load, run in a thread), whose secrets are added to the turn's `secrets` so the turn's record,
+    resources)` (experts.load, run in a thread), whose secrets are added to the turn's `secrets` so the turn's record,
     its answer and the tool result redact them too. An expert whose configuration has run_subagent gets a nested
     Subagents of its own (`nested`): its own slots (a slot the expert holds never blocks its helpers), the turn's
     per-turn count (`root`), its events in the turn's record under the expert's agent id, and no experts. Cancelling
@@ -157,9 +157,7 @@ class Subagents:
         record_usage: Callable[[dict[str, Any]], None] | None,
         run_agent: Callable[..., Awaitable[Any]],
         limit: int | None = None,
-        load_expert: Callable[
-            [dict[str, Any], Mapping[str, list[str]] | None, bool], tuple[dict[str, Any], dict[str, str]]
-        ]
+        load_expert: Callable[[dict[str, Any], Mapping[str, list[str]] | None], tuple[dict[str, Any], dict[str, str]]]
         | None = None,
         root: 'Subagents | None' = None,
         agent_id: str | None = None,
@@ -239,8 +237,7 @@ class Subagents:
         if self.root.started >= MAX_PER_TURN:
             raise ValueError(LIMIT)
         self.root.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
-        editor = access_rules.is_content_editor(context['config']['access'])  # the expert's only if its caller's too
-        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources, editor))
+        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources))
         try:
             config, credentials = await asyncio.shield(load)
         except asyncio.CancelledError:

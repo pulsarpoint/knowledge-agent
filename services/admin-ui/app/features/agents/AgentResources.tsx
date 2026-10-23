@@ -13,12 +13,11 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";
 import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "~/components/ui/field";
-import { Switch } from "~/components/ui/switch";
 
 const same = (a: AccessEntry, b: { type: string; id: string }) => a.type === b.type && a.id === b.id;
 
 /** The agent's Resources tab: what its access references, grouped by type. Add from the project's resources (or all of a
- * type), remove, make a document editable; a reference to a resource that no longer exists shows as missing and is
+ * type) or remove; a reference to a resource that no longer exists shows as missing and is
  * dropped on save. One Save writes the agent with its access object. */
 export default function AgentResources({
   profile,
@@ -60,12 +59,7 @@ export default function AgentResources({
     setDirty(true);
   }
   const add = (items: AccessEntry[]) =>
-    change([
-      ...draft,
-      ...items
-        .filter((item) => !draft.some((held) => same(held, item)))
-        .map((item) => (item.type === "document" ? { ...item, editable: false } : item)),
-    ]);
+    change([...draft, ...items.filter((item) => !draft.some((held) => same(held, item)))]);
   async function save() {
     setBusy(true);
     setError("");
@@ -120,19 +114,6 @@ export default function AgentResources({
                                 : item.description_short}
                             </p>
                           </div>
-                          {type === "document" && !item.missing && (
-                            <label className="flex items-center gap-2 text-sm">
-                              <Switch
-                                aria-label={`Editable ${name}`}
-                                disabled={busy}
-                                checked={Boolean(item.editable)}
-                                onCheckedChange={(editable) =>
-                                  change(draft.map((entry) => (same(entry, item) ? { ...entry, editable } : entry)))
-                                }
-                              />
-                              Editable
-                            </label>
-                          )}
                           <Button
                             type="button"
                             variant="ghost"

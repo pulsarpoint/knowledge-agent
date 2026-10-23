@@ -1,8 +1,7 @@
 """Access rules: pure functions over a run's access object.
 
-access = {"resources": [{type, id, name, description_short, source, editable?, ...}],
-          "roles": {"content_editor": bool}}  (a missing role is off; an unknown one, which an older stored object
-          may still carry, is ignored)
+access = {"resources": [{type, id, name, description_short, source, ...}]}  (keys an older stored object may still
+          carry, such as roles or a document entry's editable, are ignored)
 An entry also carries what the tools need to reach its resource: a code project its folder_paths (and graph_path,
 code_root), a collection its paths, a skill its description, a new document where it goes; a server its connection
 (hostname, port, username, allow_sudo, known_hosts, enabled, ssh_allowed, private_key_ref) and an MCP server its (url,
@@ -30,7 +29,6 @@ PUBLIC = (
     'name',
     'description_short',
     'source',
-    'editable',
     'description',
     'folder_paths',
     'paths',
@@ -43,9 +41,7 @@ PUBLIC = (
     'built_for',
 )
 NOT_AVAILABLE = 'This {type} is not available in this run.'
-NOT_EDITOR = 'This agent may not change content (content editor is off).'
 NONE_OF = 'This run has no {type}s.'
-ROLES = ('content_editor',)
 
 
 def entry(access: dict, type: str, id: str) -> dict | None:
@@ -69,25 +65,12 @@ def ssh_reason(server: dict) -> str | None:
     return None
 
 
-def is_content_editor(access: dict) -> bool:
-    return bool(access.get('roles', {}).get('content_editor'))
-
-
 def can_use(access: dict, type: str, id: str) -> bool:
     return entry(access, type, id) is not None
 
 
-def can_write_document(access: dict, document_id: str) -> bool:
-    e = entry(access, 'document', document_id)
-    return is_content_editor(access) and e is not None and bool(e.get('editable', False))
-
-
-def can_propose(access: dict, type: str, id: str) -> bool:
-    return is_content_editor(access) and can_use(access, type, id)
-
-
 def can_create_document(access: dict, built_for: list[tuple[str, str]]) -> bool:
-    return is_content_editor(access) and all(can_use(access, t, i) for t, i in built_for)
+    return all(can_use(access, t, i) for t, i in built_for)
 
 
 def has_any(access: dict, type: str) -> bool:
@@ -103,10 +86,9 @@ def refuse_none(*types: str) -> str:
     return NONE_OF.format(type='s or '.join(TYPE_WORDS[type] for type in types))
 
 
-def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] | None = None) -> dict:
-    """The agent's access or less: picked resources must be in the agent's list (each once); a pick may make an
-    editable document read-only (editable only when the pick and the agent's entry both say so; a pick without
-    editable keeps the entry's); roles are only switched off, and only the known ROLES are kept."""
+def narrow(agent_access: dict, picked: list[dict] | None) -> dict:
+    """The agent's access or less: picked resources must be in the agent's list (each once). Only the resources are
+    kept (an older object's roles are dropped)."""
     if picked is None:
         resources = [dict(r) for r in agent_access.get('resources', [])]
     else:
@@ -117,13 +99,8 @@ def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] |
                 raise ValueError(f"{TYPE_WORDS.get(p['type'], p['type'])} {p['id']} is not in the agent's access")
             if entry({'resources': resources}, p['type'], p['id']) is not None:
                 continue
-            found = dict(e)
-            if 'editable' in p and 'editable' in found:
-                found['editable'] = bool(found['editable'] and p['editable'])
-            resources.append(found)
-    given = agent_access.get('roles', {})
-    roles = {role: bool(given.get(role)) and role not in (roles_off or []) for role in ROLES}
-    return {'resources': resources, 'roles': roles}
+            resources.append(dict(e))
+    return {'resources': resources}
 
 
 def expand(access: dict, children: dict[tuple[str, str], list[dict]]) -> dict:

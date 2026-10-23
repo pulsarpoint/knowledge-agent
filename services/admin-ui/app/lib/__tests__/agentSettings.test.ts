@@ -28,11 +28,11 @@ test("defaults: the default model, the first tagged prompt, the usable linked re
 test("startInput sends no tool choice (every run gets every tool) and no content editor request", () => {
   const settings = defaultSettings(options);
   const body = startInput(doc(), options, settings, "x");
-  for (const gone of ["tools", "subagents", "content_editor"]) expect(body).not.toHaveProperty(gone);
+  for (const gone of ["tools", "subagents"]) expect(body).not.toHaveProperty(gone);
   expect(startInput(doc(), options, { ...settings, promptKey: OWN }, "x").prompt_id).toBeNull();
 });
 
-test("the start body gives the document as an editable resource and the context names it", () => {
+test("the start body gives the document as a resource and the context names it", () => {
   const body = startInput(doc(), options, defaultSettings(options), "  Add a section.  ");
   expect(body).toMatchObject({
     started_from: { document_id: "doc-1" },
@@ -41,7 +41,7 @@ test("the start body gives the document as an editable resource and the context 
     system_prompt: options.prompts[1].content,
     context: "Document: Runbook (id doc-1)",
   });
-  expect(body.resources.documents).toEqual([{ id: "doc-1", editable: true }]);
+  expect(body.resources.documents).toEqual([{ id: "doc-1" }]);
   expect(body).not.toHaveProperty("kind");
 });
 
@@ -239,8 +239,8 @@ const fuller = {
     ],
     environments: [{ id: "env", name: "Production", linked: false, brings_code: false, brings_servers: false }],
     documents: [
-      { id: "d1", name: "Runbook", linked: false, editable: true },
-      { id: "d2", name: "Guide", linked: false, editable: false },
+      { id: "d1", name: "Runbook", linked: false },
+      { id: "d2", name: "Guide", linked: false },
     ],
   },
 };
@@ -264,17 +264,14 @@ test("a saved agent starts with its own configuration and only narrows it", () =
       environment_ids: ["env"],
       code_project_ids: [],
       collection_ids: [],
-      documents: [{ id: "d1", editable: true }],
+      documents: [{ id: "d1" }],
     },
   });
 });
 
-test("a saved agent's documents are sent with the agent's own editable flag", () => {
+test("a saved agent's documents are sent as picked", () => {
   const body = startInput(agentScope, fuller, defaultSettings(fuller), "Go");
-  expect(body.resources.documents).toEqual([
-    { id: "d1", editable: true },
-    { id: "d2", editable: false },
-  ]);
+  expect(body.resources.documents).toEqual([{ id: "d1" }, { id: "d2" }]);
 });
 
 test("a saved agent defaults: its model and prompt, every resource of its access chosen", () => {
@@ -318,7 +315,7 @@ test("settings saved for an older revision of the agent are dropped", () => {
   expect(restoreSettings(agentOptions, { ...saved, revision: 3 }).experts).toEqual([]);
 });
 
-test("a new document: the start body names it as started_from and as the one editable document", () => {
+test("a new document: the start body names it as started_from and as the one document it writes", () => {
   const fresh = { ...options, resources: { ...options.resources, documents: [] } };
   const body = startInput(
     { kind: "new-document", folder: "payments", title: "Payments API" },
@@ -339,7 +336,7 @@ test("a new document: the start body names it as started_from and as the one edi
       environment_ids: [],
       code_project_ids: [],
       collection_ids: [],
-      documents: [{ new: { folder: "payments", name: "Payments API" }, editable: true }],
+      documents: [{ new: { folder: "payments", name: "Payments API" } }],
     },
     expert_ids: [],
   });
@@ -359,7 +356,6 @@ test("the start body for a server: the server is chosen even when not linked", (
     resources: { ...settings.chosen, server_ids: ["s1"], documents: [] },
     expert_ids: [],
   });
-  expect(body).not.toHaveProperty("content_editor"); // a plain chat on a server may not change content
 });
 
 test("the start body for an inventory document: its resource is chosen, a server only when the run can use it", () => {
@@ -375,7 +371,7 @@ test("the start body for an inventory document: its resource is chosen, a server
   expect(server.resources.server_ids).toEqual(["s1"]);
   const written = { folder: "payments", name: "Payments API", tags: ["inventory"], server_id: "s1" };
   expect(server.started_from).toEqual({ new_document: written });
-  expect(server.resources.documents).toEqual([{ new: written, editable: true }]);
+  expect(server.resources.documents).toEqual([{ new: written }]);
   // prod-1 has no usable SSH: the run starts without it (the start says so)
   const unusable = startInput(inventory("server", "s2"), options, settings, "Write it.");
   expect(unusable.resources.server_ids).toEqual([]);

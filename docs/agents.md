@@ -11,16 +11,14 @@ limit, no per-turn time limit, no 300-second limit).
   (`Select an enabled model in this agent’s General tab.`) are refused. A saved credential that cannot be decrypted
   does not refuse the start: the first turn fails with the worker's message.
 - **A run can only narrow the saved agent.** A saved agent stores what it may use as one access object
-  (`ka.agents.access`: resource references and the `content_editor` role) and its instructions
-  (`ka.agents.instructions`). A run gets the whole access object, or the resources the request picks out of it
-  (`resources`, environments and documents included); the run's `content_editor` is the agent's (the request may send
-  only `content_editor: false` to switch it off). Every run gets every tool, `run_subagent` and every offered expert;
+  (`ka.agents.access`: resource references; there are no roles, and keys an older stored object still carries are
+  ignored) and its instructions (`ka.agents.instructions`). A run gets the whole access object, or the resources the
+  request picks out of it (`resources`, environments and documents included). Every run gets every tool, `run_subagent`
+  and every offered expert;
   the access object decides what a tool may do. The request may choose some of the experts (`expert_ids`). Nothing can
   be added; `tools` and `subagents` are not request fields (sending them is a 400). The model and prompt are the
-  agent's own: change them in General, or clone the agent to try another prompt. Refused: "A run cannot make a saved
-  agent a content editor.", "A saved agent uses its own model and prompt." and a pick outside the agent's
-  access ("<type> <id> is not in the agent's access"); a document picked with `editable: false` is read-only in the
-  run. A reference to a deleted or archived resource is skipped; a server without usable SSH stays in the run.
+  agent's own: change them in General, or clone the agent to try another prompt. Refused: "A saved agent uses its own
+  model and prompt." and a pick outside the agent's access ("<type> <id> is not in the agent's access"). A reference to a deleted or archived resource is skipped; a server without usable SSH stays in the run.
   Event handlers can send to any enabled agent; its run gets the whole access object. An expert narrows its own
   agent's access object to the resources the caller passes.
 - `GET /api/sessions/options?agent_id=…` says what may be narrowed (the offered experts and the
@@ -44,14 +42,25 @@ limit, no per-turn time limit, no 300-second limit).
   library `prompt` it came from (`prompt_source` `wizard` for a run tagged `proposals`), `agent_instructions`,
   `skills`, `resources` by name and `model`. `GET /api/discovery/proposals?tag=&status=` lists the proposals of the
   runs with a tag, grouped by run, newest run first.
-- Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
-  when it has one, and works for the run's documents and, read-only, documents linked (built for or linked) to the
-  servers, services, environments and code projects the run was given.
-  `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
-  work only on documents given to the run as editable, and write the run's draft, never the live version. A new document
-  is such a resource too: a run started from Documents → New (`resources.documents[{new: {folder, name}, editable: true}]`)
-  saves it with `save_document`, which creates the draft of a new document built for the resources the run was started
-  for, not for what they bring along (see [documentation](documentation.md)). A run keeps updating its own draft
+- Document tools: every agent write to a document is a draft in the real documents, which a person publishes on the
+  document's page; every write reply ends with "This is a draft: a person publishes it on the document's page.". No
+  role: a document is usable (read and drafted) when it is in the run's access or linked (built for or linked) to a
+  server, service, environment or code project in it. `list_documents(resource)` lists a server's, service's or
+  environment's documents and its children's (the inventory document first) with `published` and `your_draft`, plus
+  the new documents the run drafted for it. `get_document(document_id, section?, start_line?, end_line?)` reads the
+  run's own draft of a document when it has one. `new_document(resource, title, content, description?, tags?)` creates
+  a new document as a draft built for a server, service or environment in the run's access (`resource`: `{type, id}`
+  or `{type, name}`), in that resource's folder (`servers/<slug>`, `service-documents/<slug>`,
+  `environments/<slug>`); a title already used by a document linked to the resource is refused with its id ("A
+  document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead."). It
+  returns the draft's id: only that run uses it until a person publishes the draft, and it stays the document's id
+  afterwards. `update_document(document_id, content, title?, description?, resource?)` saves the run's draft with the
+  whole text; `resource` adds a link that the draft holds and publishing adds to the document (migration 0130 lets a
+  draft of a live document hold `linked` links). `edit_document(document_id, old_text, new_text)` replaces one exact
+  passage. The write tools are offered only in a session turn: never to a subagent or an expert. A run started from
+  Documents → New (`resources.documents[{new: {folder, name}}]`) writes its new document (`new:<uuid>`) with
+  `update_document`, which creates the draft of a new document built for the resources the run was started for, not
+  for what they bring along (see [documentation](documentation.md)). A run keeps updating its own draft
   (`agent_sessions.last_draft_id`). Promote and discard delete drafts, and promoting one draft of a document deletes the
   others; the run's next save then starts a new draft of the live version, and the tool result says what happened to
   the earlier one: promoted, discarded, or removed because another draft was promoted. A person's edit makes a run's
@@ -75,11 +84,10 @@ limit, no per-turn time limit, no 300-second limit).
   `get_document` reads documents the run was given or linked to those resources; a document linked only to resources
   the run was not given is not available. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
-  hostnames, connections and server instructions come from `get_resource`. The edit tools' schemas are the same in
-  every run; given another document they answer with the documents the run may change. The proposal tool `propose_document` is offered in every run like
-  every tool; its check allows it only in a content-editor run that may propose for its starting resource, which
-  is what the Propose wizard starts (`content_editor: true`), in a run started from a server, service or environment.
-  A plain chat refuses it. Inventory findings are not proposals: services, deployments, connections and relations are
+  hostnames, connections and server instructions come from `get_resource`. The document tools' schemas are the same in
+  every run; given another document they answer with the documents the run may use. The proposal tool
+  `propose_document` is offered in every run like every tool; its check allows it in a run whose starting server,
+  service or environment is in its access. Inventory findings are not proposals: services, deployments, connections and relations are
   saved as drafts with the `save_*` tools (`save_inventory_draft` for many at once) and a person confirms or discards
   them in the environment workspace (`propose_service` and service proposals are gone, migration 0129). Accepting a document proposal creates a
   draft with the run's `session_id` (a brand-new draft, or a draft of the document it updates; it becomes the run's
@@ -213,8 +221,7 @@ or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin.
 failed: <reason>` (redacted) and the caller goes on.
 
 A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with its own
-access object narrowed to the given resources (a content editor only when its agent and the calling run both are; no
-inventory write tools), no conversation, and no expert tools (an expert cannot call experts). It has
+access object narrowed to the given resources (no document or inventory write tools), no conversation, and no expert tools (an expert cannot call experts). It has
 `run_subagent` like every run: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
 16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
 experts) helpers at once. The call loads its own credentials (the expert's model key and the keys of the resources it
@@ -352,7 +359,7 @@ saving the agent never changes a conversation in progress.
 
 **Clone agent** (the header menu *Actions for <name>* on the agent page, or the **Clone <name>** button in the All
 agents list) creates a new agent with an identical configuration: prompt, instructions, model, when to use, "Answer
-only from documents", its access object (resources and the content editor role) and tools with their usage text. The
+only from documents", its access object (its resources) and tools with their usage text. The
 name is `<name> (copy)`, then `(copy 2)` and so on while taken. Sessions, runs, run records, reviews and audit history
 are not copied. The clone records `cloned_from` and shows *Clone of <original>* on its General tab and in the list.
 

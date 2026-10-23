@@ -37,7 +37,7 @@ const summary = (id: string, name: string, enabled = true): profiles.AgentSummar
   model_id: "m1",
   system_prompt: "",
   instructions: "",
-  access: { resources: [], roles: { content_editor: false } },
+  access: { resources: [] },
   cloned_from: null,
   original: null,
   counts,

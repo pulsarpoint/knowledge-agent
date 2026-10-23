@@ -4,6 +4,8 @@ agent's instructions (ka.agents.instructions). The per-type id lists, switches a
 from access_helpers import give, of
 from uuid import uuid4
 
+from psycopg.types.json import Jsonb
+
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.profiles_api import AccessInput, counts, references, resolve
 from knowledge_admin.knowledge_agents.config import get_agent_config
@@ -11,7 +13,7 @@ from session_rows import a_model, add_review, add_test_session
 from test_profiles import create, wizard_payload
 from test_repositories import HEADERS
 
-EMPTY = {'resources': [], 'roles': {'content_editor': False}}
+EMPTY = {'resources': []}
 
 
 def documents(world) -> dict[str, str]:
@@ -43,18 +45,16 @@ def test_the_access_rules_without_a_database():
     stored = {
         'resources': [
             {'type': 'server', 'id': 's1'},
-            {'type': 'document', 'id': 'd1', 'editable': True},
+            {'type': 'document', 'id': 'd1'},
             {'type': 'server', 'id': 'gone'},
         ],
-        'roles': {'content_editor': True},
     }
     assert resolve(stored, FOUND) == {
         'resources': [
             FOUND['server'][0],
-            {**FOUND['document'][0], 'editable': True},
+            {**FOUND['document'][0]},
             {'type': 'server', 'id': 'gone', 'name': '', 'description_short': '', 'missing': True},
         ],
-        'roles': {'content_editor': True},
     }
     assert counts(stored, FOUND)['server'] == 1 and counts(stored, FOUND)['document'] == 1
     s1, d1 = str(uuid4()), str(uuid4())
@@ -65,17 +65,15 @@ def test_the_access_rules_without_a_database():
     value = AccessInput.model_validate(
         {
             'resources': [
-                {'type': 'server', 'id': s1, 'editable': True, 'name': 'ignored'},
+                {'type': 'server', 'id': s1, 'name': 'ignored'},
                 {'type': 'server', 'id': s1},
                 {'type': 'document', 'id': d1},
-                {'type': 'document', 'id': str(uuid4()), 'editable': True},
+                {'type': 'document', 'id': str(uuid4())},
             ],
-            'roles': {'content_editor': False},
         }
     )
     assert references(value, found) == {
-        'resources': [{'type': 'server', 'id': s1}, {'type': 'document', 'id': d1, 'editable': False}],
-        'roles': {'content_editor': False},
+        'resources': [{'type': 'server', 'id': s1}, {'type': 'document', 'id': d1}],
     }
 
 
@@ -90,10 +88,9 @@ def test_get_resolves_each_reference_and_marks_a_missing_one(world):
             [
                 ('server', w.server['id']),
                 ('environment', w.environment),
-                {'type': 'document', 'id': runbook, 'editable': True},
+                {'type': 'document', 'id': runbook},
                 ('service', gone),
             ],
-            content_editor=True,
         )
         conn.execute("UPDATE ka.agents SET instructions='Check twice.' WHERE id=%s", (agent['id'],))
     found = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
@@ -107,11 +104,9 @@ def test_get_resolves_each_reference_and_marks_a_missing_one(world):
                 'id': runbook,
                 'name': 'nginx runbook',
                 'description_short': 'About nginx runbook',
-                'editable': True,
             },
             {'type': 'service', 'id': gone, 'name': '', 'description_short': '', 'missing': True},
         ],
-        'roles': {'content_editor': True},
     }
     for gone_field in (
         'collection_ids',
@@ -130,14 +125,13 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
     overview = documents(w)['web-1 overview']
     access = {
         'resources': [
-            {'type': 'server', 'id': w.server['id'], 'editable': True},  # editable belongs to documents only
+            {'type': 'server', 'id': w.server['id'], 'editable': True},  # an old key: ignored
             {'type': 'service', 'id': str(w.nginx)},
             {'type': 'service', 'id': str(w.nginx)},  # once
-            {'type': 'document', 'id': overview, 'editable': True},
+            {'type': 'document', 'id': overview},
             {'type': 'code_project', 'id': str(uuid4())},  # no longer exists: dropped
             {'type': 'collection', 'id': str(w.environment)},  # not a collection: dropped
         ],
-        'roles': {'content_editor': True},
     }
     saved = w.client.put(
         f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(agent, access=access, instructions='Be brief.')
@@ -149,9 +143,8 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
         'resources': [
             {'type': 'server', 'id': w.server['id']},
             {'type': 'service', 'id': str(w.nginx)},
-            {'type': 'document', 'id': overview, 'editable': True},
+            {'type': 'document', 'id': overview},
         ],
-        'roles': {'content_editor': True},
     }
     assert [r['type'] for r in saved.json()['access']['resources']] == ['server', 'service', 'document']
     config = get_agent_config(agent['id'], conninfo=w.store.conninfo)
@@ -163,7 +156,6 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
     latest = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
     unknown = {
         'resources': [{'type': 'printer', 'id': str(uuid4())}],
-        'roles': {'content_editor': False},
     }
     refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(latest, access=unknown))
     assert refused.status_code == 400 and "'server'" in refused.text, refused.text
@@ -220,7 +212,6 @@ def test_the_wizard_creates_an_agent_with_its_access_and_instructions(world):
         instructions='Read the logs first.',
         access={
             'resources': [{'type': 'server', 'id': w.server['id']}, {'type': 'service', 'id': str(w.nginx)}],
-            'roles': {'content_editor': True},
         },
     )
     created = w.client.post('/api/agents/wizard', headers=HEADERS, json=payload)
@@ -229,13 +220,11 @@ def test_the_wizard_creates_an_agent_with_its_access_and_instructions(world):
     assert row['instructions'] == 'Read the logs first.'
     assert row['access'] == {
         'resources': [{'type': 'server', 'id': w.server['id']}, {'type': 'service', 'id': str(w.nginx)}],
-        'roles': {'content_editor': True},
     }
     missing = wizard_payload(
         'Other',
         access={
             'resources': [{'type': 'server', 'id': str(uuid4())}],
-            'roles': {'content_editor': False},
         },
     )
     refused = w.client.post('/api/agents/wizard', headers=HEADERS, json=missing)
@@ -249,14 +238,13 @@ def test_a_clone_copies_access_and_instructions_and_apply_writes_them_back(world
     w = world
     agent = create(w.client, 'Original')
     with w.store.connect() as conn:
-        give(conn, agent['id'], [('server', w.server['id'])], content_editor=True)
+        give(conn, agent['id'], [('server', w.server['id'])])
         conn.execute("UPDATE ka.agents SET instructions='Original notes.' WHERE id=%s", (agent['id'],))
     copy_id = w.client.post(f'/api/agents/{agent["id"]}/clone', headers=HEADERS).json()['id']
     assert stored(w, copy_id) == stored(w, agent['id'])
     copied = w.client.get(f'/api/agents/{copy_id}', headers=HEADERS).json()
     changed = {
         'resources': [{'type': 'environment', 'id': str(w.environment)}],
-        'roles': {'content_editor': False},
     }
     saved = w.client.put(
         f'/api/agents/{copy_id}', headers=HEADERS, json=body(copied, access=changed, instructions='New.')
@@ -316,19 +304,28 @@ def test_the_agent_parts_of_operations_are_gone(world):
     assert w.client.get(f'/api/servers/{server}/ssh', headers=HEADERS).status_code == 200  # the server's own stays
 
 
-def test_put_refuses_the_inventory_editor_role_and_an_old_stored_one_reads_as_gone(world):
+def test_put_refuses_roles_and_an_old_stored_role_or_editable_reads_as_gone(world):
     w = world
     agent = create(w.client, 'Inventory keeper')
-    access = {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': True}}
+    access = {'resources': [], 'roles': {}}
     refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(agent, access=access))
-    assert refused.status_code == 400, refused.text  # an unknown role, as any unknown key
-    with w.store.connect() as conn:  # stored before the role went
+    assert refused.status_code == 400, refused.text  # roles are gone: an unknown key
+    runbook = documents(w)['nginx runbook']
+    with w.store.connect() as conn:  # stored before the roles went
         conn.execute(
-            """UPDATE ka.agents SET access=jsonb_set(access,'{roles,inventory_editor}','true') WHERE id=%s""",
-            (agent['id'],),
+            'UPDATE ka.agents SET access=%s WHERE id=%s',
+            (
+                Jsonb(
+                    {
+                        'resources': [{'type': 'document', 'id': runbook, 'editable': True}],
+                        'roles': {'content_editor': True, 'inventory_editor': True},
+                    }
+                ),
+                agent['id'],
+            ),
         )
     found = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
-    assert found['access']['roles'] == {'content_editor': False}
+    assert 'roles' not in found['access'] and 'editable' not in found['access']['resources'][0]
     saved = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(found, access=found['access']))
     assert saved.status_code == 200, saved.text
-    assert stored(w, agent['id'])['access']['roles'] == {'content_editor': False}
+    assert stored(w, agent['id'])['access'] == {'resources': [{'type': 'document', 'id': runbook}]}

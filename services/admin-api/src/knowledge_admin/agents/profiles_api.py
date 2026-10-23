@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.access import TYPES, is_content_editor
+from knowledge_admin.access import TYPES
 from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
@@ -44,20 +44,13 @@ class AccessEntry(BaseModel):
     model_config = ConfigDict(extra='ignore')  # an entry as GET resolves it (name, description_short, missing) is fine
     type: Literal[TYPES]
     id: UUID
-    editable: bool = Field(default=False, strict=True)  # documents only
-
-
-class Roles(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    content_editor: bool = Field(default=False, strict=True)
 
 
 class AccessInput(BaseModel):
-    """An agent's access object: references to the project's resources and its roles."""
+    """An agent's access object: references to the project's resources."""
 
     model_config = ConfigDict(extra='forbid')
     resources: list[AccessEntry] = Field(max_length=1000)
-    roles: Roles
 
 
 def project_resources(conn, project) -> dict[str, list[dict]]:
@@ -76,8 +69,8 @@ def _index(found: dict[str, list[dict]]) -> dict[tuple[str, str], dict]:
 
 
 def resolve(access: dict, found: dict[str, list[dict]]) -> dict:
-    """The access object as the editor shows it: each reference with its name and short description (a document with
-    editable); a reference to a resource that no longer exists is marked missing."""
+    """The access object as the editor shows it: each reference with its name and short description; a reference to
+    a resource that no longer exists is marked missing."""
     index = _index(found)
     resources = []
     for ref in access.get('resources', []):
@@ -87,27 +80,20 @@ def resolve(access: dict, found: dict[str, list[dict]]) -> dict:
         )
         if key not in index:
             entry['missing'] = True
-        if ref['type'] == 'document':
-            entry['editable'] = bool(ref.get('editable'))
         resources.append(entry)
-    roles = {'content_editor': is_content_editor(access)}
-    return {'resources': resources, 'roles': roles}
+    return {'resources': resources}
 
 
 def references(value: AccessInput, found: dict[str, list[dict]]) -> dict:
     """The access object to store: each reference once, only to a resource of the project that exists (others are
-    dropped); editable is kept for documents only."""
+    dropped)."""
     index = _index(found)
     resources: dict[tuple[str, str], dict] = {}
     for ref in value.resources:
         key = (ref.type, str(ref.id))
         if key in index and key not in resources:
-            resources[key] = {
-                'type': ref.type,
-                'id': key[1],
-                **({'editable': ref.editable} if ref.type == 'document' else {}),
-            }
-    return {'resources': list(resources.values()), 'roles': value.roles.model_dump()}
+            resources[key] = {'type': ref.type, 'id': key[1]}
+    return {'resources': list(resources.values())}
 
 
 def counts(access: dict, found: dict[str, list[dict]]) -> dict[str, int]:

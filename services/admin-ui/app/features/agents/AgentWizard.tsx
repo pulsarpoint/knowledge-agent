@@ -9,7 +9,7 @@ import {
   type WizardOptions,
   type WizardResource,
 } from "./wizard";
-import { ACCESS_TYPES, CONTENT_EDITOR_HELP, countsSummary, type AccessType } from "./api";
+import { ACCESS_TYPES, countsSummary, type AccessType } from "./api";
 import { PROMPT_LIMIT } from "./AgentPromptCard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -100,7 +100,7 @@ function blankProposal(model_id: string | null): AgentProposal {
     instructions: "",
     model_id,
     enabled: true,
-    access: { resources: [], roles: { content_editor: false } },
+    access: { resources: [] },
   };
 }
 
@@ -190,13 +190,13 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   function edit(value: Partial<AgentProposal>) {
     setProposal((current) => (current ? { ...current, ...value } : current));
   }
-  /** The picked ids of one type: kept ones stay in place, new ones are added at the end (a document read-only). */
+  /** The picked ids of one type: kept ones stay in place, new ones are added at the end. */
   function pick(type: AccessType, ids: string[]) {
     if (!proposal) return;
     const kept = proposal.access.resources.filter((item) => item.type !== type || ids.includes(item.id));
     const added = ids
       .filter((id) => !kept.some((item) => item.type === type && item.id === id))
-      .map((id) => (type === "document" ? { type, id, editable: false } : { type, id }));
+      .map((id) => ({ type, id }));
     edit({ access: { ...proposal.access, resources: [...kept, ...added] } });
   }
   async function generate() {
@@ -429,21 +429,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                           onChange={(e) => edit({ instructions: e.target.value })}
                         />
                       </Field>
-                      <Field orientation="horizontal">
-                        <Switch
-                          id="wizard-content-editor"
-                          checked={proposal.access.roles.content_editor}
-                          onCheckedChange={(content_editor) =>
-                            edit({
-                              access: { ...proposal.access, roles: { ...proposal.access.roles, content_editor } },
-                            })
-                          }
-                        />
-                        <FieldContent>
-                          <FieldLabel htmlFor="wizard-content-editor">Content editor</FieldLabel>
-                          <FieldDescription>{CONTENT_EDITOR_HELP}</FieldDescription>
-                        </FieldContent>
-                      </Field>
                       <FieldSet>
                         <FieldLegend>Proposed resources</FieldLegend>
                         <p className="text-sm" aria-label="Proposed resources">
@@ -490,26 +475,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                               selected={picked.map((item) => item.id)}
                               onChange={(ids) => pick(type, ids)}
                             />
-                            {type === "document" &&
-                              picked.map((item) => (
-                                <Toggle
-                                  key={item.id}
-                                  label={`Editable ${options.find((option) => option.id === item.id)?.name ?? item.id}`}
-                                  checked={Boolean(item.editable)}
-                                  onChange={(editable) =>
-                                    edit({
-                                      access: {
-                                        ...proposal.access,
-                                        resources: proposal.access.resources.map((entry) =>
-                                          entry.type === "document" && entry.id === item.id
-                                            ? { ...entry, editable }
-                                            : entry,
-                                        ),
-                                      },
-                                    })
-                                  }
-                                />
-                              ))}
                           </FieldGroup>
                         );
                       })}

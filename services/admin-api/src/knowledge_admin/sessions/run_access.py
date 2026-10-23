@@ -170,10 +170,9 @@ def run_access(
     holds: list[dict[str, Any]],
     picked: list[dict[str, Any]] | None,
     *,
-    content_editor: bool = False,
     own: tuple[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The run's access object out of the entries it holds. picked: [{type, id, editable?}] the run was given (None:
+    """The run's access object out of the entries it holds. picked: [{type, id}] the run was given (None:
     everything it holds); raises ValueError when a pick is not held (access.narrow). What it was given brings its
     children (_brought). own: (type, id) of the run's own resource (a resource run's, or the one its inventory
     document is about): always in its access object, bringing nothing of its own."""
@@ -190,8 +189,7 @@ def run_access(
                 holds.append(entry(own[0], row))
         if picked is not None and own_pick not in picked:
             picked = [*picked, own_pick]
-    roles = {'content_editor': content_editor}
-    narrowed = access_rules.narrow({'resources': holds, 'roles': roles}, picked)
+    narrowed = access_rules.narrow({'resources': holds}, picked)
     by_key = {(item['type'], item['id']): item for item in holds}
     return access_rules.expand(narrowed, _children(conn, project, by_key))
 
@@ -201,16 +199,11 @@ def agent_access(
     project,
     config: dict[str, Any],
     picked: list[dict[str, Any]] | None,
-    *,
-    content_editor: bool,
 ) -> dict[str, Any]:
     """A saved agent's run's access object: the agent's access (as get_agent_config holds it) narrowed to picked
     (None: all of it; ValueError: a pick outside it, access.narrow; its skills and MCP servers are added by
     run_access), what was given bringing its children (run_access: the agent's access need not hold them)."""
     holds = config['access']['resources']
     given_entries = access_rules.narrow({'resources': holds}, picked)['resources']
-    picks_given = [
-        {'type': item['type'], 'id': item['id'], **({'editable': item['editable']} if 'editable' in item else {})}
-        for item in given_entries
-    ]
-    return run_access(conn, project, holds, picks_given, content_editor=content_editor)
+    picks_given = [{'type': item['type'], 'id': item['id']} for item in given_entries]
+    return run_access(conn, project, holds, picks_given)

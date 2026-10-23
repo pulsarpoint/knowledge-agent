@@ -16,8 +16,8 @@ from knowledge_admin.identity import request_actor
 from knowledge_admin.capabilities.discovery import RESOURCE_COLUMNS, RESOURCE_TABLES
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as lifecycle
-from knowledge_admin.documents.api import document_slug, export_conflict
-from knowledge_admin.documents.drafts import DraftContent
+from knowledge_admin.documents.api import document_slug
+from knowledge_admin.documents.drafts import DraftContent, free_folder, free_slug
 from knowledge_admin.documents.store import Provenance
 from knowledge_admin.inventory import store as inventory
 from knowledge_admin.inventory.rules import Invalid
@@ -68,46 +68,6 @@ def first_error(exc: ValidationError) -> str:
     message = str(error['msg']).removeprefix('Value error, ')
     location = '.'.join(str(part) for part in error['loc'])
     return f'{location}: {message}' if location else message
-
-
-def free_slug(conn, project, folder: str, base: str) -> str:
-    """The first slug in the folder that no document has and whose export does not overlap another export."""
-    base = base[:110].rstrip('-') or 'document'
-    for number in range(1, 1000):
-        slug = base if number == 1 else f'{base}-{number}'
-        if (
-            conn.execute(
-                'SELECT 1 FROM ka.documents WHERE project_id=%s AND folder=%s AND slug=%s', (project, folder, slug)
-            ).fetchone()
-            is None
-            and export_conflict(conn, project, slug, folder) is None
-        ):
-            return slug
-    raise HTTPException(409, 'Too many documents with this name. Rename one and try again.')
-
-
-# The document folder roots of each resource type, in order: a root that is a document's export is skipped. A
-# top-level services folder is reserved (documents_folder_check).
-FOLDER_ROOTS = {
-    'server': ('servers', 'server-documents'),
-    'service': ('service-documents',),
-    'environment': ('environments', 'environment-documents'),
-}
-
-
-def free_folder(conn, project, kind: str, entry_slug: str) -> str:
-    """<root>/<entry> (servers/web-1, service-documents/nginx, environments/production), or <root>/<entry>-2, -3, ...
-    when the folder itself cannot hold exports (a document is named like it, or a folder level is a document's
-    export): the conflict does not depend on the slug. When a root itself is a document's export, the next root of
-    FOLDER_ROOTS is used instead."""
-    for root in FOLDER_ROOTS[kind]:
-        for number in range(1, 100):
-            folder = f'{root}/{entry_slug}' if number == 1 else f'{root}/{entry_slug}-{number}'
-            if export_conflict(conn, project, 'probe-slug-0', folder) is None:
-                return folder
-    raise HTTPException(
-        409, f"No folder is free for this {kind}'s documents. Rename a document or folder and try again."
-    )
 
 
 def run_resource(conn, row: dict) -> dict | None:

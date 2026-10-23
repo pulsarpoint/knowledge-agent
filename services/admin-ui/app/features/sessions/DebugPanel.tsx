@@ -174,15 +174,11 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
               >
                 <span className="text-muted-foreground">{TYPE_WORDS[resource.type] ?? resource.type}</span>
                 <span className="break-words font-medium">{resource.name}</span>
-                {resource.editable && <span className="text-xs text-muted-foreground">editable</span>}
                 <span className="ml-auto text-xs text-muted-foreground">{source(resource, resources)}</span>
               </li>
             ))}
           </ul>
         )}
-      </Section>
-      <Section title="Roles">
-        <p className="text-sm">Content editor: {view.access.roles.content_editor ? "on" : "off"}</p>
       </Section>
       <Section title="Model">
         <p className="text-sm">{view.model?.name ?? "No model"}</p>

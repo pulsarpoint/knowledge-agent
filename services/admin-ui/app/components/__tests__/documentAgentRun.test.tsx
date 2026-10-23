@@ -19,7 +19,7 @@ const turn = (n: number, work: Turn["work"]): Turn => ({
   usage: { input: 0, output: 0, cached: 0, reasoning: 0, total: 0, calls: 0 },
   subagents: [],
 });
-const saved = turn(1, [{ id: 1, kind: "tool", text: "", name: "save_doc", preview: "Saved draft (3 lines)." }]);
+const saved = turn(1, [{ id: 1, kind: "tool", text: "", name: "update_document", preview: "Saved draft (3 lines)." }]);
 const chat = turn(2, [{ id: 2, kind: "tool", text: "", name: "get_doc", preview: "Title: Runbook" }]);
 function api(routes: Record<string, () => [number, unknown]>) {
   vi.stubGlobal(
@@ -35,7 +35,7 @@ function api(routes: Record<string, () => [number, unknown]>) {
 afterEach(() => vi.unstubAllGlobals());
 const at = "2026-10-12T10:00:00Z";
 
-test("savedIn counts only a successful save_doc or edit_doc", () => {
+test("savedIn counts only a successful update_document or edit_document", () => {
   expect(savedIn(saved)).toBe(true);
   expect(savedIn(chat)).toBe(false);
   expect(
@@ -45,7 +45,7 @@ test("savedIn counts only a successful save_doc or edit_doc", () => {
           id: 3,
           kind: "tool",
           text: "",
-          name: "edit_doc",
+          name: "edit_document",
           preview: "This text is not in the document.",
           isError: true,
         },

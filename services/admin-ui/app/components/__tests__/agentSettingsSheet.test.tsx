@@ -44,7 +44,7 @@ function Harness({
   );
 }
 
-test("editable: linked resources ticked, unusable server disabled; no tool switches (every run gets every tool)", () => {
+test("before a conversation: linked resources ticked, unusable server disabled; no tool switches (every run gets every tool)", () => {
   render(<Harness />);
   expect(screen.getByRole("heading", { name: "Agent settings" })).toBeInTheDocument();
   expect(screen.getByText("What the agent may use in the next conversation on “Runbook”.")).toBeInTheDocument();
@@ -115,7 +115,7 @@ test("read-only: Advanced still opens and shows the run's system prompt, disable
   fireEvent.click(advanced);
   expect(screen.getByRole("textbox", { name: "System prompt" })).toBeDisabled();
   expect(screen.getByRole("textbox", { name: "System prompt" })).toHaveValue(
-    "Read with get_document. Change with edit_document or save_document.",
+    "Read with get_document. Change with edit_document or update_document.",
   );
 });
 
@@ -134,7 +134,7 @@ test("a saved agent shows its model and prompt read-only and offers only narrowi
   expect(screen.getByRole("checkbox", { name: "Payments expert" })).toBeChecked();
 });
 
-test("a saved agent's run picks a subset of its documents and servers, each document as the agent has it", () => {
+test("a saved agent's run picks a subset of its documents and servers; each may be drafted", () => {
   const fuller: AgentOptions = {
     ...agentOptions,
     resources: {
@@ -144,8 +144,8 @@ test("a saved agent's run picks a subset of its documents and servers, each docu
         { id: "s2", name: "db-1", linked: false, usable: false, reason: "SSH is not set up" },
       ],
       documents: [
-        { id: "d1", name: "Runbook", linked: false, editable: true },
-        { id: "d2", name: "Guide", linked: false, editable: false },
+        { id: "d1", name: "Runbook", linked: false },
+        { id: "d2", name: "Guide", linked: false },
       ],
     },
   };
@@ -153,8 +153,8 @@ test("a saved agent's run picks a subset of its documents and servers, each docu
   const guide = screen.getByRole("checkbox", { name: "Guide" });
   expect(guide).toBeChecked();
   expect(guide).toBeEnabled();
-  expect(screen.getByText("Read only.")).toBeInTheDocument();
-  expect(screen.getByText("The agent may change it (as a draft).")).toBeInTheDocument();
+  expect(screen.queryByText("Read only.")).toBeNull();
+  expect(screen.getAllByText("The agent may change it (as a draft).")).toHaveLength(2);
   fireEvent.click(guide);
   expect(screen.getByRole("checkbox", { name: "Guide" })).not.toBeChecked();
   const db = screen.getByRole("checkbox", { name: "db-1" }); // given without SSH: it can still be left out

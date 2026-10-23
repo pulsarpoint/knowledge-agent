@@ -1,13 +1,13 @@
 """Every run gets every tool: the whole catalog (run_subagent except in a subagent, the wake-up and inventory write tools only in a session
 turn), every expert (narrowed by the request's expert_ids), every tool of the MCP servers in its access; the access
-object alone decides what a tool may do. A request carries no tool switches; an ad-hoc run asks for the content editor role with content_editor."""
+object alone decides what a tool may do. A request carries no tool switches and there are no roles."""
 
 import asyncio
 
 from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.capabilities.documents import check_report_not_covered, report_not_covered
 from knowledge_admin.knowledge_agents.subagents import subagent_config
-from knowledge_admin.tools.catalog import CATALOG, INVENTORY_WRITES, WAKEUPS
+from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, WAKEUPS
 from test_discovery_runs import config_of, ssh_ready
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_saved_agent import agent, start  # noqa: F401  (fixture)
@@ -53,9 +53,9 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_and_no_expe
     parent['experts'] = [EXPERT]
     sub = subagent_config(parent, None)
     assert names(sub, subagents=False) == [
-        name for name in EVERY if name != 'run_subagent' and name not in WAKEUPS | INVENTORY_WRITES
+        name for name in EVERY if name != 'run_subagent' and name not in WAKEUPS | INVENTORY_WRITES | DOCUMENT_WRITES
     ]
-    assert sub['experts'] == [] and not sub['access']['roles']['content_editor']
+    assert sub['experts'] == [] and 'roles' not in sub['access']
 
 
 def test_a_subagent_keeps_the_mcp_servers_of_its_parents_access():
@@ -86,7 +86,7 @@ def test_the_prompt_has_no_tool_notes():
 
 
 def test_report_not_covered_refuses_outside_a_grounded_run():
-    access = {'resources': [], 'roles': {'content_editor': False}}
+    access = {'resources': []}
     assert check_report_not_covered(access, reason='missing') == NOT_GROUNDED
     assert check_report_not_covered(access, grounded=True, reason='missing') is None
     plain = config(documents=True)
@@ -125,27 +125,20 @@ def test_a_resource_run_offers_every_tool(world):
     assert [tool['name'] for tool in preview.json()['tools']] == EVERY  # no experts in this workspace
 
 
-def test_the_propose_wizard_asks_for_the_content_editor_role_and_a_plain_chat_cannot_propose(world):
+def test_a_resource_chat_may_propose_without_a_role(world):
     ssh_ready(world)
-    created = world.client.post(
-        '/api/sessions', headers=HEADERS, json=body(world, tags=['proposals'], content_editor=True)
-    )
+    created = world.client.post('/api/sessions', headers=HEADERS, json=body(world, tags=['proposals']))
     assert created.status_code == 201, created.text
-    wizard = config_of(world, created.json()['id'])
-    assert wizard['access']['roles']['content_editor'] is True
+    chat = config_of(world, created.json()['id'])
+    assert 'roles' not in chat['access']
     spec = CATALOG['propose_document']
     arguments = spec.arguments.model_validate({'title': 'Disks', 'markdown': '# Disks', 'description': ''})
-    assert asyncio.run(spec.run({'config': wizard}, arguments)).startswith('Proposal 1:')
-    plain = world.client.post('/api/sessions', headers=HEADERS, json=body(world))
-    assert plain.status_code == 201, plain.text
-    chat = config_of(world, plain.json()['id'])
-    assert chat['access']['roles']['content_editor'] is False
-    assert asyncio.run(spec.run({'config': chat}, arguments)) == (
-        'This agent may not change content (content editor is off).'
-    )
+    assert asyncio.run(spec.run({'config': chat}, arguments)).startswith('Proposal 1:')
+    refused = world.client.post('/api/sessions', headers=HEADERS, json=body(world, content_editor=True))
+    assert refused.status_code == 400  # no longer a request field
 
 
-def test_a_saved_agent_gets_every_tool_and_expert_and_may_only_switch_the_role_off(agent):
+def test_a_saved_agent_gets_every_tool_and_expert(agent):
     response = start(agent.client, '/preview', agent_id=agent.id)
     assert response.status_code == 200, response.text
     shown = response.json()
@@ -153,25 +146,7 @@ def test_a_saved_agent_gets_every_tool_and_expert_and_may_only_switch_the_role_o
     assert [entry['id'] for entry in shown['config']['experts']] == [agent.expert]
     narrowed = start(agent.client, '/preview', agent_id=agent.id, expert_ids=[]).json()
     assert narrowed['config']['experts'] == [] and 'ask_payments_expert' not in str(narrowed['tools'])
-    refused = start(agent.client, '/preview', agent_id=agent.id, content_editor=True)
-    assert refused.status_code == 400
-    assert refused.json()['error']['message'] == 'A run cannot make a saved agent a content editor.'
-    off = start(agent.client, '/preview', agent_id=agent.id, content_editor=False)
-    assert off.status_code == 200 and off.json()['config']['access']['roles']['content_editor'] is False
-
-
-def test_a_saved_agent_that_is_a_content_editor_keeps_or_drops_the_role(agent, ask):
-    from knowledge_admin.access import is_content_editor
-
-    with ask.s.store.connect() as conn:
-        conn.execute(
-            """UPDATE ka.agents SET access=jsonb_set(access,'{roles,content_editor}','true') WHERE id=%s""", (agent.id,)
-        )
-    kept = start(agent.client, '/preview', agent_id=agent.id, content_editor=True).json()['config']['access']
-    assert is_content_editor(kept)
-    assert is_content_editor(start(agent.client, '/preview', agent_id=agent.id).json()['config']['access'])
-    off = start(agent.client, '/preview', agent_id=agent.id, content_editor=False).json()['config']['access']
-    assert not is_content_editor(off)
+    assert 'roles' not in shown['config']['access']
 
 
 def test_the_options_carry_no_tools(agent, ask):

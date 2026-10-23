@@ -71,7 +71,6 @@ BAD_TAG = 'A tag is lowercase letters, digits, _ and -, in parts separated by /,
 TOO_MANY_TAGS = 'A run takes at most 10 tags.'
 RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
-NOT_AN_EDITOR = 'A run cannot make a saved agent a content editor.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
 NO_SSH = (
     'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
@@ -114,19 +113,16 @@ class NewDocument(BaseModel):
 
 
 class DocumentAccess(BaseModel):
-    """A document the run may read (and edit, when editable), or a new document it may write (always editable)."""
+    """A document the run may use (read and draft), or a new document it writes."""
 
     model_config = ConfigDict(extra='forbid')
     id: UUID | None = None
     new: NewDocument | None = None
-    editable: bool = False
 
     @model_validator(mode='after')
     def valid(self):
         if (self.id is None) == (self.new is None):
             raise ValueError(ID_OR_NEW)
-        if self.new is not None:
-            self.editable = True
         return self
 
 
@@ -168,9 +164,8 @@ def resource_tag(kind: str, resource_id) -> str:
 
 class StartInput(BaseModel):
     """What a start panel sends: the first message, the model and prompt, facts from where it starts (context), what
-    the run may use (resources, experts; every run gets every tool), whether it may change content (content_editor:
-    an ad-hoc run asks for the role, as the Propose wizard does; a saved agent's request may only switch its own off)
-    and where it was started from (a label for lists). A saved agent's run is a Test session unless purpose is chat
+    the run may use (resources, experts; every run gets every tool; every run may draft documents and inventory within
+    its access) and where it was started from (a label for lists). A saved agent's run is a Test session unless purpose is chat
     (Run agent on the Agents page)."""
 
     model_config = ConfigDict(extra='forbid')
@@ -184,7 +179,6 @@ class StartInput(BaseModel):
     context: str = Field(default='', max_length=20000)
     resources: Resources = Field(default_factory=Resources)
     expert_ids: list[UUID] | None = Field(default=None, max_length=50)  # None: every expert offered
-    content_editor: bool | None = None  # None: an ad-hoc run's rule (a new document or a revision), a saved agent's own
     tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
 
     @model_validator(mode='after')
@@ -216,14 +210,11 @@ class StartInput(BaseModel):
                 raise ValueError(RESOURCE_TAG.format(tag=tag))
         if len(self.run_tags()) > MAX_TAGS:
             raise ValueError(TOO_MANY_TAGS)
-        merged: dict[UUID, bool] = {}
         new = [entry for entry in self.resources.documents if entry.new is not None]
         if len(new) > 1:
             raise ValueError(ONE_NEW)
-        for entry in self.resources.documents:  # one entry per document; editable wins
-            if entry.id is not None:
-                merged[entry.id] = merged.get(entry.id, False) or entry.editable
-        self.resources.documents = [DocumentAccess(id=key, editable=value) for key, value in merged.items()] + new
+        given = dict.fromkeys(entry.id for entry in self.resources.documents if entry.id is not None)  # each once
+        self.resources.documents = [DocumentAccess(id=key) for key in given] + new
         return self
 
     def resource(self) -> tuple[str, UUID] | None:
@@ -303,7 +294,7 @@ def target_document(conn, project: UUID, document_id: UUID) -> dict:
 
 
 def document_access(conn, project: UUID, entries: list[DocumentAccess], built: list[list[str]]) -> list[dict]:
-    """The access entries of the documents the run may read (and edit, when editable), with their current titles, and
+    """The access entries of the documents the run may use, with their current titles, and
     of the new document it may write (an id of its own, 'new:<uuid>', its name, folder, slug, tags and what it is
     built for: built). A brand-new draft already holding the new
     document's folder and slug refuses the run (409): every save would fail. A live document of that name does not:
@@ -325,7 +316,6 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
                 access_entry(
                     'document',
                     {'id': f'new:{uuid4()}', 'name': entry.new.name},
-                    editable=True,
                     new=True,
                     folder=entry.new.folder,
                     slug=slug,
@@ -340,15 +330,14 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
         ).fetchone()
         if row is None:
             raise HTTPException(404, DOCUMENT_NOT_FOUND)
-        access.append(access_entry('document', {'id': row['id'], 'name': row['title']}, editable=entry.editable))
+        access.append(access_entry('document', {'id': row['id'], 'name': row['title']}))
     return access
 
 
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
     """A saved agent's configuration for one run, narrowed by the request and never widened: its access object or the
     resources the request picked out of it (access.narrow: a pick outside it is refused), a subset of its experts. Its
-    model and system prompt are its own, and its content editor role (a request may only switch it off); its access
-    object is the run's (agent_access)."""
+    model and system prompt are its own; its access object is the run's (agent_access)."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -366,21 +355,15 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         raise HTTPException(409, AGENT_DISABLED)
     if model is None or not model['enabled'] or not model_fits(model):
         raise HTTPException(409, AGENT_NO_MODEL)
-    editor = access_rules.is_content_editor(config['access'])
-    if value.content_editor and not editor:
-        raise HTTPException(400, NOT_AN_EDITOR)
     resources = value.resources
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
-    picked += [
-        {'type': 'document', 'id': str(entry.id or 'new'), 'editable': entry.editable} for entry in resources.documents
-    ]
+    picked += [{'type': 'document', 'id': str(entry.id or 'new')} for entry in resources.documents]
     try:
         access = agent_access(
             conn,
             project,
             config,
             picked or None,  # nothing picked: everything it has
-            content_editor=editor and value.content_editor is not False,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -442,7 +425,7 @@ def build(
     if new is not None and (started is None or new.model_dump() != started.model_dump()):
         raise HTTPException(400, NOT_THE_START)
     if started is not None and new is None:  # the new document it starts from is a resource it may write
-        entries.append(DocumentAccess(new=started, editable=True))
+        entries.append(DocumentAccess(new=started))
     owner = started.inventory_for() if started is not None else None
     notes = []
     if owner is not None:  # the resource it writes about is read as a chat on it reads it
@@ -509,22 +492,15 @@ def build(
         pinned['start_notes'] = notes
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     pinned['project_id'] = str(project)
-    # what the run holds: what it was picked, loaded, and its documents; the runs a person asked to write (a new
-    # document, a revision; content_editor: the Propose wizard) are content editors
+    # what the run holds: what it was picked, loaded, and its documents
     ids = {type_: [pick['id'] for pick in picked if pick['type'] == type_] for type_, _ in PICKS}
     holds = load_entries(conn, project, ids, documents)
-    writes = (
-        value.started_from.new_document is not None or value.started_from.document_id is not None
-        if value.content_editor is None
-        else value.content_editor
-    )
     try:
         access = run_access(
             conn,
             project,
             holds,
             [*picked, *({'type': 'document', 'id': entry['id']} for entry in documents)],
-            content_editor=writes,
             own=owner or resource,
         )
     except ValueError as exc:
@@ -558,7 +534,6 @@ def start_run(
     pinned, model, origin = build(conn, project, value, session_id, conninfo)
     title = (title or value.message.splitlines()[0])[:TITLE_LENGTH]
     resource = value.resource()
-    editor = access_rules.is_content_editor(pinned['access'])
     tags = value.run_tags()
     if value.agent_id is not None:
         snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
@@ -585,7 +560,6 @@ def start_run(
             'agent_id': value.agent_id,
             'model_id': model['id'],
             'expert_ids': [entry['id'] for entry in pinned['experts']],
-            'content_editor': editor,
             'resources': [{'type': item['type'], 'id': item['id']} for item in given(pinned['access'])],
             'tags': tags,
         }
@@ -619,7 +593,6 @@ def start_run(
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
             'expert_ids': [entry['id'] for entry in pinned['experts']],
-            'content_editor': editor,
         }
     elif value.started_from.new_document is not None:
         new = value.started_from.new_document.model_dump(mode='json', exclude_defaults=True)
@@ -648,7 +621,6 @@ def start_run(
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
             'expert_ids': [entry['id'] for entry in pinned['experts']],
-            'content_editor': editor,
         }
     else:
         document_id = value.started_from.document_id
@@ -681,7 +653,6 @@ def start_run(
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
             'expert_ids': [entry['id'] for entry in pinned['experts']],
-            'content_editor': editor,
         }
     conn.execute('UPDATE ka.agent_sessions SET access=%s WHERE id=%s', (Jsonb(pinned['access']), session_id))
     conn.execute(
@@ -841,9 +812,7 @@ def options(
             ORDER BY lower(name),id""",
             [],
         ),
-        'documents': [{'id': document['id'], 'name': document['title'], 'linked': True, 'editable': True}]
-        if document
-        else [],
+        'documents': [{'id': document['id'], 'name': document['title'], 'linked': True}] if document else [],
     }
     experts = [
         {'id': entry['id'], 'name': entry['name'], 'when_to_use': entry['when_to_use']} for entry in offered(conn, None)
@@ -899,10 +868,7 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
         'environments': plain('environment'),
         'code_projects': plain('code_project'),
         'collections': plain('collection'),
-        'documents': [
-            {'id': item['id'], 'name': item['name'], 'linked': False, 'editable': bool(item.get('editable'))}
-            for item in listed('document')
-        ],
+        'documents': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('document')],
     }
     return jsonable_encoder(
         {

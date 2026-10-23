@@ -127,7 +127,7 @@ async def read_document(
         str, Field(description='The document\'s full path as shown after the collection, such as "jira/DEMO-1.md".')
     ],
 ) -> str:
-    """Read one knowledge-base document returned by search_documents; cite it with its [n]."""
+    """Read one knowledge-base file returned by search_documents (by collection and path); cite it with its [n]. To read a managed document by id (with this run's draft of it), use get_document."""
     if refusal := check_read_document(context['config']['access'], collection=collection):
         return refusal
     collection, path = collection.strip(), path.strip()

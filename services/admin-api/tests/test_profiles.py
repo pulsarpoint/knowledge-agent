@@ -21,7 +21,7 @@ def wizard_payload(name, **overrides):
         'instructions': '',
         'model_id': None,
         'enabled': True,
-        'access': {'resources': [], 'roles': {'content_editor': False}},
+        'access': {'resources': []},
         **overrides,
     }
 
@@ -49,7 +49,7 @@ def test_catalog_creation_and_independent_prompts(store, tmp_path):
     second = create(client, 'Documentation')
     assert first['id'] != second['id'] and 'kind' not in first
     assert first['model_id'] is None and first['instructions'] == ''
-    assert first['access'] == {'resources': [], 'roles': {'content_editor': False}}
+    assert first['access'] == {'resources': []}
     assert (first['system_prompt'], second['system_prompt']) == (
         'Instructions for Payments.',
         'Instructions for Documentation.',
@@ -80,7 +80,6 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
     ).json()
     code = {
         'resources': [{'type': 'code_project', 'id': repository['id']}],
-        'roles': {'content_editor': False},
     }
     response = update(client, first, access=code)
     assert response.status_code == 200, response.text
@@ -151,7 +150,6 @@ def test_skills_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(st
     def access(*ids):
         return {
             'resources': [{'type': 'skill', 'id': i} for i in ids],
-            'roles': {'content_editor': False},
         }
 
     first = update(client, first, access=access(*skills)).json()
@@ -186,7 +184,6 @@ def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_
         ).fetchone()['id']
     access = {
         'resources': [{'type': 'collection', 'id': str(collection)}],
-        'roles': {'content_editor': False},
     }
     payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'instructions')}
     updated = client.put(

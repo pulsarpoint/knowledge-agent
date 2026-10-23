@@ -31,10 +31,9 @@ const agent: profiles.AgentProfile = {
   access: {
     resources: [
       entry("server", "s1", "web-1"),
-      entry("document", "d1", "Runbook", { editable: false }),
+      entry("document", "d1", "Runbook"),
       { type: "collection", id: "c-gone", name: "", description_short: "", missing: true },
     ],
-    roles: { content_editor: true },
   },
 };
 const options: profiles.AgentOptions = {
@@ -70,7 +69,7 @@ test("lists the agent's resources by type with names, short descriptions and mis
   const servers = await screen.findByRole("group", { name: "Servers" });
   expect(within(servers).getByText("web-1")).toBeVisible();
   expect(within(servers).getByText("web-1 description")).toBeVisible();
-  expect(within(group("Documents")).getByRole("switch", { name: "Editable Runbook" })).not.toBeChecked();
+  expect(within(group("Documents")).queryByRole("switch")).toBeNull(); // no per-document editable pick
   const collections = group("Collections");
   expect(within(collections).getByText("missing")).toBeVisible();
   expect(within(collections).getByText("Missing collection (c-gone)")).toBeVisible();
@@ -78,7 +77,7 @@ test("lists the agent's resources by type with names, short descriptions and mis
   expect(within(collections).getByText(/dropped when you save/)).toBeVisible();
 });
 
-test("add, select all, remove and editable make one PUT with the access object; missing ones are dropped", async () => {
+test("add, select all and remove make one PUT with the access object; missing ones are dropped", async () => {
   const user = userEvent.setup();
   const onSaved = vi.fn();
   const onDirty = vi.fn();
@@ -91,7 +90,7 @@ test("add, select all, remove and editable make one PUT with the access object; 
   await user.click(screen.getByRole("button", { name: "Add documents" }));
   await user.click(screen.getByRole("button", { name: "Select all documents" }));
   expect(within(group("Documents")).getByText("Guide")).toBeVisible();
-  await user.click(screen.getByRole("switch", { name: "Editable Guide" }));
+  expect(screen.queryByRole("switch", { name: "Editable Guide" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Remove web-1" }));
   expect(within(group("Servers")).queryByText("web-1")).toBeNull();
   expect(onDirty).toHaveBeenLastCalledWith(true);
@@ -100,12 +99,12 @@ test("add, select all, remove and editable make one PUT with the access object; 
   const saved = vi.mocked(profiles.saveAgent).mock.calls[0][0];
   expect(saved.revision).toBe(4);
   expect(saved.instructions).toBe("Notes");
-  expect(saved.access.roles).toEqual({ content_editor: true });
-  expect(saved.access.resources.map(({ type, id, editable }) => ({ type, id, editable }))).toEqual([
-    { type: "document", id: "d1", editable: false },
-    { type: "collection", id: "c-gone", editable: undefined }, // dropped by saveAgent
-    { type: "server", id: "s2", editable: undefined },
-    { type: "document", id: "d2", editable: true },
+  expect(saved.access).not.toHaveProperty("roles");
+  expect(saved.access.resources.map(({ type, id }) => ({ type, id }))).toEqual([
+    { type: "document", id: "d1" },
+    { type: "collection", id: "c-gone" }, // dropped by saveAgent
+    { type: "server", id: "s2" },
+    { type: "document", id: "d2" },
   ]);
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ revision: 5 })));
   expect(onDirty).toHaveBeenLastCalledWith(false);

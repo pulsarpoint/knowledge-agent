@@ -6,7 +6,6 @@ import importlib
 
 import pytest
 
-from knowledge_admin import access as access_rules
 from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.registry import REGISTRY
 
@@ -15,8 +14,8 @@ def item(type_: str, id_: str, name: str, source: str = 'given', **extra) -> dic
     return {'type': type_, 'id': id_, 'name': name, 'description_short': '', 'source': source, **extra}
 
 
-def run(*resources: dict, editor: bool = False) -> dict:
-    return {'resources': list(resources), 'roles': {'content_editor': editor}}
+def run(*resources: dict) -> dict:
+    return {'resources': list(resources)}
 
 
 SERVER = item('server', 's1', 'web-1')
@@ -25,11 +24,8 @@ ACCESS = {
     # a plain resource chat on a server
     'server': run(SERVER),
     'server_with_services': run(SERVER, item('service', 'v1', 'api', source='via server s1')),
-    'read_only_document': run(item('document', 'd1', 'Runbook')),
-    'editable_document': run(item('document', 'd1', 'Runbook', editable=True)),
-    'editable_document_editor': run(item('document', 'd1', 'Runbook', editable=True), editor=True),
-    # the Propose wizard: a run on a server that may change content
-    'wizard': run(SERVER, editor=True),
+    # a document page's Ask agent run
+    'document': run(item('document', 'd1', 'Runbook')),
     # Documents → New: its new document, built for the server
     'new_document': run(
         SERVER,
@@ -37,11 +33,9 @@ ACCESS = {
             'document',
             'new:n1',
             'New doc',
-            editable=True,
             new=True,
             built_for=[['server', 's1']],
         ),
-        editor=True,
     ),
     'code_and_collection': run(
         item('code_project', 'c1', 'payments-api', folder_paths=['/code/payments']),
@@ -62,9 +56,8 @@ ACCESS = {
         item('environment', 'e9', 'staging'),
         item('code_project', 'c9', 'other-code'),
         item('collection', 'k9', 'private'),
-        item('document', 'd9', 'Other doc', editable=True),
+        item('document', 'd9', 'Other doc'),
         item('skill', 'k9', 'other-skill'),
-        editor=True,
     ),
 }
 
@@ -88,7 +81,9 @@ ARGS = {
     'get_resource': {'resource_type': 'server', 'resource_id': 's1'},
     'get_document': {'document_id': 'd1'},
     'propose_document': {'started_from': {'type': 'server', 'id': 's1', 'name': 'web-1'}},
-    'save_document': {'document_id': 'd1', 'markdown': '# Runbook'},
+    'list_documents': {'resource': {'type': 'server', 'id': 's1'}},
+    'new_document': {'resource': {'type': 'server', 'id': 's1'}, 'title': 'Disks', 'content': '# Disks'},
+    'update_document': {'document_id': 'd1', 'content': '# Runbook'},
     'edit_document': {'document_id': 'd1', 'old_text': 'a', 'new_text': 'b'},
     'search_memory': {'query': 'x'},
     'get_memory': {'name': 'x'},
@@ -113,7 +108,6 @@ ARGS = {
     'save_inventory_draft': {'environment': 'prod'},
 }
 
-NOT_EDITOR = access_rules.NOT_EDITOR
 NO_FILES = 'This run has no code projects or collections.'
 NO_CODE = 'This run has no code projects.'
 NO_COLLECTIONS = 'This run has no collections.'
@@ -125,15 +119,9 @@ NOT_COLLECTION = 'This collection is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
 NOT_SKILL = 'This skill is not available in this run.'
 NOT_GROUNDED = 'This run does not answer only from documents.'
-WITH_SERVER = ('server', 'server_with_services', 'wizard', 'new_document', 'environment')
-WITHOUT_EDITOR = (
-    'empty',
-    'server',
-    'server_with_services',
-    'read_only_document',
-    'editable_document',
-    'skill',
-    'environment',
+WITH_SERVER = ('server', 'server_with_services', 'new_document', 'environment')
+LINKED_TOO = (
+    'Documents linked to a server, service or environment in this run are usable too: list_documents lists them.'
 )
 NOT_ENVIRONMENT = 'This environment is not available in this run.'
 NOT_SERVICE = 'This service is not available in this run.'
@@ -154,15 +142,14 @@ FILES = row(NO_FILES, code_and_collection=None, other=None)
 CODE = row(NO_CODE, code_and_collection=None, other=None)
 COLLECTION = row(NO_COLLECTIONS, code_and_collection=None, other=NOT_COLLECTION)
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
-PROPOSE = row(
-    NOT_SERVER, wizard=None, new_document=None, **some(WITHOUT_EDITOR, NOT_EDITOR), code_and_collection=NOT_EDITOR
-)
-WRITE = row(
-    NOT_EDITOR,
-    editable_document_editor=None,
-    wizard=NO_DOCUMENTS,
-    new_document=f'{NOT_DOCUMENT} Documents you may change: New doc (new:n1).',
-    other=f'{NOT_DOCUMENT} Documents you may change: Other doc (d9).',
+PROPOSE = row(NOT_SERVER, **some(WITH_SERVER, None))
+# usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
+USE = row(
+    NOT_DOCUMENT,
+    document=None,
+    **some(('server', 'server_with_services', 'environment'), f'{NOT_DOCUMENT} {LINKED_TOO}'),
+    new_document=f'{NOT_DOCUMENT} Documents you may use: New doc (new:n1). {LINKED_TOO}',
+    other=f'{NOT_DOCUMENT} Documents you may use: Other doc (d9). {LINKED_TOO}',
 )
 ALWAYS = row(None)
 
@@ -180,10 +167,12 @@ EXPECTED = {
     'ssh_run': SERVER_ROW,
     'get_available_resources': ALWAYS,
     'get_resource': SERVER_ROW,
-    'get_document': row(NOT_DOCUMENT, read_only_document=None, editable_document=None, editable_document_editor=None),
+    'get_document': USE,
     'propose_document': PROPOSE,
-    'save_document': WRITE,
-    'edit_document': WRITE,
+    'list_documents': SERVER_ROW,
+    'new_document': SERVER_ROW,
+    'update_document': USE,
+    'edit_document': USE,
     'search_memory': ALWAYS,
     'get_memory': ALWAYS,
     'save_memory': ALWAYS,
@@ -233,22 +222,35 @@ def test_check(tool, access_name):
 
 
 def test_a_new_document_is_created_only_for_resources_in_the_list():
-    from knowledge_admin.capabilities.document_tools import check_save_document
+    from knowledge_admin.capabilities.document_tools import check_new_document, check_update_document
 
-    assert check_save_document(ACCESS['new_document'], document_id='new:n1') is None
-    elsewhere = run(
-        item('document', 'new:n1', 'New doc', editable=True, new=True, built_for=[['service', 'v1']]), editor=True
-    )
-    assert check_save_document(elsewhere, document_id='new:n1') == 'This service is not available in this run.'
-    off = run(*ACCESS['new_document']['resources'])
-    assert check_save_document(off, document_id='new:n1') == NOT_EDITOR
+    assert check_update_document(ACCESS['new_document'], document_id='new:n1') is None
+    elsewhere = run(item('document', 'new:n1', 'New doc', new=True, built_for=[['service', 'v1']]))
+    assert check_update_document(elsewhere, document_id='new:n1') == 'This service is not available in this run.'
+    server = {'type': 'server', 'name': 'WEB-1'}  # by name: a resource of the run with that name
+    assert check_new_document(ACCESS['server'], resource=server) is None
+    assert check_new_document(ACCESS['server'], resource={'type': 'server', 'name': 'db-9'}) == NOT_SERVER
+    assert check_new_document(ACCESS['environment'], resource={'type': 'service', 'id': 'v1'}) is None
+
+
+def test_update_document_links_only_a_resource_in_the_list():
+    from knowledge_admin.capabilities.document_tools import check_update_document
+
+    given = ACCESS['document']
+    assert check_update_document(given, document_id='d1', resource={'type': 'server', 'id': 's1'}) == NO_SERVERS
+    both = run(item('document', 'd1', 'Runbook'), SERVER)
+    assert check_update_document(both, document_id='d1', resource={'type': 'server', 'id': 's1'}) is None
+    linked = check_update_document(ACCESS['server'], document_id='d7', linked=[('server', 's1')])
+    assert linked is None
 
 
 def test_a_document_linked_to_a_resource_in_the_list_is_readable():
     from knowledge_admin.capabilities.document_tools import check_get_document
 
     assert check_get_document(ACCESS['server'], document_id='d7', linked=[('server', 's1')]) is None
-    assert check_get_document(ACCESS['server'], document_id='d7', linked=[('service', 'v1')]) == NOT_DOCUMENT
+    assert check_get_document(ACCESS['server'], document_id='d7', linked=[('service', 'v1')]) == (
+        f'{NOT_DOCUMENT} {LINKED_TOO}'
+    )
     assert check_get_document(ACCESS['server_with_services'], document_id='d7', linked=[('service', 'v1')]) is None
 
 
@@ -270,5 +272,4 @@ def test_report_not_covered_is_allowed_in_a_grounded_run_whatever_its_access():
 def test_proposals_outside_a_resource_run_are_left_to_the_tool():
     from knowledge_admin.capabilities.discovery import check_propose_document
 
-    assert check_propose_document(ACCESS['wizard'], started_from=None) is None
-    assert check_propose_document(ACCESS['server'], started_from=None) == NOT_EDITOR
+    assert check_propose_document(ACCESS['server'], started_from=None) is None

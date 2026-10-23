@@ -247,6 +247,27 @@ def save_links(
     return {'added': added, 'removed': removed}
 
 
+def add_link(conn, project: UUID, document_id: UUID, kind: str, resource_id: UUID, prov: Provenance) -> bool:
+    """Link a document or a draft to a server, service, environment or code project ('linked'); False when that link
+    is already active. A draft of a live document holds the link until it is published (promote_draft adds it to the
+    document)."""
+    row = conn.execute(
+        f"""INSERT INTO ka.document_resources(project_id,document_id,{ENTRY_COLUMNS[kind]},connection,added_how,added_by,
+        session_id) VALUES (%s,%s,%s,'linked',%s,%s,%s) ON CONFLICT DO NOTHING RETURNING id""",
+        (project, document_id, resource_id, prov.how, prov.actor, prov.session_id),
+    ).fetchone()
+    return row is not None
+
+
+# The links a draft of a live document holds (add_link), added to the document when the draft is published; one the
+# document already has stays as it is.
+CARRY_LINKS = """INSERT INTO ka.document_resources(project_id,document_id,environment_id,service_id,server_id,
+    code_project_id,deployment_id,connection,added_how,added_by,session_id,created_at)
+    SELECT project_id,%s,environment_id,service_id,server_id,code_project_id,deployment_id,'linked',added_how,added_by,
+    session_id,created_at FROM ka.document_resources WHERE document_id=%s AND removed_at IS NULL
+    ORDER BY created_at,id ON CONFLICT DO NOTHING"""
+
+
 def _archive(conn, document_id: UUID, actor: UUID | None) -> UUID:
     """Copy the live row's current content into document_archive and move its sources there."""
     archive_id = conn.execute(
@@ -469,8 +490,8 @@ def promote_draft(
     conn, project: UUID, actor: UUID | None, draft_id: UUID, *, revision: int, confirm_stale: bool
 ) -> dict:
     """Make a draft live. A draft of a live document: the live content is archived, the draft's content replaces it
-    in place (same id, version + 1) and every draft of the document is deleted. A brand-new draft becomes the live
-    document (version 1). A stale
+    in place (same id, version + 1), the links the draft holds are added to the document, and every draft of the
+    document is deleted. A brand-new draft becomes the live document (version 1), with its links. A stale
     draft needs `confirm_stale`. Returns {'document_id', 'version', 'revision', 'deleted_drafts', 'new'}; the caller
     exports after commit."""
     # The live row before the draft: two promotes of drafts of one document queue on the live row, and the second
@@ -514,6 +535,7 @@ def promote_draft(
                     'code': STALE_BASE,
                 },
             )
+        conn.execute(CARRY_LINKS, (live['id'], draft_id))
         snapshot = build_snapshot(
             conn, project, _usable(conn, project, _active_links(conn, live['id'])), None, live['source_snapshot']
         )

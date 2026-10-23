@@ -139,7 +139,7 @@ def post(sessions, **change):
         **{key: form[key] for key in ('expert_ids',) if key in form},
         'resources': {
             **{key: form[key] for key in SELECTION if key in form},
-            'documents': [{'new': new, 'editable': True}],
+            'documents': [{'new': new}],
         },
     }
     return sessions.client.post('/api/sessions', headers=HEADERS, json=body)

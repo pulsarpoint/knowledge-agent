@@ -64,12 +64,10 @@ class Loader:
         self.credentials = credentials if credentials is not None else {'expert-model': 'expert-model-secret'}
         self.error = error
         self.calls: list[tuple] = []
-        self.roles: list[bool] = []  # the caller's content editor of each call
         self.issued: list[dict] = []
 
-    def __call__(self, entry, given, editor=False):
+    def __call__(self, entry, given):
         self.calls.append((entry, given))
-        self.roles.append(editor)
         if self.error is not None:
             raise self.error
         issued = dict(self.credentials)
@@ -348,7 +346,7 @@ def test_a_load_that_ends_after_stop_empties_the_credentials_it_returns():
     release, loading = threading.Event(), threading.Event()
     loader = Loader({'ssh': EXPERT_SECRET})
 
-    def slow(entry, given, editor):
+    def slow(entry, given):
         loading.set()
         release.wait(5)
         return loader(entry, given)
@@ -521,10 +519,10 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(nar
     assert config['expert'] is True  # no wake-up tools in an expert's call
     assert [p['name'] for p in of(config, 'code_project')] == ['Payments API']
     assert of(config, 'collection') == []  # its access object holds only what it was given
-    # its access object, built as a run start builds it: what it was given, no content editor
+    # its access object, built as a run start builds it: what it was given, no roles
     given_access = [(e['type'], e['id'], e['source']) for e in config['access']['resources'] if e['source'] == 'given']
     assert given_access == [('code_project', s.repo, 'given'), ('server', s.host['id'], 'given')]
-    assert config['access']['roles'] == {'content_editor': False}
+    assert 'roles' not in config['access']
     key_id = of(config, 'server')[0]['private_key_ref']['id']
     assert credentials[key_id] == s.key['private_key']  # its own SSH key, decrypted for this call
     whole, _ = load(s.store, project, entry, None)  # nothing given: everything it has
@@ -616,31 +614,7 @@ def test_a_session_turn_calls_an_expert_with_its_own_saved_configuration(native)
     assert expert_id not in {str(event['agent_id']) for event in recorded if event not in called}
 
 
-def test_an_expert_is_told_the_callers_roles():
-    loader = Loader()
-    subagents, _, _, _ = host({'Map payments': {'steps': [], 'answer': 'Done.'}}, loader)
-
-    async def asked(roles):
-        context = {
-            'config': {**parent(), 'experts': [ENTRY]},
-            'credentials': dict(CREDENTIALS),
-            'workspace': SCRATCH,
-            'tools': frozenset(CATALOG) | {ENTRY['tool']},
-            'subagents': subagents,
-        }
-        context['config']['access'] = {**context['config']['access'], 'roles': roles}
-        token = TOOL_CALL_ID.set('e1')
-        try:
-            return await subagents.ask(context, ENTRY, 'Map payments', None, 'e1')
-        finally:
-            TOOL_CALL_ID.reset(token)
-
-    asyncio.run(asked({'content_editor': False, 'inventory_editor': True}))
-    asyncio.run(asked({'content_editor': True}))
-    assert loader.roles == [False, True]
-
-
-def test_an_expert_drops_an_old_agents_inventory_editor_role(narrowed_agent):
+def test_an_expert_drops_an_old_agents_roles(narrowed_agent):
     s = narrowed_agent
     with s.store.connect() as conn:
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Payments code.' WHERE id=%s", (s.analyst,))
@@ -649,12 +623,13 @@ def test_an_expert_drops_an_old_agents_inventory_editor_role(narrowed_agent):
 
     def roles():
         config, _ = load(s.store, project, entry, None)
-        return config['access']['roles']
+        return config['access'].get('roles')
 
-    assert roles() == {'content_editor': False}
+    assert roles() is None
     with s.store.connect() as conn:
         conn.execute(
-            """UPDATE ka.agents SET access=jsonb_set(access,'{roles,inventory_editor}','true') WHERE id=%s""",
+            """UPDATE ka.agents SET access=access || '{"roles": {"content_editor": true, "inventory_editor": true}}'
+            WHERE id=%s""",
             (s.analyst,),
         )
-    assert roles() == {'content_editor': False}  # an agent stored before the role went loads without it
+    assert roles() is None  # an agent stored before the roles went loads without them

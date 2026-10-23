@@ -60,7 +60,6 @@ def test_a_server_run_is_given_its_server_and_the_services_deployed_on_it(world)
             entry('server', server, 'web-1', 'Shop front end'),
             entry('service', world.nginx, 'nginx', 'Front proxy for the shop', f'via server {server}'),
         ],
-        'roles': {'content_editor': False},
     }
 
 
@@ -73,7 +72,7 @@ def test_a_service_run_is_given_its_service_its_code_and_its_servers(world):
         entry('code_project', world.shop, 'Shop', '', via, folder_paths=[]),
         entry('server', world.server['id'], 'web-1', 'Shop front end', via),
     ]
-    assert access['roles'] == {'content_editor': False}
+    assert 'roles' not in access
 
 
 def test_an_environment_run_is_given_the_environment_and_what_it_contains(world):
@@ -89,21 +88,16 @@ def test_an_environment_run_is_given_the_environment_and_what_it_contains(world)
     ]
 
 
-def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
+def test_no_run_has_a_role_and_documents_carry_no_editable_flag(world):
     ssh_ready(world)
     plain, _ = stored(world.store, start(world, {'server_id': world.server['id']}))
-    assert plain['roles'] == {'content_editor': False}
-    wizard, _ = stored(
-        world.store,
-        start(world, {'server_id': world.server['id']}, content_editor=True, tags=['proposals']),
-    )
-    assert wizard['roles'] == {'content_editor': True}
+    assert 'roles' not in plain
     new, config = stored(
         world.store,
         start(
             world,
             {'new_document': NEW},
-            resources={'documents': [{'new': NEW, 'editable': True}]},
+            resources={'documents': [{'new': NEW}]},
         ),
     )
     [document] = of(config, 'document')
@@ -111,7 +105,6 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
         'resources': [
             {
                 **entry('document', document['id'], 'Shop overview', ''),
-                'editable': True,
                 'new': True,  # the new document carries where it goes and what it is built for
                 'folder': document['folder'],
                 'slug': document['slug'],
@@ -119,7 +112,6 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
                 'built_for': [],
             }
         ],
-        'roles': {'content_editor': True},
     }
     with world.store.connect() as conn:
         live = conn.execute("SELECT id FROM ka.live_documents WHERE title='web-1 overview'").fetchone()['id']
@@ -128,12 +120,11 @@ def test_writing_runs_are_content_editors_and_a_plain_chat_is_not(world):
         start(
             world,
             {'document_id': str(live)},
-            resources={'documents': [{'id': str(live), 'editable': True}]},
+            resources={'documents': [{'id': str(live)}]},
         ),
     )
     assert revision == {
-        'resources': [{**entry('document', live, 'web-1 overview', ''), 'editable': True}],
-        'roles': {'content_editor': True},
+        'resources': [{**entry('document', live, 'web-1 overview', '')}],
     }
 
 
@@ -143,7 +134,6 @@ def test_a_saved_agent_run_is_given_what_it_picked_inside_its_list_never_more(an
     access, config = stored(a.store, session['id'])
     assert access == {
         'resources': [entry('code_project', a.app, 'App', '', folder_paths=[str(a.root / 'app')])],
-        'roles': {'content_editor': False},
     }
     assert config['access'] == access
     everything, _ = stored(a.store, agent_start(a)['id'])  # nothing picked: everything it has
@@ -298,11 +288,10 @@ def test_the_session_detail_returns_what_the_run_was_given(world):
     assert 'run_resources' not in session and 'chosen_resources' not in session
 
 
-def test_a_run_has_only_the_content_editor_role(world):
+def test_a_run_has_no_roles(world):
     ssh_ready(world)
     plain, _ = stored(world.store, start(world, {'server_id': world.server['id']}))
-    wizard, _ = stored(world.store, start(world, {'server_id': world.server['id']}, content_editor=True))
-    assert plain['roles'] == {'content_editor': False} and wizard['roles'] == {'content_editor': True}
+    assert 'roles' not in plain
     body = {
         'started_from': {'server_id': world.server['id']},
         'model_id': world.model,
@@ -313,3 +302,6 @@ def test_a_run_has_only_the_content_editor_role(world):
     refused = world.client.post('/api/sessions', headers=HEADERS, json=body)
     assert refused.status_code == 400, refused.text
     assert refused.json()['error']['message'] == 'Extra inputs are not permitted'  # the role is gone
+    body = {**body, 'content_editor': True}
+    del body['inventory_editor']
+    assert world.client.post('/api/sessions', headers=HEADERS, json=body).status_code == 400

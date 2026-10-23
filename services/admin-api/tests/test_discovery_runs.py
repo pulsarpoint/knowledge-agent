@@ -39,7 +39,6 @@ def body(world, server=None, **change):
         'model_id': world.model,
         'system_prompt': 'You explore servers.',
         'message': 'Explore web-1.\nLook at nginx first.',
-        'content_editor': True,  # the Propose wizard asks for the content editor role
         **change,
     }
 
@@ -114,7 +113,7 @@ def test_a_run_pins_its_server_and_the_context_facts(world):
     config = pinned_of(world, sid)
     assert [server['id'] for server in of(config, 'server')] == [world.server['id']]
     assert config['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
-    assert config['access']['roles']['content_editor'] is True
+    assert 'roles' not in config['access']
     assert 'discovery' not in config and 'session_id' not in config
     assert config['project_id'] == str(world.project)
     assert config['system_prompt']['content'] == 'You explore servers.'  # the Resource line names the server

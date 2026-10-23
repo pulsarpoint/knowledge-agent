@@ -400,8 +400,8 @@ are never shown.
    document, one document per service (servers and environments), the aspects to cover (configuration, logs, health
    checks, ports and paths); and extra instructions.
 3. **Review** — the prompt built from those choices (the steps of the **Server discovery** prompt, one block per
-   option; edit it as you like). The run gets every tool, like every run, and may propose (it starts with the Content editor
-   role); the prompt asks only for what you chose. **Start** starts the run and opens it as the page's chat, so you can
+   option; edit it as you like). The run gets every tool, like every run, and may propose for its resource; the prompt
+   asks only for what you chose. **Start** starts the run and opens it as the page's chat, so you can
    watch it and write to it while it works.
 
 **Proposals** (`/servers/:id/proposals`, and the same for services and environments) lists every proposal made in
@@ -628,7 +628,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 - **Start blank** — skip generation (no model needed) and fill in the same review tabs
   yourself.
 
-Review and edit the tabs (General, Prompt, Resources; **Content editor** is on General), then **Create agent** (enabled once name and system prompt are
+Review and edit the tabs (General, Prompt, Resources), then **Create agent** (enabled once name and system prompt are
 filled in). The agent model is optional — an agent without a model is
 saved but runs only after you choose one with **Model** on its General tab.
 
@@ -636,8 +636,8 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
-| **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**; a document may be made **Editable** (only a Content editor changes it). A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
@@ -681,8 +681,8 @@ it.”) and **Apply to a new clone** clones the agent first and writes them ther
 only notes ticked, **Save memory notes**. When notes were sent, the sheet lists the saved notes (each opens its Memory
 entry) and any refused names with the reason; **Done** closes it.
 
-**Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources and the
-**Content editor** role: a tool without what it needs refuses (for example `This run has no servers.`), and
+**Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources (there are
+no roles): a tool without what it needs refuses (for example `This run has no servers.`), and
 `report_not_covered` works only with **Answer only from documents**. Every agent can read the inventory of its resources
 (`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`), and every agent in a conversation
 can add to it as **drafts** (`save_environment`, `save_server`, `save_service`, `save_deployment`, `save_connection`,
@@ -690,11 +690,18 @@ can add to it as **drafts** (`save_environment`, `save_server`, `save_service`, 
 in its resources or what it added in the same session — so it can draft a server, deploy a service on it and connect it
 in one conversation. An agent never changes a confirmed entry: it adds and changes drafts, and a person confirms or
 discards them in the environment workspace. Its drafts show in the audit log with the person who started the session,
-the agent and the session; helpers and experts never change the inventory. **Agent runs**, run
+the agent and the session; helpers and experts never change the inventory. Documents work the same way: every agent
+in a conversation reads the documents of its resources (`list_documents`, `get_document`) and writes **drafts** of
+them — a new document for a server, service or environment it has (`new_document`, built for it, in its folder; a
+title already used there is refused with the existing document's id), the whole text of a document it may read
+(`update_document`, which can also link the document to another of its resources once published) or one passage
+(`edit_document`). Each draft waits on the document's page (**Draft — not published**) until a person publishes or
+discards it; nothing needs a role. **Agent runs**, run
 records, session pages and Test chats show how often each tool was used.
 
 **Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except
-`run_subagent`, and some or all of the run's resources (content editor off), but not the conversation. Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
+`run_subagent`, and some or all of the run's resources, but not the conversation (helpers only read: no document or inventory
+writes). Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
 default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. In the Test tab and on the
 session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
@@ -717,8 +724,7 @@ opening one shows that call's record, including the expert's own subagents.
 **Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Test** tab **Settings**
 lists the agent's resources by type and you pick from them (the choice is kept for the session and shown in the header
 and in **Preview**); chat settings, event handlers and expert calls narrow the same way. A run never gets more than the
-agent has: a pick outside its resources is refused (`server <id> is not in the agent's access`), and an editable
-document may be picked read-only. What a run was given brings its direct children: an environment its services and
+agent has: a pick outside its resources is refused (`server <id> is not in the agent's access`). What a run was given brings its direct children: an environment its services and
 servers, a service its code projects and the servers it is deployed on, a server the services deployed on it
 (`get_available_resources` marks them `via <type> <id>`). The tools reach exactly the run's resources; a kind the run
 has none of is refused (`This run has no code projects.`). Example: a **Code analyst** with several code projects,
@@ -752,7 +758,7 @@ document takes two thirds and the chat one third.
    lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
    '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
    characters. The title needs ASCII letters or digits (the file name is made from them).
-2. Message the agent: what to write and what to read. It writes the document with `save_document` and changes it with
+2. Message the agent: what to write and what to read. It writes the document with `update_document` and changes it with
    `edit_document`. Each save updates the run's draft; you can ask for more changes.
 3. A bar above the editor shows the draft. **Compare** opens the draft page. **Promote** creates the document and opens it.
 
@@ -762,9 +768,9 @@ you promote the draft. There is one conversation per page visit; **New chat** cl
 **Settings** in the chat opens what the agent may use: the model, the resources (code projects, document collections,
 environments, services and servers), the experts, and under **Advanced** the prompt. A server whose SSH
 is not set up or not allowed cannot be chosen. The prompts offered are those tagged `documentation`; the default is **Write a
-document** (Administration → Prompts). It tells the agent to read what it was given, write with `save_document`, change a passage
+document** (Administration → Prompts). It tells the agent to read what it was given, write with `update_document`, change a passage
 with `edit_document`, and never say the document is published. If you write your own prompt, tell the agent to write with
-`save_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
+`update_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
 JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) are offered only when you tick them. The run gets
 every tool, including `run_subagent`; what each may reach follows the resources you chose (for example `ssh_run` only
 on the chosen servers), as in an agent's Test tab.
@@ -804,7 +810,7 @@ error messages. `shell_run` runs in the sandboxed `shell-worker`, with `DATA_ROO
 **Upgrading.** The Docs → Generate documents pages (`/documentation/generations`) and their API are gone; write documents here
 instead. Migration 0101 closed the Generate documents chats that were open ("Closed by an update; start a new chat."). Earlier
 Generate documents runs stay readable at `/sessions/<id>` and in Agent runs. Custom prompts tagged `documentation` should tell the
-agent to write with `save_document`; copy the rules from **Write a document**. Migration 0073 removed the service,
+agent to write with `update_document`; copy the rules from **Write a document**. Migration 0073 removed the service,
 whole-environment and code-project generation; documents written by service phases keep exporting into
 `services/<service>/<phase>/`.
 
@@ -875,7 +881,7 @@ pick another prompt under Advanced.
 
 **Settings** in the chat opens what the agent may use: the model, the servers and other resources (the ones linked to
 the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the document (listed under
-Resources as editable) and the experts (none unless you tick them; the run gets every tool), and under **Advanced** the
+Resources; the agent may change it as a draft) and the experts (none unless you tick them; the run gets every tool), and under **Advanced** the
 prompt (**Revise a document** by default, any other saved prompt, or **Own prompt**). **Preview** shows exactly what the
 next message will start with, as JSON. Your choices are remembered for the document in this browser. While a
 conversation is open its settings are fixed: Settings shows them, and **Start new chat with these settings** closes it

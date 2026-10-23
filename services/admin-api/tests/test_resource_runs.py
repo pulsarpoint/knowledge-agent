@@ -9,7 +9,6 @@ from uuid import uuid4
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.sessions.start import BAD_TAG, RESOURCE_TAG, TOO_MANY_TAGS, assistant_prompt_id
-from knowledge_admin.access import NOT_EDITOR
 from test_discovery_runs import call, config_of, pinned_of, ssh_ready
 from test_repositories import HEADERS
 
@@ -50,7 +49,7 @@ def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_co
     assert ids(pinned, 'server') == [world.server['id']]  # held and read, SSH skips it until it has a key
     assert ssh_servers(pinned) == []
     assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the service
-    assert pinned['access']['roles']['content_editor'] is False
+    assert 'roles' not in pinned['access']
     ssh_ready(world)
     pinned = pinned_of(world, start(world, {'service_id': str(world.nginx)}).json()['id'])
     assert ids(pinned, 'server') == [world.server['id']]
@@ -138,32 +137,23 @@ def test_the_runs_of_a_tag_are_listed_open_first_then_by_activity(world):
     assert len(gone.json()['sessions']) == 4  # the old server filter is gone: an unknown parameter is ignored
 
 
-def test_a_plain_server_chat_cannot_propose(world):
+def test_a_server_run_proposes_documents_without_a_role(world):
     ssh_ready(world)
-    config = config_of(world, start(world, {'server_id': world.server['id']}).json()['id'])
-    assert config['access']['roles']['content_editor'] is False
-    assert call(config, 'propose_document', title='Disks', description='', markdown='# x') == NOT_EDITOR
-
-
-def test_a_server_run_that_asks_for_the_content_editor_role_proposes_documents(world):
-    ssh_ready(world)
-    created = start(world, {'server_id': world.server['id']}, content_editor=True, tags=['proposals'])
+    created = start(world, {'server_id': world.server['id']}, tags=['proposals'])
     assert created.status_code == 201, created.text
     config = config_of(world, created.json()['id'])
-    assert config['access']['roles']['content_editor'] is True
+    assert 'roles' not in config['access']
     said = call(config, 'propose_document', title='Disks', description='', markdown='# x')
     assert said.startswith('Proposal 1: new document "Disks"')
 
 
 def test_propose_document_works_on_a_service_or_environment_run(world):
-    created = start(world, {'service_id': str(world.nginx)}, content_editor=True)
+    created = start(world, {'service_id': str(world.nginx)})
     assert created.status_code == 201, created.text
     config = config_of(world, created.json()['id'])
     said = call(config, 'propose_document', title='Health checks', description='How to check nginx.', markdown='# x')
     assert said == 'Proposal 1: new document "Health checks" about service nginx.'
-    environment = config_of(
-        world, start(world, {'environment_id': str(world.environment)}, content_editor=True).json()['id']
-    )
+    environment = config_of(world, start(world, {'environment_id': str(world.environment)}).json()['id'])
     said = call(environment, 'propose_document', title='Production', description='The environment.', markdown='# x')
     assert said == 'Proposal 1: new document "Production" about environment Production.'
     with world.store.connect() as conn:

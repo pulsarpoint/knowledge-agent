@@ -2,7 +2,7 @@
 
 Implementations live in `knowledge_admin/capabilities/`:
 `files.py` (list/read/search files), `ast_grep.py`, `code_search.py`, `code_graph.py` (the CodeGraph queries and
-`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `document_tools.py` (`get_document`, `edit_document`, `save_document`), `ssh.py`, `subagents.py`, `skills.py`, `mcp.py`
+`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `document_tools.py` (`list_documents`, `get_document`, `new_document`, `update_document`, `edit_document`), `ssh.py`, `subagents.py`, `skills.py`, `mcp.py`
 (MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
 `worker.py` for the shell worker service). They do not import the Agents SDK.
 
@@ -35,8 +35,8 @@ host (a native session turn, an expert's call), never in a subagent's own run. I
 optionally, the resources to give (from the run's own). Its run is `knowledge_agents/subagents.run_subagent`, which
 finds the host in the run context (`context['subagents']`) and the call id in `capabilities.context.TOOL_CALL_ID`
 (set by `tools/sdk.py` around each invocation). `subagent_config` narrows the resources to the parent's current lists;
-the subagent gets every tool but `run_subagent`, the parent's MCP servers, no experts, and the parent's access
-narrowed with content editor off.
+the subagent gets every tool but `run_subagent` and the write tools, the parent's MCP servers, no experts, and the
+parent's access narrowed.
 
 `schedule_wakeup`, `list_wakeups`, `cancel_wakeup` (`capabilities/wakeups.py`; group `agents`) queue, list and cancel
 messages to the run's own session (`config['session_id']`) for later: an input with kind `wakeup` and `not_before`
@@ -59,6 +59,22 @@ rows the run may name (a confirmed entry is used, never changed; a draft is upda
 `apply_draft` writes the plan in one transaction, all or nothing, errors as `<part>[<index>]: <reason>`. The usage
 texts state each tool's purpose, the draft rule, every field's format and allowed values, and an example; the argument
 schemas' field descriptions say the same per field.
+
+The document tools (`capabilities/document_tools.py`; group `documents`, `get_document` in `inventory`): reads
+`list_documents` (a server's, service's or environment's documents and its children's, the inventory document first,
+with `published` and `your_draft`) and `get_document` (this run's draft of the document when it has one, else the live
+version), offered in every run; writes `new_document`, `update_document` (the whole text; `resource` links the document
+to a server, service or environment when the draft is published: the draft holds the link,
+`store.promote_draft` adds it) and `edit_document` (one exact passage), offered only in a session turn
+(`catalog.DOCUMENT_WRITES`, withheld like the inventory writes). Every write is the run's draft in the real documents
+(one per document; a person publishes it on the document's page) and every write reply ends with `This is a draft: a
+person publishes it on the document's page.` No role: a document is usable when it is in the run's access or linked to
+a resource in it, and `new_document` needs its resource in the access (`{type, id}` or `{type, name}`, resolved among
+the run's resources by `resource_of`). `new_document` names the folder and slug from the resource as discovery did
+(`drafts.free_folder`, `drafts.free_slug`), refuses a title already used by a document linked to the resource (`A
+document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
+returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
+`read_document` is different: it reads a knowledge-base file from `search_documents` results, for citing.
 
 `load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
 name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this

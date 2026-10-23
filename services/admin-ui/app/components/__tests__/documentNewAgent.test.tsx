@@ -205,7 +205,7 @@ test("the first message starts the run with the title and folder as the new docu
       started_from: { new_document: { folder: "payments", name: "Payments API" } },
       message: "Write it.",
       context: "",
-      resources: { documents: [{ new: { folder: "payments", name: "Payments API" }, editable: true }] },
+      resources: { documents: [{ new: { folder: "payments", name: "Payments API" } }] },
     }),
   );
   expect(await within(pane).findByText("Writing: payments/Payments API")).toBeInTheDocument();
@@ -237,7 +237,7 @@ test("on the New inventory document page the run writes the resource's inventory
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
       started_from: { new_document: written },
-      resources: { documents: [{ new: written, editable: true }] },
+      resources: { documents: [{ new: written }] },
     }),
   );
 });

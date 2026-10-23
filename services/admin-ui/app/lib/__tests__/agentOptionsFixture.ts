@@ -11,7 +11,7 @@ export const options: AgentOptions = {
     {
       id: "p2",
       name: "Revise a document",
-      content: "Read with get_document. Change with edit_document or save_document.",
+      content: "Read with get_document. Change with edit_document or update_document.",
     },
   ],
   default_prompt_id: "p2",
@@ -24,7 +24,7 @@ export const options: AgentOptions = {
     environments: [],
     code_projects: [{ id: "c1", name: "Shop", linked: false }],
     collections: [],
-    documents: [{ id: "doc-1", name: "Runbook", linked: true, editable: true }],
+    documents: [{ id: "doc-1", name: "Runbook", linked: true }],
   },
   experts: [{ id: "e1", name: "Payments expert", when_to_use: "Payments questions" }],
 };

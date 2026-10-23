@@ -32,7 +32,7 @@ def bare_config(*skills: dict) -> dict:
     return {
         'system_prompt': {'content': 'You answer.'},
         'instructions': 'Be brief.',
-        'access': {'resources': list(skills), 'roles': {'content_editor': False}},
+        'access': {'resources': list(skills)},
     }
 
 
@@ -43,7 +43,7 @@ def run(store, saved_agent, monkeypatch):  # noqa: F811
     config = get_agent_config('operations', conninfo=store.conninfo)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        access = agent_access(conn, project, config, None, content_editor=False)
+        access = agent_access(conn, project, config, None)
     return {**config, 'access': access, 'project_id': str(project)}, saved_agent[3]
 
 

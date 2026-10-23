@@ -28,7 +28,7 @@ const agent: profiles.AgentProfile = {
   model_id: null,
   system_prompt: "Use evidence.",
   instructions: "",
-  access: { resources: [], roles: { content_editor: false } },
+  access: { resources: [] },
 };
 
 beforeEach(() => {
