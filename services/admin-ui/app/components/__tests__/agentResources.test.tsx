@@ -73,7 +73,6 @@ test("lists the agent's resources by type with names, short descriptions and mis
   expect(within(services).getByText("Missing service (v-gone)")).toBeVisible();
   expect(within(services).getByRole("button", { name: "Remove Missing service (v-gone)" })).toBeEnabled();
   expect(within(services).getByText(/dropped when you save/)).toBeVisible();
-  expect(screen.queryByRole("group", { name: "Collections" })).toBeNull(); // the collection type is gone
 });
 
 test("add, select all and remove make one PUT with the access object; missing ones are dropped", async () => {

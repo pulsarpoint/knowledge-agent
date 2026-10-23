@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import AdminLayout from "../AdminLayout";
+import Home from "~/routes/home";
 import { useWidePage } from "~/lib/widePage";
 
 test("administration has its own navigation without reader pages", async () => {
@@ -9,7 +10,7 @@ test("administration has its own navigation without reader pages", async () => {
     vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))),
   );
   render(
-    <MemoryRouter initialEntries={["/rag/collections"]}>
+    <MemoryRouter initialEntries={["/documents"]}>
       <AdminLayout>
         <div>Admin content</div>
       </AdminLayout>
@@ -17,7 +18,9 @@ test("administration has its own navigation without reader pages", async () => {
   );
   expect(await screen.findByText("Admin content")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Platform" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Collections" })).toHaveAttribute("href", "/rag/collections");
+  expect(screen.queryByRole("link", { name: "Collections" })).toBeNull();
+  expect(screen.queryByText("RAG")).toBeNull();
+  expect(screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/rag"))).toEqual([]);
   expect(screen.queryByRole("link", { name: "Activity" })).toBeNull();
   expect(screen.getByRole("link", { name: "Agent runs" })).toHaveAttribute("href", "/activity/runs");
   expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("href", "/schedules");
@@ -37,9 +40,6 @@ test("administration has its own navigation without reader pages", async () => {
   for (const name of ["Environments", "Services", "Servers"])
     expect(administration.queryByRole("link", { name })).toBeNull();
   expect(administration.getByRole("link", { name: "Prompts" })).toHaveAttribute("href", "/prompts");
-  expect(
-    screen.getAllByRole("link", { name: "Search" }).some((link) => link.getAttribute("href") === "/rag/search"),
-  ).toBe(true);
   const agents = within(screen.getByRole("navigation", { name: "Agents" }));
   expect(agents.getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
   expect(agents.queryByRole("link", { name: "Multi-agent board" })).toBeNull();
@@ -162,4 +162,16 @@ test("a page that asks for the full width gets it, and gives it back when it sto
     </MemoryRouter>,
   );
   expect(content("Other page")).toHaveClass("max-w-6xl");
+});
+
+test("the home page opens Documents", () => {
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <Routes>
+        <Route index element={<Home />} />
+        <Route path="documents" element={<div>Documents page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(screen.getByText("Documents page")).toBeInTheDocument();
 });

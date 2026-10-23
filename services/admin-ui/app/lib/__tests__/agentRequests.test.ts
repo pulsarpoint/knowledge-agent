@@ -41,7 +41,7 @@ test("Save sends the access object as references and drops missing ones", async 
     ],
   });
   expect(body.instructions).toBe("Notes");
-  for (const gone of ["skill_ids", "collection_ids", "all_collections", "documents_enabled", "resources", "subagents"])
+  for (const gone of ["skill_ids", "documents_enabled", "resources", "subagents"])
     expect(body).not.toHaveProperty(gone);
 });
 

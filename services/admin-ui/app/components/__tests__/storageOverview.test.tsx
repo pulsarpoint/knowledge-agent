@@ -54,8 +54,8 @@ test("lists DATA_ROOT and its folders with host paths and .env variables", async
     "href",
     "/storage?area=data&path=&offset=0#files",
   );
-  expect(screen.queryByText(/RAG|Jira export|document export/i)).toBeNull();
-  expect(screen.queryByText(/rag-data|Relative to the Compose file directory/)).toBeNull();
+  expect(screen.queryByText(/Jira export|document export/i)).toBeNull();
+  expect(screen.queryByText(/Relative to the Compose file directory/)).toBeNull();
   expect(screen.getByText(/PostgreSQL stores managed documents and versions/)).toBeInTheDocument();
   expect(screen.getByText(/Documents seeded on a fresh install/)).toBeInTheDocument();
   expect(screen.queryByText(/Upload selected files|Legacy startup files|original startup directory/)).toBeNull();

@@ -265,7 +265,6 @@ test("the saved tickets can be listed and filtered but not exported", async () =
   await screen.findByText("Worker retries");
   expect(screen.queryByRole("button", { name: /Export/ })).toBeNull();
   expect(screen.queryByRole("checkbox")).toBeNull();
-  expect(screen.queryByText(/RAG|collection/i)).toBeNull();
 });
 
 const pullSchedule: Schedule = {

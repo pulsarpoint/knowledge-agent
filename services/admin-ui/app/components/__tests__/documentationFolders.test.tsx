@@ -40,7 +40,6 @@ test("folders show their documents and projects and call nothing but the folders
     "/documentation/folders/team/payments",
   );
   expect(screen.getByText("Payments API")).toBeInTheDocument();
-  expect(screen.queryByText(/RAG|collection/i)).toBeNull();
   expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/api/documentation/folders"]);
 });
 

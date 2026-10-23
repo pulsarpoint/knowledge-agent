@@ -28,7 +28,6 @@ function api(projects: CodeProject[] = []) {
     let body: unknown;
     if (init?.method === "POST" || init?.method === "PUT") body = { id: "code-1", job_id: "job-1" };
     else if (url.pathname === "/api/code-projects") body = { projects };
-    else if (url.pathname === "/api/rag/collections") body = { collections: [{ name: "payments-docs" }] };
     else if (url.pathname === "/api/code/file")
       body = { path: url.searchParams.get("path"), text: 'print("source code")' };
     else {
@@ -282,13 +281,11 @@ test("editing expands selected folder ancestors and allows removing a nested map
   expect(body.revision).toBe(3);
 });
 
-test("code projects have no Searchable switch or collection field and never call RAG", async () => {
-  const fetch = api([project]);
+test("code projects have no Searchable switch or search field", async () => {
+  api([project]);
   render(<CodeProjectsView />);
   expect((await screen.findAllByText("Payments")).length).toBeGreaterThan(0);
   expect(screen.queryByRole("switch", { name: /Searchable/ })).toBeNull();
-  expect(screen.queryByLabelText(/Search collection/)).toBeNull();
-  expect(fetch.mock.calls.some(([url]) => String(url).startsWith("/api/rag/"))).toBe(false);
 });
 
 test("Remove asks for confirmation, keeps files by default and drops the project from the list", async () => {
@@ -344,7 +341,7 @@ test("a refused Remove shows the reason and keeps the project", async () => {
         JSON.stringify({
           error: {
             message:
-              "RAG collection code-docs indexes code/payments. Nothing was removed; remove that folder in RAG → Collections first or keep the files.",
+              "code/payments is also used by code project Billing (code/payments). Nothing was removed; keep the files or unmap it there first.",
           },
         }),
         { status: 409 },
@@ -355,7 +352,7 @@ test("a refused Remove shows the reason and keeps the project", async () => {
   await action("Payments", "Remove");
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole("button", { name: "Remove project" }));
-  await screen.findByText(/RAG collection code-docs indexes code\/payments/);
+  await screen.findByText(/code\/payments is also used by code project Billing/);
   expect(screen.getByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
 });
 

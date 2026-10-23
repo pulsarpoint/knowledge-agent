@@ -69,9 +69,9 @@ export default function LlmSettingsView() {
           <Link className="underline underline-offset-4" to="/agents">
             Agents page
           </Link>{" "}
-          and select embedding models in{" "}
-          <Link className="underline underline-offset-4" to="/rag/settings">
-            RAG Settings
+          and select the memory embedding model on the{" "}
+          <Link className="underline underline-offset-4" to="/memory">
+            Memory page
           </Link>
           .
         </p>
@@ -131,7 +131,7 @@ export default function LlmSettingsView() {
           <CardContent>
             {settings.models.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                No models configured. Add a connection for agents or RAG embeddings.
+                No models configured. Add a connection for agents or memory embeddings.
               </p>
             ) : (
               <Table>

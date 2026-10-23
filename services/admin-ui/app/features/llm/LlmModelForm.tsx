@@ -78,7 +78,7 @@ export default function LlmModelForm({
     <Card>
       <CardHeader>
         <CardTitle>{model ? `Edit ${model.name}` : "Add model"}</CardTitle>
-        <CardDescription>Save and test a model connection for agents or RAG embeddings.</CardDescription>
+        <CardDescription>Save and test a model connection for agents or memory embeddings.</CardDescription>
       </CardHeader>
       <form onSubmit={submit} className="flex flex-col gap-6">
         <CardContent>
@@ -123,7 +123,7 @@ export default function LlmModelForm({
                 <FieldDescription>
                   {model
                     ? "Create a separate connection to use a different model type."
-                    : "Chat models answer questions; embedding models index documents for RAG search."}
+                    : "Chat models answer questions; embedding models embed memory entries for memory search."}
                 </FieldDescription>
               </Field>
               <Field>
@@ -224,8 +224,8 @@ export default function LlmModelForm({
                       onChange={(e) => setVersion(e.target.value)}
                     />
                     <FieldDescription>
-                      Increment when replacing a model behind the same name. RAG will refresh vectors while reusing
-                      unchanged parsed text.
+                      Increment when replacing a model behind the same name. Memory search then compares only vectors of
+                      the new version; re-embed entries on the Memory page.
                     </FieldDescription>
                   </Field>
                 </div>

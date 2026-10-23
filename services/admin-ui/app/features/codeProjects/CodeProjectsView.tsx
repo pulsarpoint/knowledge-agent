@@ -702,8 +702,7 @@ export default function CodeProjectsView() {
           <CardTitle>Code projects</CardTitle>
           <CardDescription>
             Each project groups one or more folders. Generate graph builds a CodeGraph index for inspection; generate it
-            again after changing source. Git pulls update the project's folders; connect them to a RAG collection in RAG
-            → Collections to make the code searchable.
+            again after changing source. Git pulls update the project's folders.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -881,8 +880,7 @@ export default function CodeProjectsView() {
             <AlertDialogTitle>Remove code project?</AlertDialogTitle>
             <AlertDialogDescription>
               Remove {removing?.name}? It disappears from Code projects, services and agents, and its folders can be
-              used by another project. Folders connected to a RAG collection stay connected until you remove them in RAG
-              → Collections.
+              used by another project.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {removing && (
@@ -904,8 +902,7 @@ export default function CodeProjectsView() {
                     Also delete these folders and the code graph from disk
                   </FieldLabel>
                   <FieldDescription className="mt-1">
-                    This cannot be undone. Refused when another code project uses a folder or a RAG collection indexes
-                    it.
+                    This cannot be undone. Refused when another code project uses a folder.
                   </FieldDescription>
                 </div>
               </Field>

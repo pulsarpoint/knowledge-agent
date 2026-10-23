@@ -11,7 +11,6 @@ import {
   Files,
   Inbox,
   ListChecks,
-  Search,
   FolderGit2,
   Layers,
   Network,
@@ -94,40 +93,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;
   const agentPage = pathname === "/agents" || pathname.startsWith("/agents/");
-  const ragPages = [
-    {
-      path: "collections",
-      title: "RAG Collections",
-      label: "Collections",
-      description: "Search units mapped to folders in the data root: sync state, settings and indexed content.",
-      icon: Files,
-    },
-    {
-      path: "jobs",
-      title: "RAG Processing jobs",
-      label: "Processing jobs",
-      description: "Follow indexing progress and inspect processing history.",
-      icon: ListChecks,
-    },
-    {
-      path: "settings",
-      title: "RAG Settings",
-      label: "Settings",
-      description: "Configure file processing and embedding models through the backoffice.",
-      icon: Database,
-    },
-    {
-      path: "search",
-      title: "RAG Search",
-      label: "Search",
-      description: "Test folder-scoped full-text and embedding retrieval.",
-      icon: Search,
-    },
-  ];
-  const ragPage = ragPages.find(
-    (page) =>
-      pathname === `/rag/${page.path}` || (page.path === "collections" && pathname.startsWith("/rag/collections")),
-  );
   const docsPage = pathname.startsWith("/documents") || pathname.startsWith("/documentation/");
   const promptsPage = pathname === "/prompts" || pathname.startsWith("/prompts/");
   const sessionPage = pathname.startsWith("/sessions/") || pathname.startsWith("/servers/"); // its own heading is the session or server title
@@ -165,23 +130,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                           ? "Skills"
                           : agentPage
                             ? "Agents"
-                            : ragPage
-                              ? ragPage.title
-                              : repositories
-                                ? "Code projects"
-                                : codeGraphs
-                                  ? "Code graphs"
-                                  : systemMap
-                                    ? "System map"
-                                    : services
-                                      ? "Services"
-                                      : servers
-                                        ? "Servers"
-                                        : jiraSettings
-                                          ? "Jira Settings"
-                                          : jiraTickets
-                                            ? "Jira Tickets"
-                                            : "Administration";
+                            : repositories
+                              ? "Code projects"
+                              : codeGraphs
+                                ? "Code graphs"
+                                : systemMap
+                                  ? "System map"
+                                  : services
+                                    ? "Services"
+                                    : servers
+                                      ? "Servers"
+                                      : jiraSettings
+                                        ? "Jira Settings"
+                                        : jiraTickets
+                                          ? "Jira Tickets"
+                                          : "Administration";
   const description = promptsPage
     ? "Reusable instructions for agents, organised by tags."
     : notificationsPage
@@ -195,7 +158,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             : runsPage
               ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers."
               : pathname === "/storage"
-                ? "See where source code, RAG files and documentation are stored, and browse their folders."
+                ? "See where source code and code graphs are stored, and browse their folders."
                 : environments
                   ? "Organize services and servers into Development, Staging, Production, or your own environments."
                   : docsPage
@@ -208,23 +171,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                           ? "Manage reusable instructions for your agents."
                           : agentPage
                             ? "Create agents with their own models, instructions, resources, and test conversations."
-                            : ragPage
-                              ? ragPage.description
-                              : repositories
-                                ? "Browse the mounted code folder and organize local folders and Git sources into projects."
-                                : codeGraphs
-                                  ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
-                                  : services
-                                    ? "Connect applications, source code, and server deployments for agent investigations."
-                                    : systemMap
-                                      ? "The system as a graph you open one level at a time."
-                                      : servers
-                                        ? "Manage hosts, descriptions, and tags for your service infrastructure."
-                                        : jiraSettings
-                                          ? "Configure access to your Jira Data Center server and test the connection."
-                                          : jiraTickets
-                                            ? "Filter the Jira tickets saved by the pull."
-                                            : "";
+                            : repositories
+                              ? "Browse the mounted code folder and organize local folders and Git sources into projects."
+                              : codeGraphs
+                                ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
+                                : services
+                                  ? "Connect applications, source code, and server deployments for agent investigations."
+                                  : systemMap
+                                    ? "The system as a graph you open one level at a time."
+                                    : servers
+                                      ? "Manage hosts, descriptions, and tags for your service infrastructure."
+                                      : jiraSettings
+                                        ? "Configure access to your Jira Data Center server and test the connection."
+                                        : jiraTickets
+                                          ? "Filter the Jira tickets saved by the pull."
+                                          : "";
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -445,21 +406,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>RAG</SidebarGroupLabel>
-            <SidebarMenu>
-              {ragPages.map((page) => (
-                <SidebarMenuItem key={page.path}>
-                  <SidebarMenuButton asChild isActive={ragPage?.path === page.path}>
-                    <Link to={`/rag/${page.path}`}>
-                      <page.icon />
-                      <span>{page.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
