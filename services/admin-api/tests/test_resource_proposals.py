@@ -57,8 +57,8 @@ def test_the_proposals_of_a_servers_runs_are_grouped_by_run_newest_first_and_fil
     first = start(world, {'server_id': world.server['id']})
     propose(config_of(world, first), 'propose_document', title='Disk layout', markdown='# Disks', description='')
     second = start(world, {'server_id': world.server['id']})
-    propose(config_of(world, second), 'propose_service', name='redis', deployment={'runtime': 'systemd'})
     propose(config_of(world, second), 'propose_document', title='Backups', markdown='# Backups', description='')
+    propose(config_of(world, second), 'propose_document', title='Notes', markdown='# Notes', description='')
     start(world, {'server_id': world.server['id']})  # no proposals: not listed
     other = start(world, {'service_id': str(world.nginx)})
     propose(config_of(world, other), 'propose_document', title='Health', markdown='# Health', description='')
@@ -67,10 +67,7 @@ def test_the_proposals_of_a_servers_runs_are_grouped_by_run_newest_first_and_fil
     runs = across(world, tag)
     assert [run['session_id'] for run in runs] == [second, first]
     assert runs[0]['title'] == 'Propose documents.' and runs[0]['started_by'] and runs[0]['started_at']
-    assert [item['payload'].get('name') or item['payload']['title'] for item in runs[0]['proposals']] == [
-        'redis',
-        'Backups',
-    ]
+    assert [item['payload']['title'] for item in runs[0]['proposals']] == ['Backups', 'Notes']
     assert [item['payload']['title'] for item in runs[1]['proposals']] == ['Disk layout']
     accepted = decide(world, runs[1]['proposals'][0], 'accept')
     assert accepted.status_code == 200, accepted.text
@@ -140,27 +137,11 @@ def test_a_document_from_an_environment_run_is_built_for_and_attached_to_the_env
     assert attached(world, 'environment', world.environment) == {'Overview'}
 
 
-def test_a_service_proposal_lists_its_connections_part_of_and_what_already_exists(world):
+def test_a_document_proposal_about_a_recorded_service_links_to_it(world):
     ssh_ready(world)
-    sid = start(world, {'server_id': world.server['id']})
-    config = config_of(world, sid)
-    propose(
-        config,
-        'propose_service',
-        name='redis',
-        deployment={'runtime': 'systemd'},
-        connections=[{'to_service': 'nginx', 'protocol': 'http'}],
-        part_of=['nginx'],
-    )
-    propose(config, 'propose_document', title='Redis', markdown='# Redis', about_service='redis')
+    config = config_of(world, start(world, {'server_id': world.server['id']}))
+    propose(config, 'propose_document', title='Nginx', markdown='# Nginx', about_service='nginx')
     [run] = across(world, f'servers/{world.server["id"]}')
-    service, document = run['proposals']
-    [connection] = service['payload']['connections']
-    assert (connection['label'], connection['port'], connection['protocol']) == (
-        'nginx @ web-1 (Production)',
-        80,
-        'http',
-    )
-    assert service['payload']['part_of'] == [{'id': str(world.nginx), 'name': 'nginx'}]
-    assert service['present'] == {'connections': [False], 'relations': []}
-    assert document['service_proposal_id'] == service['id'] and document['service_name'] == 'redis'
+    [document] = run['proposals']
+    assert document['service_id'] == str(world.nginx) and document['service_name'] == 'nginx'
+    assert 'service_proposal_id' not in document

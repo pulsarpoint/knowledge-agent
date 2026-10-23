@@ -49,8 +49,7 @@ export default function ProposalsPage({ resource }: { resource: { type: Resource
     };
   }, [load]);
 
-  const openRun = runs?.find((item) => item.proposals.some((proposal) => proposal.id === open));
-  const current = openRun?.proposals.find((item) => item.id === open) ?? null;
+  const current = runs?.flatMap((run) => run.proposals).find((item) => item.id === open) ?? null;
   return (
     <div className="flex flex-col gap-4">
       <div role="group" aria-label="Status" className="flex flex-wrap gap-2">
@@ -101,9 +100,7 @@ export default function ProposalsPage({ resource }: { resource: { type: Resource
                 <span className="min-w-0 break-words text-sm">{`${item.number} · ${proposalLabel(item)}`}</span>
                 <span className="flex flex-wrap items-center gap-2 text-sm">
                   <Badge variant={item.status === "pending" ? "secondary" : "outline"}>{STATUS[item.status]}</Badge>
-                  {item.kind === "document" && item.status === "accepted" && item.result_id && (
-                    <AcceptedDocument proposal={item} />
-                  )}
+                  {item.status === "accepted" && item.result_id && <AcceptedDocument proposal={item} />}
                   <Button
                     type="button"
                     size="sm"
@@ -133,11 +130,6 @@ export default function ProposalsPage({ resource }: { resource: { type: Resource
           }}
           onMessage={setDecision}
           onReload={() => void load()}
-          related={openRun?.proposals}
-          onOpen={(id) => {
-            setDecision(null);
-            setOpen(id);
-          }}
         />
       )}
     </div>

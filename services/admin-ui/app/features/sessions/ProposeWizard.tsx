@@ -21,12 +21,10 @@ export const PROPOSAL_ASPECTS: { value: ProposalAspect; label: string }[] = [
   { value: "health checks", label: "Health checks" },
   { value: "ports and paths", label: "Ports and paths" },
 ];
-/** What the Propose wizard was asked for. `services` (and its two options) counts only for a server. */
+/** What the Propose wizard was asked for. `services` counts only for a server. */
 export interface ProposalOptions {
   services: boolean;
   documents: boolean;
-  updateExisting: boolean;
-  findNew: boolean;
   overview: boolean;
   /** One document per service: servers and environments only. */
   perService: boolean;
@@ -36,8 +34,6 @@ export interface ProposalOptions {
 export const DEFAULT_PROPOSAL_OPTIONS: ProposalOptions = {
   services: true,
   documents: true,
-  updateExisting: true,
-  findNew: true,
   overview: true,
   perService: true,
   aspects: PROPOSAL_ASPECTS.map((item) => item.value),
@@ -78,20 +74,10 @@ export function buildProposalPrompt(type: ResourceType, given: ProposalOptions):
     `Explore with read-only commands only, with ssh_run on ${ON[type]}: for example systemctl list-units --type=service --state=running, ss -tlnp, ps aux, docker ps, nginx -T, package versions (dpkg -l or rpm -qa) and configuration under /etc. Never change, install, restart or delete anything.`,
     "Never copy passwords, keys, tokens or other secrets into a proposal. Describe how something is configured instead.",
   ];
-  if (options.services) {
-    if (options.findNew && options.updateExisting)
-      steps.push(
-        "Propose every service you find with propose_service, with its deployment on this server. A service that is already recorded is proposed as an update: keep what is right and correct what is not.",
-      );
-    else if (options.findNew)
-      steps.push(
-        "Propose every service you find that is not recorded yet with propose_service, with its deployment on this server. Do not propose updates to services that are already recorded.",
-      );
-    else if (options.updateExisting)
-      steps.push(
-        "Propose an update with propose_service for each service already recorded on this server: keep what is right and correct what is not. Do not propose new services.",
-      );
-  }
+  if (options.services)
+    steps.push(
+      "Save every service you find that is not recorded yet as a draft with save_inventory_draft (or save_service and save_deployment), with its deployment on this server, what it connects to and what it depends on. A person confirms or discards the drafts. Do not change entries that are already recorded.",
+    );
   if (options.documents) {
     if (options.overview)
       steps.push(`Propose one overview document for the ${type} with propose_document: ${OVERVIEW[type]}.`);
@@ -103,7 +89,7 @@ export function buildProposalPrompt(type: ResourceType, given: ProposalOptions):
     if (aspects.length > 0) steps.push(`Cover in every document: ${aspects.join(", ")}.`);
   }
   steps.push(
-    "When a proposal is refused, the result says why: correct it and call again.",
+    "When a save or a proposal is refused, the result says why: correct it and call again.",
     "Finish with a short report: what you found, what you proposed and what you could not check.",
   );
   const text = `Explore the ${type} in the Resource line and propose what the inventory should record about it.\n\n${steps
@@ -125,11 +111,7 @@ export function proposalMessage(type: ResourceType, given: ProposalOptions): str
 function complete(type: ResourceType, step: Step, given: ProposalOptions): boolean {
   const options = applicable(type, given);
   if (step === "what") return options.services || options.documents;
-  if (step === "options")
-    return (
-      (!options.services || options.updateExisting || options.findNew) &&
-      (!options.documents || options.overview || options.perService)
-    );
+  if (step === "options") return !options.documents || options.overview || options.perService;
   return true;
 }
 
@@ -185,8 +167,8 @@ function Choice({
   );
 }
 
-/** Propose…: a three-step wizard (What, Options, Review) whose result is a run on the resource that proposes services
- * (servers) and documents. Start starts it and opens it as the page's chat (`?chat=<id>`). */
+/** Propose…: a three-step wizard (What, Options, Review) whose result is a run on the resource that saves services as drafts (servers only) and proposes
+ * documents. Start starts it and opens it as the page's chat (`?chat=<id>`). */
 export default function ProposeWizard({
   resource,
   blockedReason = null,
@@ -266,7 +248,7 @@ export default function ProposeWizard({
             <SheetTitle>Propose for {resource.name}</SheetTitle>
             <SheetDescription>
               {type === "server"
-                ? "A run that explores the server and proposes services and documents for you to review."
+                ? "A run that explores the server, saves the services it finds as drafts and proposes documents for you to review."
                 : `A run that proposes documents about the ${type} for you to review.`}
             </SheetDescription>
           </SheetHeader>
@@ -292,7 +274,7 @@ export default function ProposeWizard({
                 {type === "server" && (
                   <Choice
                     label="Services on this server"
-                    description="New services it finds and updates to the ones recorded."
+                    description="New services it finds, saved as drafts for you to confirm."
                     checked={options.services}
                     onChange={(services) => change({ services })}
                   />
@@ -307,21 +289,6 @@ export default function ProposeWizard({
             )}
             {step === "options" && (
               <>
-                {shown.services && (
-                  <FieldSet>
-                    <FieldLegend>Services</FieldLegend>
-                    <Choice
-                      label="Update the services already recorded"
-                      checked={options.updateExisting}
-                      onChange={(updateExisting) => change({ updateExisting })}
-                    />
-                    <Choice
-                      label="Look for new services"
-                      checked={options.findNew}
-                      onChange={(findNew) => change({ findNew })}
-                    />
-                  </FieldSet>
-                )}
                 {shown.documents && (
                   <FieldSet>
                     <FieldLegend>Documents</FieldLegend>

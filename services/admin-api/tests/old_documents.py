@@ -18,6 +18,8 @@ TAGS_NOT_FLAGS = ('0109_tags_not_flags.down.sql', '0109_tags_not_flags.up.sql')
 # 0126 drops the old inventory structures (service_assets, inventory_links, ...) that 0109 and older migrations change:
 # rolled back first.
 INVENTORY_DROP = ('0126_inventory_drop_old.down.sql', '0126_inventory_drop_old.up.sql')
+# 0129 narrows discovery_proposals to documents (service proposals are gone): rolled back first.
+SERVICE_PROPOSALS = ('0129_service_proposals_gone.down.sql', '0129_service_proposals_gone.up.sql')
 # 0127 makes environment_servers again, which 0126 down makes: rolled back before 0126.
 WORKSPACE = ('0127_environment_workspace.down.sql', '0127_environment_workspace.up.sql')
 INVENTORY_DOCUMENT = ('0107_inventory_document.down.sql', '0107_inventory_document.up.sql')
@@ -25,6 +27,7 @@ INVENTORY_DOCUMENT = ('0107_inventory_document.down.sql', '0107_inventory_docume
 
 def roll_back_0104(store) -> None:
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / SERVICE_PROPOSALS[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / WORKSPACE[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / INVENTORY_DROP[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / TAGS_NOT_FLAGS[0]).read_text(), prepare=False)

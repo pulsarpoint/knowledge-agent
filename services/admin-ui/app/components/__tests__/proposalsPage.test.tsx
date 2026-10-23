@@ -17,34 +17,9 @@ const proposal = (id: string, number: number, session: string, extra: Record<str
   decided_at: null,
   service_id: null,
   document_id: null,
-  service_proposal_id: null,
   payload: { title: `Doc ${id}`, description: "", markdown: "# Doc", about_service: null },
   ...extra,
 });
-const service = {
-  ...proposal("q1", 1, "r2"),
-  kind: "service",
-  payload: {
-    name: "nginx",
-    service_type: "builtin",
-    service_role: "proxy",
-    description: "Reverse proxy",
-    owner: "",
-    deployment: {
-      environment_id: null,
-      environment: "",
-      runtime: "systemd",
-      runtime_name: "nginx",
-      port: 80,
-      log_location: "",
-      deployed_version: "",
-    },
-    depends_on: [],
-    built_from: [],
-    matched_revision: null,
-  },
-  server_id: "s1",
-};
 const accepted = proposal("q3", 1, "r1", {
   status: "accepted",
   result_id: "d7",
@@ -60,10 +35,10 @@ const published = proposal("q4", 2, "r1", {
 const runs = [
   {
     session_id: "r2",
-    title: "Propose services and documents for this server.",
+    title: "Propose documents and more for this server.",
     started_at: "2026-10-14T12:00:00Z",
     started_by: "ana@example.com",
-    proposals: [service, proposal("q2", 2, "r2")],
+    proposals: [proposal("q1", 1, "r2"), proposal("q2", 2, "r2")],
   },
   {
     session_id: "r1",
@@ -104,12 +79,12 @@ test("proposals grouped by run, newest first, with who started it and a link to 
   show();
   const groups = await screen.findAllByRole("region");
   expect(groups.map((group) => within(group).getByRole("heading").textContent)).toEqual([
-    "Propose services and documents for this server.",
+    "Propose documents and more for this server.",
     "Propose documents for this server.",
   ]);
   expect(within(groups[0]).getByText(/ana@example.com/)).toBeInTheDocument();
   expect(within(groups[0]).getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/servers/s1?chat=r2");
-  expect(within(groups[0]).getByText("1 · New service nginx")).toBeInTheDocument();
+  expect(within(groups[0]).getByText("1 · New document Doc q1")).toBeInTheDocument();
   expect(within(groups[0]).getByText("2 · New document Doc q2")).toBeInTheDocument();
   // accepted documents link to their draft, then to the live document
   expect(within(groups[1]).getByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/d7");
@@ -143,13 +118,13 @@ test("Accept and Reject call the existing routes and reload", async () => {
       200,
       {
         runs: decided
-          ? [{ ...runs[0], proposals: [service, { ...proposal("q2", 2, "r2"), status: "rejected" }] }]
+          ? [{ ...runs[0], proposals: [proposal("q1", 1, "r2"), { ...proposal("q2", 2, "r2"), status: "rejected" }] }]
           : runs,
       },
     ],
     "POST /api/discovery/proposals/q2/reject": () => {
       decided = true;
-      return [200, { proposal: { ...proposal("q2", 2, "r2"), status: "rejected" }, rejected_documents: 0 }];
+      return [200, { proposal: { ...proposal("q2", 2, "r2"), status: "rejected" } }];
     },
     "POST /api/discovery/proposals/q2/accept": () => [
       200,

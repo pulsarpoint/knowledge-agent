@@ -2,14 +2,12 @@
 (servers/<id>, services/<id>, environments/<id>), listed by tag; each type's assistant prompt is a new chat's default;
 the proposal tools work only when the request asks for the content editor role (the Propose wizard)."""
 
-from access_helpers import ids, of
+from access_helpers import ids
 from knowledge_admin.agents.runner import ssh_servers
 from uuid import uuid4
 
-import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.capabilities.discovery import NOT_FROM_SERVER
 from knowledge_admin.sessions.start import BAD_TAG, RESOURCE_TAG, TOO_MANY_TAGS, assistant_prompt_id
 from knowledge_admin.access import NOT_EDITOR
 from test_discovery_runs import call, config_of, pinned_of, ssh_ready
@@ -144,30 +142,25 @@ def test_a_plain_server_chat_cannot_propose(world):
     ssh_ready(world)
     config = config_of(world, start(world, {'server_id': world.server['id']}).json()['id'])
     assert config['access']['roles']['content_editor'] is False
-    assert call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'}) == NOT_EDITOR
     assert call(config, 'propose_document', title='Disks', description='', markdown='# x') == NOT_EDITOR
 
 
-def test_a_server_run_that_asks_for_the_content_editor_role_proposes_both(world):
+def test_a_server_run_that_asks_for_the_content_editor_role_proposes_documents(world):
     ssh_ready(world)
     created = start(world, {'server_id': world.server['id']}, content_editor=True, tags=['proposals'])
     assert created.status_code == 201, created.text
     config = config_of(world, created.json()['id'])
     assert config['access']['roles']['content_editor'] is True
-    said = call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'})
-    assert said == 'Proposal 1: new service redis.'
     said = call(config, 'propose_document', title='Disks', description='', markdown='# x')
-    assert said.startswith('Proposal 2: new document "Disks"')
+    assert said.startswith('Proposal 1: new document "Disks"')
 
 
-def test_propose_service_is_refused_on_a_service_or_environment_run_and_propose_document_works_there(world):
+def test_propose_document_works_on_a_service_or_environment_run(world):
     created = start(world, {'service_id': str(world.nginx)}, content_editor=True)
     assert created.status_code == 201, created.text
     config = config_of(world, created.json()['id'])
     said = call(config, 'propose_document', title='Health checks', description='How to check nginx.', markdown='# x')
     assert said == 'Proposal 1: new document "Health checks" about service nginx.'
-    with pytest.raises(ValueError, match=NOT_FROM_SERVER):
-        call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'})
     environment = config_of(
         world, start(world, {'environment_id': str(world.environment)}, content_editor=True).json()['id']
     )

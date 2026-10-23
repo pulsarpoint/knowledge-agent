@@ -70,8 +70,8 @@ describe("buildProposalPrompt", () => {
     expect(text).toContain(
       "1. Read what is already recorded first: get_resource for the server, then for its services.",
     );
-    expect(text).toContain("Propose every service you find with propose_service");
-    expect(text).toContain("A service that is already recorded is proposed as an update");
+    expect(text).toContain("Save every service you find that is not recorded yet as a draft with save_inventory_draft");
+    expect(text).toContain("Do not change entries that are already recorded");
     expect(text).toContain("Propose one overview document for the server with propose_document");
     expect(text).toContain("Propose one document for each significant service (about_service)");
     expect(text).toContain("Cover in every document: configuration, logs, health checks, ports and paths.");
@@ -82,11 +82,6 @@ describe("buildProposalPrompt", () => {
   });
 
   test("one block per chosen option", () => {
-    const newOnly = buildProposalPrompt("server", { ...DEFAULT_PROPOSAL_OPTIONS, updateExisting: false });
-    expect(newOnly).toContain("not recorded yet");
-    expect(newOnly).toContain("Do not propose updates");
-    const updateOnly = buildProposalPrompt("server", { ...DEFAULT_PROPOSAL_OPTIONS, findNew: false });
-    expect(updateOnly).toContain("Do not propose new services.");
     const documentsOnly = buildProposalPrompt("server", {
       ...DEFAULT_PROPOSAL_OPTIONS,
       services: false,
@@ -94,12 +89,13 @@ describe("buildProposalPrompt", () => {
       aspects: ["logs"],
       extra: "  Mention the backup job.  ",
     });
-    expect(documentsOnly).not.toContain("propose_service");
+    expect(documentsOnly).not.toContain("save_inventory_draft");
     expect(documentsOnly).not.toContain("about_service");
     expect(documentsOnly).toContain("Cover in every document: logs.");
     expect(documentsOnly).toMatch(/Extra instructions:\nMention the backup job\.$/);
     const servicesOnly = buildProposalPrompt("server", { ...DEFAULT_PROPOSAL_OPTIONS, documents: false });
     expect(servicesOnly).not.toContain("propose_document");
+    expect(servicesOnly).toContain("save_inventory_draft");
     expect(servicesOnly).not.toContain("Cover in every document");
   });
 
@@ -107,13 +103,13 @@ describe("buildProposalPrompt", () => {
     const service = buildProposalPrompt("service", DEFAULT_PROPOSAL_OPTIONS);
     expect(service).toMatch(/^Explore the service in the Resource line/);
     expect(service).toContain("get_resource for the service, then for the servers it is deployed on");
-    expect(service).not.toContain("propose_service");
+    expect(service).not.toContain("save_inventory_draft");
     expect(service).not.toContain("about_service"); // one document per service: servers and environments only
     expect(service).toContain("Propose one overview document for the service with propose_document");
     const environment = buildProposalPrompt("environment", DEFAULT_PROPOSAL_OPTIONS);
     expect(environment).toContain("get_resource for the environment, then for its services and servers");
     expect(environment).toContain("about_service");
-    expect(environment).not.toContain("propose_service");
+    expect(environment).not.toContain("save_inventory_draft");
   });
 });
 
@@ -136,8 +132,6 @@ test("a server offers services and documents; the options; Review shows the prom
 
   expect(within(steps).getByText("Options")).toHaveAttribute("aria-current", "step");
   for (const name of [
-    "Update the services already recorded",
-    "Look for new services",
     "An overview document of the server",
     "One document per service",
     "Configuration",
@@ -184,10 +178,9 @@ test("documents only: the prompt and message ask for documents, the run may stil
   const dialog = await screen.findByRole("dialog");
   await user.click(within(dialog).getByRole("checkbox", { name: "Services on this server" }));
   await user.click(within(dialog).getByRole("button", { name: "Next" }));
-  expect(within(dialog).queryByRole("checkbox", { name: "Look for new services" })).toBeNull();
   await user.click(within(dialog).getByRole("button", { name: "Next" }));
   expect((within(dialog).getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).not.toContain(
-    "propose_service",
+    "save_inventory_draft",
   );
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
   await waitFor(() => expect(calls.some((call) => call.key === "POST /api/sessions")).toBe(true));

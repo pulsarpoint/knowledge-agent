@@ -192,7 +192,7 @@ test("General switches Content editor and saves Instructions", async () => {
   open("/agents/search");
   const editor = await screen.findByRole("switch", { name: "Content editor" });
   expect(editor).not.toBeChecked();
-  expect(screen.getByText("Lets this agent propose services and documents and edit editable documents.")).toBeVisible();
+  expect(screen.getByText("Lets this agent propose documents and edit editable documents.")).toBeVisible();
   expect(screen.queryByRole("combobox", { name: "Resources" })).toBeNull();
   await user.click(editor);
   await user.type(screen.getByRole("textbox", { name: "Instructions" }), "Check the runbook first.");

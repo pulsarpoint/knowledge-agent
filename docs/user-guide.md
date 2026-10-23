@@ -391,11 +391,12 @@ Propose wizard"; the agent's instructions and skills), **Tools** (each name and 
 **Resources** and **Model**. Before the first message it shows what the next conversation would start with; secrets
 are never shown.
 
-**Propose…** starts a run that proposes what the inventory should record. It is a small wizard:
+**Propose…** starts a run that explores the resource. It saves the services it finds as drafts in the inventory
+(you confirm or discard them in the environment workspace) and proposes documents for your review. It is a small wizard:
 
-1. **What** — on a server, **Services on this server** and/or **Documents**; on a service or environment,
+1. **What** — on a server, **Services on this server** (saved as drafts) and/or **Documents**; on a service or environment,
    **Documents** only.
-2. **Options** — for services: update the ones already recorded, look for new ones; for documents: an overview
+2. **Options** — for documents: an overview
    document, one document per service (servers and environments), the aspects to cover (configuration, logs, health
    checks, ports and paths); and extra instructions.
 3. **Review** — the prompt built from those choices (the steps of the **Server discovery** prompt, one block per
@@ -407,24 +408,12 @@ are never shown.
 the resource's runs, grouped by run (newest first, with who started it and **Open chat**), with a status filter
 (**All**, **Pending**, **Accepted**, **Rejected**). **Review** opens one proposal:
 
-- A **new service** shows its fields.
-- An **update** to an existing service shows the current value against the proposed one,
-  with a **Keep** checkbox per changed field. Untick a field to keep the current value.
-- Either kind of service proposal also shows its deployment on the server, its **connections** (target, port,
-  protocol: a deployment of a recorded service such as `postgres @ db-1 (prod)`, an external service, or an external
-  host), its **relations** (depends on, part of, built from; what is already recorded is marked), and the document
-  proposals of the same run about this service, each opening its own review.
-- A **document** shows its text; a document about a service proposed in the same run links to that service proposal.
+- A **document** shows its text and what it is about (a recorded service, or the resource the run started from).
 
-The agent names a connection's target by service name: a service that runs on several servers needs the server
-(`to_server`), and the proposal's environment is preferred over another; an unknown name is refused with the services
-it can connect to. `part_of` names recorded services this one is part of (as a library or component).
+Inventory findings are not proposals: services, deployments, connections and relations appear as drafts in the
+environment workspace, where you confirm or discard them.
 
-**Accept** writes services to the inventory in one step: the service, the deployment (added or updated), its
-connections and its relations. A connection already recorded with the same target, port and protocol is not added
-again. If any part fails (for example a target deployment was removed meanwhile), nothing is written and the error is
-shown. A document
-is never written live by Accept: a new document becomes a draft (a generated document named in `servers/<server>/`, in
+**Accept** never writes a document live: a new document becomes a draft (a generated document named in `servers/<server>/`, in
 `servers/<server>-2`, `-3`, ... when the folder would overlap another document's export, or in
 `server-documents/<server>` when `servers` itself is a document's export), and a new version of an existing document
 becomes a draft of that document. The accepted proposal says "Waiting to be published" (a new document) or "Waiting
@@ -436,10 +425,7 @@ document and never changes the inventory document: a proposal with its title is 
 you decide whether to replace the inventory document with it (move the tag: edit the tags of both and promote) or merge
 them by hand. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
 review it and accept.
-**Reject** discards the proposal. Rejecting a proposed new service also rejects the document proposals about it;
-documents about an already recorded service stay and can be accepted on their own.
-A document about a proposed service can be accepted only after the service is. If
-something was added since the proposal was made, it turns into an update or a new version
+**Reject** discards the proposal. If a document was added since the proposal was made, it turns into a new version
 and asks you to look at it again.
 
 The agent is told to use read-only commands, but SSH itself is not read-only: anything
@@ -610,7 +596,7 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose services and documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**; a document may be made **Editable** (only a Content editor changes it). A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
@@ -1286,7 +1272,7 @@ resources and roles decide).
 | `ast_grep` | The run has code projects | Structural code queries; 30 s timeout |
 | `ssh_run` | The run has the server and it is allowed SSH with a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | `get_resource`, `get_document` | Inventory tools: the run was given the resource or document | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or linked to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
-| Proposal tools | **Propose…** wizard runs | Act only in a content-editor run started from a server, service or environment (the **Propose…** wizard asks for the role); `propose_service` only in a run started from a server. A plain chat refuses them. They record proposals that you accept or reject, and write nothing to the inventory themselves |
+| Proposal tool | **Propose…** wizard runs | `propose_document` acts only in a content-editor run started from a server, service or environment (the **Propose…** wizard asks for the role). A plain chat refuses it. It records a proposal that you accept or reject. Inventory findings are saved as drafts with the `save_*` tools instead |
 | MCP tools | The run has the MCP server | Every tool of the tested MCP servers in the run's access |
 | `search_documents`, `read_document` | The run has collections | Search and read only the granted RAG collections; **Answer only from documents** asks the agent to answer from them and cite every claim |
 | `report_not_covered` | **Answer only from documents** on (else "This run does not answer only from documents.") | Records what is missing and marks the answer **not covered** |

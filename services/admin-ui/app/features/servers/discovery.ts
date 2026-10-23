@@ -18,43 +18,6 @@ export interface ServerPageData {
   ssh_ready: boolean;
   discovery: { ready: boolean; reason: string | null };
 }
-export type ServiceField = "service_type" | "service_role" | "description" | "owner";
-export const SERVICE_FIELD_LABELS: Record<ServiceField, string> = {
-  service_type: "Type",
-  service_role: "Role",
-  description: "Description",
-  owner: "Owner",
-};
-export interface ProposedDeployment {
-  environment_id: string | null;
-  environment: string;
-  runtime: string;
-  runtime_name: string;
-  port: number | null;
-  log_location: string;
-  deployed_version: string;
-}
-/** A proposed connection from the proposal's deployment: to a deployment, an external service or a host (one of the
- * three ids is set), with a label such as "postgres @ db-1 (prod)". */
-export interface ProposedConnection {
-  to_deployment_id: string | null;
-  to_service_id: string | null;
-  to_host: string | null;
-  label: string;
-  port: number | null;
-  protocol: string;
-  description: string;
-}
-export interface ServicePayload extends Record<ServiceField, string> {
-  name: string;
-  deployment: ProposedDeployment;
-  depends_on: { id: string; name: string }[];
-  built_from: { id: string; name: string }[];
-  /** Absent in proposals made before connections and part_of. */
-  connections?: ProposedConnection[];
-  part_of?: { id: string; name: string }[];
-  matched_revision: number | null;
-}
 export interface DocumentPayload {
   title: string;
   description: string;
@@ -73,30 +36,18 @@ interface ProposalBase {
   decided_at: string | null;
   service_id: string | null;
   document_id: string | null;
-  service_proposal_id: string | null;
-}
-export interface ServiceProposal extends ProposalBase {
-  kind: "service";
-  payload: ServicePayload;
-  current?: (Record<ServiceField, string> & { id: string; name: string; revision: number }) | null;
-  changes?: ServiceField[];
-  current_deployment?:
-    (Omit<ProposedDeployment, "environment_id"> & { id: string; environment_id: string | null }) | null;
-  /** What is already recorded: per proposed connection, and the relations as "kind:target id". */
-  present?: { connections: boolean[]; relations: string[] };
 }
 export interface DocumentProposal extends ProposalBase {
   kind: "document";
   payload: DocumentPayload;
   service_name?: string;
-  service_proposal_status?: "pending" | "accepted" | "rejected";
   current?: { id: string; title: string; version: number } | null;
   /** The draft accepting made: brand-new (document_id null) or of the live document document_id; null once deleted. */
   draft_id?: string | null;
   /** The draft went live (published or promoted). */
   draft_published?: boolean;
 }
-export type Proposal = ServiceProposal | DocumentProposal;
+export type Proposal = DocumentProposal;
 
 const json = (method: string, body: unknown) => ({
   method,
@@ -105,13 +56,13 @@ const json = (method: string, body: unknown) => ({
 });
 const server = (id: string) => `/api/servers/${encodeURIComponent(id)}`;
 export const getServerPage = (id: string, signal?: AbortSignal) => request<ServerPageData>(server(id), { signal });
-export const acceptProposal = (id: string, revision: number, fields?: ServiceField[]) =>
+export const acceptProposal = (id: string, revision: number) =>
   request<{ proposal: Proposal; result_id: string }>(
     `/api/discovery/proposals/${encodeURIComponent(id)}/accept`,
-    json("POST", fields === undefined ? { revision } : { revision, fields }),
+    json("POST", { revision }),
   );
 export const rejectProposal = (id: string, revision: number) =>
-  request<{ proposal: Proposal; rejected_documents: number }>(
+  request<{ proposal: Proposal }>(
     `/api/discovery/proposals/${encodeURIComponent(id)}/reject`,
     json("POST", { revision }),
   );

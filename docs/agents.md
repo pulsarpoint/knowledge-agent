@@ -76,10 +76,12 @@ limit, no per-turn time limit, no 300-second limit).
   the run was not given is not available. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
   hostnames, connections and server instructions come from `get_resource`. The edit tools' schemas are the same in
-  every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) are offered in every run like
-  every tool; their checks allow them only in a content-editor run that may propose for its starting resource, which
-  is what the Propose wizard starts (`content_editor: true`): `propose_document` in a run started from a server,
-  service or environment, `propose_service` only from a server. A plain chat refuses them. Accepting a document proposal creates a
+  every run; given another document they answer with the documents the run may change. The proposal tool `propose_document` is offered in every run like
+  every tool; its check allows it only in a content-editor run that may propose for its starting resource, which
+  is what the Propose wizard starts (`content_editor: true`), in a run started from a server, service or environment.
+  A plain chat refuses it. Inventory findings are not proposals: services, deployments, connections and relations are
+  saved as drafts with the `save_*` tools (`save_inventory_draft` for many at once) and a person confirms or discards
+  them in the environment workspace (`propose_service` and service proposals are gone, migration 0129). Accepting a document proposal creates a
   draft with the run's `session_id` (a brand-new draft, or a draft of the document it updates; it becomes the run's
   last draft); a person publishes or promotes it. A new document is built for the service it is about, else for the
   run's server, service or environment (for a run without `started_from`, the proposal's server), in that resource's
@@ -89,10 +91,8 @@ limit, no per-turn time limit, no 300-second limit).
   brand-new draft); otherwise it is an ordinary document beside it. Discovery never adds the tag to an existing
   document and never changes a document tagged `inventory`: a proposal titled like it is a new document, not a new
   version, and a matched document tagged `inventory` before the accept gets a new document, never a draft of it. A
-  person decides whether the new one replaces it (moving the tag) or merges it by hand. `propose_service` proposes a
-  service's name, type, role, description, owner and deployment, the deployment's connections (to a recorded service's
-  deployment, an external service or an external host) and its relations (`depends_on`, `part_of`, `built_from`);
-  operating knowledge goes in documents.
+  person decides whether the new one replaces it (moving the tag) or merges it by hand.
+  Operating knowledge goes in documents.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per

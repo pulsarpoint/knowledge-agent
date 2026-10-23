@@ -53,94 +53,14 @@ RESOURCE_GONE = 'The server, service or environment this proposal was made for n
 NO_PROPOSAL = 'Proposal not found.'
 DECIDED = 'This proposal was already accepted or rejected.'
 STALE = 'This proposal changed since you opened it. Review it again.'
-SERVICE_CHANGED = 'This service changed since the proposal was made. Review it again.'
-SERVICE_ADDED = (
-    'A service named {name} was added since this proposal was made. It is now shown as an update. Review it again.'
-)
 DOCUMENT_CHANGED = 'This document changed since the proposal was made. Review it again.'
 DOCUMENT_ADDED = 'A document titled {title} was added since this proposal was made. It is now shown as a new version. Review it again.'
-ACCEPT_SERVICE_FIRST = 'Accept the service first.'
 SERVICE_GONE = 'The service {name} no longer exists. Reject this proposal.'
-SERVICE_FIELDS = ('service_type', 'service_role', 'description', 'owner')
-DEPLOYMENT_FIELDS = ('runtime', 'runtime_name', 'port', 'log_location', 'deployed_version')
-ServiceField = Literal['service_type', 'service_role', 'description', 'owner']
-CURRENT_SERVICE = """SELECT id,name,revision,service_type,service_role,description,owner FROM ka.services WHERE id=%s"""
-DEPLOYMENT_COLUMNS = (
-    'd.id,d.server_id,e.name AS environment,d.environment_id,d.runtime,d.runtime_name,d.port,d.log_location,'
-    'd.deployed_version,d.revision'
-)
 
 
 class Decision(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=1, strict=True)
-
-
-class Acceptance(Decision):
-    fields: list[ServiceField] | None = None
-
-
-def changes(proposed: dict, current: dict) -> list[str]:
-    """The fields a service proposal would change: a proposed value that says something and differs."""
-    return [
-        field
-        for field in SERVICE_FIELDS
-        if proposed.get(field) not in (None, '', 'unclassified') and proposed[field] != current[field]
-    ]
-
-
-CONNECTION_KEYS = ('to_deployment_id', 'to_service_id', 'to_host', 'port', 'protocol', 'description')
-SAME_CONNECTION = ('to_deployment_id', 'to_service_id', 'to_host', 'port', 'protocol')
-RELATION_TARGETS = (('depends_on', 'to_service_id'), ('part_of', 'to_service_id'), ('built_from', 'to_code_project_id'))
-
-
-def connection_key(item: dict) -> tuple:
-    """A connection's target, port and protocol (a recorded row or a proposed one): an equal key from the same
-    deployment is the same connection."""
-    return tuple(None if item[key] is None else str(item[key]) for key in SAME_CONNECTION)
-
-
-def recorded(conn, project, service_id, deployment_id) -> tuple[set, set]:
-    """What the service already has: the connection keys from the deployment, and its relations as 'kind:target'."""
-    connections = (
-        set()
-        if deployment_id is None
-        else {
-            connection_key(row)
-            for row in inventory.list_connections(conn, project, deployment_id=deployment_id)
-            if row['from_deployment_id'] == deployment_id
-        }
-    )
-    relations = {
-        f'{row["kind"]}:{row["to_service_id"] or row["to_code_project_id"]}'
-        for row in inventory.list_relations(conn, project, service_id=service_id)
-        if row['from_service_id'] == service_id
-    }
-    return connections, relations
-
-
-def matching_deployment(conn, service_id, server_id, deployment: dict) -> dict | None:
-    """The service's deployment a proposal updates: on this server in the same environment (by id, or by name when the
-    proposal names one), with the same runtime name, or the only one there."""
-    rows = conn.execute(
-        f"""SELECT {DEPLOYMENT_COLUMNS} FROM ka.service_deployments d JOIN ka.environments e ON e.id=d.environment_id
-        WHERE d.service_id=%s AND d.server_id=%s
-        AND (d.environment_id=%s OR (%s::uuid IS NULL AND lower(e.name)=lower(%s))) ORDER BY d.id""",
-        (service_id, server_id, deployment['environment_id'], deployment['environment_id'], deployment['environment']),
-    ).fetchall()
-    same = [row for row in rows if row['runtime_name'] == deployment['runtime_name']]
-    return same[0] if same else rows[0] if len(rows) == 1 else None
-
-
-def environment_named(conn, project, author: dict, name: str) -> UUID:
-    """The environment a proposal names (a server in no environment), created when missing."""
-    name = name.strip()[:100].strip()
-    row = conn.execute(
-        'SELECT id FROM ka.environments WHERE project_id=%s AND lower(name)=lower(%s)', (project, name)
-    ).fetchone()
-    if row is not None:
-        return row['id']
-    return inventory.create_environment(conn, project, {'name': name}, author)['id']
 
 
 def first_error(exc: ValidationError) -> str:
@@ -268,89 +188,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         conn.commit()
         raise HTTPException(409, message)
 
-    def accept_service(conn, project, actor, row: dict, fields: list[str] | None) -> UUID:
-        """A new service with its deployment and relations, or an update of the chosen fields, the matching deployment
-        (or a new one) and the relations it lacks: through the inventory store, as the forms do."""
-        payload = row['payload']
-        proposed = payload['deployment']
-        author = {'actor_id': actor}
-        if row['service_id'] is None:
-            clash = conn.execute(
-                'SELECT id,name,revision FROM ka.services WHERE project_id=%s AND lower(name)=lower(%s)',
-                (project, payload['name']),
-            ).fetchone()
-            if clash is not None:
-                convert(
-                    conn,
-                    row['id'],
-                    SERVICE_ADDED.format(name=clash['name']),
-                    service_id=clash['id'],
-                    payload=Jsonb({**payload, 'matched_revision': clash['revision']}),
-                )
-            service = inventory.create_service(
-                conn, project, {'name': payload['name'], **{field: payload[field] for field in SERVICE_FIELDS}}, author
-            )
-            match = None
-        else:
-            service = conn.execute(CURRENT_SERVICE, (row['service_id'],)).fetchone()
-            if service is None:
-                raise HTTPException(409, SERVICE_CHANGED)
-            if service['revision'] != payload.get('matched_revision'):
-                convert(
-                    conn,
-                    row['id'],
-                    SERVICE_CHANGED,
-                    payload=Jsonb({**payload, 'matched_revision': service['revision']}),
-                )
-            changed = changes(payload, service)
-            chosen = changed if fields is None else [field for field in fields if field in changed]
-            if chosen:
-                inventory.update_service(
-                    conn,
-                    project,
-                    service['id'],
-                    service['revision'],
-                    {field: payload[field] for field in chosen},
-                    author,
-                )
-            match = matching_deployment(conn, service['id'], row['server_id'], proposed)
-        if match is None:
-            deployment_id = inventory.create_deployment(
-                conn,
-                project,
-                {
-                    'service_id': service['id'],
-                    'server_id': row['server_id'],
-                    'environment_id': proposed['environment_id']
-                    or environment_named(conn, project, author, proposed['environment']),
-                    **{key: proposed[key] for key in DEPLOYMENT_FIELDS},
-                },
-                author,
-            )['id']
-        else:
-            deployment_id = match['id']
-            kept = {key: proposed[key] for key in DEPLOYMENT_FIELDS if proposed[key] not in (None, '', match[key])}
-            if kept:
-                inventory.update_deployment(conn, project, match['id'], match['revision'], kept, author)
-        connected, related = recorded(conn, project, service['id'], deployment_id)
-        for item in payload.get('connections', []):
-            if connection_key(item) not in connected:
-                inventory.create_connection(
-                    conn,
-                    project,
-                    {'from_deployment_id': deployment_id, **{key: item[key] for key in CONNECTION_KEYS}},
-                    author,
-                )
-                connected.add(connection_key(item))
-        for kind, target in RELATION_TARGETS:
-            for item in payload.get(kind, []):
-                if f'{kind}:{item["id"]}' not in related:
-                    inventory.create_relation(
-                        conn, project, {'from_service_id': service['id'], 'kind': kind, target: item['id']}, author
-                    )
-                    related.add(f'{kind}:{item["id"]}')
-        return service['id']
-
     def accept_document(conn, project, actor, row: dict) -> UUID:
         """The draft accepting a document proposal makes: a draft of the live document it updates, or a brand-new
         draft (built for the service it is about, else the run's server, service or environment, in that resource's
@@ -360,15 +197,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         inventory since gets a new document, not a draft of it."""
         payload = row['payload']
         prov = Provenance('discovery', actor, row['session_id'])
-        if row['service_proposal_id'] is not None:
-            parent = conn.execute(
-                'SELECT status,result_id,payload FROM ka.discovery_proposals WHERE id=%s', (row['service_proposal_id'],)
-            ).fetchone()
-            if parent['status'] != 'accepted':
-                raise HTTPException(400, ACCEPT_SERVICE_FIRST)
-            service_id = parent['result_id']
-            gone_name = parent['payload']['name']
-        elif row['service_id'] is not None:
+        if row['service_id'] is not None:
             service_id = row['service_id']
             gone_name = payload.get('about_service')
         elif payload.get('about_service'):
@@ -469,48 +298,17 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         )
 
     def detail(conn, row: dict) -> dict:
-        """A proposal as the review shows it: for a service update its current values, what would change and the
-        deployment it updates; for a document the service it is about, what it would replace and, once accepted,
+        """A proposal as the review shows it: the service it is about, what it would replace and, once accepted,
         whether its draft went live (draft_published)."""
         item = dict(row)
         item['draft_published'] = (
             row['kind'] == 'document' and row['status'] == 'accepted' and draft_published(conn, row)
         )
-        payload = row['payload']
-        if row['kind'] == 'service' and row['service_id'] is not None:
-            current = conn.execute(CURRENT_SERVICE, (row['service_id'],)).fetchone()
-            item['current'] = current
-            item['changes'] = changes(payload, current) if current else []
-            item['current_deployment'] = matching_deployment(
-                conn, row['service_id'], row['server_id'], payload['deployment']
-            )
-        if row['kind'] == 'service':
-            deployment = item.get('current_deployment')
-            connected, related = (
-                recorded(conn, row['project_id'], row['service_id'], deployment and deployment['id'])
-                if row['service_id'] is not None
-                else (set(), set())
-            )
-            item['present'] = {
-                'connections': [connection_key(entry) in connected for entry in payload.get('connections', [])],
-                'relations': [
-                    f'{kind}:{entry["id"]}'
-                    for kind, _ in RELATION_TARGETS
-                    for entry in payload.get(kind, [])
-                    if f'{kind}:{entry["id"]}' in related
-                ],
-            }
         if row['kind'] == 'document':
             if row['service_id'] is not None:
                 item['service_name'] = conn.execute(
                     'SELECT name FROM ka.services WHERE id=%s', (row['service_id'],)
                 ).fetchone()['name']
-            if row['service_proposal_id'] is not None:
-                parent = conn.execute(
-                    'SELECT status,payload FROM ka.discovery_proposals WHERE id=%s', (row['service_proposal_id'],)
-                ).fetchone()
-                item['service_name'] = parent['payload']['name']
-                item['service_proposal_status'] = parent['status']
             if row['document_id'] is not None:
                 item['current'] = conn.execute(
                     'SELECT id,title,version FROM ka.document_details WHERE id=%s', (row['document_id'],)
@@ -564,18 +362,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             return jsonable_encoder({'proposals': [detail(conn, row) for row in rows]})
 
     @router.post('/discovery/proposals/{proposal_id}/accept')
-    def accept(proposal_id: UUID, value: Acceptance, request: Request) -> dict:
+    def accept(proposal_id: UUID, value: Decision, request: Request) -> dict:
         db = database()
         try:
             with workspace(db, app_name) as (conn, project):
                 conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
                 actor = db.actor(conn, *request_actor(request))
                 row = pending(conn, project, proposal_id, value.revision)
-                draft = None
-                if row['kind'] == 'service':
-                    result = accept_service(conn, project, actor, row, value.fields)
-                else:
-                    result = draft = accept_document(conn, project, actor, row)
+                result = draft = accept_document(conn, project, actor, row)
                 updated = conn.execute(
                     """UPDATE ka.discovery_proposals SET status='accepted',decided_by=%s,decided_at=now(),
                     result_id=%s,draft_id=%s,revision=revision+1 WHERE id=%s RETURNING *""",
@@ -593,7 +387,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         'number': row['number'],
                         'kind': row['kind'],
                         'result_id': result,
-                        'fields': value.fields,
                     },
                 )
                 return jsonable_encoder({'proposal': detail(conn, updated), 'result_id': result})
@@ -618,11 +411,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 revision=revision+1 WHERE id=%s RETURNING *""",
                 (actor, proposal_id),
             ).fetchone()
-            cascaded = conn.execute(
-                """UPDATE ka.discovery_proposals SET status='rejected',decided_by=%s,decided_at=now(),
-                revision=revision+1 WHERE service_proposal_id=%s AND status='pending' RETURNING id""",
-                (actor, proposal_id),
-            ).fetchall()
             audit(
                 conn,
                 project,
@@ -634,9 +422,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     'session_id': row['session_id'],
                     'number': row['number'],
                     'kind': row['kind'],
-                    'rejected_documents': len(cascaded),
                 },
             )
-            return jsonable_encoder({'proposal': detail(conn, updated), 'rejected_documents': len(cascaded)})
+            return jsonable_encoder({'proposal': detail(conn, updated)})
 
     return router

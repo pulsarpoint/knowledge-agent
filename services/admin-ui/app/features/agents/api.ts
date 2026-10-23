@@ -25,7 +25,7 @@ export interface AgentAccess {
   resources: AccessEntry[];
   roles: { content_editor: boolean }; // a missing role is off
 }
-export const CONTENT_EDITOR_HELP = "Lets this agent propose services and documents and edit editable documents.";
+export const CONTENT_EDITOR_HELP = "Lets this agent propose documents and edit editable documents.";
 export const EXPERT_HELP = "Other agents can call this agent as a tool. Its When to use text tells them when.";
 /** "1 server · 2 documents", or "No resources". */
 export function countsSummary(counts: Partial<Record<AccessType, number>>): string {

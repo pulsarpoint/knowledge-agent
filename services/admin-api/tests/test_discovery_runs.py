@@ -212,8 +212,8 @@ def test_two_runs_on_one_server_can_run_at_once_and_are_listed_with_their_counts
         conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (first,))
         conn.execute(
             """INSERT INTO ka.discovery_proposals(project_id,session_id,server_id,number,kind,payload,status,decided_at,result_id)
-            VALUES (%s,%s,%s,1,'service','{"name":"a"}','pending',NULL,NULL),
-                   (%s,%s,%s,2,'service','{"name":"b"}','rejected',now(),NULL)""",
+            VALUES (%s,%s,%s,1,'document','{"title":"a"}','pending',NULL,NULL),
+                   (%s,%s,%s,2,'document','{"title":"b"}','rejected',now(),NULL)""",
             (world.project, first, world.server['id'], world.project, first, world.server['id']),
         )
     other = world.client.post(
@@ -283,7 +283,7 @@ def test_the_proposal_tools_are_refused_in_a_run_not_started_from_a_server(world
     config = config_of(world, started.json()['id'])
     assert 'started_from' not in config
     with pytest.raises(ValueError, match='The proposal tools work only in a run started from a server'):
-        call(config, 'propose_service', name='redis', deployment={'runtime': 'systemd'})
+        call(config, 'propose_document', title='T', description='', markdown='# t')
 
 
 def test_the_old_discovery_routes_are_gone(world):

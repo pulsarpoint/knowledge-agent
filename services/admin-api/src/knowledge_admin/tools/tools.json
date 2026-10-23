@@ -156,12 +156,6 @@
     "summary": "Read a document given to this run or linked to a resource given to it."
   },
   {
-    "name": "propose_service",
-    "group": "inventory",
-    "label": "Propose service",
-    "summary": "Propose a service with its deployment, connections and part_of for review (content editor runs started from a server)."
-  },
-  {
     "name": "propose_document",
     "group": "inventory",
     "label": "Propose document",

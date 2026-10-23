@@ -405,15 +405,6 @@ def test_discovery_tags_a_new_document_only_when_the_resource_has_none_and_never
         assert tags_of(conn, first) == ['inventory']
 
 
-def test_propose_service_has_no_operations_notes():
-    spec = CATALOG['propose_service']
-    assert 'operations_notes' not in spec.arguments.model_json_schema()['properties']
-    with pytest.raises(ValidationError):
-        spec.arguments.model_validate(
-            {'name': 'redis', 'deployment': {'runtime': 'systemd'}, 'operations_notes': 'Restart nightly.'}
-        )
-
-
 # Nothing reads the removed columns
 
 
