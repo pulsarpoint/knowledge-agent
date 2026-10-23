@@ -18,8 +18,8 @@ Other `?view=` values (including the former `tools`) open General.
 **Access.** What an agent may use is one access object, `ka.agents.access`:
 `{"resources": [{"type", "id"}]}`. Types are `server`, `service`,
 `environment`, `code_project`, `document`, `skill` and `mcp_server`; only references are stored (names,
-descriptions and paths are loaded at run start). The `collection` type is gone: a stored `collection` reference is
-ignored when the agent is read (not shown, not loaded, not counted) until migration 0134 deletes it. There are no roles and no per-document `editable` flag: every run may
+descriptions and paths are loaded at run start); a stored reference of a type that is not listed is ignored when
+the agent is read (not shown, not loaded, not counted). There are no roles and no per-document `editable` flag: every run may
 draft the documents it may read and new documents for its servers, services and environments (see
 [documentation](documentation.md#document-tools)); an older object's `roles` or `editable` keys are ignored. The agent's instructions are
 `ka.agents.instructions`. Every run narrows the access object: it gets all of it, or the resources the request picks

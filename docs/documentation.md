@@ -2,7 +2,7 @@
 
 Docs is a separate admin section with Documents, Prompts and Folders.
 It supports Markdown CRUD, version history, resource links, versioned prompts and
-documents written by agent sessions. RAG publication remains a separate next stage.
+documents written by agent sessions.
 
 ## Storage and versions
 
@@ -130,7 +130,7 @@ role. Mutations also require an attributed user. No credential fields are return
 | `POST /drafts` | A draft of a live document (`document_id`; text defaults to the live version) or a brand-new document (`slug`, optional `folder`, `title`, `markdown`, optional `resource_ids`, which become built-for links); a folder+slug naming a live document makes a draft of it |
 | `GET /drafts` | Drafts (each row has `published`: false for a brand-new draft); `new=true` keeps brand-new documents; `environment_id`, `service_id`, `server_id`, `code_project_id`, `deployment_id` keep the drafts linked to that resource (brand-new drafts by their own links, drafts of a document by its links) |
 | `GET /drafts/{id}` | A draft with its Markdown, sources, base and live version numbers, `stale` and the live Markdown |
-| `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`); a brand-new draft may also send `slug` and/or `folder` (null: no folder) to rename it (409 when the name or its export folder is taken); a draft of a document that sends either is a 400 "A draft of a published document keeps its document's name." |
+| `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`); a brand-new draft may also send `slug` and/or `folder` (null: no folder) to rename it (409 when the name is taken or is also a documentation folder); a draft of a document that sends either is a 400 "A draft of a published document keeps its document's name." |
 | `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: Publish (a brand-new draft) or Promote: make it the live version and delete the document's other drafts; returns `document_id`, `version`, `revision`, `deleted_drafts`; 409 `STALE_BASE` when the live version moved on |
 | `POST /drafts/{id}/discard` | `{revision}`: delete the draft |
 | `GET /documents/{id}/drafts` | Drafts of a document, newest first (no Markdown) |
@@ -187,8 +187,8 @@ The page asks for a **Title** and a **Folder** (the Folder field appears with th
 `resources.documents[{new: {folder, name}}]` (an `editable` key is refused: 422). Such runs have `purpose = 'documents'`. A run starts from a document or
 from a new document, not both (`GET /api/sessions/options` takes `new_document=1` without `agent_id` or `document_id`).
 
-`GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects, document
-collections, environments, services, servers), the experts, and the prompts tagged
+`GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects,
+environments, services, servers), the experts, and the prompts tagged
 `documentation`. The default prompt is **Write a document** (tags `documentation` and `new-document`, seeded by migration
 0101; 0131 gave it a new version): read what you were given, write the document with `update_document`, change a
 passage with `edit_document`, and never say it is published. Custom prompts tagged `documentation` should tell the agent
@@ -271,4 +271,4 @@ Migration 0073 dropped `documentation_generations`, `documentation_workflows` an
 `documentation_generate` job kind and the `doc:*` run records, and added `documents.phase_metadata` (the service phase
 export layout). Saved documents and versions stay.
 
-The content lives in PostgreSQL only: no file is written when a version goes live or a document is deleted (the file export, its startup backfill and `POST /documents/{id}/export` were removed with RAG). `GET /api/documentation/documents/{id}/bundle` downloads a live document and its diagram sources as a ZIP folder; it is 404 for a brand-new draft.
+The content lives in PostgreSQL only: no file is written when a version goes live or a document is deleted (the file export, its startup backfill and `POST /documents/{id}/export` were removed). `GET /api/documentation/documents/{id}/bundle` downloads a live document and its diagram sources as a ZIP folder; it is 404 for a brand-new draft.

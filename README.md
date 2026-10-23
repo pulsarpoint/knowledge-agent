@@ -8,7 +8,7 @@ and React/shadcn. Agents (one configuration each, with clones for experiments), 
 and resource selections are stored in PostgreSQL. Keycloak provides login and
 Phoenix remains available for tracing.
 
-Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
+Git sync, Jira ticket import, documents with version history, source browsing,
 and connection tests work. Agent Test (Admin → Agents) runs models; agents find documents with full-text search (`search_documents`).
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
@@ -31,7 +31,7 @@ The first run needs the host folder for the application's files:
 when empty, builds the application images from this checkout, migrates
 PostgreSQL, and waits for service health. Repeating setup preserves credentials
 and documentation. `make smoke` checks the admin Keycloak login and gateway isolation, then checks
-RAG settings, collections and search, database migrations and Phoenix. It does not invoke a model.
+database migrations and Phoenix. It does not invoke a model.
 
 | Service | Local address | Login |
 | --- | --- | --- |
@@ -79,10 +79,9 @@ python3 scripts/smoke.py --auth-only
 ```
 
 The auth-only check verifies real SSO and protected admin access. `make smoke`
-checks the RAG collections workspace, full-text search, PostgreSQL and Phoenix without
-processing data or calling a model. Admin → RAG shows collections (each one or more
-paths under `DATA_ROOT`, with its own search and processing settings), refresh, the global
-embedding model and job history. Activity shows usage/audit data; Code
+checks PostgreSQL and Phoenix without processing data or calling a model. Documents
+holds the managed documentation (with version history), and Memory what agents saved
+and the embedding model memory search uses. Activity shows usage/audit data; Code
 projects manages local folder mappings and Git pulls. Services and Servers record
 deployed applications and their hosts. Configure AI connections in LLM Settings.
 
@@ -116,7 +115,7 @@ PostgreSQL projection, so later repository pulls appear in the context immediate
 The downloaded source commit is never presented as the deployed version.
 
 This is operator-maintained inventory, not observed health. Agent monitoring,
-SSH/log collection, and automatically passing these assets into agent runs are
+SSH/log gathering, and automatically passing these assets into agent runs are
 not connected yet. Future consumers must treat all descriptions and paths as
 untrusted contextual data, and enforce server access policy before any operation.
 Service saves are atomic and revision-checked to avoid overwriting another admin's
@@ -184,13 +183,10 @@ agent configuration previews include all mapped folders.
 
 ## Content and model configuration
 
-RAG indexes **collections**: each holds one or more folders in `DATA_ROOT` (for example `code/payments`,
-`jira`, `generated-documents` or `docs/runbooks`) and is indexed where it is, with no copy step.
-Administrators create collections and connect folders in RAG → Collections; sources only write files. Auto-sync checks folders at an interval.
-The RAG services mount `DATA_ROOT` read-only at `/work/data` and write only the Jira
-folder (`JIRA_FOLDER`). **Refresh** collections when files change, and review jobs through RAG
-administration. Unchanged files are identified by content hash so processing can be reused. Add and pull Git repositories
-through Code projects.
+Documents live in PostgreSQL with their versions; agents find them with full-text search
+(`search_documents`) and read them with `get_document`. Jira tickets are pulled into the
+database. Add and pull Git repositories through Code projects; agents read their folders
+under `DATA_ROOT`, which every service mounts read-only at `/work/data`.
 
 LLM Settings stores named OpenAI-compatible, Anthropic and Bedrock connections
 with encrypted credentials. Model connection tests still contact the configured
@@ -204,13 +200,11 @@ For native development install Python 3.12+, uv, Node 22.12+, and pnpm 9.12.
 
 ```sh
 make build          # sync Python dependencies and build the UI
-make test           # setup, rag and admin-api, the admin UI and PostgreSQL tests
+make test           # setup, admin-api, the admin UI and PostgreSQL tests
 make compose-validate
 ```
 
-Dependency resolution uses copied lockfiles and frozen installs. Internal
-package names (for example `rag`) remain stable so their tested
-imports and CLI entry points stay intact.
+Dependency resolution uses copied lockfiles and frozen installs.
 
 Database-only commands remain available: `make db-up`, `make db-migrate`,
 `make db-test`. The pinned golang-migrate container reads PostgreSQL connection
@@ -225,9 +219,7 @@ runner require the verified one-time `make db-adopt` step described in the
 - [PostgreSQL migration and adoption guide](docs/migrations.md)
 - [Standalone deployment details](deploy/README.md)
 
-### RAG collections administration
-
-The separate admin app includes RAG Collections, Processing jobs, Settings, and Search. A collection is a folder inside `DATA_ROOT` with its own search mode, embeddings, include/exclude patterns and chunking; agents are granted whole collections. See [the RAG guide](docs/rag.md) for collections, freshness and Refresh, incremental processing, `/search` across collections, credentials, and API contracts.
+### Administration
 
 Administration → Agents manages configuration and offers direct agent Test conversations. See [Agents](docs/agents.md).
 

@@ -551,3 +551,20 @@ over `setweight(to_tsvector('english', title), 'A') || â€¦ description 'B' || â€
 configuration: stemmed, so "rotate" finds "rotation"; memory search keeps `simple`). The tool's query repeats the expression (`capabilities/document_tools.py` `SEARCH_VECTOR`) so the
 index serves it. The "Answer only from documents" mode goes with the RAG reading tools: `ka.agents.documents_grounded`
 is dropped. The down migration drops the index and adds the column back, off for every agent.
+
+## 0134_rag_gone
+
+RAG is gone: the service, its stack and its tables. Dropped: `rag_vectors`, `rag_chunks`, `rag_file_log`, `rag_files`,
+`rag_collection_paths`, `rag_collections`, `rag_folders` and `rag_workspaces` (0132 moved the embedding model to
+`memory_settings` first). Jobs of the kinds `rag_folder_index` and `rag_collection_sync` are deleted with their events
+and questions, and `jobs.rag_folder_id`, `jobs.rag_collection_id`, their foreign keys, the index
+`rag_collection_one_active_job` and the two kinds leave the checks and `guard_job_update`. `embedding_model_updated` no
+longer bumps the workspace revision (the chat/embeddings check stays). `collection` entries are removed from stored
+access: `agents.access`, `agent_sessions.access` and the access copy in `agent_sessions.agent_config`. The down
+migration recreates the tables empty in their 0133 shape and restores the job columns, checks, index and both functions;
+deleted jobs and access entries do not come back.
+
+After upgrading, the `rag` and `rag-worker` containers of an earlier `make up` are orphans: stop them with
+`docker compose --env-file .env -f deploy/compose.yaml down --remove-orphans` (or `make down` before pulling). The
+`.env` keys `RAG_BACKOFFICE_KEY`, `GENERATED_DOCS_FOLDER` and `JIRA_FOLDER` are no longer read and can be removed, and
+the `DATA_ROOT/generated-documents` and `DATA_ROOT/jira` folders are no longer used.

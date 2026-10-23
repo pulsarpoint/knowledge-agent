@@ -12,27 +12,26 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
 - [4. The Administration application (port 8183)](#4-the-administration-application-port-8183)
   - [4.1 Navigation](#41-navigation)
   - [4.2 LLM Settings](#42-llm-settings)
-  - [4.3 RAG: collections, processing, settings, search](#43-rag-collections-processing-settings-search)
-  - [4.4 Code projects](#44-code-projects)
-  - [4.5 Servers](#45-servers)
+  - [4.3 Code projects](#43-code-projects)
+  - [4.4 Servers](#44-servers)
     - [Chats and Discover](#chats-and-discover)
-  - [4.6 Environments](#46-environments)
-  - [4.7 Services](#47-services)
-  - [4.8 Jira](#48-jira)
-  - [4.9 Skills](#49-skills)
-  - [4.10 MCP servers](#410-mcp-servers)
-  - [4.11 Agents](#411-agents)
-  - [4.12 Write a new document with an agent](#412-write-a-new-document-with-an-agent)
-  - [4.13 Documents](#413-documents)
-  - [4.14 Storage](#414-storage)
-  - [4.15 Agent runs](#415-agent-runs)
-  - [4.16 Schedules](#416-schedules)
-  - [4.17 Events](#417-events)
-  - [4.18 Event handlers](#418-event-handlers)
-  - [4.19 Notifications](#419-notifications)
-  - [4.20 Memory](#420-memory)
-  - [4.21 System map](#421-system-map)
-  - [4.22 Prompts](#422-prompts)
+  - [4.5 Environments](#45-environments)
+  - [4.6 Services](#46-services)
+  - [4.7 Jira](#47-jira)
+  - [4.8 Skills](#48-skills)
+  - [4.9 MCP servers](#49-mcp-servers)
+  - [4.10 Agents](#410-agents)
+  - [4.11 Write a new document with an agent](#411-write-a-new-document-with-an-agent)
+  - [4.12 Documents](#412-documents)
+  - [4.13 Storage](#413-storage)
+  - [4.14 Agent runs](#414-agent-runs)
+  - [4.15 Schedules](#415-schedules)
+  - [4.16 Events](#416-events)
+  - [4.17 Event handlers](#417-event-handlers)
+  - [4.18 Notifications](#418-notifications)
+  - [4.19 Memory](#419-memory)
+  - [4.20 System map](#420-system-map)
+  - [4.21 Prompts](#421-prompts)
 - [5. End-to-end workflows](#5-end-to-end-workflows)
 - [6. Operations](#6-operations)
 - [7. Current limitations](#7-current-limitations)
@@ -55,10 +54,8 @@ application (Administration), signed in through Keycloak and backed by PostgreSQ
 
 What you can actually do today:
 
-- **Curate a searchable knowledge base** (RAG): review **collections**, each holding
-  paths under `DATA_ROOT` that sources add (source code),
-  index them into a full-text (and optionally vector) index with **Refresh**, and
-  search them — from the admin RAG pages and agents.
+- **Keep documentation in one place**: write and version documents in **Docs → Documents**,
+  by hand or with an agent; agents find them with full-text search.
 - **Map source code**: register local folders or clone Git repositories, keep them
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
@@ -67,23 +64,20 @@ What you can actually do today:
   documents, servers and services you allow; it saves its work as a draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
   and MCP tools, and run them interactively (agent **Test** chat).
-- **Import Jira tickets** into the knowledge base as Markdown.
-
-Generated documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs), after a **Refresh** or with Auto-sync in RAG → Collections
-(see [4.3](#43-rag-collections-processing-settings-search)).
+- **Import Jira tickets** into the database, on demand or on a schedule.
 
 ### Architecture at a glance
 
 ```
 Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-web (nginx, Admin UI) ──► admin-api
                                                                                     │
-     admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
-     workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
+     admin-api ──► PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
+     workers:  repository-worker (git clone/pull, code graph)
                agent-session-worker (document, Test, Ask agent and event-handler sessions)
 ```
 
 `agent-session-worker` runs document, Test and Ask agent sessions, and the agent runs that event handlers start. Like `admin-api` it reaches
-RAG, PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
+PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
 
 All ports bind to `127.0.0.1` only. Internal services have no host ports.
@@ -97,7 +91,7 @@ credentials are needed to start.
 
 ```sh
 make up          # generate .env secrets, build images, migrate DB, start everything (including the Jira mock)
-make smoke       # verify admin login, gateway isolation, search, DB migrations, Phoenix (no model calls)
+make smoke       # verify admin login, gateway isolation, DB migrations, Phoenix (no model calls)
 ```
 
 - The first time, choose where the application keeps its files:
@@ -105,10 +99,9 @@ make smoke       # verify admin login, gateway isolation, search, DB migrations,
   and `chown` it to your user if needed). `make up` refuses to start without it.
 - `make up` runs `scripts/setup.py`, which creates `.env` (mode 0600) from
   `.env.example`, fills empty secrets with random values (never overwriting existing
-  ones), records `DATA_ROOT`, and creates `code/`, `code-index/`, `docs/`,
-  `generated-documents/` and `jira/` inside it (the names come from the `*_FOLDER`
-  variables). It warns about any other entry in `DATA_ROOT`, because RAG can see every
-  folder there; it never moves or deletes them.
+  ones), records `DATA_ROOT`, and creates `code/`, `code-index/` and `docs/` inside it
+  (the names come from the `*_FOLDER` variables). It warns about any other entry in
+  `DATA_ROOT`, because every service sees all of it; it never moves or deletes them.
 - The bootstrap admin is `v3-admin` with the password `APP_ADMIN_PASSWORD` from `.env`.
   Change it in Keycloak afterwards, not in `.env`.
 - Additional admins: create the user in the Keycloak console and add it to the
@@ -128,23 +121,22 @@ show state and logs.
 Most features depend on earlier ones. A sensible order in the Administration app:
 
 1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
-   embeddings model (AWS Bedrock Titan v2) for vector search.
-2. **RAG → Settings** → select the embeddings model if you added one.
-3. Create collections in **RAG → Collections** and add folders: `generated-documents` for documents, `jira` for Jira, `code/<folder>` for code; then **Refresh**, or switch on **Auto-sync**.
-4. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
-5. **Servers** → register hosts; configure **SSH settings** if agents or deployment
+   embeddings model (AWS Bedrock Titan v2) for memory vector search.
+2. **Memory** → select the embeddings model if you added one.
+3. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
+4. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
-6. **Environments** → group servers and services (e.g. `production`, `staging`).
-7. **Services** → describe applications, link code projects, add deployments and dependencies.
-8. **Docs → Documents** → **New** → **Write with an agent**: give a title and folder, then tell the agent what to write.
-9. **Agents** → create agents, assign a model, enable capabilities, test them.
+5. **Environments** → group servers and services (e.g. `production`, `staging`).
+6. **Services** → describe applications, link code projects, add deployments and dependencies.
+7. **Docs → Documents** → **New** → **Write with an agent**: give a title and folder, then tell the agent what to write.
+8. **Agents** → create agents, assign a model, enable capabilities, test them.
 
 ---
 
 ## 4. The Administration application (port 8183)
 
 Requires membership in `docs-admins`; otherwise you see "Administration unavailable"
-with a **Sign out** button. `/` redirects to **RAG → Collections**.
+with a **Sign out** button. `/` redirects to **Docs → Documents**.
 
 General conventions throughout the admin app:
 
@@ -168,14 +160,13 @@ General conventions throughout the admin app:
 | Environments | Environments · Services · Servers · System map |
 | Code | Projects · Code graphs |
 | Docs | Documents · Folders |
-| RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**.
 
 ### 4.2 LLM Settings
 
 `/llm-settings` — named model connections used by agents
-and RAG embeddings.
+and memory embeddings.
 
 **Add model** fields:
 
@@ -199,86 +190,7 @@ no delete — disable a model instead.
 > **Responses** API, Anthropic, or Bedrock `anthropic.claude*`. OpenAI
 > **Chat Completions** models can be assigned only as the Search model in LLM Settings.
 
-### 4.3 RAG: collections, processing, settings, search
-
-A **collection** is a named search index with its own settings and one or more folders
-(under `DATA_ROOT`). RAG indexes the files where they already are — nothing is copied.
-Everything is by whole collection: agents are granted collections, not subfolders.
-Administrators create collections and connect folders here; sources only write files.
-
-**Workflow**
-
-1. **New collection** → name, description, settings and, optionally, **Folders**
-   (**Choose a folder**, browse or type, **Add to selection**; several are allowed) →
-   **Create collection** connects them and queues a sync at once. If a folder cannot be
-   added, the collection is kept and opened with the error; fix its folders there.
-   `?folder=<path>` (used by Docs → Folders) opens New collection with that folder
-   selected.
-2. **Add folder** on an existing collection's page: browse the folders or type a path
-   (`generated-documents`, `jira`, `code/<folder>`).
-3. **Refresh**, or switch on **Auto-sync** in Edit.
-4. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
-
-**Collections** (`/rag/collections`)
-
-- The table shows name and description, folders, files, embedded chunks, last synced,
-  status, a **Sync** column (**Auto · every N min** or **Manual**) and a **Refresh** button.
-- **Status**: *Up to date*; *Needs refresh* (never synced, the settings changed, a folder was
-  added or removed, or files in the folders were added, removed or changed since the last
-  sync); *Syncing*; *Failed* (the previous index stays); *Folder missing* (any folder is
-  missing; Refresh is refused and the index is kept); *Too large to sync* (over 20,000
-  files, over 200,000 entries walked or over 200 MB of text; Refresh is disabled and
-  Auto-sync queues nothing).
-- **Refresh all stale** queues every collection that needs it.
-- **Auto-sync** checks the folders every N minutes (1–1440, default 5; off by default) and
-  waits until a change has been quiet for 2 minutes before it syncs. Automatic jobs show
-  the mode *Auto* in Processing jobs.
-- **Edit collection** shows the settings: description, search mode (Full text /
-  Embedding / Hybrid), embeddings on/off, include and exclude patterns (default include
-  `**/*.md`, `**/*.markdown`, `**/*.txt`; matched relative to each folder), chunk size
-  (default 2000), overlap (default 200), **Auto-sync** and **Check every**. The name
-  cannot be changed. Changing settings (not Auto-sync) makes the collection need refresh.
-- **Collection detail**: the folders, each with **Remove** (confirmed; the files stay on
-  disk), the status counts, and the **file log**: every file with its status, filtered by
-  Indexed, Skipped, Failed or Removed, with a path search, paging, and the chunks of
-  indexed files. There is no upload or edit.
-- **Remove** (the collection) is always available, with confirmation. It removes the
-  index rows, folders, file log and agent grants and keeps the files on disk.
-- Skipped files never fail the sync. Binary files, files over the maximum size and files
-  that cannot be opened are listed in the file log as skipped; symbolic links, special
-  files, unreadable entries and invalid names are only counted ("Not listed: …" on the
-  detail page). `.git`, `node_modules` and `.env*` are always ignored. A file that cannot
-  be parsed is logged as failed, and one failing file no longer fails the sync. A
-  collection with more than 20,000 files, 200,000 entries walked or 200 MB of text is
-  *Too large to sync* — narrow the include patterns or folders. Code is indexed as plain
-  text.
-
-**Processing jobs** (`/rag/jobs`) — every sync job, newest first, in a paged table
-(10/25/50/100 rows). Search by collection name or error text, and filter by status and
-collection; filters and the page are kept in the URL, so a filtered view can be shared.
-Each row shows the mode, start time, duration and counts (hashed, skipped, parsed,
-embedded, reused, removed). **Cancel** a queued/running job; **Run again** otherwise. One job is active per collection; others queue. Unchanged files (same SHA-256
-and settings) are skipped; a failed job keeps the previous index intact.
-
-**Settings** (`/rag/settings`)
-
-| Setting | Default / range |
-| --- | --- |
-| Maximum file size | 2 MB (100 B – 10 MB) |
-| Embedding model | None by default; pick an *Embeddings* model from LLM Settings |
-| Area roots | Read-only display of the five data folders (host and container paths) |
-
-Chunking, patterns, search mode and the embeddings switch are per collection. After
-selecting a model, use **Test embedding connection**, turn embeddings on for the
-collections that should use them, then **Refresh** them.
-
-**Search** (`/rag/search`) — query, a collection picker (empty means all), type
-(**Full text**, **Embedding**, **Hybrid**) and 1–30 results. A collection without
-embeddings (or with no model configured) falls back to full text, and the result lists
-which ones did ("Keyword search used for: ..."). Results show a citation number, collection, full path, chunk text and hash.
-This is retrieval only; it does not generate answers.
-
-### 4.4 Code projects
+### 4.3 Code projects
 
 `/code-projects` — the source code the platform can analyze. Files live under
 `DATA_ROOT/<CODE_FOLDER>` on the host (default `code`), mounted read-only under
@@ -313,25 +225,24 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 lists every project's graph (status, files, symbols, relationships, languages, last
 generated) with **View graph** and **Generate graph**; `/code-graphs?project=<id>` opens one
 directly. The graph is a
-prerequisite for code documentation phases ([4.12](#412-write-a-new-document-with-an-agent)).
+prerequisite for code documentation phases ([4.11](#411-write-a-new-document-with-an-agent)).
 
-Code projects only clone and pull into `code/…`. To search code, add the project's folders
-to a collection in RAG → Collections; removing a project does not change RAG.
+Code projects only clone and pull into `code/…`. Agents read a project's folders with their
+file and code tools.
 
 **Remove** (in the project's row) asks for confirmation and lists the project's folders. The
 project disappears from Code projects, services and agents, its
 scheduled pulls stop, and its folders and Git URL can be used by a new project. Files on disk
 are kept unless you tick **Also delete these folders and the code graph from disk** (off by
 default; it cannot be undone). Deleting is refused, and nothing is removed, when another code
-project maps one of the folders (the same folder, a parent or a subfolder) or a RAG collection
-indexes it; remove the folder in RAG → Collections first. RAG must be reachable to check this.
+project maps one of the folders (the same folder, a parent or a subfolder).
 If a folder cannot be deleted afterwards (for example, permissions), the project is still
 removed and the page names the folder left behind. The API is
 `POST /api/code-projects/{id}/archive` with an optional body `{"delete_files": true}`.
 
 Projects cannot be edited or removed while a job runs.
 
-### 4.5 Servers
+### 4.4 Servers
 
 `/servers` — inventory of hosts. **Register server**: name, IP or hostname (no
 URL/port), description, tags (comma-separated, lowercased, up to 32), **SSH allowed**.
@@ -410,7 +321,7 @@ The agent is told to use read-only commands, but SSH itself is not read-only: an
 the login can do, the agent can do. Use a login with only the permissions you want the
 agent to have.
 
-### 4.6 Environments
+### 4.5 Environments
 
 `/environments` — named environments such as `prod` or `staging`. An environment has a name and a description, its
 member servers, and the deployments of services on them. A server is in an environment when it is added to it or has
@@ -507,7 +418,7 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
 - Someone who changed a draft meanwhile makes Confirm and Discard say "This was changed meanwhile. Reload to see the
   latest." and nothing changes.
 
-### 4.7 Services
+### 4.6 Services
 
 `/services` — the application inventory that ties code, environments and servers together.
 
@@ -543,7 +454,7 @@ described yet.
 A service with deployments cannot be deleted: remove its deployments first. Deleting a service removes its relations
 but not code projects or servers.
 
-### 4.8 Jira
+### 4.7 Jira
 
 **Settings** (`/jira/settings`) — Jira Data Center URL (include context path such as
 `/jira`; use `host.docker.internal` for a Jira on your machine), username, personal
@@ -559,7 +470,7 @@ and search permission).
 **Users and agents** (on the Settings page, once a connection is saved) maps Jira users to agents: a ticket assigned
 to a mapped user is that agent's work. Search for a user as you type (or type a user key), choose an agent, **Add**;
 change a row's agent in place or remove it. A row whose agent is turned off says **Agent disabled**. An event handler
-with **Agent mapped to the assignee** (4.18) runs the mapped agent. The first mapping creates that handler when there
+with **Agent mapped to the assignee** (4.17) runs the mapped agent. The first mapping creates that handler when there
 is none: **Jira assignee agents** (every ticket event with new work for the assignee; the answer is posted on the
 ticket and the ticket is given back). The section shows **Handled by: Jira assignee agents (enabled)** (or
 **disabled**), which opens the handler, or **No handler runs these agents.** with **Create handler**. The handler is
@@ -569,7 +480,7 @@ For testing without a real Jira: the mock starts with `make up` (`make jira-mock
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
 (75 demo tickets). Stop with `make jira-mock-down`.
 
-**Auto pull.** The automatic pull is a schedule, set on Administration → Schedules (4.16): **New schedule** → Jira
+**Auto pull.** The automatic pull is a schedule, set on Administration → Schedules (4.15): **New schedule** → Jira
 tickets, with its own query and number of tickets (separate from the query on Jira → Tickets; left empty, the query and
 number of the last manual fetch are used, or 25 tickets), how often and the time zone. **Edit** there changes them;
 **Run now** pulls at once. Jira → Tickets shows a one-line summary (off, or how often and the next pull) with a link to
@@ -578,7 +489,7 @@ most recent pull, manual or automatic; its query box keeps your manual query. A 
 tickets or scheduled, records an event for every ticket that is new or changed since the last event for it (see
 Administration → Events), in the same transaction as the saved tickets.
 
-### 4.9 Skills
+### 4.8 Skills
 
 `/skills` — a library of reusable Markdown instructions that agents can be given.
 Fields: name (lowercase-with-dashes, unique), description, instructions (Markdown),
@@ -586,7 +497,7 @@ enabled. Search and filter by status; toggle enabled inline. Skills are instruct
 be deleted — disable them. A run lists the skills in its access by name and description; the agent loads a skill's
 full instructions with the `load_skill` tool when it uses it.
 
-### 4.10 MCP servers
+### 4.9 MCP servers
 
 `/mcp-servers` — external tool servers agents can call. Only the **Streamable HTTP**
 transport is supported. Fields: name, description, HTTP(S) endpoint (use
@@ -597,7 +508,7 @@ enabled.
 selected for an agent after it is enabled, tested successfully and exposes at least
 one tool. Changing the URL clears discovered tools and requires re-entering the token.
 
-### 4.11 Agents
+### 4.10 Agents
 
 `/agents` lists agents with **Resources**, capabilities, model, active system prompt and status. **Resources** counts what the agent may use by type, for example `1 server · 2 documents` (or `No resources`).
 
@@ -628,7 +539,7 @@ agent* dialog: the agent (preselected from the row; from the top button choose o
 agent's **Run** is off), the **First message** (required) and its resources — every resource of the agent unless you
 narrow them with **Choose resources**, the same settings sheet as the Test tab's. **Start** starts a chat session and
 opens its session page (`/sessions/<id>`), where you send further messages, **Stop** a turn and **Close session**. A
-chat is not listed on the agent's Test tab; its turns are **Chat** runs in Agent runs (4.15), and it can be reviewed
+chat is not listed on the agent's Test tab; its turns are **Chat** runs in Agent runs (4.14), and it can be reviewed
 with **Suggest improvements** through the API like a Test session.
 
 **Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the test chats and other history deleted with it), or keep it as an alternative.
@@ -727,10 +638,10 @@ documents are kept. To keep the history, cancel and disable the agent instead. A
 it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
-### 4.12 Write a new document with an agent
+### 4.11 Write a new document with an agent
 
 **Documents → New** has a **Write with an agent** button (`/documents/new`). It opens a chat with an agent that writes a document that does not
-exist yet. It is the same chat as **Ask agent** on a document ([4.13](#413-documents)): the page takes the full width, the
+exist yet. It is the same chat as **Ask agent** on a document ([4.12](#412-documents)): the page takes the full width, the
 document takes two thirds and the chat one third.
 
 1. Give a **Title** and a **Folder**. The Folder field appears with the chat. Without both, nothing starts. Folder names are
@@ -792,7 +703,7 @@ Generate documents runs stay readable at `/sessions/<id>` and in Agent runs. Cus
 agent to write with `update_document`; copy the rules from **Write a document**. Migration 0073 removed the service,
 whole-environment and code-project generation; documents written by service phases keep their phase layout.
 
-### 4.13 Documents
+### 4.12 Documents
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
 title/slug/description and filter by linked resources and by one **Tag** (`?tag=`, exact, any case; the Drafts view
@@ -866,25 +777,21 @@ and lets you change them for the next one. **New chat** closes the conversation;
 **Agent runs** tab lists the document's runs, open ones first. Deleting the document deletes its runs; their drafts are
 deleted with it.
 
-Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
-**RAG → Collections**, or turn on Auto-sync, to index what is on disk. **RAG → Search** and the
-agents' document search then find them.
+Agents find published documents with `search_documents` (full-text search over the documents their run may read)
+and read one with `get_document`.
 
 **Folders** (`/documentation/folders`) — the documentation folders with their document
-count, code projects and last generated time, and, read-only, the RAG collections that
-include each one (**Not indexed**, or each collection, "through <folder>" when it holds
-a parent folder), each linking to its collection. **Index in RAG → Collections** opens
-RAG's New collection with the folder selected. Opening a folder lists its documents
+count, code projects and last generated time. Opening a folder lists its documents
 (title, code project, last generated), each opening in Documents. Editing a folder
 document keeps it in its folder.
 
-### 4.14 Storage
+### 4.13 Storage
 
 `/storage` — read-only overview of the data folder (`DATA_ROOT`) and its three folders: source code
 (`CODE_FOLDER`), code graphs (`CODE_INDEX_FOLDER`) and bootstrap docs (`DOCS_FOLDER`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
-### 4.15 Agent runs
+### 4.14 Agent runs
 
 `/activity/runs` — a complete record of every agent run: agent Test
 sessions, earlier test chats, document runs and the earlier Generate documents sessions. Each record shows, in order:
@@ -905,7 +812,7 @@ Click **Started** or **Tokens** to sort (again to reverse). The list comes in pa
 document run turn.
 Records are kept until deleted; only administrators can see them.
 
-### 4.16 Schedules
+### 4.15 Schedules
 
 Administration → Schedules lists everything that runs on a timetable and is the only place to set it up. **New
 schedule** creates one: choose what to run and when:
@@ -915,9 +822,9 @@ schedule** creates one: choose what to run and when:
 - **Emit event**, with a **Name** (e.g. `Morning summary`; names are unique in the project, a name in use is refused
   with `A schedule with this name already exists.`, and `Jira auto pull` — in any case — is kept for the Jira tickets
   schedule); make as many as you like. Each run records one
-  `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.17) and the run's result says
-  `Recorded event <id>.` The schedule itself runs no agent: an event handler (4.18) sends the event to an agent with
-  its task, and the answer goes to Notifications (4.19). The row says which handler runs it — **Handled by:
+  `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.16) and the run's result says
+  `Recorded event <id>.` The schedule itself runs no agent: an event handler (4.17) sends the event to an agent with
+  its task, and the answer goes to Notifications (4.18). The row says which handler runs it — **Handled by:
   <name>** (opens the handler; `(off)` after the name when it is switched off) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
   handler**, which opens a new handler already set up for this schedule (its name, event type `schedule.fired`, the
   condition `subject` equals the schedule's name, action Send to agent): choose the agent, write the prompt and
@@ -943,14 +850,14 @@ expression (minute, hour, day of month, month, day of week), the time zone, with
 Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Schedules are run by the
 `repository-worker` service; after downtime a missed schedule runs once, not once per missed time.
 
-### 4.17 Events
+### 4.16 Events
 
 Administration → Events lists what happened at your sources and what handlers made of it: Time, Source, Type,
-Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.20), Schedule (an Emit event schedule, 4.16) and Manual. For Jira:
+Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.19), Schedule (an Emit event schedule, 4.15) and Manual. For Jira:
 every scheduled pull (the Jira tickets schedule on Administration → Schedules, or Run now) records **Ticket created** for a ticket it sees for the first time
 and **Ticket updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type,
 summary, description). The very first pull records every ticket it fetches. Events a handler emitted have the source
-**Handler** (see 4.18).
+**Handler** (see 4.17).
 
 Each event is **Pending** until the event handlers have looked at it (within a few seconds), then **Processed** — or
 **Failed** when one of its handlers failed; failed events are not retried. Events recorded before handlers existed are
@@ -974,7 +881,7 @@ of it (a Jira event is duplicated as Jira, simulated), handy for re-running a ha
 payload. Events made by hand have no Jira connection and never affect what the scheduled pull records; their detail
 shows **Created by hand**.
 
-### 4.18 Event handlers
+### 4.17 Event handlers
 
 Administration → Events → **Handlers** reacts to events. Every few seconds repository-worker takes each new event and
 runs every enabled handler whose **Event type** pattern matches (`*` for any part: `jira.ticket.*`, `jira.*.created`,
@@ -989,7 +896,7 @@ event also carries every comment of the ticket, whole and oldest first, in `payl
 `author_id`, `created`, `body`) and their number in `payload.comment_count`: a Send to agent message can answer the
 latest one with `{{ event.payload.comments[-1].body }}`.
 
-**Running a schedule.** An Emit event schedule (4.16) records `schedule.fired` with the schedule's name as subject
+**Running a schedule.** An Emit event schedule (4.15) records `schedule.fired` with the schedule's name as subject
 and title and the payload `schedule_id` (for reference),
 `name`, `fired_at` (this run), `last_run_at` (the previous successful run; empty — `null` — on the first run) and `trigger`
 (`scheduled` or `manual` for Run now). Under **Event type** the form offers **Schedule: <name>** for each Emit event
@@ -1011,7 +918,7 @@ A handler does one thing:
   is the run's first message, the run uses all of the agent's resources and every tool, and the handler's
   creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Test** tab
   under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
-  notification is written with the answer, or why it failed (4.19). With **Also post the answer as a comment on the Jira
+  notification is written with the answer, or why it failed (4.18). With **Also post the answer as a comment on the Jira
   ticket**, the answer to a Jira event is also posted on its ticket as the Jira connection's user (see the Jira docs for
   the permission it needs); a failed run is not posted. A failed run is not retried: continue it, or send
   the event again. Any enabled agent can be chosen; its run gets all of the agent's resources. A handler whose agent was
@@ -1020,7 +927,7 @@ A handler does one thing:
   the same handler.
 
   Instead of one agent, **Agent** can be **Agent mapped to the assignee** (Jira event types only): each matching
-  event runs the agent mapped to the ticket's assignee under Jira → Settings → **Users and agents** (4.8). An
+  event runs the agent mapped to the ticket's assignee under Jira → Settings → **Users and agents** (4.7). An
   unassigned ticket or an unmapped assignee starts no run. Add the condition `payload.for_assignee` **equals** `true`
   (the form offers it) so the agent starts only when the ticket is new and assigned, was reassigned, or got a comment
   from someone other than the connection's own user — not on every edit; `payload.assignee_id` is the assignee's
@@ -1045,7 +952,7 @@ a chain that is too deep — marks the event **Failed** and records why under **
 event still run. Deleting a handler keeps its run history on the events; a schedule it ran keeps recording events
 (the confirmation says so).
 
-### 4.19 Notifications
+### 4.18 Notifications
 
 Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first: Time,
 Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the answer
@@ -1059,7 +966,7 @@ being posted or retried, or **Not posted to KEY** with the reason. A handler tha
 to <name>** with the reason, or why it was skipped.
 Notifications from before event runs show the old task's attempts and have no **Open run**.
 
-### 4.20 Memory
+### 4.19 Memory
 
 Memory is a shared notebook for the whole project: agents save what they learn (a decision, a convention, a fact about a
 system) and every agent can find it again in a later run. Each entry has a unique **name**, **content** (text, up to
@@ -1094,10 +1001,10 @@ by words only. After fixing the model, **Re-embed** on the page embeds those ent
 
 **Events.** Every change records an event with the source `memory`: `memory.saved`, `memory.updated`,
 `memory.restored` and `memory.deleted`. The payload holds `memory_id`, `name`, `metadata`, `revision`, `agent_id`,
-`session_id` and `actor`, but not the content. Event handlers (4.18) can react, for example a Send to agent handler
+`session_id` and `actor`, but not the content. Event handlers (4.17) can react, for example a Send to agent handler
 with the condition `source equals memory` and `type equals memory.saved`.
 
-### 4.21 System map
+### 4.20 System map
 
 Environments → **System map** draws your inventory — environments, servers, services and code projects — and the
 connections between them. Nothing is drawn by hand, and nothing is stored for the map: every view is drawn from the
@@ -1139,7 +1046,7 @@ their own pages, and connect them here.
   one connection per pair of their deployments in the same environment (a *depends on* when there is none); links on
   servers or environments were dropped. Environment membership without a deployment is gone (0126).
 
-### 4.22 Prompts
+### 4.21 Prompts
 
 **Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
 lowercase letters, digits and `-`, at most 10 — that features use to find it: the agent chat on Documents → New filters by tag,
@@ -1155,17 +1062,7 @@ Prompts that came with the application are tagged `documentation` plus what they
 
 ## 5. End-to-end workflows
 
-### A. Make internal documentation searchable
-
-1. Write the pages in **Docs → Documents**; they are exported to `generated-documents`.
-   (Code is made searchable by adding its `code/<folder>` to a collection.)
-2. Admin → **RAG → Collections**: make sure a collection holds `generated-documents`
-   (`documents` on upgraded installs), then **Refresh** it; watch **Processing jobs**
-   until it succeeds.
-3. Check the collection's files under its detail page.
-4. Check results in **RAG → Search**.
-
-### B. Document a service from its source code
+### A. Document a service from its source code
 
 1. **LLM Settings**: add and test an Anthropic (or Bedrock Claude) model.
 2. **Code projects**: add the Git repository; wait for the clone.
@@ -1173,9 +1070,8 @@ Prompts that came with the application are tagged `documentation` plus what they
 4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
 5. **Docs → Documents → New → Write with an agent**: give a title and folder, open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
 6. Follow the chat, send messages such as "shorten the API section", then **Promote** the draft.
-7. Make the documents searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
 
-### C. Document deployments and infrastructure
+### B. Document deployments and infrastructure
 
 1. **Servers**: register hosts. **Environments**: create `production`.
 2. **Services**: add deployments (server + environment + container/unit + port + log path); the services and servers
@@ -1184,26 +1080,18 @@ Prompts that came with the application are tagged `documentation` plus what they
    deployments to be documented.
 4. The agent connects over SSH to the chosen servers (and to those the environment brings).
 
-### D. Build and test an operations agent
+### C. Build and test an operations agent
 
 1. **Agents → New agent → Generic agent** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
 3. **Test**: run a task such as "Check disk usage on the app servers"; inspect the **Worked** block.
 4. Use **Add feedback → Suggest improvements**, then **Review and apply → Apply to this agent** (or **Apply to a new clone** to try it first).
 
-### F. Make one code project's documentation searchable
-
-1. **Documents → New → Write with an agent**: pick the code project in **Settings**, ask for its documentation, then **Promote** the draft.
-2. **Docs → Folders** → **Index in RAG → Collections** → **Create collection** (the folder
-   is selected; the sync starts at once).
-3. Grant the collection to agents in **Agents**.
-
-### G. Write documentation interactively with an agent
+### D. Write documentation interactively with an agent
 
 1. **Docs → Documents → New → Write with an agent** → give a title and folder, choose the resources and the prompt in **Settings**, and tell the agent what to write.
 2. Follow the stream and send a message such as "shorten the API section".
 3. **Promote** the draft.
-4. **Docs → Folders** → **Index in RAG → Collections**.
 
 ---
 
@@ -1222,7 +1110,6 @@ Prompts that came with the application are tagged `documentation` plus what they
 | `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
 | `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
-| `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
 | `APP_ADMIN_*`, `KEYCLOAK_ADMIN_PASSWORD`, `PHOENIX_*`, `*_OAUTH2_PROXY_*` | Bootstrap credentials and gateway secrets |
 | `DOCKER_DNS_SEARCH` | DNS search domain so short SSH/Jira host names resolve in containers |
 
@@ -1264,11 +1151,7 @@ before exposing it beyond localhost.
 
 ## 7. Current limitations
 
-- **Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs)** only after a **Refresh** or an Auto-sync.
-- **Collections are refreshed manually unless Auto-sync is on** (it is off by default), so use
-  **Refresh** (or **Refresh all stale**) after files change. Code is indexed as plain
-  text (no code-aware chunking or line-number citations), and a collection is limited to
-  20,000 files and 200 MB per sync.
+- **Document search is full text only** (title, description and content; no embeddings).
 - The `api-analysis` skill is in the Skills library but is not used by any documentation flow.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.

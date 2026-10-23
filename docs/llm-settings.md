@@ -2,8 +2,8 @@
 
 Open **Administration → LLM Settings** (`http://localhost:8183/llm-settings`).
 Add a named model connection, save it, and test access here. Select **Chat / agents**
-for agent models or **Embeddings** for RAG indexing. Each agent selects its chat
-connection on its own page. **RAG → Settings** selects the embedding connection.
+for agent models or **Embeddings** for memory search. Each agent selects its chat
+connection on its own page. The **Memory** page selects the embedding connection.
 
 ## Model connections
 
@@ -28,24 +28,19 @@ vector dimensions. Tests use the saved revision; opening or saving a form does
 not call the provider. Failures never expose raw provider responses or keys.
 
 Disabling a connection blocks new requests that use it. It remains editable and
-can be re-enabled. A disabled embedding connection can stay selected while RAG
-embedding processing is off. Full-text processing/search does not require a model.
+can be re-enabled. Full-text memory search does not require a model.
 
-## RAG indexing
+## Memory embeddings
 
-After creating and testing an embedding connection, select it in **RAG → Settings**,
-enable embedding processing, save, and process the desired folders.
-Changing the model, endpoint, dimensions, or version makes the next processing run
-refresh vectors while reusing unchanged parsed text. Increment the version when
-replacing a model behind the same name. Credential rotation does not invalidate
-existing vectors. Connection changes during indexing prevent a stale worker from
-publishing its results; rerun the folder to use the updated connection.
+After creating and testing an embedding connection, select it on the **Memory** page
+(`ka.memory_settings.embedding_model_id`). Memory search then merges full-text and
+vector results; without a model it is full-text only. A vector is only compared with
+vectors of the same profile (model, endpoint, dimensions and version), so increment the
+version when replacing a model behind the same name, then re-embed entries on the
+Memory page. Credential rotation does not invalidate existing vectors.
 
-Migration `0037_embedding_models` moves existing workspace embedding connections
-and encrypted keys into `ka.llm_models`. Memory uses the connection selected in
-`ka.memory_settings.embedding_model_id` (Memory page; `0132` copied it from the RAG workspace).
-Existing vector profiles are preserved.
-See [RAG administration](rag.md) for deployment and processing details.
+Migration `0037_embedding_models` moved the existing embedding connections and encrypted
+keys into `ka.llm_models`; `0132` made the embedding model a memory setting.
 
 ## Credentials
 
@@ -67,7 +62,6 @@ are filtered for compatible tool support.
 
 Database access, encryption keys, service URLs, and tracing remain in Compose.
 Provider credentials for these saved connections are managed in administration.
-Standalone collection CLIs retain their separate TOML/env configuration.
 
 ## Admin API
 
@@ -80,7 +74,6 @@ authenticated user identity; validation errors never echo input values.
 - `POST /api/llm/models/{id}/test`: test with `{ "revision": 1 }`.
 - `PUT /api/agents/{id}/model`: select an agent's chat connection.
 - `GET`/`PUT /api/memory/settings`: the memory embedding model (`embedding_model_id`, an embeddings connection or `null`).
-- `PUT /api/rag/settings`: save processing settings.
 
 Embedding models use `api_format: "embeddings"`, `provider: "openai"` or `"bedrock"`,
 and require `embedding_dimensions` and a nonempty `embedding_version`. OpenAI

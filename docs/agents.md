@@ -151,7 +151,7 @@ The caller provides a saved config, task, history, and decrypted credentials. Re
 connections use the corresponding SDK model classes; native Anthropic/Bedrock uses
 `LitellmModel`. See [the runtime documentation](../services/admin-api/README.md).
 
-Git synchronization, Jira import/export, RAG processing/search and connection tests
+Git synchronization, Jira import, document search and connection tests
 are functional integrations. Connection-test buttons may contact their configured
 server or model. Keycloak authentication and Phoenix infrastructure remain.
 
@@ -343,8 +343,8 @@ original, keep it as an alternative, or delete it. A conversation pins the agent
 saving the agent never changes a conversation in progress.
 
 **Clone agent** (the header menu *Actions for <name>* on the agent page, or the **Clone <name>** button in the All
-agents list) creates a new agent with an identical configuration: prompt, instructions, model, when to use, "Answer
-only from documents", its access object (its resources) and tools with their usage text. The
+agents list) creates a new agent with an identical configuration: prompt, instructions, model, when to use,
+its access object (its resources) and tools with their usage text. The
 name is `<name> (copy)`, then `(copy 2)` and so on while taken. Sessions, runs, run records, reviews and audit history
 are not copied. The clone records `cloned_from` and shows *Clone of <original>* on its General tab and in the list.
 

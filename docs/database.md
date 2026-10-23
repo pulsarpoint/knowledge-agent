@@ -30,17 +30,14 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `live_documents`, `document_details`, `document_drafts_view` (views) | Live document rows; live documents with their active link ids and draft count; drafts with their document's name, live version, staleness and the links that apply |
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
-| `rag_workspaces`, `rag_collections`, `rag_files`, `rag_file_log`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: its own search and processing settings; its folders are in `ka.rag_collection_paths`); per-collection file hashes, per-file status (`rag_file_log`), searchable text and cached embeddings |
-| `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |
 | `agents` | Agent definitions: prompt, model, `instructions` and `access` (what the agent may use, as one object: `{"resources": [{type, id}]}`, references only; 0113; keys an older object still carries, `roles` or a document's `editable`, are ignored); every run gets every tool, so there are no per-agent tool rows (`agent_tools` dropped in 0115) |
 | `agent_sessions`, `agent_session_inputs`, `agent_session_reviews` | `agent_sessions.last_draft_id` is the run's last draft (no foreign key: drafts are deleted on promote and discard; its outcome is read from `audit_events`). New-document (`documents`; earlier Generate documents), Test, event, `resource` (a chat or Discover run on a server, service or environment; server discovery runs became these in 0106) and `revision` runs (Ask agent on a document, `target_document_id`) sessions (`purpose`; `server_id` is set only for a resource run started from a server), their `tags` (at most 10 labels lists find runs by: `servers/<id>`, `services/<id>` or `environments/<id>` for where a resource run started; GIN-indexed), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
 | `audit_events` | Immutable attributed configuration events; a partial index on `(resource_id, created_at)` for `resource_type = 'document_draft'` serves a deleted draft's outcome (`document.draft.promoted`, `.discarded`, `.replaced`) |
 
 See [documentation administration](documentation.md) for the document model,
-version lifecycle and API. Migrations 39–40 replace the old, unused document-set,
-plugin and RAG-collection pipeline; they refuse to discard populated legacy data.
-The current RAG collections pipeline is unaffected.
+version lifecycle and API. Migrations 39–40 retired the old, unused document-set
+and plugin pipeline; they refuse to discard populated legacy data.
 Migration 41 seeds the editable app-docs analysis template with active version 1,
 including when the application workspace is first created after migrations.
 Migration 0100 seeds the "Revise a document" prompt (tag `document-revision`, the Ask agent's editing rules) in every workspace.
@@ -83,9 +80,9 @@ Terminal jobs and audit events are immutable. Job creation and its input snapsho
 must commit in one transaction. Workers compare lease tokens and expiry before
 completion. See the code for each running worker's implementation.
 
-Code and RAG roots are mounted deployment settings. PostgreSQL stores managed
-Markdown as well as RAG text and vectors; raw RAG source files remain in `DATA_ROOT`.
-Managed document publication into RAG is not yet enabled.
+The code roots are mounted deployment settings. PostgreSQL stores documents (with a
+full-text index for `search_documents`, 0133), Jira tickets and memory entries with their
+vectors; source code stays in `DATA_ROOT`.
 
 ## Environments
 
@@ -356,17 +353,19 @@ advanced by this bounded manual fetch. See [Jira panel and local mock](jira.md).
 ## Documentation administration API
 
 The current CRUD endpoints are under `/api/documentation`; see
-[documents and prompts](documentation.md). The old `/document-sets` and RAG
-collection publication routes are retired. Document generation and RAG publication
-will be added on top of immutable document versions.
+[documents and prompts](documentation.md). The old `/document-sets` routes are retired.
 
-## Folder RAG workspace
+## Retired folder workspace (0006–0008)
 
-Migration `0006_rag_workspace.up.sql` adds five folder-workspace tables and the `rag_folder_index` job target, and enables pgvector in the PostgreSQL 17 image. Runtime settings, encrypted provider credentials, folder descriptions, successful file hashes, processed chunks, full-text vectors, and embedding cache entries now live in PostgreSQL. Collection/folder identity is logical rather than a separate physical table per folder. See [RAG administration](rag.md).
+Migration `0006_rag_workspace.up.sql` adds five folder-workspace tables and the `rag_folder_index` job target, and enables pgvector in the PostgreSQL 17 image. Runtime settings, encrypted provider credentials, folder descriptions, successful file hashes, processed chunks, full-text vectors, and embedding cache entries now live in PostgreSQL. Collection/folder identity is logical rather than a separate physical table per folder.
 
 Migration `0007_rag_folder_deletion.up.sql` adds folder deletion markers, a unique path constraint for active folders, and durable source-cleanup status. Recursive deletion atomically cancels overlapping jobs, deletes indexed file/chunk rows, removes unreferenced vector-cache entries, and clears folder descriptions. Deleted identities remain only to support immutable job history.
 
 Migration `0008_single_rag_workspace.up.sql` adds a unique constant-expression index to `rag_workspaces`, enforcing one workspace for the single source mount. Project IDs remain internal foreign keys, preserving existing repositories, Jira configuration, services, servers, credentials, RAG hashes and job history.
+
+Migration `0134_rag_gone` drops these tables and the later collection tables (`rag_collections`, `rag_collection_paths`,
+`rag_files`, `rag_file_log`, `rag_chunks`, `rag_vectors`, `rag_folders`, `rag_workspaces`), deletes their jobs with the
+`jobs.rag_folder_id` / `rag_collection_id` targets and job kinds, and removes `collection` entries from stored access.
 
 ## Memory
 
@@ -380,6 +379,9 @@ Migration `0111_memory` adds two tables.
 - revision and authorship: `revision`, `created_by_*` and `updated_by_*` for agent, session (no foreign key) and actor.
 
 `ka.memory_versions` (`memory_id`, `revision`): the earlier revision (name, metadata, content, who changed it and when), copied before each update, restore or delete.
+
+`ka.memory_settings` (one row per project, migration `0132`): `embedding_model_id`, the embeddings connection memory
+search uses (`NULL`: full-text only; deleting the model clears it).
 
 ## Agent access
 

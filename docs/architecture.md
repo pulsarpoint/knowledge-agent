@@ -1,6 +1,6 @@
 # Architecture and admin workflows
 
-The current deployment is a single workspace. Administration has no application selector or application-prefixed URLs; the API binds all operations to the existing database identity. RAG reads `DATA_ROOT` (mounted read-only at `/work/data`) directly and writes only `JIRA_FOLDER`, without a UUID subdirectory. Administration is the only web application; the former Reader application was removed.
+The current deployment is a single workspace. Administration has no application selector or application-prefixed URLs; the API binds all operations to the existing database identity. Every service mounts `DATA_ROOT` read-only at `/work/data`; only `admin-api` and `repository-worker` write the code folders. Administration is the only web application; the former Reader application was removed.
 
 
 Status: target design, with an independently runnable v2-derived baseline now
@@ -27,11 +27,9 @@ flowchart LR
     AdminLogin --> AdminUI[Admin React app :8183]
     AdminUI --> AdminAPI[Admin FastAPI]
     AdminAPI --> Data[(Project data)]
-    AdminAPI --> RAG[Local RAG]
     AdminAPI --> DB[(PostgreSQL metadata and jobs)]
     Worker[Planned admin worker] --> DB
     Worker --> Jira[Jira Data Center]
-    Worker --> RAG
     AdminAPI -. traces .-> Phoenix
     Worker -. traces .-> Phoenix
 ```
@@ -42,7 +40,6 @@ Current source layout:
 services/admin-ui/             Standalone React administration application
 services/admin-api/            Standalone FastAPI administration service
   src/knowledge_admin/         Admin-only app, route definitions and CLI
-services/rag/                  Retrieval engine, document processing and retrieval
 services/code-graph/           CodeGraph indexing/query scripts bundled into admin-api
 db/migrations/                Ordered application migrations
 deploy/                       Separate web/API/auth services and shared infrastructure
@@ -62,8 +59,7 @@ The sidebar has a project switcher and these sections.
 | Projects | Create/edit/archive project, project members |
 | Repositories | Repository links, requested branch/ref, local sync status, commit, Sync button |
 | Services | Application details, many-to-many repository links, server/environment deployments, operational notes and agent context |
-| Documentation | Select documentation set and its downloaded repositories; Generate, Upload, browse/download Markdown, delete files, Load into RAG |
-| RAG | Current generation, indexed file revision, model, counts, stale status, job history |
+| Documentation | Select documentation set and its downloaded repositories; Generate, Upload, browse/download Markdown, delete files |
 | Jira / Tickets | Implemented: fetch 1–200 recently updated tickets, saved snapshot, original Jira links. Planned: custom JQL and incremental sync |
 | Jira / Settings | Implemented: Data Center URL, username, encrypted PAT, Test connection |
 | Servers | Implemented: register/edit name, hostname/IP, description, tags and search. Planned: SSH port/user/key, host key, Allow sudo, enabled state, Test connection |
@@ -105,7 +101,7 @@ The API requires the same global admin authorization as other management routes.
 
 This resource is ready for a future agent-run adapter; current agents do not
 consume it automatically. Live observations, evidence timestamps,
-SSH/log collection, health checks, and monitoring remain separate work. Consumers
+SSH/log gathering, health checks, and monitoring remain separate work. Consumers
 must use a trusted authenticated boundary and treat descriptive text as untrusted
 data, never as executable commands or grants of access.
 
@@ -164,17 +160,15 @@ URL decoding; the SQL path domain is only a second check. File replacement is
 an explicit upload option; conflicting names return a useful conflict response.
 
 Deletion marks the file deleted and increments the set revision. Files omitted
-from an upload remain present. The next RAG load indexes the **entire current
-non-deleted Markdown manifest**, including retained files. This is the intended
-meaning of replacing RAG, rather than treating every upload as a full directory
-replacement. Out-of-band filesystem changes require an explicit import/reconcile
+from an upload remain present. Out-of-band filesystem changes require an explicit import/reconcile
 operation before they become current database revisions.
 
 ## Document processing and search
 
-The fixed source mount is `/work/data` (`DATA_ROOT`, read-only; only the Jira folder is writable for RAG). PostgreSQL stores folder descriptions, file manifests, parsed chunks, full-text indexes, and pgvector embeddings. File content and processing-profile hashes determine which stages need to run. Unchanged parsing and embeddings are reused; changed and deleted files are published atomically. See [RAG administration](rag.md).
-
-The search agent receives the indexed document catalog with short descriptions on every turn. It calls `/search` for retrieval and reads full documents when needed. Source-code questions use read-only analysis of checkouts published by the repository worker. Administrators try agents in the agent Test page; conversations are scoped to the authenticated user. Phoenix tracks the agent execution.
+Documents and their versions live in PostgreSQL. Agents find them with `search_documents`, a PostgreSQL full-text
+search (title weighted above description above content) over the published documents the run may read, and read one
+with `get_document`; see [documentation](documentation.md#document-tools). Memory search merges full text with vector
+distance when a memory embedding model is set ([LLM Settings](llm-settings.md#memory-embeddings)). Source-code questions use read-only analysis of checkouts published by the repository worker. Administrators try agents in the agent Test page; conversations are scoped to the authenticated user. Phoenix tracks the agent execution.
 
 ## Jira Data Center
 
@@ -230,9 +224,9 @@ is not a stable subject, update the claim wiring during the auth port.
 Global admins manage projects and membership. Project admins manage connections,
 credentials, servers, and members; editors manage repositories/docs and jobs;
 viewers read project content/chat. Enforce permissions server-side, including
-SSE, downloads, RAG/MCP collection filters, and chat sharing. Composite foreign
+SSE, downloads, MCP tool filters, and chat sharing. Composite foreign
 keys prevent accidental cross-project references; they do not implement API
-authorization. Direct RAG/MCP endpoints stay internal.
+authorization. Direct MCP endpoints stay internal.
 
 Application secrets use authenticated encryption with key version and associated
 data `(project_id, credential_id, kind)`. Keep the master key outside PostgreSQL
@@ -245,7 +239,3 @@ Keep Phoenix/OpenInference tracing and extend it to jobs and code generation.
 Use project/job/session identifiers as attributes and retain `trace_id` on jobs,
 chat turns, and audit events. Phoenix owns span payloads and retention; do not
 build a second trace database. A Phoenix outage must not block chat or jobs.
-
-## Folder workspace RAG
-
-The standalone RAG API also owns a PostgreSQL-backed folder workspace and a dedicated durable processing worker. The admin API authenticates administrators and injects project scope into RAG calls. Compose fixes the source mount, while backoffice settings control processing and model configuration without restarts. See [the RAG architecture and API guide](rag.md).
