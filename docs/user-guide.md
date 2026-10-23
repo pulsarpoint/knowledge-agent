@@ -485,11 +485,16 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
   shows. The filter covers the servers and services columns; the service panel always lists all its connections and
   relations. The environment's header says "N drafts to review" while it has drafts; the link opens the workspace with
   the Drafts filter (an open chat stays open). The count includes document drafts (new documents, and drafts of
-  documents) linked to the environment, its servers and its services; the text then says "3 drafts to review (1
-  document)". When only document drafts wait, the link opens the **Documents** tab. On a resource's Documents tab a new
-  document's draft is listed marked "Draft — not published", and a document with a draft waiting shows "Draft waiting".
-- **After the agent's turn.** The workspace, the header's count, the server page and the service panel reload after
-  each turn of the page's chat, so what the agent drafted appears without a reload.
+  documents) linked to the environment, its servers and its services (also a draft whose only link there is the one it
+  adds on publish); the text then says "3 drafts to review (1 document)". When only document drafts wait, the link
+  opens the **Documents** tab, whose **Drafts to review** section at the top lists every one of them: its title (a link
+  to the draft), the service, server or environment it belongs to, and "New document" or "New version". The
+  environment's own documents follow below. On a resource's Documents tab a new document's draft is listed marked
+  "Draft — not published", and a document with a draft waiting shows "Draft waiting"; **Connections and documents**
+  lists a new document's draft only once it is published.
+- **After the agent's turn.** The workspace, the header's count, the Documents tabs (with Drafts to review), the server
+  page and the service panel reload after each turn of the page's chat, so what the agent drafted appears without a
+  reload.
 - **Map.** On the System map, draft boxes and lines are dashed (a line that adds up several connections is dashed only
   when all of them are drafts), and **Show drafts** (on by default; `drafts=0` in the address when off) hides them.
 - Someone who changed a draft meanwhile makes Confirm and Discard say "This was changed meanwhile. Reload to see the

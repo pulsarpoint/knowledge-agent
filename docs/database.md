@@ -33,7 +33,7 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `rag_workspaces`, `rag_collections`, `rag_files`, `rag_file_log`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: its own search and processing settings; its folders are in `ka.rag_collection_paths`); per-collection file hashes, per-file status (`rag_file_log`), searchable text and cached embeddings |
 | `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |
-| `agents` | Agent definitions: prompt, model, `instructions` and `access` (what the agent may use, as one object: `{"resources": [{type, id, editable?}], "roles": {"content_editor"}}`, references only; 0113); every run gets every tool, so there are no per-agent tool rows (`agent_tools` dropped in 0115) |
+| `agents` | Agent definitions: prompt, model, `instructions` and `access` (what the agent may use, as one object: `{"resources": [{type, id}]}`, references only; 0113; keys an older object still carries, `roles` or a document's `editable`, are ignored); every run gets every tool, so there are no per-agent tool rows (`agent_tools` dropped in 0115) |
 | `agent_sessions`, `agent_session_inputs`, `agent_session_reviews` | `agent_sessions.last_draft_id` is the run's last draft (no foreign key: drafts are deleted on promote and discard; its outcome is read from `audit_events`). New-document (`documents`; earlier Generate documents), Test, event, `resource` (a chat or Discover run on a server, service or environment; server discovery runs became these in 0106) and `revision` runs (Ask agent on a document, `target_document_id`) sessions (`purpose`; `server_id` is set only for a resource run started from a server), their `tags` (at most 10 labels lists find runs by: `servers/<id>`, `services/<id>` or `environments/<id>` for where a resource run started; GIN-indexed), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
 | `audit_events` | Immutable attributed configuration events; a partial index on `(resource_id, created_at)` for `resource_type = 'document_draft'` serves a deleted draft's outcome (`document.draft.promoted`, `.discarded`, `.replaced`) |
 
@@ -383,8 +383,9 @@ Migration `0111_memory` adds two tables.
 
 ## Agent access
 
-Migration `0113_agent_access` stores what a saved agent may use as `ka.agents.access` (resource references and the
-`content_editor` role) and its instructions as `ka.agents.instructions`. Migration `0114_drop_agent_resource_tables`
+Migration `0113_agent_access` stores what a saved agent may use as `ka.agents.access` (resource references; the
+`content_editor` role it also stored is gone: agents draft documents within their access, and the key is ignored) and
+its instructions as `ka.agents.instructions`. Migration `0114_drop_agent_resource_tables`
 drops the storage that held this before: the per-type selection tables, the agent-level and per-server
 configurations with their skill and MCP selections, the per-agent SSH connection overrides, the per-kind switches and
 `agents.resources`. A server's own SSH settings in `ka.servers` always apply. A reference to a deleted resource stays

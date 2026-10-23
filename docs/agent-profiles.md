@@ -9,16 +9,18 @@ inherited from another agent. Agents share these tabs:
 
 | Tab | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Content editor** (off by default: "Lets this agent propose services and documents and edit editable documents."), **Answer only from documents**, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
-| Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**; a document has an **Editable** switch (read-only by default). A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
-| Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; a document goes with the agent's own Editable; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
+| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Answer only from documents**, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
+| Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
+| Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
 Other `?view=` values (including the former `tools`) open General.
 
 **Access.** What an agent may use is one access object, `ka.agents.access`:
-`{"resources": [{"type", "id", "editable"?}], "roles": {"content_editor": bool}}`. Types are `server`, `service`,
+`{"resources": [{"type", "id"}]}`. Types are `server`, `service`,
 `environment`, `code_project`, `collection`, `document`, `skill` and `mcp_server`; only references are stored (names,
-descriptions and paths are loaded at run start), `editable` applies to documents. The agent's instructions are
+descriptions and paths are loaded at run start). There are no roles and no per-document `editable` flag: every run may
+draft the documents it may read and new documents for its servers, services and environments (see
+[documentation](documentation.md#document-tools)); an older object's `roles` or `editable` keys are ignored. The agent's instructions are
 `ka.agents.instructions`. Every run narrows the access object: it gets all of it, or the resources the request picks
 out of it, never more (see [Agent execution](agents.md)); what the run was given brings its direct children, as in
 an ad-hoc run (an environment its services and servers, a service its code projects and servers, a server the services
@@ -57,7 +59,7 @@ runs, run records, session pages and Test chats still show how often each tool w
 
 **Subagents.** Every run may start subagents with `run_subagent`: helpers that work on separate parts of
 the task in parallel, each with every tool except `run_subagent` and the run's access narrowed to the resources it is
-given, with content editor off. There is no switch for it.
+given; they get the read-only document tools (no drafting). There is no switch for it.
 
 **Experts.** **Offer as an expert** (General, off by default; `expert` in `GET/PUT /api/agents/{id}` and in the list,
 which shows an **Expert** badge) offers the agent to every other agent as a tool. Saving it on needs a non-empty When to
@@ -75,7 +77,7 @@ environments, skills, MCP servers, services, model connections, and existing
 agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
 
-The wizard asks for **Agent model** (default: the first model in the catalog) first (page 1) and shows it on the review. The review has General (identity, instructions, the **Content editor** switch and a summary of the proposed resources), Prompt and Resources (the catalog per type, with **Editable** for picked documents) tabs. `POST /api/agents/wizard` accepts `access` (references and roles) and `instructions`; it has no tool choice (a `tools` field is refused as an unknown field).
+The wizard asks for **Agent model** (default: the first model in the catalog) first (page 1) and shows it on the review. The review has General (identity, instructions and a summary of the proposed resources), Prompt and Resources (the catalog per type) tabs. `POST /api/agents/wizard` accepts `access` (references) and `instructions`; it has no tool choice (a `tools` field is refused as an unknown field).
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource
@@ -83,7 +85,7 @@ IDs, and discards model-added annotations; the create API rejects unknown fields
 The administration proxy allows 300 seconds for generation's 240-second budget.
 The designer has no code, document, SSH, skill, MCP, or service access. Review tabs
 let the administrator edit identity, routing guidance, model, system prompt,
-instructions, availability, the Content editor role and the resources. Servers are
+instructions, availability and the resources. Servers are
 reached with their own saved SSH settings.
 
 **Create agent** validates the reviewed proposal against current available
@@ -105,7 +107,7 @@ runtime, SDK wrapper, dependency, or migration is introduced.
 - `POST /api/agents/wizard/generate`: `{role, model_id}` → `{proposal}`; bounded to
   240 seconds overall, with one correction attempt for invalid model output,
   sanitized provider errors, and no database writes.
-- `POST /api/agents/wizard`: reviewed proposal (`access` with references and `content_editor`, `instructions`) →
+- `POST /api/agents/wizard`: reviewed proposal (`access` with references, `instructions`) →
   `{id}`; atomic creation.
 
 ## Persistence and APIs
@@ -130,13 +132,12 @@ Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode
 - `GET /api/agents` lists profiles with model summaries, `cloned_from` and `counts`: per resource type, how many of the
   resources its access object references still exist.
 - `GET /api/agents/{id}` returns the agent with `instructions` and `access`: each reference resolved to `{type, id,
-  name, description_short}` (a document with `editable`; a resource that no longer exists with `missing: true`) and
-  `roles.content_editor`.
+  name, description_short}` (a resource that no longer exists with `missing: true`).
 - `GET /api/agents/{id}/options` lists every resource of the project by type (`{type, id, name, description_short}`), for
   the Resources picker.
-- `PUT /api/agents/{id}` saves metadata, `instructions` and `access` (references `{type, id, editable?}` and roles) using
+- `PUT /api/agents/{id}` saves metadata, `instructions` and `access` (references `{type, id}`) using
   optimistic revisions. Each reference must be of a known type; one to a resource that does not exist in the project is
-  dropped, and `editable` is kept for documents only.
+  dropped.
 - `POST /api/sessions` with `agent_id` accepts `resources` picked from the agent's access; the session keeps its narrowed access object.
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model.
 - `GET /api/agents/{id}/config` returns the agent's configuration (`knowledge_admin.knowledge_agents.config.get_agent_config`).

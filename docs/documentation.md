@@ -27,15 +27,18 @@ Since migration 0104 a document lives in three tables:
 Readers use views and never see a draft by accident: `ka.live_documents` (live rows), `ka.document_details` (live rows
 with their active link arrays and `draft_count`) and `ka.document_drafts_view` (every draft with its document's
 title, slug and folder, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
-document links and a run's document that point at a draft.
+a run's document that points at a draft, and a `built_for` link on a draft of a live document (migration 0130).
 
 **Links.** A brand-new draft (a person's Save, a new-document run's first save, a discovery run's `new_document`) gets its links as `built_for`, with `added_how` person, agent_run or discovery. A built-for link cannot
 be removed: unticking it is a 409 "This document was built for
-{type} {name}; that link can't be removed." and nothing changes. Links never go through drafts: **Save links**
+{type} {name}; that link can't be removed." and nothing changes. A person's links never go through drafts: **Save links**
 (`PUT /documents/{id}/links`, on a live document or a brand-new draft) applies them directly. It compares the ticked
 ids with the active rows: unchanged rows stay as they are, newly ticked ones get a `linked` row, unticked `linked` rows get
 `removed_at` and `removed_by`; `revision` goes up, `version` does not. Drafts of a live document use the live
-document's links (Save links on a draft of a document is a 404). Promote never changes links. The audit row
+document's links (Save links on a draft of a document is a 404). The one exception is an agent's
+`update_document(…, resource)` on a live document: the run's draft holds that `linked` link (migration 0130) and
+**Promote adds it** to the document (a link the document already has stays as it is); until then the link does not
+show anywhere. Promote changes no other link. The audit row
 (`document.links.updated`) lists `links_added` and `links_removed`. The selected deployment must belong to a selected service and server.
 
 **Lifecycle.** Every save a person makes is a draft: **Save** on a new document creates a brand-new draft, Save on a
@@ -147,30 +150,53 @@ The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
 confirmation and navigation with unsaved edits.
 
 Ask agent runs (agent sessions with purpose `revision`, started through `POST /api/sessions` from the chat pane on the
-document page, with the document as an editable resource; the first message is the instruction, and
-`/documents/{id}/agent/{run}` opens the page with the pane on that run) change a document only through the
-`get_document`, `save_document` and `edit_document` tools (each takes `document_id`), which write the run's draft. The
-editing rules are the **Revise a document** prompt (tag `document-revision`, seeded by migration 0100).
+document page, with the document in the run's access, `resources.documents[{id}]`; the first message is the
+instruction, and `/documents/{id}/agent/{run}` opens the page with the pane on that run) change a document only
+through the document tools below, which write the run's draft. The editing rules are the **Revise a document** prompt
+(tag `document-revision`, seeded by migration 0100; 0131 replaced `save_document` with `update_document` in it).
+
+## Document tools
+
+Every agent run has the document tools; what it may do with them is decided by its access object, not by a role (there
+is no Content editor role and no `editable` flag on a document entry; stored access objects that still carry them load,
+the keys ignored).
+A document is **usable** when it is in the run's access or linked to a server, service or environment in it; a run may
+read and draft every usable document, and create new documents for any server, service or environment in its access.
+Subagents and experts get the read tools only (`search_documents`, `list_documents`, `get_document`).
+
+| Tool | What it does |
+|---|---|
+| `list_documents(resource)` | The documents linked to a server, service or environment of the run (`resource`: `{type, id}` or `{type, name}`) and to what belongs to it: id, title, short description, tags, `published` (false for a new document the run drafted) and `your_draft`; the inventory document first. |
+| `get_document(document_id, section?, start_line?, end_line?)` | The run's draft of the document when it has one, else the live version: outline and text, or the asked lines numbered. (`read_document` reads a knowledge-base file from `search_documents` results instead.) |
+| `new_document(resource, title, content, description?, tags?)` | Creates a new document as a brand-new draft built for the resource (`built_for`, `added_how = 'agent_run'`, the run's `session_id`); folder and slug come from the resource and the title. A title already used by a document linked to the same resource is refused with that document's id. Returns the id the document keeps once published. |
+| `update_document(document_id, content, title?, description?, resource?)` | Saves the run's draft of the document with its complete content. With `resource`, the document is linked to that server, service or environment: a new document's draft gets the link at once, a draft of a live document holds it and Promote adds it (see **Links**). |
+| `edit_document(document_id, old_text, new_text)` | Replaces one exact passage (it must occur once) in the run's draft, started from the live text when there is none yet; an empty `new_text` removes it. |
+
+A run keeps one draft per document; every `update_document` and `edit_document` changes it. Every reply that writes
+says the document is a draft waiting for a person to publish it on the document's page. Nothing goes live until a
+person publishes or promotes the draft. The environment page's header counts the document drafts of the environment,
+its servers and its services (also by a draft's own pending link), and its Documents tab lists them under **Drafts to
+review** (`GET /api/environments/{id}/document-drafts`).
 
 ## Write a new document with an agent
 
 **Documents → New → Write with an agent** opens the same chat pane as Ask agent, on a document that does not exist yet.
 The page asks for a **Title** and a **Folder** (the Folder field appears with the pane). The run is started by
-`POST /api/sessions` with `started_from.new_document {folder, name}` and the document as a new editable resource,
-`resources.documents[{new: {folder, name}, editable: true}]`. Such runs have `purpose = 'documents'`. A run starts from a document or
+`POST /api/sessions` with `started_from.new_document {folder, name}` and the new document in the run's access,
+`resources.documents[{new: {folder, name}}]` (an `editable` key is refused: 422). Such runs have `purpose = 'documents'`. A run starts from a document or
 from a new document, not both (`GET /api/sessions/options` takes `new_document=1` without `agent_id` or `document_id`).
 
 `GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects, document
 collections, environments, services, servers), the experts, and the prompts tagged
 `documentation`. The default prompt is **Write a document** (tags `documentation` and `new-document`, seeded by migration
-0101): read what you were given, write the document with `save_document`, change a passage with `edit_document`, and never
-say it is published. Custom prompts tagged `documentation` should tell the agent to write with `save_document`. No
+0101; 0131 gave it a new version): read what you were given, write the document with `update_document`, change a
+passage with `edit_document`, and never say it is published. Custom prompts tagged `documentation` should tell the agent
+to write with `update_document`. No
 resource is chosen until it is ticked; experts are offered only when ticked (`expert_ids`). The run gets every tool,
-including `run_subagent`; the run's access (what was chosen, and the new document as its one editable document) decides
-what each may do.
+including `run_subagent`; the run's access (what was chosen, and the new document) decides what each may do.
 
-The agent writes the document only with `save_document(document_id, markdown, title?, description?)` and
-`edit_document(document_id, old_text, new_text)`. Both write the run's draft. The agent's final answer is not turned into a
+The agent writes the document with `update_document(document_id, content, title?, description?, resource?)` and
+`edit_document(document_id, old_text, new_text)`, using the new document's id from its context. Both write the run's draft. The agent's final answer is not turned into a
 draft. If a document with the title's slug already exists in the folder, the saves become a draft of that document.
 Otherwise the first save creates a brand-new draft whose links are built-for (`added_how = 'agent_run'`, the run's
 `session_id`): the environments, services, servers and code projects chosen (for a run started from a server page, that
