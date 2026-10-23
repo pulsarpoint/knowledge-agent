@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
-import { MessageSquare, Plus, X } from "lucide-react";
+import { ChevronsUpDown, MessageSquare, Plus, X } from "lucide-react";
 import { getSessions, resourceTag, statusLabels, type ResourceType, type RunSummary } from "./api";
 import { useAgentSettings } from "./agentSettings";
 import { useWidePage } from "~/lib/widePage";
 import { cn } from "~/lib/utils";
 import AgentChat from "./AgentChat";
-import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 /** One tab of a resource page laid out in tabs (`pages`). */
@@ -23,13 +31,13 @@ export interface ChatResource {
   name: string;
 }
 
-/** A server's, service's or environment's page: its Info (from the page) and its Chats (the runs tagged with it, open first),
- * with Chat (the latest open chat, else a new one) and the page's actions; the chat panel's header has New chat (a new
- * conversation) and Hide chat. The chat panel is hidden until one of
- * those is clicked; `?chat=<id>` opens that chat (a chat of another resource is refused by the chat itself) and follows the
- * shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs Info / Chat.
- * With `pages`, `info` is the page's header (Chat and the actions beside it) and the page is laid out in tabs:
- * the given pages, then Chats; `?view=<value>` keeps the open tab (none: the first). `onSessionChange` is called when the
+/** A server's, service's or environment's page: its Info (from the page) with Chat (the latest open chat, else a new one)
+ * and the page's actions beside it. The chat panel's header has the conversation switcher (every conversation about this
+ * resource: the runs tagged with it, newest first, the open one marked), New chat (a new conversation) and Hide chat.
+ * The chat panel is hidden until Chat is clicked; `?chat=<id>` opens that chat (a chat of another resource is refused by the
+ * chat itself) and follows the shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs
+ * Info / Chat. With `pages`, the page is laid out in tabs of the given pages; `?view=<value>` keeps the open tab (none or
+ * unknown: the first). `onSessionChange` is called when the
  * shown chat's turns or status change (a page reloads what the chat's agent may have changed). */
 export default function ResourceChats({
   resource,
@@ -126,10 +134,9 @@ export default function ResourceChats({
     setChat(null);
   };
 
-  const view =
-    pages?.some((page) => page.value === params.get("view")) || params.get("view") === "chats"
-      ? params.get("view")!
-      : (pages?.[0]?.value ?? "");
+  const view = pages?.some((page) => page.value === params.get("view"))
+    ? params.get("view")!
+    : (pages?.[0]?.value ?? "");
   const setView = (value: string) =>
     setParams(
       (current) => {
@@ -149,42 +156,38 @@ export default function ResourceChats({
       {actions}
     </div>
   );
-  const chatList = (
-    <>
-      {listFailed && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            Could not load the chats.{" "}
-            <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-      {runs !== null && runs.length === 0 && (
-        <p className="text-sm text-muted-foreground">No chats yet. Start one with Chat.</p>
-      )}
-      {runs !== null && runs.length > 0 && (
-        <ul className="flex flex-col divide-y rounded-lg border">
-          {runs.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                aria-current={open && item.id === chat ? "true" : undefined}
-                onClick={() => pick(item.id)}
-                className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50 aria-[current]:bg-muted"
-              >
-                <span className="min-w-0 break-words font-medium">{item.title}</span>
-                <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+  const shown = initialRunId === null ? null : (runs?.find((item) => item.id === initialRunId) ?? null);
+  const title = initialRunId === null ? "New conversation" : (shown?.title ?? "Conversation");
+  const switcher = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="sm" variant="outline" aria-label={`Conversation: ${title}`} className="min-w-0">
+          <span className="truncate">{title}</span>
+          <ChevronsUpDown data-icon="inline-end" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-w-sm">
+        {listFailed && (
+          <DropdownMenuItem onSelect={() => setListed((n) => n + 1)}>
+            Could not load the conversations. Retry
+          </DropdownMenuItem>
+        )}
+        {runs !== null && runs.length === 0 && <DropdownMenuLabel>No earlier conversations</DropdownMenuLabel>}
+        {runs !== null && runs.length > 0 && (
+          <DropdownMenuRadioGroup value={initialRunId ?? ""} onValueChange={pick}>
+            {runs.map((item) => (
+              <DropdownMenuRadioItem key={item.id} value={item.id} className="flex-col items-start gap-0.5">
+                <span className="break-words font-medium">{item.title}</span>
+                <span className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span>{statusLabels[item.status]}</span>
                   <span>{new Date(item.last_activity_at).toLocaleString()}</span>
                 </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   return (
@@ -205,44 +208,25 @@ export default function ResourceChats({
           data-testid="resource-info"
           className={cn("min-w-0 flex-col gap-6", open && tab === "chat" ? "hidden 2xl:flex" : "flex")}
         >
-          {pages ? (
-            <>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">{info}</div>
-                {buttons}
-              </div>
-              <Tabs value={view} onValueChange={setView}>
-                <TabsList aria-label="Page">
-                  {pages.map((page) => (
-                    <TabsTrigger key={page.value} value={page.value}>
-                      {page.label}
-                    </TabsTrigger>
-                  ))}
-                  <TabsTrigger value="chats">Chats</TabsTrigger>
-                </TabsList>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">{info}</div>
+            {buttons}
+          </div>
+          {pages && (
+            <Tabs value={view} onValueChange={setView}>
+              <TabsList aria-label="Page">
                 {pages.map((page) => (
-                  <TabsContent key={page.value} value={page.value} className="min-w-0">
-                    {page.content}
-                  </TabsContent>
+                  <TabsTrigger key={page.value} value={page.value}>
+                    {page.label}
+                  </TabsTrigger>
                 ))}
-                <TabsContent value="chats">
-                  <section aria-label="Chats" className="flex flex-col gap-2">
-                    {chatList}
-                  </section>
+              </TabsList>
+              {pages.map((page) => (
+                <TabsContent key={page.value} value={page.value} className="min-w-0">
+                  {page.content}
                 </TabsContent>
-              </Tabs>
-            </>
-          ) : (
-            <>
-              {info}
-              <section aria-label="Chats" className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-lg font-semibold">Chats</h2>
-                  {buttons}
-                </div>
-                {chatList}
-              </section>
-            </>
+              ))}
+            </Tabs>
           )}
         </div>
         {open && (
@@ -250,7 +234,8 @@ export default function ResourceChats({
             data-testid="resource-chat"
             className={cn("min-w-0 2xl:sticky 2xl:top-4", tab === "info" ? "hidden 2xl:block" : "block")}
           >
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center gap-2">
+              <div className="mr-auto min-w-0">{switcher}</div>
               <Button type="button" size="sm" variant="outline" onClick={newChat}>
                 <Plus data-icon="inline-start" />
                 New chat

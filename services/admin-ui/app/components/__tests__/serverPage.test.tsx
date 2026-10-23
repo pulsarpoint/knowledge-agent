@@ -193,7 +193,7 @@ function show(url = "/servers/s1") {
   return router;
 }
 
-test("shows the server, its services and documents, and its chats", async () => {
+test("shows the server, its services and documents; its chats are in the chat panel's switcher", async () => {
   api({
     ...base(),
     [RUNS]: () => [200, { sessions: [run("r1", "closed", "Disk usage")] }],
@@ -227,10 +227,12 @@ test("shows the server, its services and documents, and its chats", async () => 
     "href",
     "/documents/new?resource=server&resource_id=s1",
   );
-  await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
-  const chats = await screen.findByRole("region", { name: "Chats" });
-  expect(await within(chats).findByRole("button", { name: /Disk usage/ })).toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "Chats" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
+  // the server's chats are in the chat panel's switcher
+  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Conversation: New conversation" }));
+  expect(await screen.findByRole("menuitemradio", { name: /Disk usage/ })).toHaveTextContent("Finished");
 });
 
 test("Chat opens a new conversation; the first message starts a run from the server that may not change content", async () => {

@@ -263,8 +263,8 @@ Registering does not connect to anything.
 A server cannot be deleted while service deployments reference it.
 
 A server's name opens its page (`/servers/:id`): a header (details, SSH state; **Chat** and **Discover** on
-the right) and tabs **Overview** (the services deployed on it), **Documents** and **Chats**; the open tab
-is kept in the URL (`?view=documents`, `?view=chats`). Services (`/services/:id`: Overview is the service panel) and
+the right) and tabs **Overview** (the services deployed on it) and **Documents**; the open tab
+is kept in the URL (`?view=documents`). Its chats are in the chat panel (see below). Services (`/services/:id`: Overview is the service panel) and
 environments (`/environments/:id`: the first tab is the Workspace) have the same kind of page. In the environment
 workspace, the selected service's column has its own tabs **Details** and **Documents**.
 
@@ -289,9 +289,12 @@ was published.") and **Discard draft** discards the draft. When the document cha
 
 #### Chats and Discover
 
-**Chats** lists the conversations on the server (service, environment): open ones first, then by last activity; runs
-**Chat** opens the latest open chat (or a new one), and a chat in the list that chat; **New chat** in the chat panel's
-header (beside **Hide chat**) starts a new conversation. The chat stays hidden until you ask for it;
+**Chat** opens the chat panel on the latest open chat (or a new one). The panel's header has, on the left, the
+**conversation switcher**: it shows the open conversation's title ("New conversation" for a new one not started yet)
+and lists every conversation about the server (service, environment), newest first, each with its status and last
+activity, the open one marked; picking one opens it. With none: "No earlier conversations". On the right, **New chat**
+starts a new conversation (the switcher still lists the old ones) and **Hide chat** closes the panel. There is no Chats
+tab. The chat stays hidden until you ask for it;
 on very wide screens (2xl) it opens beside the Info, below that as a second tab (**Info** / **Chat**). The URL keeps
 the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of another page is refused.
 
@@ -331,11 +334,10 @@ environment when one of its deployments is; a service deployed in two environmen
 - The list shows each environment with the number of services and servers in it: filter, **Map** (the System map
   rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
 - An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat** and
-  **Discover** on the right; Chat opens the agent chat beside the page) and three tabs, the open one kept
-  in the URL (`?view=documents` or `?view=chats`; none: Workspace):
+  **Discover** on the right; Chat opens the agent chat beside the page, its switcher lists the earlier chats about
+  the environment) and two tabs, the open one kept in the URL (`?view=documents`; none: Workspace):
   - **Documents**: the environment's own inventory document and documents (a server's or service's documents are in
     its column of the workspace);
-  - **Chats**: the earlier chats about the environment;
   - **Workspace**, of three columns:
   - **Servers**: the member servers, each with its number of services ("no services" for an empty member), **Edit**
     and **Remove from environment** (refused with "Remove the deployments on this server in this environment first."
