@@ -9,6 +9,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
+import ToolsList from "./ToolsList";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { Switch } from "~/components/ui/switch";
 import { toast } from "sonner";
 
@@ -32,6 +34,7 @@ export default function AgentProfileSettings({
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [reload, setReload] = useState(0);
+  const [advanced, setAdvanced] = useState(false);
   const [models, setModels] = useState<ModelProfile[]>();
   const [modelsError, setModelsError] = useState("");
   useEffect(() => {
@@ -212,6 +215,26 @@ export default function AgentProfileSettings({
                 </Field>
               </FieldGroup>
             </div>
+            <Collapsible open={advanced} onOpenChange={setAdvanced}>
+              <CollapsibleTrigger asChild>
+                <Button type="button" variant="ghost">
+                  Advanced
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <Field>
+                  <FieldLabel>Tools</FieldLabel>
+                  <ToolsList
+                    off={draft.disabled_tools ?? []}
+                    disabled={busy}
+                    onChange={(disabled_tools) => change({ disabled_tools })}
+                  />
+                  <FieldDescription>
+                    Tools switched off are never offered to this agent. New tools are on by default.
+                  </FieldDescription>
+                </Field>
+              </CollapsibleContent>
+            </Collapsible>
           </FieldGroup>
         </CardContent>
         <CardFooter className="flex-wrap gap-2">

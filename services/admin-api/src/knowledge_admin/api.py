@@ -25,6 +25,7 @@ from knowledge_admin.events import (
 from knowledge_admin.jira import api as jira_api
 from knowledge_admin.memory import api as memory_api
 from knowledge_admin.sessions import api as sessions_api
+from knowledge_admin.tools.catalog import CATALOG, GROUPS
 
 
 def build_api(
@@ -92,5 +93,11 @@ def build_api(
     @router.get('/session')
     def admin_session():
         return {'is_admin': True}
+
+    @router.get('/tools')
+    def tool_catalog():
+        """The catalog tools (what an agent or run may switch off), by group then name."""
+        ordered = sorted(CATALOG.values(), key=lambda tool: (GROUPS.index(tool.group), tool.name))
+        return {'tools': [{'name': t.name, 'group': t.group, 'description': t.summary} for t in ordered]}
 
     return router

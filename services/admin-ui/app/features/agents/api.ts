@@ -41,6 +41,8 @@ export interface AgentProfile {
   system_prompt: string;
   instructions: string;
   access: AgentAccess;
+  /** Catalog tools switched off in every run of this agent. */
+  disabled_tools?: string[];
   cloned_from?: string | null;
   original?: { id: string; name: string } | null;
 }
@@ -62,8 +64,16 @@ export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string) => request<Record<string, unknown>>(path(id) + "/config");
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + "/options");
 /** Saves the agent: its details and its access object as references (missing ones are dropped). */
+export interface CatalogTool {
+  name: string;
+  group: string;
+  description: string;
+}
+/** Every catalog tool, by group then name. */
+export const getTools = () => request<{ tools: CatalogTool[] }>("/api/tools");
 export const saveAgent = (value: AgentProfile) => {
-  const { revision, name, description, when_to_use, enabled, instructions, access, expert, model_id } = value;
+  const { revision, name, description, when_to_use, enabled, instructions, access, expert, model_id, disabled_tools } =
+    value;
   return request<AgentProfile>(
     path(value.id),
     json("PUT", {
@@ -73,6 +83,7 @@ export const saveAgent = (value: AgentProfile) => {
       when_to_use,
       enabled,
       instructions,
+      disabled_tools,
       access: {
         resources: access.resources.filter((item) => !item.missing).map(({ type, id }) => ({ type, id })),
       },

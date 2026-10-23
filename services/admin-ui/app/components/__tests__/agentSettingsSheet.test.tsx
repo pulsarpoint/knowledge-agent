@@ -179,3 +179,44 @@ test("an open agent run shows the run's model and prompt, not the agent's curren
   fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
   expect(screen.getByLabelText("Agent prompt").textContent).toBe("You operated servers.");
 });
+
+const CATALOG = [
+  { name: "search_documents", group: "documents", description: "Search the documents." },
+  { name: "ssh_run", group: "servers", description: "Run a command over SSH." },
+];
+const stubCatalog = () =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ tools: CATALOG }), { status: 200 })),
+  );
+
+test("Advanced has the Tools: switching one off goes into the settings", async () => {
+  stubCatalog();
+  render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+  expect(await screen.findByText("2 of 2 tools on")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "ssh_run" }));
+  expect(screen.getByText("1 of 2 tools on")).toBeInTheDocument();
+  expect(JSON.parse(screen.getByLabelText("Settings state").textContent!).disabledTools).toEqual(["ssh_run"]);
+});
+
+test("a saved agent's off tools are locked as Off for this agent; the rest can be switched off", async () => {
+  stubCatalog();
+  const opts = { ...agentOptions, agent: { ...agentOptions.agent!, disabled_tools: ["ssh_run"] } };
+  render(<Harness scope={agentScope} opts={opts} />);
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+  expect(await screen.findByText("1 of 2 tools on")).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "ssh_run" })).toBeDisabled();
+  expect(screen.getByText("Off for this agent")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "search_documents" }));
+  expect(JSON.parse(screen.getByLabelText("Settings state").textContent!).disabledTools).toEqual(["search_documents"]);
+});
+
+test("an open conversation shows its tools read-only", async () => {
+  stubCatalog();
+  const session = { id: "r1", status: "waiting", config: {} } as unknown as SessionDetail;
+  render(<Harness session={session} />);
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+  await screen.findByText("2 of 2 tools on");
+  expect(screen.getByRole("checkbox", { name: "ssh_run" })).toBeDisabled();
+});

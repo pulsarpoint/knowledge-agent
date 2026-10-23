@@ -116,3 +116,17 @@ def test_the_stored_graph_api_is_gone(tmp_path):
 
     for name in ('graph_sync', 'graph_memory', 'system_graph_api'):
         assert importlib.util.find_spec(f'knowledge_admin.{name}') is None
+
+
+def test_tool_catalog_lists_every_tool_by_group_then_name(tmp_path):
+    from knowledge_admin.tools.catalog import CATALOG, GROUPS
+
+    client = _client(tmp_path)
+    assert client.get('/api/tools', headers={'X-Forwarded-Groups': 'readers'}).status_code == 403
+    tools = client.get('/api/tools', headers={'X-Forwarded-Groups': 'docs-admins'}).json()['tools']
+    assert [item['name'] for item in tools] == sorted(CATALOG, key=lambda n: (GROUPS.index(CATALOG[n].group), n))
+    assert tools[0] == {
+        'name': tools[0]['name'],
+        'group': CATALOG[tools[0]['name']].group,
+        'description': CATALOG[tools[0]['name']].summary,
+    }

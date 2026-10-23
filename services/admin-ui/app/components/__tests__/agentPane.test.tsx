@@ -163,6 +163,7 @@ test("no open run: an empty conversation with the settings summary; the first me
         documents: [{ id: "doc-1" }],
       },
       expert_ids: [],
+      disabled_tools: [],
     }),
   );
   await waitFor(() => expect(live.requested.at(-1)).toBe("r1"));

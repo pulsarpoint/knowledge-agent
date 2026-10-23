@@ -4,6 +4,7 @@ import { isResourceScope, previewSession, type AgentOptions, type ChatScope, typ
 import { AGENT_KINDS } from "~/lib/resources";
 import ResourcePicker from "~/components/ResourcePicker";
 import { OWN, startInput, withScope, type AgentSettings } from "./agentSettings";
+import ToolsList from "~/features/agents/ToolsList";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -259,6 +260,18 @@ export default function AgentSettingsSheet({
                   </Field>
                 </>
               )}
+              <Field>
+                <FieldLabel>Tools</FieldLabel>
+                <ToolsList
+                  off={settings.disabledTools}
+                  locked={agent?.disabled_tools}
+                  disabled={locked}
+                  onChange={(disabledTools) => onChange({ disabledTools })}
+                />
+                <FieldDescription>
+                  Applies to the next conversation; the chat keeps the tools it started with.
+                </FieldDescription>
+              </Field>
             </CollapsibleContent>
           </Collapsible>
           {locked ? (

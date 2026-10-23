@@ -533,7 +533,7 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; under **Advanced**, **Tools** (the built-in tools grouped as Documents, Inventory, Code, Servers, Memory and Agents; untick the ones this agent must never get, **All** / **None** per group, "N of M tools on"; tools added later are on); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
@@ -774,8 +774,8 @@ pick another prompt under Advanced.
 
 **Settings** in the chat opens what the agent may use: the model, the servers and other resources (the ones linked to
 the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the document (listed under
-Resources; the agent may change it as a draft) and the experts (none unless you tick them; the run gets every tool), and under **Advanced** the
-prompt (**Revise a document** by default, any other saved prompt, or **Own prompt**). **Preview** shows exactly what the
+Resources; the agent may change it as a draft) and the experts (none unless you tick them), and under **Advanced** the
+prompt (**Revise a document** by default, any other saved prompt, or **Own prompt**) and the **Tools** (every tool is on; untick the ones this conversation must not get. A saved agent's own off tools show as *Off for this agent* and cannot be switched on). **Preview** shows exactly what the
 next message will start with, as JSON. Your choices are remembered for the document in this browser. While a
 conversation is open its settings are fixed: Settings shows them, and **Start new chat with these settings** closes it
 and lets you change them for the next one. **New chat** closes the conversation; **Earlier runs** reopens another. The

@@ -32,6 +32,8 @@ export interface AgentSettings {
   /** A saved agent's run: the documents of its access picked for it (each as the agent has it). */
   documents?: string[];
   experts: string[];
+  /** Catalog tools this run starts without (a saved agent's own off tools are added by the API). */
+  disabledTools: string[];
 }
 
 const usable = (item: { id: string; usable?: boolean }) => item.usable !== false;
@@ -56,6 +58,7 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
       chosen,
       documents: options.resources.documents.map((item) => item.id),
       experts: options.experts.map((item) => item.id),
+      disabledTools: [],
     };
   }
   const first = options.prompts.find((item) => item.id === options.default_prompt_id) ?? options.prompts[0];
@@ -68,6 +71,7 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
     systemPrompt: first ? first.content : "",
     chosen,
     experts: [],
+    disabledTools: [],
   };
 }
 
@@ -114,6 +118,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
     chosen,
     ...(options.agent ? { documents: strings(settings.documents).filter((id) => documents.has(id)) } : {}),
     experts: strings(settings.experts).filter((id) => experts.has(id)),
+    disabledTools: strings(settings.disabledTools),
   };
 }
 
@@ -130,6 +135,7 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     const present = new Set(choosable(options, key).map((item) => item.id));
     chosen[field] = given.filter((item) => `${item.type}_ids` === field && present.has(item.id)).map((item) => item.id);
   }
+  const agentOff = options.agent?.disabled_tools ?? [];
   const promptId = session.prompt_snapshot?.prompt_id ?? null;
   const modelId = options.models.some((item) => item.id === session.model_id)
     ? session.model_id
@@ -142,6 +148,8 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     // a saved agent's run starts again with all of its documents
     ...(options.agent ? { documents: options.resources.documents.map((item) => item.id) } : {}),
     experts: (config.experts ?? []).map((entry) => String(entry.id)).filter((id) => experts.has(id)),
+    // the agent's own off tools are locked in the sheet, not part of the chat's choice
+    disabledTools: (session.disabled_tools ?? []).filter((name) => !agentOff.includes(name)),
   };
 }
 
@@ -188,6 +196,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       message: message.trim(),
       context: "",
       expert_ids: settings.experts,
+      disabled_tools: settings.disabledTools,
       resources: {
         ...settings.chosen,
         documents: options.resources.documents
@@ -212,6 +221,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       context: "",
       resources: { ...settings.chosen, documents: [] },
       expert_ids: settings.experts,
+      disabled_tools: settings.disabledTools,
     };
   }
   if (scope.kind === "new-document") {
@@ -230,6 +240,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       context: "",
       resources: { ...settings.chosen, documents: [{ new: document }] },
       expert_ids: settings.experts,
+      disabled_tools: settings.disabledTools,
     };
   }
   return {
@@ -244,6 +255,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       documents: options.resources.documents.map((item) => ({ id: item.id })),
     },
     expert_ids: settings.experts,
+    disabled_tools: settings.disabledTools,
   };
 }
 

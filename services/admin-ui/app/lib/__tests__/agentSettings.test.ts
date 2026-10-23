@@ -22,6 +22,7 @@ test("defaults: the default model, the first tagged prompt, the usable linked re
     systemPrompt: options.prompts[1].content,
     chosen: { server_ids: ["s1"], service_ids: ["v1"], environment_ids: [], code_project_ids: [] },
     experts: [],
+    disabledTools: [],
   });
 });
 
@@ -85,6 +86,7 @@ test("restored settings drop what the options no longer have", () => {
     systemPrompt: "Mine.",
     chosen: { server_ids: ["s1"], service_ids: [], environment_ids: [], code_project_ids: ["c1"] },
     experts: ["e1"],
+    disabledTools: [],
   });
   // the document's links changed since: the resources start again from the links
   expect(restoreSettings(options, { ...saved, linked: ["s1"] }).chosen).toEqual(defaultSettings(options).chosen);
@@ -110,6 +112,7 @@ test("settingsFromSession rebuilds the settings a run started with", () => {
     systemPrompt: "Run prompt.",
     chosen: { server_ids: ["s1"], service_ids: [], environment_ids: [], code_project_ids: ["c1"] },
     experts: ["e1"],
+    disabledTools: [],
   });
 });
 
@@ -160,6 +163,7 @@ test("settingsFromSession leaves out what today's options no longer have or cann
     systemPrompt: "Run prompt.",
     chosen: { server_ids: ["s1"], service_ids: ["v1"], environment_ids: [], code_project_ids: [] },
     experts: ["e1"],
+    disabledTools: [],
   });
 });
 
@@ -255,6 +259,7 @@ test("a saved agent starts with its own configuration and only narrows it", () =
     message: "Check disk",
     context: "",
     expert_ids: ["e1"],
+    disabled_tools: [],
     resources: {
       server_ids: ["s1"],
       service_ids: [],
@@ -283,6 +288,7 @@ test("a saved agent defaults: its model and prompt, every resource of its access
     },
     documents: ["d1", "d2"],
     experts: ["e1"],
+    disabledTools: [],
   });
 });
 
@@ -333,6 +339,7 @@ test("a new document: the start body names it as started_from and as the one doc
       documents: [{ new: { folder: "payments", name: "Payments API" } }],
     },
     expert_ids: [],
+    disabled_tools: [],
   });
 });
 
@@ -371,4 +378,29 @@ test("the start body for a resource's new document: its resource is chosen, a se
   expect(unusable.resources.server_ids).toEqual([]);
   const service = startInput(scope("service", "v1"), options, settings, "Write it.");
   expect(service.resources.service_ids).toEqual(["v1"]);
+});
+
+test("off tools go into every kind of start request, and come back with Start new chat with these settings", () => {
+  const off = { ...defaultSettings(options), disabledTools: ["ssh_run"] };
+  expect(startInput(doc(), options, off, "x").disabled_tools).toEqual(["ssh_run"]);
+  const server = { kind: "server" as const, id: "s1", name: "web-1" };
+  expect(startInput(server, options, off, "x").disabled_tools).toEqual(["ssh_run"]);
+  const newDoc = { kind: "new-document" as const, title: "T", folder: "f" };
+  expect(startInput(newDoc, options, off, "x").disabled_tools).toEqual(["ssh_run"]);
+  const agent = { kind: "agent" as const, id: "ops", name: "Operations" };
+  const agentOff = { ...defaultSettings(agentOptions), disabledTools: ["get_document"] };
+  expect(startInput(agent, agentOptions, agentOff, "x").disabled_tools).toEqual(["get_document"]);
+  expect(startInput(doc(), options, defaultSettings(options), "x").disabled_tools).toEqual([]);
+  // restored from this browser, and from an open chat
+  const saved = { v: 2, linked: ["s1", "v1"], settings: { ...off, disabledTools: ["ssh_run", 7] } };
+  expect(restoreSettings(options, saved).disabledTools).toEqual(["ssh_run"]);
+  const session = {
+    model_id: "m1",
+    config: {},
+    disabled_tools: ["ssh_run", "get_document"],
+  } as unknown as SessionDetail;
+  expect(settingsFromSession(options, session).disabledTools).toEqual(["ssh_run", "get_document"]);
+  // a saved agent's own off tools are locked in the sheet, not carried as the chat's choice
+  const withOff = { ...agentOptions, agent: { ...agentOptions.agent!, disabled_tools: ["get_document"] } };
+  expect(settingsFromSession(withOff, session).disabledTools).toEqual(["ssh_run"]);
 });

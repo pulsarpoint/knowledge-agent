@@ -69,9 +69,8 @@ def test_the_table_and_the_column_are_gone_and_come_back_empty_on_down(store):
         assert table(conn) is None and 'needs' not in columns(conn, 'tools')
 
 
-def test_the_tools_endpoints_are_gone(store, saved_agent):
+def test_the_per_agent_tools_endpoints_are_gone(store, saved_agent):
     client = saved_agent[0]
-    assert client.get('/api/tools', headers=HEADERS).status_code == 404
     assert client.get('/api/agents/operations/tools', headers=HEADERS).status_code == 404
     saved = client.put(
         '/api/agents/operations/tools', headers=HEADERS, json={'expected_revision': 1, 'tools': []}

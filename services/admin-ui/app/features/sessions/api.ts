@@ -108,6 +108,8 @@ export interface Wakeup {
   created_at: string;
 }
 export interface SessionDetail extends SessionSummary {
+  /** The catalog tools the run started without. */
+  disabled_tools?: string[];
   /** Runs started by a Jira event: the ticket and the other runs on it, newest first. */
   ticket_key?: string;
   related_runs?: RelatedRun[];
@@ -301,6 +303,8 @@ export interface AgentOptions {
     revision: number;
     model: { id: string; name: string } | null;
     system_prompt: string;
+    /** Catalog tools off in every run of this agent (a chat cannot switch them on). */
+    disabled_tools?: string[];
   };
   models: { id: string; name: string }[];
   default_model_id: string | null;
@@ -347,6 +351,8 @@ export interface StartInput {
     documents: ({ id: string } | { new: NewDocument })[];
   };
   expert_ids: string[];
+  /** Catalog tools this run never offers (more than the saved agent's own). */
+  disabled_tools: string[];
 }
 export type RunSummary = SessionSummary & {
   started_by: string | null;

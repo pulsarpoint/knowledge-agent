@@ -272,3 +272,34 @@ test("All agents shows how many resources of each type an agent has", async () =
     ),
   ).toBeVisible();
 });
+
+test("General has Tools under Advanced and saves the tools switched off", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/tools"
+        ? Response.json({
+            tools: [
+              { name: "search_documents", group: "documents", description: "Search the documents." },
+              { name: "ssh_run", group: "servers", description: "Run a command over SSH." },
+            ],
+          })
+        : Response.json({ is_admin: true }),
+    ),
+  );
+  vi.mocked(profiles.getAgent).mockResolvedValue({ ...structuredClone(writer), disabled_tools: ["ssh_run"] });
+  open("/agents/writer");
+  await screen.findByRole("textbox", { name: "Name" });
+  expect(screen.queryByRole("checkbox", { name: "ssh_run" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Advanced" }));
+  expect(await screen.findByText("1 of 2 tools on")).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "ssh_run" })).not.toBeChecked();
+  await user.click(screen.getByRole("checkbox", { name: "search_documents" }));
+  await user.click(screen.getByRole("button", { name: "Save details" }));
+  await waitFor(() =>
+    expect(profiles.saveAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ disabled_tools: ["ssh_run", "search_documents"] }),
+    ),
+  );
+});
