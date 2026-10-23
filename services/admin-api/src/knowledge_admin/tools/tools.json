@@ -102,40 +102,52 @@
     "summary": "The connections of a service or a deployment."
   },
   {
+    "name": "save_environment",
+    "group": "inventory",
+    "label": "Save environment",
+    "summary": "Draft an environment, or update a draft environment."
+  },
+  {
     "name": "save_server",
     "group": "inventory",
     "label": "Save server",
-    "summary": "Create or update a server, optionally putting it in an environment (inventory editor)."
+    "summary": "Draft a server, or update a draft server; optionally put it in an environment."
   },
   {
     "name": "save_service",
     "group": "inventory",
     "label": "Save service",
-    "summary": "Create or update a service (inventory editor)."
+    "summary": "Draft a service, or update a draft service."
   },
   {
     "name": "save_deployment",
     "group": "inventory",
     "label": "Save deployment",
-    "summary": "Create or update a deployment (inventory editor)."
+    "summary": "Draft a deployment, or update a draft deployment."
   },
   {
     "name": "save_connection",
     "group": "inventory",
     "label": "Save connection",
-    "summary": "Create or update a connection to a deployment, an external service or a host (inventory editor)."
+    "summary": "Draft a connection to a deployment, an external service or a host, or update a draft connection."
   },
   {
     "name": "save_relation",
     "group": "inventory",
     "label": "Save relation",
-    "summary": "Create or update a service relation (inventory editor)."
+    "summary": "Draft a service relation, or update a draft relation."
   },
   {
     "name": "remove_inventory_item",
     "group": "inventory",
     "label": "Remove inventory item",
-    "summary": "Remove a server, service, deployment, connection or relation (inventory editor)."
+    "summary": "Remove a draft environment, server, service, deployment, connection or relation."
+  },
+  {
+    "name": "save_inventory_draft",
+    "group": "inventory",
+    "label": "Save inventory draft",
+    "summary": "Draft an environment, servers, services, deployments, connections and relations in one call, by name."
   },
   {
     "name": "get_document",

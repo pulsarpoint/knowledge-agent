@@ -23,11 +23,9 @@ export interface AccessEntry {
 }
 export interface AgentAccess {
   resources: AccessEntry[];
-  roles: { content_editor: boolean; inventory_editor?: boolean }; // a missing role is off
+  roles: { content_editor: boolean }; // a missing role is off
 }
 export const CONTENT_EDITOR_HELP = "Lets this agent propose services and documents and edit editable documents.";
-export const INVENTORY_EDITOR_HELP =
-  "Lets this agent add and change servers, services, deployments, connections and relations.";
 export const EXPERT_HELP = "Other agents can call this agent as a tool. Its When to use text tells them when.";
 /** "1 server · 2 documents", or "No resources". */
 export function countsSummary(counts: Partial<Record<AccessType, number>>): string {
@@ -100,10 +98,7 @@ export const saveAgent = (value: AgentProfile) => {
           .map(({ type, id, editable }) =>
             type === "document" ? { type, id, editable: Boolean(editable) } : { type, id },
           ),
-        roles: {
-          content_editor: access.roles.content_editor,
-          inventory_editor: Boolean(access.roles.inventory_editor),
-        },
+        roles: { content_editor: access.roles.content_editor },
       },
       ...(expert !== undefined ? { expert } : {}),
       ...(model_id !== undefined ? { model_id } : {}),

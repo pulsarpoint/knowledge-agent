@@ -66,13 +66,13 @@ def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]
 def subagent_access(parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
     """The parent's access narrowed (access.narrow, never widened) to what the subagent is given: the given resources
     (None: all of the parent's but its documents and skills, which a subagent never gets) and the parent's MCP servers;
-    content editor and inventory editor off (a subagent never changes content or the inventory)."""
+    content editor off (a subagent never changes content; it has no inventory write tools either)."""
     if resources is None:
         picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
     else:
         picked = picks(resources)
     picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server']
-    return access_rules.narrow(dict(parent), picked, ['content_editor', 'inventory_editor'])
+    return access_rules.narrow(dict(parent), picked, ['content_editor'])
 
 
 def referenced_credentials(config: Mapping[str, Any], credentials: Mapping[str, str]) -> dict[str, str]:

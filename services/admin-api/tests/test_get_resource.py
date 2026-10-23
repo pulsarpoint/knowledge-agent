@@ -82,9 +82,12 @@ def test_a_server_has_its_fields_environments_services_and_documents(world):
         'id': str(world.environment),
         'name': 'Production',
         'relation': 'in_environment',
+        'status': 'confirmed',  # the membership's
     }
+    assert found['status'] == 'confirmed'
     service = link(found, 'service')
     assert (service['id'], service['name'], service['relation']) == (str(world.nginx), 'nginx', 'runs')
+    assert service['status'] == 'confirmed'  # the deployment's
     assert (service['environment'], service['runtime'], service['port']) == ('Production', 'systemd', 80)
     document, child = found['documents']
     assert set(document) == {'id', 'title', 'tags', 'description_short', 'connection', 'resource'}

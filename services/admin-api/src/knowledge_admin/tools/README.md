@@ -46,12 +46,19 @@ session turn (`catalog.WAKEUPS`): not in a subagent's run, an expert's call (`co
 `experts.load`) or an internal call.
 
 The inventory tools (`capabilities/inventory_tools.py`; group `inventory`): reads `get_environment_model`,
-`list_servers`, `list_deployments`, `list_connections`, offered in every run; writes `save_server`, `save_service`,
-`save_deployment`, `save_connection`, `save_relation`, `remove_inventory_item` through `inventory/store.py`, offered only
-in a session turn (`catalog.INVENTORY_WRITES`, withheld like the wake-ups; subagents and experts have the role off
-too) and allowed only with the role `inventory_editor` for items in the run's access or created by the session
-(`store.created_in_session`); a write on an existing deployment, or a connection from it, needs its environment, server
-and service all usable.
+`list_servers`, `list_deployments`, `list_connections`, offered in every run (every entry with its `status`, draft or
+confirmed); writes `save_environment`, `save_server`, `save_service`, `save_deployment`, `save_connection`,
+`save_relation`, `remove_inventory_item` and `save_inventory_draft` through `inventory/store.py`, offered only in a
+session turn (`catalog.INVENTORY_WRITES`, withheld like the wake-ups) and allowed, without any role, for items in the
+run's access or created by the session (`store.created_in_session`); a write on an existing deployment, or a connection
+from it, needs its environment, server and service all usable. Every write is a draft (`status='draft'`): a new entry is
+created as one, a draft is updated, a confirmed entry is refused (`This <type> is confirmed; only a person can change
+it. ...`); only a person confirms or discards. `save_inventory_draft` takes a whole picture by name (environment,
+servers, services, deployments, connections, relations): the pure `resolve_draft(payload, recorded)` plans it over the
+rows the run may name (a confirmed entry is used, never changed; a draft is updated; the rest created) and
+`apply_draft` writes the plan in one transaction, all or nothing, errors as `<part>[<index>]: <reason>`. The usage
+texts state each tool's purpose, the draft rule, every field's format and allowed values, and an example; the argument
+schemas' field descriptions say the same per field.
 
 `load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
 name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this

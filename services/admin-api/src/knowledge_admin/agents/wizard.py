@@ -199,7 +199,7 @@ def build_api(app_name, store):
             },
             'grounded': False,
             # every config that runs tools has one
-            'access': {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}},
+            'access': {'resources': [], 'roles': {'content_editor': False}},
         }
         schema = AgentProposal.model_json_schema()
         # The designer chooses the agent's model only among models that fit an agent.
@@ -226,11 +226,6 @@ def build_api(app_name, store):
                             m['id'] == proposal.model_id for m in offered['models']
                         ):
                             proposal = proposal.model_copy(update={'model_id': None})  # the administrator picks one
-                        # the person switches the inventory editor role on in the agent's settings, never the model
-                        roles = proposal.access.roles.model_copy(update={'inventory_editor': False})
-                        proposal = proposal.model_copy(
-                            update={'access': proposal.access.model_copy(update={'roles': roles})}
-                        )
                         return {'proposal': proposal}
                     except (ModelBehaviorError, ValidationError, HTTPException) as exc:
                         if attempt == 1:

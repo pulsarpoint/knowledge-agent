@@ -41,14 +41,14 @@ test("Save sends the access object as references and drops missing ones", async 
       { type: "document", id: "d1", editable: true },
       { type: "document", id: "d2", editable: false },
     ],
-    roles: { content_editor: true, inventory_editor: false }, // a missing role is sent off
+    roles: { content_editor: true },
   });
   expect(body.instructions).toBe("Notes");
   for (const gone of ["skill_ids", "collection_ids", "all_collections", "documents_enabled", "resources", "subagents"])
     expect(body).not.toHaveProperty(gone);
 });
 
-test("Save sends the Inventory editor role", async () => {
+test("Save sends only the content editor role", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => Response.json(lead)),
@@ -59,7 +59,7 @@ test("Save sends the Inventory editor role", async () => {
     model_id: null,
     system_prompt: "p",
     instructions: "",
-    access: { resources: [], roles: { content_editor: false, inventory_editor: true } },
+    access: { resources: [], roles: { content_editor: false } },
   });
-  expect(sent().access.roles).toEqual({ content_editor: false, inventory_editor: true });
+  expect(sent().access.roles).toEqual({ content_editor: false });
 });

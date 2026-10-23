@@ -1,6 +1,6 @@
 """capabilities/inventory_tools.py: agent tools that read and change the inventory. Reads need the item in the run's
-access; writes need the inventory editor role and the target in the access or created by this session. Writes go
-through inventory/store.py with the session's person, agent and session."""
+access; writes need the target in the access or created by this session (no role), create and update drafts only and
+refuse a confirmed entry. Writes go through inventory/store.py with the session's person, agent and session."""
 
 import asyncio
 import json
@@ -18,17 +18,32 @@ from test_api import _client
 from test_repositories import HEADERS
 from test_tool_catalog import config as run_config
 
-OFF = 'This agent may not change the inventory (inventory editor is off).'
 READS = ['get_environment_model', 'list_servers', 'list_deployments', 'list_connections']
-WRITES = ['save_server', 'save_service', 'save_deployment', 'save_connection', 'save_relation', 'remove_inventory_item']
+WRITES = [
+    'save_environment',
+    'save_server',
+    'save_service',
+    'save_deployment',
+    'save_connection',
+    'save_relation',
+    'remove_inventory_item',
+    'save_inventory_draft',
+]
+
+
+def confirmed(kind: str) -> str:
+    return (
+        f'This {kind} is confirmed; only a person can change it. Add a new draft instead, or describe the change in '
+        'your answer.'
+    )
 
 
 def entry(type_: str, id_, source: str = 'given') -> dict:
     return {'type': type_, 'id': str(id_), 'name': type_, 'description_short': '', 'source': source}
 
 
-def access(*entries: dict, editor: bool = True) -> dict:
-    return {'resources': list(entries), 'roles': {'content_editor': False, 'inventory_editor': editor}}
+def access(*entries: dict) -> dict:
+    return {'resources': list(entries), 'roles': {'content_editor': False}}
 
 
 def call(config: dict, tool: str, /, **arguments) -> dict:
@@ -94,7 +109,7 @@ def i(item) -> str:
 
 
 def test_reads_need_the_item_in_the_runs_access():
-    a = access(entry('environment', 'e1'), entry('server', 's1'), entry('service', 'v1'), editor=False)
+    a = access(entry('environment', 'e1'), entry('server', 's1'), entry('service', 'v1'))
     assert tools.check_get_environment_model(a, environment_id='e1') is None
     assert tools.check_get_environment_model(a, environment_id='e9') == 'This environment is not available in this run.'
     assert tools.check_list_servers(a, environment_id='e9') == 'This environment is not available in this run.'
@@ -112,16 +127,18 @@ def test_reads_need_the_item_in_the_runs_access():
     assert tools.check_list_connections(a, deployment_id='p2') == 'This deployment is not available in this run.'
 
 
-def test_writes_need_the_role_then_the_target_in_access_or_created_by_this_session():
+def test_writes_need_the_target_in_access_or_created_by_this_session_and_no_role():
     a = access(entry('environment', 'e1'), entry('server', 's1'), entry('service', 'v1'))
-    off = {**a, 'roles': {'inventory_editor': False}}
-    assert tools.check_save_server(off, name='x', hostname='x') == OFF
-    assert tools.check_remove_inventory_item(off, kind='server', id='s1') == OFF
-    # a new server or service: the role and an environment in the access
+    # a new environment, server or service: an environment in the access
     assert tools.check_save_server(a, name='x', hostname='x') is None
     assert tools.check_save_service(a, name='x') is None
+    assert tools.check_save_environment(a, name='x') is None
     no_environment = access(entry('server', 's1'))
     assert tools.check_save_server(no_environment, name='x', hostname='x') == 'This run has no environments.'
+    assert tools.check_save_environment(no_environment, name='x') == 'This run has no environments.'
+    assert tools.check_save_environment(a, id='e9', description='x') == 'This environment is not available in this run.'
+    assert tools.check_save_environment(a, id='e9', description='x', created={('environment', 'e9')}) is None
+    assert tools.check_save_inventory_draft(no_environment) is None  # the names are resolved over the rows
     # an environment to put the server in: in the access, or created by this session
     assert tools.check_save_server(a, name='x', hostname='x', environment_id='e1') is None
     assert tools.check_save_server(a, id='s1', environment_id='e9') == 'This environment is not available in this run.'
@@ -176,6 +193,33 @@ def test_writes_need_the_role_then_the_target_in_access_or_created_by_this_sessi
     )
 
 
+def test_a_confirmed_entry_is_refused_and_a_draft_is_changed():
+    a = access(entry('environment', 'e1'), entry('server', 's1'), entry('service', 'v1'))
+    rows = {
+        ('server', 's1'): {'status': 'confirmed'},
+        ('service', 'v1'): {'status': 'draft'},
+        ('environment', 'e1'): {'status': 'confirmed'},
+        ('deployment', 'p1'): {'server_id': 's1', 'service_id': 'v1', 'environment_id': 'e1', 'status': 'confirmed'},
+        ('connection', 'n1'): {'from_deployment_id': 'p1', 'status': 'draft'},
+        ('relation', 'r1'): {'from_service_id': 'v1', 'status': 'confirmed'},
+    }
+    assert tools.check_save_server(a, id='s1', description='x', rows=rows) == confirmed('server')
+    assert tools.check_save_server(a, id='s1', environment_id='e1', rows=rows) is None  # joining: a draft membership
+    assert tools.check_save_service(a, id='v1', owner='ops', rows=rows) is None
+    assert tools.check_save_environment(a, id='e1', description='x', rows=rows) == confirmed('environment')
+    assert tools.check_save_deployment(a, id='p1', port=1, rows=rows) == confirmed('deployment')
+    assert tools.check_save_connection(a, id='n1', port=1, rows=rows) is None
+    assert tools.check_save_relation(a, id='r1', description='x', rows=rows) == confirmed('relation')
+    for kind, item_id in [('server', 's1'), ('environment', 'e1'), ('deployment', 'p1'), ('relation', 'r1')]:
+        assert tools.check_remove_inventory_item(a, kind=kind, id=item_id, rows=rows) == confirmed(kind)
+    assert tools.check_remove_inventory_item(a, kind='service', id='v1', rows=rows) is None
+    assert tools.check_remove_inventory_item(a, kind='connection', id='n1', rows=rows) is None
+    # outside the access the refusal says so first
+    assert tools.check_save_server(a, id='s9', description='x', rows={('server', 's9'): {'status': 'confirmed'}}) == (
+        'This server is not available in this run.'
+    )
+
+
 def test_subagents_and_experts_get_the_reads_but_not_the_writes():
     parent = run_config()
     parent['session_id'] = 'abc'
@@ -217,14 +261,36 @@ def test_the_reads_answer_in_access_and_refuse_outside(world):
     }
 
 
-def test_a_run_without_the_role_reads_but_never_writes(world):
-    c = cfg(world, access={**world['access'], 'roles': {'inventory_editor': False}})
-    assert call(c, 'list_servers', environment_id=i(world['prod']))['servers']
-    assert call(c, 'save_server', name='new', hostname='new.internal') == {'refused': OFF}
-    assert call(c, 'save_service', id=i(world['api']), revision=1, owner='x') == {'refused': OFF}
-    assert call(c, 'remove_inventory_item', kind='deployment', id=i(world['api_a']), revision=1) == {'refused': OFF}
+def test_any_run_writes_drafts_and_never_changes_a_confirmed_entry(world):
+    c = cfg(world, access={**world['access'], 'roles': {'content_editor': False}})
+    server = call(c, 'save_server', name='new', hostname='new.internal')  # an old access object's role is ignored
+    assert (server['name'], server['status']) == ('new', 'draft')
+    assert call(c, 'save_service', id=i(world['api']), revision=1, owner='x') == {'refused': confirmed('service')}
+    assert call(c, 'remove_inventory_item', kind='deployment', id=i(world['api_a']), revision=1) == {
+        'refused': confirmed('deployment')
+    }
+    assert call(c, 'save_environment', id=i(world['prod']), revision=1, description='x') == {
+        'refused': confirmed('environment')
+    }
     with world['store'].connect() as conn:
-        assert conn.execute("SELECT count(*) AS n FROM ka.servers WHERE name='new'").fetchone()['n'] == 0
+        api = inventory_store.get(conn, world['project'], 'service', world['api']['id'])
+        assert (api['owner'], api['revision']) == ('', 1)
+        assert inventory_store.get(conn, world['project'], 'deployment', world['api_a']['id'])['revision'] == 1
+
+
+def test_an_environment_is_drafted_updated_and_removed(world):
+    c = world['config']
+    staging = call(c, 'save_environment', name='dr', description='Disaster recovery')
+    assert (staging['name'], staging['status'], staging['revision']) == ('dr', 'draft', 1)
+    updated = call(c, 'save_environment', id=staging['id'], revision=1, description='DR site')
+    assert (updated['description'], updated['status'], updated['revision']) == ('DR site', 'draft', 2)
+    server = call(c, 'save_server', id=i(world['a']), revision=1, environment_id=staging['id'])  # created here: usable
+    assert staging['id'] in server['environment_ids']
+    with world['store'].connect() as conn:
+        memberships = conn.execute(
+            'SELECT status FROM ka.environment_servers WHERE environment_id=%s', (staging['id'],)
+        ).fetchall()
+    assert [m['status'] for m in memberships] == ['draft']
 
 
 def test_writes_need_a_session(world):
@@ -239,6 +305,7 @@ def test_create_a_server_deploy_on_it_and_connect_it_in_one_run(world):
     c = world['config']
     server = call(c, 'save_server', name='cache-1', hostname='cache-1.internal', tags=['cache'])
     assert server['name'] == 'cache-1' and server['revision'] == 1 and 'ssh_username' not in server
+    assert server['status'] == 'draft'
     service = call(c, 'save_service', name='redis', service_role='cache')
     deployment = call(
         c,
@@ -248,19 +315,26 @@ def test_create_a_server_deploy_on_it_and_connect_it_in_one_run(world):
         environment_id=i(world['prod']),
         port=6379,
     )
-    assert deployment['port'] == 6379
+    assert (deployment['port'], deployment['status'], service['status']) == (6379, 'draft', 'draft')
     connection = call(c, 'save_connection', from_deployment_id=i(world['api_a']), to_deployment_id=deployment['id'])
-    assert connection['port'] == 6379  # the target's port
+    assert (connection['port'], connection['status']) == (6379, 'draft')  # the target's port
     out = call(c, 'save_connection', from_deployment_id=deployment['id'], to_host='backup.example', port=873)
     assert out['to_host'] == 'backup.example'
     relation = call(c, 'save_relation', from_service_id=i(world['api']), kind='depends_on', to_service_id=service['id'])
-    assert relation['kind'] == 'depends_on'
+    assert (relation['kind'], relation['status']) == ('depends_on', 'draft')
     # the created server changes again within the run, with its revision
     updated = call(c, 'save_server', id=server['id'], revision=1, description='Redis host')
     assert (updated['description'], updated['revision'], updated['hostname']) == ('Redis host', 2, 'cache-1.internal')
-    # the model shows it
+    assert updated['status'] == 'draft'  # updating a draft keeps it a draft
+    # the model shows it, with its status
     model = call(c, 'get_environment_model', environment_id=i(world['prod']))
-    assert 'cache-1' in [s['name'] for s in model['servers']]
+    assert {s['name']: s['status'] for s in model['servers']} == {
+        'a': 'confirmed',
+        'b': 'confirmed',
+        'cache-1': 'draft',
+    }
+    listed = call(c, 'list_deployments', server_id=server['id'])['deployments']
+    assert [d['status'] for d in listed] == ['draft']
     assert model['external'] == [{'host': 'backup.example', 'ports': [873]}]
     # removing what this run created
     assert call(c, 'remove_inventory_item', kind='connection', id=out['id'], revision=1) == {'removed': out['id']}
@@ -296,14 +370,15 @@ def test_writes_outside_the_access_are_refused(world):
     ) == {'refused': 'This service is not available in this run.'}
 
 
-def test_in_access_items_change_and_store_errors_become_refusals(world):
+def test_drafts_change_and_store_errors_become_refusals(world):
     c = world['config']
-    updated = call(c, 'save_service', id=i(world['api']), revision=1, owner='payments team')
-    assert (updated['owner'], updated['revision']) == ('payments team', 2)
-    assert call(c, 'save_service', id=i(world['api']), revision=1, owner='x')['refused'].startswith(
+    draft = call(c, 'save_service', name='queue')
+    updated = call(c, 'save_service', id=draft['id'], revision=1, owner='payments team')
+    assert (updated['owner'], updated['revision'], updated['status']) == ('payments team', 2, 'draft')
+    assert call(c, 'save_service', id=draft['id'], revision=1, owner='x')['refused'].startswith(
         'This service changed since you read it (now revision 2)'
     )
-    assert call(c, 'save_service', id=i(world['api']), owner='x') == {
+    assert call(c, 'save_service', id=draft['id'], owner='x') == {
         'refused': 'revision is required: the revision you read'
     }
     assert call(c, 'save_server', name='a', hostname='a2.internal') == {
@@ -312,11 +387,13 @@ def test_in_access_items_change_and_store_errors_become_refusals(world):
     assert call(c, 'save_server', name='x', hostname='http://x') == {
         'refused': 'Enter an IP address or hostname without a URL, port, or credentials'
     }
-    assert call(c, 'remove_inventory_item', kind='server', id=i(world['a']), revision=1) == {
+    host = call(c, 'save_server', name='host', hostname='host.internal')
+    on_it = call(c, 'save_deployment', service_id=draft['id'], server_id=host['id'], environment_id=i(world['prod']))
+    assert call(c, 'remove_inventory_item', kind='server', id=host['id'], revision=1) == {
         'refused': 'This server is used by 1 deployment(s). Remove those deployments first'
     }
-    removed = call(c, 'remove_inventory_item', kind='deployment', id=i(world['api_a']), revision=1)
-    assert removed == {'removed': i(world['api_a'])}
+    removed = call(c, 'remove_inventory_item', kind='deployment', id=on_it['id'], revision=1)
+    assert removed == {'removed': on_it['id']}
 
 
 def test_tool_writes_are_audited_with_the_person_agent_and_session(world):
@@ -346,7 +423,8 @@ def test_the_api_and_the_tools_write_identical_rows(world, tmp_path):
     service = {'name': 'redis', 'service_role': 'cache', 'owner': 'ops'}
     api_service = client.post('/api/services', headers=HEADERS, json=service).json()
     tool_service = call(world['config'], 'save_service', **{**service, 'name': 'redis-2'})
-    skip = {'id', 'name', 'created_at', 'updated_at', 'created_by'}
+    skip = {'id', 'name', 'created_at', 'updated_at', 'created_by', 'status'}  # the tool's is a draft
+    assert (by_tool['status'], tool_service['status'], by_api.json()['status']) == ('draft', 'draft', 'confirmed')
     with world['store'].connect() as conn:
         rows = {
             r['id']: {k: v for k, v in r.items() if k not in skip}
@@ -432,7 +510,9 @@ def test_an_editor_given_staging_cannot_change_the_prod_deployment_of_a_service_
 
 def test_update_a_deployment_and_a_connection_and_relate_part_of(world):
     c = world['config']
-    deployment = call(c, 'save_deployment', id=i(world['api_a']), revision=1, port=9090, deployed_version='1.2')
+    ends = {'service_id': i(world['api']), 'server_id': i(world['b']), 'environment_id': i(world['prod'])}
+    draft = call(c, 'save_deployment', **ends, port=8080)
+    deployment = call(c, 'save_deployment', id=draft['id'], revision=1, port=9090, deployed_version='1.2')
     assert (deployment['port'], deployment['deployed_version'], deployment['revision']) == (9090, '1.2', 2)
     link = call(c, 'save_connection', from_deployment_id=i(world['api_a']), to_deployment_id=i(world['db_b']))
     assert link['port'] == 5432
@@ -458,7 +538,17 @@ def test_the_api_and_the_tools_write_identical_deployments_and_connections(world
     api_link = client.post('/api/connections', headers=HEADERS, json={**link, 'to_host': 'pay.example'})
     assert api_link.status_code == 201, api_link.text
     tool_link = call(world['config'], 'save_connection', **link, to_host='pay2.example')
-    skip = {'id', 'created_at', 'updated_at', 'created_by', 'created_by_agent', 'session_id', 'runtime_name', 'to_host'}
+    skip = {
+        'id',
+        'created_at',
+        'updated_at',
+        'created_by',
+        'created_by_agent',
+        'session_id',
+        'runtime_name',
+        'to_host',
+        'status',
+    }
     with world['store'].connect() as conn:
         for table, pair in [
             ('service_deployments', (by_api.json(), by_tool)),
@@ -489,7 +579,7 @@ def test_a_server_is_put_in_an_environment_and_listed_with_its_environments(worl
     own = call(c, 'save_server', id=i(world['a']), revision=1, environment_id=i(world['prod']))
     assert own['environment_ids'] == [i(world['prod'])]
     assert own['revision'] == 1  # only the membership was added: the server row is not updated
-    assert call(c, 'save_server', id=i(world['a']), revision=1, description='x')['revision'] == 2
+    assert call(c, 'save_server', id=i(world['a']), revision=1, description='x') == {'refused': confirmed('server')}
     refused = {'refused': 'This environment is not available in this run.'}
     assert call(c, 'save_server', name='x', hostname='x', environment_id=i(world['staging'])) == refused
     assert call(c, 'save_server', id=server['id'], revision=1, environment_id=i(world['staging'])) == refused

@@ -253,7 +253,7 @@ export interface AccessResource {
 /** A run's access object: the resources it may use and its roles (fixed at start). */
 export interface RunAccess {
   resources: AccessResource[];
-  roles: { content_editor: boolean; inventory_editor?: boolean }; // an older run has no inventory_editor: off
+  roles: { content_editor: boolean };
 }
 /** What a run's model receives (its Debug tab): the assembled instructions, where the prompt came from, the tools as the
  * model sees them, and what the run may use (its access object). Secrets are redacted. */

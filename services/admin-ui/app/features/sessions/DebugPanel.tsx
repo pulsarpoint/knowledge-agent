@@ -183,7 +183,6 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
       </Section>
       <Section title="Roles">
         <p className="text-sm">Content editor: {view.access.roles.content_editor ? "on" : "off"}</p>
-        <p className="text-sm">Inventory editor: {view.access.roles.inventory_editor ? "on" : "off"}</p>
       </Section>
       <Section title="Model">
         <p className="text-sm">{view.model?.name ?? "No model"}</p>

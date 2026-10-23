@@ -213,8 +213,8 @@ or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin.
 failed: <reason>` (redacted) and the caller goes on.
 
 A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with its own
-access object narrowed to the given resources (a content editor only when its agent and the calling run both are, never
-an inventory editor), no conversation, and no expert tools (an expert cannot call experts). It has
+access object narrowed to the given resources (a content editor only when its agent and the calling run both are; no
+inventory write tools), no conversation, and no expert tools (an expert cannot call experts). It has
 `run_subagent` like every run: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
 16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
 experts) helpers at once. The call loads its own credentials (the expert's model key and the keys of the resources it
@@ -251,30 +251,91 @@ due_at, message, created_at}]`, and the detail's `inputs` and `queued` count peo
 
 **Inventory tools (`capabilities/inventory_tools.py`).** Reads: `get_environment_model(environment_id)` (the environment
 model of `GET /api/environments/{id}/model`: member servers (also those with no deployment) with their deployments,
-services, connections, external services, external hosts, relations; every item with its id and revision),
+services, connections, external services, external hosts, relations; every item with its id, revision and status),
 `list_servers(environment_id)` (the member servers; each with its `environment_ids`), `list_deployments(server_id |
-service_id)` and `list_connections(service_id | deployment_id)` (give one; lists stop at 100 with `truncated`). Writes:
-`save_server`, `save_service`, `save_deployment`, `save_connection`, `save_relation` (without `id` they create; with
-`id` and the `revision` read they update, and omitted fields keep their values) and `remove_inventory_item(kind, id,
-revision)`. `save_server(environment_id)` puts the server (new or existing) in that environment, which must be in the
-run's access or created by the session (a membership is never removed by an agent); `save_service(address)` sets where
-an external service is reached; `save_connection(to_service_id)` connects to an external service, which must be in the
-access or created by the session (a custom service gives the store's refusal). They call `inventory/store.py`, the one
-write path the inventory pages use, so the rows are the same; the audit row carries the session's starting person, the
-agent and the session. Replies are JSON; a refusal is `{"refused": text}` and a store error's message is the refusal (a
-stale revision, a duplicate name, a server still used by deployments). A server's SSH settings are not part of the
-tools: a server reply has the model's fields only. Access (pure `check_<tool>`): an item is usable when it is in the
-run's access object (children included) or this session created it (`store.created_in_session`, read from the audit); a
-deployment when its server, service or environment is usable — for a write (update, remove, or a connection from it) all
-three, as for a new deployment, so a service held through one environment does not open its deployments elsewhere; a
-connection when its from-deployment is; a relation when its from-service is. Reads need the item usable. Writes need the
-role `inventory_editor` (`This agent may not change the inventory (inventory editor is off).`), a session (`Inventory
-changes need a session.`) and every item they name usable (`This <type> is not available in this run.`: a deployment
-names its environment, server and service; a connection its deployments; a relation its services or code project); a new
-server or service needs only an environment in the access (`This run has no environments.`). So an agent can add a
-server, deploy a service on it and connect it in one run, and cannot touch what is outside its access unless it created
-it. The read tools are offered in every run; the write tools only in a session turn (`catalog.INVENTORY_WRITES`): never
-to a subagent or an expert, whose role is off too (an expert is never an inventory editor).
+service_id)` and `list_connections(service_id | deployment_id)` (give one; lists stop at 100 with `truncated`);
+`get_resource` carries the status too (of the resource, and of the deployment, membership, relation or connection behind
+each link). Every entry read has `status`: `draft` (an agent's, waiting for a person) or `confirmed`, so an agent sees
+drafts (its own and others') and does not repeat them.
+
+**Every agent write is a draft.** Writes: `save_environment`, `save_server`, `save_service`, `save_deployment`,
+`save_connection`, `save_relation` (without `id` they create a draft; with `id` and the `revision` read they update a
+draft, which stays a draft, and omitted fields keep their values), `remove_inventory_item(kind, id, revision)` (a draft
+environment, server, service, deployment, connection or relation) and `save_inventory_draft` (below). An existing
+confirmed entry is refused: `This <type> is confirmed; only a person can change it. Add a new draft instead, or describe
+the change in your answer.` Only a person confirms or discards a draft (the environment workspace; `POST
+/api/inventory/{kind}/{id}/confirm` and `/discard`). `save_server(environment_id)` puts the server (new or existing,
+confirmed too) in that environment as a draft membership; the environment must be in the run's access or created by the
+session (a membership is never removed by an agent); a draft deployment adds a draft membership when its server is not
+a member yet. `save_service(address)` sets where an external service is reached; `save_connection(to_service_id)`
+connects to an external service, which must be in the access or created by the session (a custom service gives the
+store's refusal). They call `inventory/store.py` with `status='draft'`, the one write path the inventory pages use; the
+audit row carries the session's starting person, the agent and the session. Replies are JSON; a refusal is
+`{"refused": text}` and a store error's message is the refusal (a stale revision, a duplicate name, a server still used
+by deployments). A server's SSH settings are not part of the tools: a server reply has the model's fields only.
+
+**`save_inventory_draft`** drafts a whole picture in one call; entries refer to each other by name, every part is
+optional:
+
+```json
+{
+  "environment": "prod",
+  "servers": [{"name": "app-1", "hostname": "10.0.0.5", "description": "Docker host"}],
+  "services": [
+    {"name": "clickhouse", "service_type": "builtin", "service_role": "database", "description": "Analytics store"},
+    {"name": "clickhouse-backup", "service_type": "builtin", "service_role": "worker", "part_of": ["clickhouse"]},
+    {"name": "backblaze-b2", "service_type": "external", "address": "s3.us-east-005.backblazeb2.com"}
+  ],
+  "deployments": [
+    {"service": "clickhouse", "server": "app-1", "runtime": "docker compose", "runtime_name": "clickhouse",
+     "port": 9000, "version": "clickhouse/clickhouse-server:24.8"},
+    {"service": "clickhouse-backup", "server": "app-1", "runtime": "docker compose",
+     "runtime_name": "clickhouse-backup", "version": "altinity/clickhouse-backup:2.7.4"}
+  ],
+  "connections": [
+    {"from": "clickhouse-backup", "from_server": "app-1", "to": "clickhouse", "to_server": "app-1",
+     "port": 9000, "protocol": "tcp"},
+    {"from": "clickhouse-backup", "to": "backblaze-b2", "port": 443, "protocol": "https"},
+    {"from": "clickhouse", "to_host": "smtp.example.com", "port": 25, "protocol": "smtp"}
+  ],
+  "relations": [{"from": "clickhouse-backup", "kind": "depends_on", "to": "clickhouse"}]
+}
+```
+
+Names are matched without case: an entry in the same call first, then a recorded entry (confirmed or draft) the run
+may name (in its access or created by the session). A recorded confirmed entry named here is used as an end, never
+changed (the fields given for it are ignored); a recorded draft is updated with the fields given; anything else is
+created as a draft. `environment` names an existing environment or drafts a new one; every server listed joins it, and
+deployments and connections are in it. A deployment is matched by service, server, environment and `runtime_name`; a
+connection by its ends, port and protocol; a relation by its ends and kind; so the same call twice creates nothing new.
+A connection's `to` is a service: an external one is the target itself (`to_service_id`), any other is reached through
+its deployment in the environment; `from_server` / `to_server` are needed only when a service runs on more than one
+server. `part_of` on a service adds `part_of` relations; a `built_from` relation names a code project in the access. The
+pure `resolve_draft(payload, recorded)` turns the payload into a plan (steps create / update / use, a membership add)
+and refuses the first entry it cannot resolve with `<part>[<index>]: <reason>` (for example `connections[0]: no
+service named clickhous. Known services: clickhouse, clickhouse-backup.`, `connections[0]: clickhouse runs on app-1,
+app-2; give from_server.`); `apply_draft` writes the plan through the store in one transaction, so on any error
+(a store error is named the same way) nothing is written. The reply lists `created`, `updated` and `used`, each `{kind,
+name, id}`, and says the entries are drafts a person confirms in the environment workspace.
+
+**Tool documentation.** Every inventory tool's description says what it is for, that writes are drafts a person
+confirms, every field with its format and allowed values (service types, roles, runtimes as free text, ports 1–65535,
+protocol lowercase such as `tcp`/`https`/`postgres`, hostnames without scheme or port), how entries are named, and an
+example; the field descriptions in the schemas say the same per field.
+
+**Access** (pure `check_<tool>`): an item is usable when it is in the run's access object (children included) or this
+session created it (`store.created_in_session`, read from the audit); a deployment when its server, service or
+environment is usable — for a write (update, remove, or a connection from it) all three, as for a new deployment, so a
+service held through one environment does not open its deployments elsewhere; a connection when its from-deployment is;
+a relation when its from-service is. Reads need the item usable. Writes need no role: a session (`Inventory changes need
+a session.`) and every item they name usable (`This <type> is not available in this run.`: a deployment names its
+environment, server and service; a connection its deployments; a relation its services or code project); a new
+environment, server or service needs only an environment in the access (`This run has no environments.`; in
+`save_inventory_draft` as `<part>[<index>]: This run has no environments.`). So an agent can draft a server, deploy a
+service on it and connect it in one run, and cannot touch what is outside its access unless it created it. The read
+tools are offered in every run; the write tools only in a session turn (`catalog.INVENTORY_WRITES`): never to a subagent
+or an expert. An older stored access object with a role that no longer exists still loads (an unknown role is
+ignored).
 
 ## Clones
 

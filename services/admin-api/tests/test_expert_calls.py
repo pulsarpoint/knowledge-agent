@@ -524,7 +524,7 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(nar
     # its access object, built as a run start builds it: what it was given, no content editor
     given_access = [(e['type'], e['id'], e['source']) for e in config['access']['resources'] if e['source'] == 'given']
     assert given_access == [('code_project', s.repo, 'given'), ('server', s.host['id'], 'given')]
-    assert config['access']['roles'] == {'content_editor': False, 'inventory_editor': False}
+    assert config['access']['roles'] == {'content_editor': False}
     key_id = of(config, 'server')[0]['private_key_ref']['id']
     assert credentials[key_id] == s.key['private_key']  # its own SSH key, decrypted for this call
     whole, _ = load(s.store, project, entry, None)  # nothing given: everything it has
@@ -636,11 +636,11 @@ def test_an_expert_is_told_the_callers_roles():
             TOOL_CALL_ID.reset(token)
 
     asyncio.run(asked({'content_editor': False, 'inventory_editor': True}))
-    asyncio.run(asked({'content_editor': True, 'inventory_editor': False}))
+    asyncio.run(asked({'content_editor': True}))
     assert loader.roles == [False, True]
 
 
-def test_an_expert_is_never_an_inventory_editor(narrowed_agent):
+def test_an_expert_drops_an_old_agents_inventory_editor_role(narrowed_agent):
     s = narrowed_agent
     with s.store.connect() as conn:
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Payments code.' WHERE id=%s", (s.analyst,))
@@ -651,10 +651,10 @@ def test_an_expert_is_never_an_inventory_editor(narrowed_agent):
         config, _ = load(s.store, project, entry, None)
         return config['access']['roles']
 
-    assert roles() == {'content_editor': False, 'inventory_editor': False}
+    assert roles() == {'content_editor': False}
     with s.store.connect() as conn:
         conn.execute(
             """UPDATE ka.agents SET access=jsonb_set(access,'{roles,inventory_editor}','true') WHERE id=%s""",
             (s.analyst,),
         )
-    assert roles() == {'content_editor': False, 'inventory_editor': False}  # even when its agent is one
+    assert roles() == {'content_editor': False}  # an agent stored before the role went loads without it

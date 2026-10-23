@@ -25,7 +25,7 @@ def with_access(config: dict[str, Any], entries=(), content_editor: bool = False
     return config
 
 
-def give(conn, agent_id: str, resources: list, content_editor: bool = False, inventory_editor: bool = False) -> None:
+def give(conn, agent_id: str, resources: list, content_editor: bool = False) -> None:
     """Store a saved agent's access object: resources as (type, id) or {type, id, editable}."""
     entries = [
         {**item, 'id': str(item['id'])} if isinstance(item, dict) else {'type': item[0], 'id': str(item[1])}
@@ -37,7 +37,7 @@ def give(conn, agent_id: str, resources: list, content_editor: bool = False, inv
             Jsonb(
                 {
                     'resources': entries,
-                    'roles': {'content_editor': content_editor, 'inventory_editor': inventory_editor},
+                    'roles': {'content_editor': content_editor},
                 }
             ),
             agent_id,

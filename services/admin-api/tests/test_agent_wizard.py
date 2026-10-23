@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from knowledge_admin.agents.wizard import AgentProposal
+from pydantic import ValidationError
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from test_agents import saved_agent, agent_mounts
 from test_repositories import HEADERS
@@ -44,7 +45,7 @@ def wizard(store, saved_agent):
                 {'type': 'skill', 'id': skill['id']},
                 {'type': 'mcp_server', 'id': mcp['id']},
             ],
-            'roles': {'content_editor': False, 'inventory_editor': False},
+            'roles': {'content_editor': False},
         },
     }
     return client, catalog, proposal, ssh
@@ -119,13 +120,13 @@ def test_wizard_roundtrip_every_resource(store, wizard):
         {
             'access': {
                 'resources': [{'type': 'collection', 'id': str(uuid4())}],
-                'roles': {'content_editor': False, 'inventory_editor': False},
+                'roles': {'content_editor': False},
             }
         },
         {
             'access': {
                 'resources': [{'type': 'printer', 'id': str(uuid4())}],
-                'roles': {'content_editor': False, 'inventory_editor': False},
+                'roles': {'content_editor': False},
             }
         },
         {'model_id': str(uuid4())},
@@ -249,7 +250,7 @@ BLANK = {
     'instructions': '',
     'model_id': None,
     'enabled': True,
-    'access': {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}},
+    'access': {'resources': [], 'roles': {'content_editor': False}},
 }
 
 
@@ -290,7 +291,7 @@ def test_proposal_rejects_an_unknown_resource_type(wizard):
 
     unknown = {
         'resources': [{'type': 'printer', 'id': str(uuid4())}],
-        'roles': {'content_editor': False, 'inventory_editor': False},
+        'roles': {'content_editor': False},
     }
     with pytest.raises(ValidationError, match="'server'"):
         AgentProposal.model_validate({**proposal, 'access': unknown})
@@ -304,7 +305,7 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
         calls.append(json.loads(task))
         invented = {
             'resources': [{'type': 'server', 'id': str(uuid4())}],
-            'roles': {'content_editor': False, 'inventory_editor': False},
+            'roles': {'content_editor': False},
         }
         output = {**proposal, 'access': invented} if len(calls) == 1 else proposal
         return SimpleNamespace(final_output=AgentProposal.model_validate(output))
@@ -346,13 +347,13 @@ def test_generation_offers_the_models_that_fit_an_agent(store, wizard, monkeypat
     assert 'agent_type' not in tasks[0]  # the designer is not told an agent type
 
 
-def test_a_proposal_never_makes_an_inventory_editor(wizard, monkeypatch):
-    """The person switches the role on in the agent's settings; whatever the model proposes, the wizard turns it off."""
+def test_a_proposal_has_only_the_content_editor_role(wizard, monkeypatch):
     client, _, proposal, _ = wizard
-    proposed = {
-        **proposal,
-        'access': {**proposal['access'], 'roles': {'content_editor': True, 'inventory_editor': True}},
-    }
+    with pytest.raises(ValidationError):
+        AgentProposal.model_validate(
+            {**proposal, 'access': {**proposal['access'], 'roles': {'content_editor': True, 'inventory_editor': True}}}
+        )
+    proposed = {**proposal, 'access': {**proposal['access'], 'roles': {'content_editor': True}}}
 
     async def run(*args, **kwargs):
         return SimpleNamespace(final_output=AgentProposal.model_validate(proposed))
@@ -362,4 +363,4 @@ def test_a_proposal_never_makes_an_inventory_editor(wizard, monkeypatch):
         '/api/agents/wizard/generate', headers=HEADERS, json={'role': 'Payments', 'model_id': proposal['model_id']}
     )
     assert result.status_code == 200, result.text
-    assert result.json()['proposal']['access']['roles'] == {'content_editor': True, 'inventory_editor': False}
+    assert result.json()['proposal']['access']['roles'] == {'content_editor': True}

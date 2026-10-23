@@ -185,7 +185,14 @@ def test_get_resource_reads_deployments_relations_and_connections(world):
     }
     assert api['links'][3]['description'] == 'orders'
     assert api['external'] == [
-        {'host': 'smtp.example.com', 'port': 587, 'protocol': 'smtp', 'description': '', 'from_server': 'web'}
+        {
+            'host': 'smtp.example.com',
+            'port': 587,
+            'protocol': 'smtp',
+            'description': '',
+            'status': 'confirmed',
+            'from_server': 'web',
+        }
     ]
     pg = get(w, 'service', w.pg)
     assert links(pg) == [

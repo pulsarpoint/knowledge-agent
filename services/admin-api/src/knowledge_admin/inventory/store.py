@@ -232,11 +232,12 @@ def load_project_models(conn, project_id: UUID) -> dict:
 
 
 def created_in_session(conn, project_id: UUID, session_id: UUID) -> set[tuple[str, str]]:
-    """(kind, id) of the servers, services, deployments, connections and relations an agent session created (the
-    audit's '<kind>.created' events with that session_id)."""
+    """(kind, id) of the environments, servers, services, deployments, connections and relations an agent session
+    created (the audit's '<kind>.created' events with that session_id)."""
     rows = conn.execute(
         """SELECT resource_type,resource_id FROM ka.audit_events WHERE project_id=%s AND details->>'session_id'=%s
-        AND action IN ('server.created','service.created','deployment.created','connection.created','relation.created')""",
+        AND action IN ('environment.created','server.created','service.created','deployment.created',
+        'connection.created','relation.created')""",
         (project_id, str(session_id)),
     ).fetchall()
     return {(row['resource_type'], str(row['resource_id'])) for row in rows}

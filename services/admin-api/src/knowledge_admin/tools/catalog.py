@@ -37,7 +37,16 @@ SUBAGENT = 'run_subagent'
 WAKEUPS = frozenset({'schedule_wakeup', 'list_wakeups', 'cancel_wakeup'})  # a session turn's own tools
 # Inventory writes: only a session turn (audited with its session), never a subagent or an expert.
 INVENTORY_WRITES = frozenset(
-    {'save_server', 'save_service', 'save_deployment', 'save_connection', 'save_relation', 'remove_inventory_item'}
+    {
+        'save_environment',
+        'save_server',
+        'save_service',
+        'save_deployment',
+        'save_connection',
+        'save_relation',
+        'remove_inventory_item',
+        'save_inventory_draft',
+    }
 )
 
 

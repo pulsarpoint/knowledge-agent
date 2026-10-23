@@ -1,7 +1,8 @@
 """Access rules: pure functions over a run's access object.
 
 access = {"resources": [{type, id, name, description_short, source, editable?, ...}],
-          "roles": {"content_editor": bool, "inventory_editor": bool}}  (a missing role is off)
+          "roles": {"content_editor": bool}}  (a missing role is off; an unknown one, which an older stored object
+          may still carry, is ignored)
 An entry also carries what the tools need to reach its resource: a code project its folder_paths (and graph_path,
 code_root), a collection its paths, a skill its description, a new document where it goes; a server its connection
 (hostname, port, username, allow_sudo, known_hosts, enabled, ssh_allowed, private_key_ref) and an MCP server its (url,
@@ -44,7 +45,7 @@ PUBLIC = (
 NOT_AVAILABLE = 'This {type} is not available in this run.'
 NOT_EDITOR = 'This agent may not change content (content editor is off).'
 NONE_OF = 'This run has no {type}s.'
-ROLES = ('content_editor', 'inventory_editor')
+ROLES = ('content_editor',)
 
 
 def entry(access: dict, type: str, id: str) -> dict | None:
@@ -70,10 +71,6 @@ def ssh_reason(server: dict) -> str | None:
 
 def is_content_editor(access: dict) -> bool:
     return bool(access.get('roles', {}).get('content_editor'))
-
-
-def is_inventory_editor(access: dict) -> bool:
-    return bool(access.get('roles', {}).get('inventory_editor'))
 
 
 def can_use(access: dict, type: str, id: str) -> bool:
@@ -109,7 +106,7 @@ def refuse_none(*types: str) -> str:
 def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] | None = None) -> dict:
     """The agent's access or less: picked resources must be in the agent's list (each once); a pick may make an
     editable document read-only (editable only when the pick and the agent's entry both say so; a pick without
-    editable keeps the entry's); roles are only switched off."""
+    editable keeps the entry's); roles are only switched off, and only the known ROLES are kept."""
     if picked is None:
         resources = [dict(r) for r in agent_access.get('resources', [])]
     else:
@@ -124,11 +121,8 @@ def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] |
             if 'editable' in p and 'editable' in found:
                 found['editable'] = bool(found['editable'] and p['editable'])
             resources.append(found)
-    roles = dict(agent_access.get('roles', {}))
-    for role in ROLES:
-        roles[role] = bool(roles.get(role))
-    for role in roles_off or []:
-        roles[role] = False
+    given = agent_access.get('roles', {})
+    roles = {role: bool(given.get(role)) and role not in (roles_off or []) for role in ROLES}
     return {'resources': resources, 'roles': roles}
 
 

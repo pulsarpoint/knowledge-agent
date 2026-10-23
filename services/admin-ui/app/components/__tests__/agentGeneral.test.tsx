@@ -208,26 +208,12 @@ test("General switches Content editor and saves Instructions", async () => {
   );
 });
 
-test("General switches Inventory editor under Content editor", async () => {
-  const user = userEvent.setup();
+test("General has no inventory role: every agent writes inventory drafts", async () => {
   open("/agents/search");
-  const inventory = await screen.findByRole("switch", { name: "Inventory editor" });
-  expect(inventory).not.toBeChecked();
-  expect(
-    screen.getByText("Lets this agent add and change servers, services, deployments, connections and relations."),
-  ).toBeVisible();
+  await screen.findByRole("switch", { name: "Content editor" });
   const switches = screen.getAllByRole("switch").map((item) => item.getAttribute("id"));
-  expect(switches.indexOf("agent-inventory-editor")).toBe(switches.indexOf("agent-content-editor") + 1);
-  await user.click(inventory);
-  await user.click(screen.getByRole("button", { name: "Save details" }));
-  await waitFor(() =>
-    expect(profiles.saveAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "search",
-        access: { resources: [], roles: { content_editor: false, inventory_editor: true } },
-      }),
-    ),
-  );
+  expect(switches).not.toContain("agent-inventory-editor");
+  expect(screen.queryByText(/add and change servers, services/)).not.toBeInTheDocument();
 });
 
 test("General keeps resources saved on the Resources tab meanwhile", async () => {

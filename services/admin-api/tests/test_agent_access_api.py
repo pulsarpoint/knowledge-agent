@@ -11,7 +11,7 @@ from session_rows import a_model, add_review, add_test_session
 from test_profiles import create, wizard_payload
 from test_repositories import HEADERS
 
-EMPTY = {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': False}}
+EMPTY = {'resources': [], 'roles': {'content_editor': False}}
 
 
 def documents(world) -> dict[str, str]:
@@ -46,7 +46,7 @@ def test_the_access_rules_without_a_database():
             {'type': 'document', 'id': 'd1', 'editable': True},
             {'type': 'server', 'id': 'gone'},
         ],
-        'roles': {'content_editor': True, 'inventory_editor': False},
+        'roles': {'content_editor': True},
     }
     assert resolve(stored, FOUND) == {
         'resources': [
@@ -54,7 +54,7 @@ def test_the_access_rules_without_a_database():
             {**FOUND['document'][0], 'editable': True},
             {'type': 'server', 'id': 'gone', 'name': '', 'description_short': '', 'missing': True},
         ],
-        'roles': {'content_editor': True, 'inventory_editor': False},
+        'roles': {'content_editor': True},
     }
     assert counts(stored, FOUND)['server'] == 1 and counts(stored, FOUND)['document'] == 1
     s1, d1 = str(uuid4()), str(uuid4())
@@ -70,12 +70,12 @@ def test_the_access_rules_without_a_database():
                 {'type': 'document', 'id': d1},
                 {'type': 'document', 'id': str(uuid4()), 'editable': True},
             ],
-            'roles': {'content_editor': False, 'inventory_editor': False},
+            'roles': {'content_editor': False},
         }
     )
     assert references(value, found) == {
         'resources': [{'type': 'server', 'id': s1}, {'type': 'document', 'id': d1, 'editable': False}],
-        'roles': {'content_editor': False, 'inventory_editor': False},
+        'roles': {'content_editor': False},
     }
 
 
@@ -111,7 +111,7 @@ def test_get_resolves_each_reference_and_marks_a_missing_one(world):
             },
             {'type': 'service', 'id': gone, 'name': '', 'description_short': '', 'missing': True},
         ],
-        'roles': {'content_editor': True, 'inventory_editor': False},
+        'roles': {'content_editor': True},
     }
     for gone_field in (
         'collection_ids',
@@ -137,7 +137,7 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
             {'type': 'code_project', 'id': str(uuid4())},  # no longer exists: dropped
             {'type': 'collection', 'id': str(w.environment)},  # not a collection: dropped
         ],
-        'roles': {'content_editor': True, 'inventory_editor': False},
+        'roles': {'content_editor': True},
     }
     saved = w.client.put(
         f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(agent, access=access, instructions='Be brief.')
@@ -151,7 +151,7 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
             {'type': 'service', 'id': str(w.nginx)},
             {'type': 'document', 'id': overview, 'editable': True},
         ],
-        'roles': {'content_editor': True, 'inventory_editor': False},
+        'roles': {'content_editor': True},
     }
     assert [r['type'] for r in saved.json()['access']['resources']] == ['server', 'service', 'document']
     config = get_agent_config(agent['id'], conninfo=w.store.conninfo)
@@ -163,7 +163,7 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
     latest = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
     unknown = {
         'resources': [{'type': 'printer', 'id': str(uuid4())}],
-        'roles': {'content_editor': False, 'inventory_editor': False},
+        'roles': {'content_editor': False},
     }
     refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(latest, access=unknown))
     assert refused.status_code == 400 and "'server'" in refused.text, refused.text
@@ -220,7 +220,7 @@ def test_the_wizard_creates_an_agent_with_its_access_and_instructions(world):
         instructions='Read the logs first.',
         access={
             'resources': [{'type': 'server', 'id': w.server['id']}, {'type': 'service', 'id': str(w.nginx)}],
-            'roles': {'content_editor': True, 'inventory_editor': False},
+            'roles': {'content_editor': True},
         },
     )
     created = w.client.post('/api/agents/wizard', headers=HEADERS, json=payload)
@@ -229,13 +229,13 @@ def test_the_wizard_creates_an_agent_with_its_access_and_instructions(world):
     assert row['instructions'] == 'Read the logs first.'
     assert row['access'] == {
         'resources': [{'type': 'server', 'id': w.server['id']}, {'type': 'service', 'id': str(w.nginx)}],
-        'roles': {'content_editor': True, 'inventory_editor': False},
+        'roles': {'content_editor': True},
     }
     missing = wizard_payload(
         'Other',
         access={
             'resources': [{'type': 'server', 'id': str(uuid4())}],
-            'roles': {'content_editor': False, 'inventory_editor': False},
+            'roles': {'content_editor': False},
         },
     )
     refused = w.client.post('/api/agents/wizard', headers=HEADERS, json=missing)
@@ -256,7 +256,7 @@ def test_a_clone_copies_access_and_instructions_and_apply_writes_them_back(world
     copied = w.client.get(f'/api/agents/{copy_id}', headers=HEADERS).json()
     changed = {
         'resources': [{'type': 'environment', 'id': str(w.environment)}],
-        'roles': {'content_editor': False, 'inventory_editor': False},
+        'roles': {'content_editor': False},
     }
     saved = w.client.put(
         f'/api/agents/{copy_id}', headers=HEADERS, json=body(copied, access=changed, instructions='New.')
@@ -316,21 +316,19 @@ def test_the_agent_parts_of_operations_are_gone(world):
     assert w.client.get(f'/api/servers/{server}/ssh', headers=HEADERS).status_code == 200  # the server's own stays
 
 
-def test_put_saves_the_inventory_editor_role_and_get_shows_it(world):
+def test_put_refuses_the_inventory_editor_role_and_an_old_stored_one_reads_as_gone(world):
     w = world
     agent = create(w.client, 'Inventory keeper')
     access = {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': True}}
-    saved = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(agent, access=access))
-    assert saved.status_code == 200, saved.text
-    assert stored(w, agent['id'])['access']['roles'] == {'content_editor': False, 'inventory_editor': True}
+    refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(agent, access=access))
+    assert refused.status_code == 400, refused.text  # an unknown role, as any unknown key
+    with w.store.connect() as conn:  # stored before the role went
+        conn.execute(
+            """UPDATE ka.agents SET access=jsonb_set(access,'{roles,inventory_editor}','true') WHERE id=%s""",
+            (agent['id'],),
+        )
     found = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
-    assert found['access']['roles'] == {'content_editor': False, 'inventory_editor': True}
-    unset = {'resources': [], 'roles': {'content_editor': True, 'inventory_editor': False}}  # no inventory_editor: off
-    assert (
-        w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(found, access=unset)).status_code == 200
-    )
-    assert stored(w, agent['id'])['access']['roles'] == {'content_editor': True, 'inventory_editor': False}
-    latest = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
-    wrong = {'resources': [], 'roles': {'content_editor': False, 'inventory_editor': 'yes'}}
-    refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(latest, access=wrong))
-    assert refused.status_code == 400, refused.text
+    assert found['access']['roles'] == {'content_editor': False}
+    saved = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(found, access=found['access']))
+    assert saved.status_code == 200, saved.text
+    assert stored(w, agent['id'])['access']['roles'] == {'content_editor': False}

@@ -150,7 +150,6 @@ def _access(access: Mapping[str, Any]) -> dict[str, Any]:
     return {
         'resources': sorted(references, key=lambda r: (r['type'], r['id'])),
         'content_editor': bool(access.get('roles', {}).get('content_editor')),
-        'inventory_editor': bool(access.get('roles', {}).get('inventory_editor')),
     }
 
 

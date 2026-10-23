@@ -1,7 +1,8 @@
 """Read the inventory for an agent: get_resource answers with everything recorded about one server, service,
 environment or code project, with links to related resources the model follows by their type and id (deployments,
 service relations and connections with their port and protocol; a service's connections to external hosts apart, under
-external). Read-only.
+external). Every entry and link carries its status: draft (an agent's, waiting for a person) or confirmed (for a
+link: the deployment, membership, relation or connection behind it). Read-only.
 The tool runs where agents run (agent-session-worker, admin-api); configure() gives it that process's database.
 The workspace is the run's (a resource run pins config['project_id']) or the single application's. It answers only
 about a resource in the run's access object (check_get_resource); anything else, a linked resource too, reads as
@@ -58,47 +59,47 @@ def dumps(value: Any) -> str:
     return json.dumps(value, default=str, ensure_ascii=False)
 
 
-SERVER = """SELECT id,name,hostname,port,username,description,tags,allow_sudo FROM ka.servers
+SERVER = """SELECT id,name,hostname,port,username,description,tags,allow_sudo,status FROM ka.servers
     WHERE id=%s AND project_id=%s"""
-SERVICE = """SELECT id,name,service_type,service_role,description,owner,address FROM ka.services
+SERVICE = """SELECT id,name,service_type,service_role,description,owner,address,status FROM ka.services
     WHERE id=%s AND project_id=%s"""
-ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND project_id=%s'
+ENVIRONMENT = 'SELECT id,name,description,status FROM ka.environments WHERE id=%s AND project_id=%s'
 CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
     WHERE id=%s AND project_id=%s AND archived_at IS NULL"""
 # Each query lists one kind of link: (type, id, name, relation, ...facts); {limit} caps it one past MAX_ITEMS. A server
 # is in its environments (ka.environment_servers), a service in the environments of its deployments; an environment
 # contains its servers and the services deployed in it.
 SERVER_LINKS = (
-    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environments e
-    WHERE EXISTS (SELECT 1 FROM ka.environment_servers m WHERE m.environment_id=e.id AND m.server_id=%s)
+    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation,m.status FROM ka.environments e
+    JOIN ka.environment_servers m ON m.environment_id=e.id WHERE m.server_id=%s
     ORDER BY lower(e.name),e.id LIMIT {limit}""",
     """SELECT 'service' AS type,s.id,s.name,'runs' AS relation,e.name AS environment,d.runtime,
-    d.runtime_name,d.port,d.deployed_version AS version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
+    d.runtime_name,d.port,d.deployed_version AS version,d.status FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
     JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
     ORDER BY lower(s.name),lower(e.name),d.runtime_name,s.id LIMIT {limit}""",
 )
 SERVICE_LINKS = (
     """SELECT 'server' AS type,h.id,h.name,'deployed_on' AS relation,e.name AS environment,
-    d.runtime,d.runtime_name,d.port,d.deployed_version AS version FROM ka.service_deployments d
+    d.runtime,d.runtime_name,d.port,d.deployed_version AS version,d.status FROM ka.service_deployments d
     JOIN ka.servers h ON h.id=d.server_id JOIN ka.environments e ON e.id=d.environment_id WHERE d.service_id=%s
     ORDER BY lower(h.name),lower(e.name),d.runtime_name,h.id LIMIT {limit}""",
-    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environments e
+    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation,e.status FROM ka.environments e
     WHERE EXISTS (SELECT 1 FROM ka.service_deployments d WHERE d.environment_id=e.id AND d.service_id=%s)
     ORDER BY lower(e.name),e.id LIMIT {limit}""",
-    """SELECT 'code_project' AS type,r.id,r.name,'built_from' AS relation,l.description FROM ka.service_relations l
+    """SELECT 'code_project' AS type,r.id,r.name,'built_from' AS relation,l.description,l.status FROM ka.service_relations l
     JOIN ka.repositories r ON r.id=l.to_code_project_id WHERE l.kind='built_from' AND l.from_service_id=%s
     AND r.archived_at IS NULL ORDER BY lower(r.name),r.id LIMIT {limit}""",
     # depends_on and part_of, from the other side needed_by and has_part: its own relations first
     """SELECT 'service' AS type,o.id,o.name,
     CASE WHEN l.from_service_id=%(id)s THEN l.kind WHEN l.kind='depends_on' THEN 'needed_by' ELSE 'has_part' END AS relation,
-    l.description FROM ka.service_relations l
+    l.description,l.status FROM ka.service_relations l
     JOIN ka.services o ON o.id=CASE WHEN l.from_service_id=%(id)s THEN l.to_service_id ELSE l.from_service_id END
     WHERE l.to_service_id IS NOT NULL AND %(id)s IN (l.from_service_id,l.to_service_id)
     ORDER BY l.from_service_id<>%(id)s,l.kind,lower(o.name),o.id LIMIT {limit}""",
     # connections between its deployments and other deployments (connected_from: the other one connects to it)
     """SELECT 'service' AS type,o.id,o.name,
     CASE WHEN f.service_id=%(id)s THEN 'connects_to' ELSE 'connected_from' END AS relation,
-    fh.name AS from_server,th.name AS to_server,c.port,c.protocol,c.description FROM ka.connections c
+    fh.name AS from_server,th.name AS to_server,c.port,c.protocol,c.description,c.status FROM ka.connections c
     JOIN ka.service_deployments f ON f.id=c.from_deployment_id JOIN ka.service_deployments t ON t.id=c.to_deployment_id
     JOIN ka.servers fh ON fh.id=f.server_id JOIN ka.servers th ON th.id=t.server_id
     JOIN ka.services o ON o.id=CASE WHEN f.service_id=%(id)s THEN t.service_id ELSE f.service_id END
@@ -107,26 +108,26 @@ SERVICE_LINKS = (
     # connections to an external service: from its deployments to it, or (connected_from) from others to this one
     """SELECT 'service' AS type,o.id,o.name,
     CASE WHEN f.service_id=%(id)s THEN 'connects_to' ELSE 'connected_from' END AS relation,
-    fh.name AS from_server,NULL AS to_server,c.port,c.protocol,c.description FROM ka.connections c
+    fh.name AS from_server,NULL AS to_server,c.port,c.protocol,c.description,c.status FROM ka.connections c
     JOIN ka.service_deployments f ON f.id=c.from_deployment_id JOIN ka.servers fh ON fh.id=f.server_id
     JOIN ka.services o ON o.id=CASE WHEN f.service_id=%(id)s THEN c.to_service_id ELSE f.service_id END
     WHERE c.to_service_id IS NOT NULL AND %(id)s IN (f.service_id,c.to_service_id)
     ORDER BY f.service_id<>%(id)s,lower(o.name),o.id,c.port,c.id LIMIT {limit}""",
 )
 # A service's connections to external hosts (not resources: no type or id to follow).
-SERVICE_EXTERNAL = """SELECT c.to_host AS host,c.port,c.protocol,c.description,h.name AS from_server
+SERVICE_EXTERNAL = """SELECT c.to_host AS host,c.port,c.protocol,c.description,c.status,h.name AS from_server
     FROM ka.connections c JOIN ka.service_deployments d ON d.id=c.from_deployment_id JOIN ka.servers h ON h.id=d.server_id
     WHERE d.service_id=%s AND c.to_host IS NOT NULL ORDER BY c.to_host,c.port,c.id LIMIT {limit}"""
 ENVIRONMENT_LINKS = (
-    """SELECT 'service' AS type,s.id,s.name,'contains' AS relation FROM ka.services s WHERE EXISTS
+    """SELECT 'service' AS type,s.id,s.name,'contains' AS relation,s.status FROM ka.services s WHERE EXISTS
     (SELECT 1 FROM ka.service_deployments d WHERE d.service_id=s.id AND d.environment_id=%s)
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
-    """SELECT 'server' AS type,s.id,s.name,'contains' AS relation FROM ka.servers s WHERE EXISTS
-    (SELECT 1 FROM ka.environment_servers m WHERE m.server_id=s.id AND m.environment_id=%s)
+    """SELECT 'server' AS type,s.id,s.name,'contains' AS relation,s.status,m.status AS membership_status
+    FROM ka.servers s JOIN ka.environment_servers m ON m.server_id=s.id WHERE m.environment_id=%s
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
 )
 CODE_PROJECT_LINKS = (
-    """SELECT 'service' AS type,s.id,s.name,'builds' AS relation FROM ka.service_relations l
+    """SELECT 'service' AS type,s.id,s.name,'builds' AS relation,l.status FROM ka.service_relations l
     JOIN ka.services s ON s.id=l.from_service_id WHERE l.kind='built_from' AND l.to_code_project_id=%s
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
 )

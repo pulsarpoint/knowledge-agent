@@ -72,8 +72,6 @@ TOO_MANY_TAGS = 'A run takes at most 10 tags.'
 RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
 NOT_AN_EDITOR = 'A run cannot make a saved agent a content editor.'
-NOT_AN_INVENTORY_EDITOR = 'A run cannot make a saved agent an inventory editor.'
-AD_HOC_INVENTORY = 'Only a saved agent may change the inventory.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
 NO_SSH = (
     'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
@@ -187,7 +185,6 @@ class StartInput(BaseModel):
     resources: Resources = Field(default_factory=Resources)
     expert_ids: list[UUID] | None = Field(default=None, max_length=50)  # None: every expert offered
     content_editor: bool | None = None  # None: an ad-hoc run's rule (a new document or a revision), a saved agent's own
-    inventory_editor: bool | None = None  # None: a saved agent's own; may only switch it off; an ad-hoc run: off
     tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
 
     @model_validator(mode='after')
@@ -372,9 +369,6 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
     editor = access_rules.is_content_editor(config['access'])
     if value.content_editor and not editor:
         raise HTTPException(400, NOT_AN_EDITOR)
-    inventory = access_rules.is_inventory_editor(config['access'])
-    if value.inventory_editor and not inventory:
-        raise HTTPException(400, NOT_AN_INVENTORY_EDITOR)
     resources = value.resources
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
     picked += [
@@ -387,7 +381,6 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
             config,
             picked or None,  # nothing picked: everything it has
             content_editor=editor and value.content_editor is not False,
-            inventory_editor=inventory and value.inventory_editor is not False,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -434,8 +427,6 @@ def build(
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
-    if value.inventory_editor:  # an ad-hoc run never changes the inventory
-        raise HTTPException(400, AD_HOC_INVENTORY)
     origin = None
     selection = value.resources
     resource = value.resource()
@@ -595,7 +586,6 @@ def start_run(
             'model_id': model['id'],
             'expert_ids': [entry['id'] for entry in pinned['experts']],
             'content_editor': editor,
-            'inventory_editor': access_rules.is_inventory_editor(pinned['access']),
             'resources': [{'type': item['type'], 'id': item['id']} for item in given(pinned['access'])],
             'tags': tags,
         }

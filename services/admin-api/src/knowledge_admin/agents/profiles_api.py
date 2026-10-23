@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.access import TYPES, is_content_editor, is_inventory_editor
+from knowledge_admin.access import TYPES, is_content_editor
 from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
@@ -50,7 +50,6 @@ class AccessEntry(BaseModel):
 class Roles(BaseModel):
     model_config = ConfigDict(extra='forbid')
     content_editor: bool = Field(default=False, strict=True)
-    inventory_editor: bool = Field(default=False, strict=True)
 
 
 class AccessInput(BaseModel):
@@ -91,7 +90,7 @@ def resolve(access: dict, found: dict[str, list[dict]]) -> dict:
         if ref['type'] == 'document':
             entry['editable'] = bool(ref.get('editable'))
         resources.append(entry)
-    roles = {'content_editor': is_content_editor(access), 'inventory_editor': is_inventory_editor(access)}
+    roles = {'content_editor': is_content_editor(access)}
     return {'resources': resources, 'roles': roles}
 
 

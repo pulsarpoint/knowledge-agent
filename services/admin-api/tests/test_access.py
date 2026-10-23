@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from knowledge_admin import access
@@ -72,7 +74,7 @@ def test_refusal_texts_are_exact():
 def test_narrow_none_keeps_agent_list_and_roles():
     agent = run_access(True)
     out = access.narrow(agent, None)
-    assert out == {**agent, 'roles': {'content_editor': True, 'inventory_editor': False}}  # a missing role: off
+    assert out == {**agent, 'roles': {'content_editor': True}}  # a missing role: off
     assert out is not agent
 
 
@@ -154,19 +156,29 @@ def test_is_content_editor():
     assert not access.is_content_editor({'resources': []})
 
 
-def test_is_inventory_editor():
-    assert access.is_inventory_editor({'resources': [], 'roles': {'inventory_editor': True}})
-    assert not access.is_inventory_editor({'resources': [], 'roles': {'inventory_editor': False}})
-    assert not access.is_inventory_editor(run_access(True))  # an agent without the key: off
-    assert not access.is_inventory_editor({'resources': []})
+def test_an_old_access_object_with_the_inventory_editor_role_loads_without_it():
+    old = {**run_access(True), 'roles': {'content_editor': True, 'inventory_editor': True}}
+    assert access.ROLES == ('content_editor',)
+    assert not hasattr(access, 'is_inventory_editor')
+    assert access.is_content_editor(old)
+    assert access.narrow(old, None)['roles'] == {'content_editor': True}  # an unknown role is dropped
+    assert access.narrow(old, None, ['content_editor'])['roles'] == {'content_editor': False}
+    assert access.narrow(run_access(True), None)['roles'] == {'content_editor': True}
+    assert access.narrow({'resources': []}, None)['roles'] == {'content_editor': False}
 
 
-def test_narrow_keeps_the_inventory_editor_role_only_switched_off():
-    both = {**run_access(True), 'roles': {'content_editor': True, 'inventory_editor': True}}
-    assert access.narrow(both, None)['roles'] == {'content_editor': True, 'inventory_editor': True}
-    assert access.narrow(both, None, ['inventory_editor'])['roles'] == {
-        'content_editor': True,
-        'inventory_editor': False,
-    }
-    assert access.narrow(run_access(True), None)['roles'] == {'content_editor': True, 'inventory_editor': False}
-    assert access.narrow({'resources': []}, None)['roles'] == {'content_editor': False, 'inventory_editor': False}
+def test_no_inventory_editor_role_is_left_in_the_code():
+    """The role went with inventory drafts: only old stored access objects may still carry it (ignored)."""
+    services = Path(__file__).resolve().parents[2]
+    places = [services / 'admin-api' / 'src', services / 'admin-ui' / 'app']
+    suffixes = {'.py', '.json', '.md', '.ts', '.tsx'}
+    found = [
+        str(path)
+        for place in places
+        for path in place.rglob('*')
+        if path.suffix in suffixes
+        and 'node_modules' not in path.parts
+        and path.is_file()
+        and any(word in path.read_text(errors='ignore') for word in ('inventory_editor', 'Inventory editor'))
+    ]
+    assert found == []

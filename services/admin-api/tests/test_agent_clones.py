@@ -41,10 +41,7 @@ def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
     original = get_agent_config('operations', conninfo=store.conninfo)
     copied = get_agent_config(copy_id, conninfo=store.conninfo)
     assert comparable(copied) == comparable(original)
-    assert sections(copied) == sections(original) and copied['access']['roles'] == {
-        'content_editor': True,
-        'inventory_editor': False,
-    }
+    assert sections(copied) == sections(original) and copied['access']['roles'] == {'content_editor': True}
     assert of(copied, 'server')[0]['private_key_ref'] == of(original, 'server')[0]['private_key_ref']
     with store.connect() as conn:  # the saved key is referenced, not duplicated
         assert conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n'] == credentials
