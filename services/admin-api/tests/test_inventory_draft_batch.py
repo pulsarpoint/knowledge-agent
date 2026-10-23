@@ -7,6 +7,7 @@ from knowledge_admin.capabilities.inventory_tools import Ref, resolve_draft
 from knowledge_admin.inventory import store as inventory_store
 from knowledge_admin.inventory.rules import Invalid
 from test_inventory_tools import call, cfg, i, world  # noqa: F401  (world is a fixture)
+from test_inventory_tools import entry as tools_entry
 
 # The spec's example (docs/superpowers/specs/2026-10-23-inventory-drafts-design.md, section 2).
 EXAMPLE = {
@@ -57,7 +58,18 @@ def payload(**parts) -> dict:
         'servers': ('name', 'hostname', 'description', 'tags'),
         'services': ('name', 'service_type', 'service_role', 'description', 'owner', 'address', 'part_of'),
         'deployments': ('service', 'server', 'runtime', 'runtime_name', 'port', 'version', 'log_location'),
-        'connections': ('from_', 'from_server', 'to', 'to_server', 'to_host', 'port', 'protocol', 'description'),
+        'connections': (
+            'from_',
+            'from_server',
+            'from_runtime_name',
+            'to',
+            'to_server',
+            'to_runtime_name',
+            'to_host',
+            'port',
+            'protocol',
+            'description',
+        ),
         'relations': ('from_', 'kind', 'to', 'description'),
     }
     found = {'environment': parts.get('environment')}
@@ -282,12 +294,15 @@ def test_targets_external_services_hosts_and_code_projects():
     assert error_of(neither) == 'connections[0]: give to (a service) or to_host.'
 
 
-def test_new_entries_need_an_environment_in_the_run():
+NO_INVENTORY = 'This run has no environments or servers or services.'
+
+
+def test_new_entries_need_an_inventory_resource_in_the_run():
     closed = {**RECORDED, 'may_create': False}
     assert error_of(payload(servers=[{'name': 'new', 'hostname': 'new.internal'}]), closed) == (
-        'servers[0]: This run has no environments.'
+        f'servers[0]: {NO_INVENTORY}'
     )
-    assert error_of(payload(environment='staging'), closed) == 'environment: This run has no environments.'
+    assert error_of(payload(environment='staging'), closed) == f'environment: {NO_INVENTORY}'
     # naming what is recorded needs nothing more
     plan = resolve_draft(payload(servers=[{'name': 'app-2', 'description': 'x'}]), closed)
     assert steps(plan, 'server')[0]['action'] == 'update'
@@ -309,6 +324,120 @@ def test_servers_join_the_environment_unless_they_are_members():
     [membership] = steps(plan, 'membership')  # app-1 is in prod already
     assert membership['values'] == {'environment_id': 'e1', 'server_id': Ref(('server', 'cache'))}
     assert membership['name'] == 'cache in prod'
+
+
+# clickhouse runs twice on app-1 (runtime names clickhouse and ch2) and once on app-2
+TWICE = {
+    **RECORDED,
+    'deployments': [
+        *RECORDED['deployments'],
+        {
+            'id': 'p3',
+            'service_id': 'v1',
+            'server_id': 's1',
+            'environment_id': 'e1',
+            'runtime_name': 'ch2',
+            'port': 9001,
+            'status': 'confirmed',
+            'revision': 1,
+        },
+    ],
+}
+
+
+def test_a_deployment_without_runtime_name_is_the_one_there():
+    plan = resolve_draft(
+        payload(
+            environment='prod',
+            deployments=[
+                {'service': 'clickhouse', 'server': 'app-1', 'port': 9000},
+                {'service': 'clickhouse', 'server': 'app-2', 'version': '24.8'},
+            ],
+        ),
+        RECORDED,
+    )
+    first, second = steps(plan, 'deployment')
+    assert (first['action'], first['id']) == ('use', 'p1')
+    assert (second['action'], second['id'], second['values']) == ('update', 'p2', {'deployed_version': '24.8'})
+    # the same deployment twice, once by its runtime name
+    twice = payload(
+        environment='prod',
+        deployments=[
+            {'service': 'clickhouse', 'server': 'app-1'},
+            {'service': 'clickhouse', 'server': 'app-1', 'runtime_name': 'clickhouse'},
+        ],
+    )
+    assert error_of(twice) == 'deployments[1]: clickhouse on app-1 is listed twice.'
+
+
+def test_several_deployments_on_one_server_need_the_runtime_name():
+    value = payload(environment='prod', deployments=[{'service': 'clickhouse', 'server': 'app-1', 'port': 1}])
+    assert error_of(value, TWICE) == (
+        'deployments[0]: service clickhouse has several deployments on server app-1 (clickhouse, ch2); '
+        'give runtime_name.'
+    )
+    named = payload(
+        environment='prod', deployments=[{'service': 'clickhouse', 'server': 'app-1', 'runtime_name': 'ch2'}]
+    )
+    assert steps(resolve_draft(named, TWICE), 'deployment')[0]['id'] == 'p3'
+    host = {'to_host': 'smtp.example.com', 'port': 25}
+    value = payload(environment='prod', connections=[{'from': 'clickhouse', 'from_server': 'app-1', **host}])
+    assert error_of(value, TWICE) == (
+        'connections[0]: service clickhouse has several deployments on server app-1 (clickhouse, ch2); '
+        'give from_runtime_name.'
+    )
+    value = payload(environment='prod', connections=[{'from': 'clickhouse', **host}])
+    assert error_of(value, TWICE) == (
+        'connections[0]: clickhouse runs on app-1/clickhouse, app-1/ch2, app-2/clickhouse; '
+        'give from_server and from_runtime_name.'
+    )
+    value = payload(
+        environment='prod',
+        connections=[{'from': 'clickhouse', 'from_server': 'app-1', 'from_runtime_name': 'ch2', **host}],
+    )
+    assert steps(resolve_draft(value, TWICE), 'connection')[0]['values']['from_deployment_id'] == 'p3'
+    value = payload(
+        environment='prod',
+        connections=[{'from': 'old-backup', 'to': 'clickhouse', 'to_server': 'app-1', 'to_runtime_name': 'x'}],
+    )
+    value['deployments'] = payload(deployments=[{'service': 'old-backup', 'server': 'app-2'}])['deployments']
+    assert error_of(value, TWICE) == (
+        'connections[0]: clickhouse has no deployment on app-1 with runtime_name x in prod.'
+    )
+
+
+def test_a_deployment_on_a_server_outside_the_environment_drafts_its_membership():
+    recorded = {
+        **RECORDED,
+        'servers': [*RECORDED['servers'], {'id': 's3', 'name': 'app-3', 'status': 'confirmed', 'revision': 1}],
+    }
+    plan = resolve_draft(
+        payload(environment='prod', deployments=[{'service': 'clickhouse', 'server': 'app-3'}]), recorded
+    )
+    assert [(s['kind'], s['action']) for s in plan[1:]] == [('membership', 'add'), ('deployment', 'create')]
+    assert plan[1]['values'] == {'environment_id': 'e1', 'server_id': 's3'} and plan[1]['name'] == 'app-3 in prod'
+    # a server already joining in this call is not joined twice
+    plan = resolve_draft(
+        payload(
+            environment='prod',
+            servers=[{'name': 'app-3'}],
+            deployments=[{'service': 'clickhouse', 'server': 'app-3'}],
+        ),
+        recorded,
+    )
+    assert len(steps(plan, 'membership')) == 1
+
+
+def test_the_same_relation_or_connection_twice_in_a_call_is_listed_twice():
+    value = payload(
+        environment='prod',
+        services=[{'name': 'old-backup', 'part_of': ['clickhouse']}],
+        relations=[{'from': 'old-backup', 'kind': 'part_of', 'to': 'clickhouse'}],
+    )
+    assert error_of(value) == 'relations[0]: old-backup part_of clickhouse is listed twice.'
+    link = {'from': 'clickhouse', 'from_server': 'app-2', 'to_host': 'smtp.example.com', 'port': 25}
+    value = payload(environment='prod', connections=[link, {**link, 'description': 'mail'}])
+    assert error_of(value) == 'connections[1]: clickhouse → smtp.example.com is listed twice.'
 
 
 def test_the_spec_example_drafts_everything_it_describes():
@@ -387,6 +516,13 @@ def test_the_example_is_drafted_in_one_call(world):  # noqa: F811
     before = counts(world['store'])
     again = batch(world['config'], EXAMPLE)
     assert again['created'] == [] and counts(world['store']) == before, again
+    # and again without the runtime names: each service runs once on app-1, so that one is meant
+    unnamed = {
+        **EXAMPLE,
+        'deployments': [{k: v for k, v in d.items() if k != 'runtime_name'} for d in EXAMPLE['deployments']],
+    }
+    third = batch(world['config'], unnamed)
+    assert third['created'] == [] and counts(world['store']) == before, third
 
 
 def test_a_confirmed_service_named_with_other_fields_is_used_unchanged(world):  # noqa: F811
@@ -430,6 +566,34 @@ def test_the_batch_respects_the_runs_access(world):  # noqa: F811
     out = batch(c, {'environment': 'prod', 'deployments': [{'service': 'web', 'server': 'a'}]})
     assert out == {'refused': 'deployments[0]: no service named web. Known services: api, db.'}
     assert batch(cfg(world, session_id=None), {'environment': 'prod'}) == {'refused': tools.NO_SESSION}
+
+
+def test_a_batch_deployment_drafts_the_membership_it_needs_and_lists_it(world):  # noqa: F811
+    out = batch(world['config'], {'environment': 'dr', 'deployments': [{'service': 'api', 'server': 'a'}]})
+    assert [(e['kind'], e['name']) for e in out['created']] == [
+        ('environment', 'dr'),
+        ('membership', 'a in dr'),
+        ('deployment', 'api on a in dr'),
+    ]
+    environment = out['created'][0]['id']
+    with world['store'].connect() as conn:
+        [membership] = conn.execute(
+            'SELECT status FROM ka.environment_servers WHERE environment_id=%s', (environment,)
+        ).fetchall()
+    assert membership['status'] == 'draft'
+
+
+def test_a_run_with_only_a_server_may_draft_new_entries(world):  # noqa: F811
+    via = f'via server {world["a"]["id"]}'
+    only_a = {'resources': [tools_entry('server', world['a']['id']), tools_entry('service', world['api']['id'], via)]}
+    c = cfg(world, access={**only_a, 'roles': {'content_editor': False}})
+    out = batch(c, {'servers': [{'name': 'cache', 'hostname': 'cache.internal'}]})
+    assert [(e['kind'], e['name']) for e in out['created']] == [('server', 'cache')], out
+    assert call(c, 'save_service', name='redis')['status'] == 'draft'
+    nothing = cfg(world, access={'resources': [], 'roles': {'content_editor': False}})
+    assert batch(nothing, {'servers': [{'name': 'x', 'hostname': 'x.internal'}]}) == {
+        'refused': f'servers[0]: {NO_INVENTORY}'
+    }
 
 
 def test_a_new_environment_is_drafted_and_named_again_by_the_session(world):  # noqa: F811

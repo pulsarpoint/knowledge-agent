@@ -594,7 +594,7 @@
       "type": "object"
     },
     "summary": "One environment's servers, deployments, services, connections, external services and relations.",
-    "usage": "One environment as JSON: its servers (also those with no deployment) with their deployments (service, runtime,\nport, version), its services, the connections touching it (an end in another environment under outside),\nexternal services (id, name, address, ports used), external hosts with their ports, and the relations of its\nservices. Every item carries its id, its revision (you need it to change a draft) and its status: draft (added by\nan agent, waiting for a person to confirm it) or confirmed; a server also has its membership_status in this\nenvironment."
+    "usage": "One environment as JSON: its servers (also those with no deployment) with their deployments (service, runtime,\nport, version), its services, the connections touching it (an end in another environment under outside),\nexternal services (id, name, address, ports used), external hosts with their ports, and the relations of its\nservices. Every item carries its id, its revision (you need it to change a draft) and its status: draft (added by\nan agent, waiting for a person to confirm it) or confirmed; a server also has its membership_status in this\nenvironment.\n\nExample: {\"environment_id\": \"<environment id>\"}"
   },
   {
     "group": "inventory",
@@ -618,7 +618,7 @@
       "type": "object"
     },
     "summary": "The servers in an environment, with their environments.",
-    "usage": "The servers in the environment (with or without deployments), as JSON (id, name, hostname, description, tags,\nstatus (draft or confirmed), revision, environment_ids)."
+    "usage": "The servers in the environment (with or without deployments), as JSON (id, name, hostname, description, tags,\nstatus (draft or confirmed), revision, environment_ids).\n\nExample: {\"environment_id\": \"<environment id>\"}"
   },
   {
     "group": "inventory",
@@ -662,7 +662,7 @@
       "type": "object"
     },
     "summary": "The deployments on a server or of a service.",
-    "usage": "The deployments on a server or of a service (give one), as JSON: service, server, environment, runtime, port,\nversion, status (draft or confirmed) and revision."
+    "usage": "The deployments on a server or of a service (give one), as JSON: service, server, environment, runtime, port,\nversion, status (draft or confirmed) and revision.\n\nExample: {\"server_id\": \"<server id>\", \"service_id\": null}"
   },
   {
     "group": "inventory",
@@ -706,7 +706,7 @@
       "type": "object"
     },
     "summary": "The connections of a service or a deployment.",
-    "usage": "The connections from or to a service's deployments or one deployment (give one), as JSON: from and to\ndeployment, external service or host, port, protocol, description, status (draft or confirmed) and revision."
+    "usage": "The connections from or to a service's deployments or one deployment (give one), as JSON: from and to\ndeployment, external service or host, port, protocol, description, status (draft or confirmed) and revision.\n\nExample: {\"service_id\": \"<service id>\", \"deployment_id\": null}"
   },
   {
     "group": "inventory",
@@ -778,7 +778,7 @@
       "type": "object"
     },
     "summary": "Draft an environment, or update a draft environment.",
-    "usage": "Draft an environment (a set of servers and the services deployed on them, such as prod or staging), or update a draft environment. Without id it creates a draft; with id and the revision you read it updates that draft (omitted fields keep their values). Ids come from the reads or an earlier save. Returns the saved entry as JSON, with its status. Put servers in it with save_server(environment_id) and deploy services with save_deployment. Use save_inventory_draft to draft several entries that refer to each other in one call.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nFields: name (required to create; up to 100 characters; Names are free text, unique per kind in the workspace (case does not matter).), description (free text). A new environment needs an environment in this run.\n\nExample: {\"name\": \"staging\", \"description\": \"Pre-production copy of prod\"}"
+    "usage": "Draft an environment (a set of servers and the services deployed on them, such as prod or staging), or update a draft environment. Without id it creates a draft; with id and the revision you read it updates that draft (omitted fields keep their values). Ids come from the reads or an earlier save. Returns the saved entry as JSON, with its status. Put servers in it with save_server(environment_id) and deploy services with save_deployment. Use save_inventory_draft to draft several entries that refer to each other in one call.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nFields: name (required to create; up to 100 characters; Names are free text, unique per kind in the workspace (case does not matter).), description (free text); a new environment needs an environment, server or service in this run.\n\nExample: {\"name\": \"staging\", \"description\": \"Pre-production copy of prod\"}"
   },
   {
     "group": "inventory",
@@ -895,7 +895,7 @@
       "type": "object"
     },
     "summary": "Draft a server, or update a draft server; optionally put it in an environment.",
-    "usage": "Draft a server (a machine or VM that services run on), or update a draft server. Without id it creates a draft; with id and the revision you read it updates that draft (omitted fields keep their values). Ids come from the reads or an earlier save. Returns the saved entry as JSON, with its status. With environment_id the server joins that environment as a draft membership, with or without deployments (a confirmed server may join too; it is never removed from one here). Then deploy services on it with save_deployment. SSH access is set up by a person, not here. Use save_inventory_draft to draft several entries that refer to each other in one call.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nFields: name (required to create; Names are free text, unique per kind in the workspace (case does not matter).), hostname (required to create; An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).), description (free text), tags (up to 32 lowercase tags of 1–64 characters without commas), environment_id (an environment in this run or drafted by this session). A new server needs an environment in this run.\n\nExample: {\"name\": \"app-1\", \"hostname\": \"10.0.0.5\", \"description\": \"Docker host\", \"tags\": [\"docker\"], \"environment_id\": \"<environment id>\"}"
+    "usage": "Draft a server (a machine or VM that services run on), or update a draft server. Without id it creates a draft; with id and the revision you read it updates that draft (omitted fields keep their values). Ids come from the reads or an earlier save. Returns the saved entry as JSON, with its status. With environment_id the server joins that environment as a draft membership, with or without deployments (a confirmed server may join too; it is never removed from one here). Then deploy services on it with save_deployment. SSH access is set up by a person, not here. Use save_inventory_draft to draft several entries that refer to each other in one call.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nFields: name (required to create; Names are free text, unique per kind in the workspace (case does not matter).), hostname (required to create; An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).), description (free text), tags (up to 32 lowercase tags of 1–64 characters without commas), environment_id (an environment in this run or drafted by this session); a new server needs an environment, server or service in this run.\n\nExample: {\"name\": \"app-1\", \"hostname\": \"10.0.0.5\", \"description\": \"Docker host\", \"tags\": [\"docker\"], \"environment_id\": \"<environment id>\"}"
   },
   {
     "group": "inventory",
@@ -1038,7 +1038,7 @@
       "type": "object"
     },
     "summary": "Draft a service, or update a draft service.",
-    "usage": "Draft a service (software that runs on servers, or an external service reached at an address), or update a draft service. Without id it creates a draft; with id and the revision you read it updates that draft (omitted fields keep their values). Ids come from the reads or an earlier save. Returns the saved entry as JSON, with its status. Record where it runs with save_deployment; an external service is the target of connections (save_connection to_service_id). Use save_inventory_draft to draft several entries that refer to each other in one call.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nFields: name (required to create; Names are free text, unique per kind in the workspace (case does not matter).), service_type: unclassified (default), custom (your own code), builtin (an off-the-shelf product such as PostgreSQL, nginx or ClickHouse) or external (outside your servers, reached at an address: a SaaS API, object storage); service_role: unclassified (default), application, proxy, web_server, database, cache, message_broker, worker or other; description (free text), owner (a team or person, free text), address (where an external service is reached; An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).). A new service needs an environment in this run.\n\nExample: {\"name\": \"clickhouse\", \"service_type\": \"builtin\", \"service_role\": \"database\", \"description\": \"Analytics store\"}"
+    "usage": "Draft a service (software that runs on servers, or an external service reached at an address), or update a draft service. Without id it creates a draft; with id and the revision you read it updates that draft (omitted fields keep their values). Ids come from the reads or an earlier save. Returns the saved entry as JSON, with its status. Record where it runs with save_deployment; an external service is the target of connections (save_connection to_service_id). Use save_inventory_draft to draft several entries that refer to each other in one call.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nFields: name (required to create; Names are free text, unique per kind in the workspace (case does not matter).), service_type: unclassified (default), custom (your own code), builtin (an off-the-shelf product such as PostgreSQL, nginx or ClickHouse) or external (outside your servers, reached at an address: a SaaS API, object storage); service_role: unclassified (default), application, proxy, web_server, database, cache, message_broker, worker or other; description (free text), owner (a team or person, free text), address (where an external service is reached; An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).); a new service needs an environment, server or service in this run.\n\nExample: {\"name\": \"clickhouse\", \"service_type\": \"builtin\", \"service_role\": \"database\", \"description\": \"Analytics store\"}"
   },
   {
     "group": "inventory",
@@ -1532,6 +1532,19 @@
               "title": "From",
               "type": "string"
             },
+            "from_runtime_name": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Its deployment's runtime name: needed only when it runs more than once on that server.",
+              "title": "From Runtime Name"
+            },
             "from_server": {
               "anyOf": [
                 {
@@ -1598,6 +1611,19 @@
               "description": "An external host; or to. An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).",
               "title": "To Host"
             },
+            "to_runtime_name": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The target deployment's runtime name: needed only when it runs more than once on that server.",
+              "title": "To Runtime Name"
+            },
             "to_server": {
               "anyOf": [
                 {
@@ -1615,8 +1641,10 @@
           "required": [
             "from",
             "from_server",
+            "from_runtime_name",
             "to",
             "to_server",
+            "to_runtime_name",
             "to_host",
             "port",
             "protocol",
@@ -1678,7 +1706,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The unit, container or pod name.",
+              "description": "The unit, container or pod name. Matches the recorded deployment with this runtime name; without it, the only deployment of the service on the server in the environment (give it when there are several).",
               "title": "Runtime Name"
             },
             "server": {
@@ -2064,7 +2092,7 @@
       "type": "object"
     },
     "summary": "Draft an environment, servers, services, deployments, connections and relations in one call, by name.",
-    "usage": "Draft a whole picture in one call: an environment, its servers, the services and where they are deployed, the connections between them and their relations. Entries refer to each other by name, not id. Every part is optional.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nHow names resolve: a name refers to an entry in this call first, then to a recorded entry (confirmed or draft) in this run or drafted by this session. A recorded confirmed entry named here is used as it is, never changed (its fields here are ignored); a recorded draft is updated with the fields given; anything else is created as a draft (a new entry needs an environment in this run). environment names an existing environment or drafts a new one; every server listed joins it, and deployments and connections are in it.\n- servers: name, hostname (An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).), description, tags.\n- services: name, service_type: unclassified (default), custom (your own code), builtin (an off-the-shelf product such as PostgreSQL, nginx or ClickHouse) or external (outside your servers, reached at an address: a SaaS API, object storage); service_role: unclassified (default), application, proxy, web_server, database, cache, message_broker, worker or other; description, owner, address (an external service), part_of (names of the services it is a component of).\n- deployments: service and server (names), runtime (Free text: how it runs, such as systemd, docker, docker compose or k8s.), runtime_name (unit, container or pod name), port (1–65535), version, log_location.\n- connections: from (a service name), to (a service name: an external service, or a service deployed in the environment) or to_host (An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).), port (1–65535; needed for a host), protocol (Lowercase letters, digits or . + - (1–20), such as tcp (default), http, https, postgres or smtp.), description. from_server and to_server name the server only when that service runs on more than one.\n- relations: from (a service name), kind: depends_on (needs another service to work), part_of (a component of another service) or built_from (built from a code project); to (a service name, or a code project name for built_from), description.\nAll or nothing: on any error nothing is written and the reply names the entry and the reason, such as \"connections[0]: no service named clickhous. Known services: clickhouse, clickhouse-backup.\" The reply lists what was created, updated and used, each with kind, name and id.\n\nExample: {\n  \"environment\": \"prod\",\n  \"servers\": [{\"name\": \"app-1\", \"hostname\": \"10.0.0.5\", \"description\": \"Docker host\"}],\n  \"services\": [\n    {\"name\": \"clickhouse\", \"service_type\": \"builtin\", \"service_role\": \"database\", \"description\": \"Analytics store\"},\n    {\"name\": \"clickhouse-backup\", \"service_type\": \"builtin\", \"service_role\": \"worker\", \"part_of\": [\"clickhouse\"]},\n    {\"name\": \"backblaze-b2\", \"service_type\": \"external\", \"address\": \"s3.us-east-005.backblazeb2.com\"}\n  ],\n  \"deployments\": [\n    {\"service\": \"clickhouse\", \"server\": \"app-1\", \"runtime\": \"docker compose\", \"runtime_name\": \"clickhouse\",\n     \"port\": 9000, \"version\": \"clickhouse/clickhouse-server:24.8\"},\n    {\"service\": \"clickhouse-backup\", \"server\": \"app-1\", \"runtime\": \"docker compose\",\n     \"runtime_name\": \"clickhouse-backup\", \"version\": \"altinity/clickhouse-backup:2.7.4\"}\n  ],\n  \"connections\": [\n    {\"from\": \"clickhouse-backup\", \"from_server\": \"app-1\", \"to\": \"clickhouse\", \"to_server\": \"app-1\",\n     \"port\": 9000, \"protocol\": \"tcp\"},\n    {\"from\": \"clickhouse-backup\", \"to\": \"backblaze-b2\", \"port\": 443, \"protocol\": \"https\"},\n    {\"from\": \"clickhouse\", \"to_host\": \"smtp.example.com\", \"port\": 25, \"protocol\": \"smtp\"}\n  ],\n  \"relations\": [{\"from\": \"clickhouse-backup\", \"kind\": \"depends_on\", \"to\": \"clickhouse\"}]\n}"
+    "usage": "Draft a whole picture in one call: an environment, its servers, the services and where they are deployed, the connections between them and their relations. Entries refer to each other by name, not id. Every part is optional.\n\nEvery write is a draft: it is added to the inventory as a draft that a person confirms or discards in the environment workspace. You may add drafts and change or remove drafts (yours or another agent's); a confirmed entry is changed only by people, so the tool refuses it: add a new draft instead, or describe the change in your answer. Read first (get_environment_model, list_servers, get_resource): every entry carries its status (draft or confirmed), so you do not add what is already there.\n\nHow names resolve: a name refers to an entry in this call first, then to a recorded entry (confirmed or draft) in this run or drafted by this session. A recorded confirmed entry named here is used as it is, never changed (its fields here are ignored, but its part_of still adds draft relations); a recorded draft is updated with the fields given; anything else is created as a draft (a new entry needs an environment, server or service in this run). environment names an existing environment or drafts a new one; every server listed and every server a deployment runs on joins it (a draft membership), and deployments and connections are in it.\n- servers: name, hostname (An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).), description, tags.\n- services: name, service_type: unclassified (default), custom (your own code), builtin (an off-the-shelf product such as PostgreSQL, nginx or ClickHouse) or external (outside your servers, reached at an address: a SaaS API, object storage); service_role: unclassified (default), application, proxy, web_server, database, cache, message_broker, worker or other; description, owner, address (an external service), part_of (names of the services it is a component of).\n- deployments: service and server (names), runtime (Free text: how it runs, such as systemd, docker, docker compose or k8s.), runtime_name (unit, container or pod name), port (1–65535), version, log_location. A deployment is the recorded one of that service on that server in the environment: with runtime_name the one with that runtime name, without it the only one there (when there are several, give runtime_name); else it is created.\n- connections: from (a service name), to (a service name: an external service, or a service deployed in the environment) or to_host (An IP address or hostname without scheme, port, path or credentials (10.0.0.5, db-1.internal).), port (1–65535; needed for a host), protocol (Lowercase letters, digits or . + - (1–20), such as tcp (default), http, https, postgres or smtp.), description. A connection starts and ends at that service's deployment in the environment: from_server and to_server name the server only when the service runs on more than one, from_runtime_name and to_runtime_name the runtime name only when it runs more than once on that server.\n- relations: from (a service name), kind: depends_on (needs another service to work), part_of (a component of another service) or built_from (built from a code project); to (a service name, or a code project name for built_from), description.\nAll or nothing: on any error nothing is written and the reply names the entry and the reason, such as \"connections[0]: no service named clickhous. Known services: clickhouse, clickhouse-backup.\" The reply lists what was created, updated and used, each with kind, name and id.\n\nExample: {\n  \"environment\": \"prod\",\n  \"servers\": [{\"name\": \"app-1\", \"hostname\": \"10.0.0.5\", \"description\": \"Docker host\"}],\n  \"services\": [\n    {\"name\": \"clickhouse\", \"service_type\": \"builtin\", \"service_role\": \"database\", \"description\": \"Analytics store\"},\n    {\"name\": \"clickhouse-backup\", \"service_type\": \"builtin\", \"service_role\": \"worker\", \"part_of\": [\"clickhouse\"]},\n    {\"name\": \"backblaze-b2\", \"service_type\": \"external\", \"address\": \"s3.us-east-005.backblazeb2.com\"}\n  ],\n  \"deployments\": [\n    {\"service\": \"clickhouse\", \"server\": \"app-1\", \"runtime\": \"docker compose\", \"runtime_name\": \"clickhouse\",\n     \"port\": 9000, \"version\": \"clickhouse/clickhouse-server:24.8\"},\n    {\"service\": \"clickhouse-backup\", \"server\": \"app-1\", \"runtime\": \"docker compose\",\n     \"runtime_name\": \"clickhouse-backup\", \"version\": \"altinity/clickhouse-backup:2.7.4\"}\n  ],\n  \"connections\": [\n    {\"from\": \"clickhouse-backup\", \"from_server\": \"app-1\", \"to\": \"clickhouse\", \"to_server\": \"app-1\",\n     \"port\": 9000, \"protocol\": \"tcp\"},\n    {\"from\": \"clickhouse-backup\", \"to\": \"backblaze-b2\", \"port\": 443, \"protocol\": \"https\"},\n    {\"from\": \"clickhouse\", \"to_host\": \"smtp.example.com\", \"port\": 25, \"protocol\": \"smtp\"}\n  ],\n  \"relations\": [{\"from\": \"clickhouse-backup\", \"kind\": \"depends_on\", \"to\": \"clickhouse\"}]\n}"
   },
   {
     "group": "inventory",

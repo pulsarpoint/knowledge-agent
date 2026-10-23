@@ -139,7 +139,7 @@ WITHOUT_EDITOR = (
 NOT_ENVIRONMENT = 'This environment is not available in this run.'
 NOT_SERVICE = 'This service is not available in this run.'
 NOT_DEPLOYMENT = 'This deployment is not available in this run.'
-NO_ENVIRONMENTS = 'This run has no environments.'
+NO_INVENTORY = 'This run has no environments or servers or services.'
 
 
 def row(default, **cells) -> dict:
@@ -199,10 +199,10 @@ EXPECTED = {
     'list_servers': row(NOT_ENVIRONMENT, environment=None),
     'list_deployments': row(NOT_SERVER, **some(WITH_SERVER, None)),
     'list_connections': row(NOT_SERVICE, server_with_services=None, environment=None),
-    # writes (drafts, no role): a new entry needs an environment in the run, then every item named must be usable
-    # (code project c1 is not in the environment run)
-    'save_environment': row(NO_ENVIRONMENTS, environment=None, other=None),
-    'save_server': row(NO_ENVIRONMENTS, environment=None, other=NOT_ENVIRONMENT),
+    # writes (drafts, no role): a new entry needs an environment, server or service in the run, then every item named
+    # must be usable (code project c1 is not in the environment run)
+    'save_environment': row(NO_INVENTORY, **some((*WITH_SERVER, 'other'), None)),
+    'save_server': row(NO_INVENTORY, **{**some((*WITH_SERVER, 'other'), NOT_ENVIRONMENT), 'environment': None}),
     'save_service': row(NOT_SERVICE, server_with_services=None, environment=None),
     'save_deployment': row(NOT_SERVICE, server_with_services=NOT_ENVIRONMENT, environment=None),
     'save_connection': row(NOT_DEPLOYMENT, environment=None),

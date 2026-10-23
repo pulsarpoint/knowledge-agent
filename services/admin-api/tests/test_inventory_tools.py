@@ -133,9 +133,16 @@ def test_writes_need_the_target_in_access_or_created_by_this_session_and_no_role
     assert tools.check_save_server(a, name='x', hostname='x') is None
     assert tools.check_save_service(a, name='x') is None
     assert tools.check_save_environment(a, name='x') is None
-    no_environment = access(entry('server', 's1'))
-    assert tools.check_save_server(no_environment, name='x', hostname='x') == 'This run has no environments.'
-    assert tools.check_save_environment(no_environment, name='x') == 'This run has no environments.'
+    only_server = access(entry('server', 's1'))  # any inventory resource will do
+    assert tools.check_save_server(only_server, name='x', hostname='x') is None
+    assert tools.check_save_environment(only_server, name='x') is None
+    assert tools.check_save_service(access(entry('service', 'v1')), name='x') is None
+    nothing = access(entry('code_project', 'c1'))
+    none_of = 'This run has no environments or servers or services.'
+    assert tools.check_save_server(nothing, name='x', hostname='x') == none_of
+    assert tools.check_save_service(nothing, name='x') == none_of
+    assert tools.check_save_environment(nothing, name='x') == none_of
+    no_environment = only_server
     assert tools.check_save_environment(a, id='e9', description='x') == 'This environment is not available in this run.'
     assert tools.check_save_environment(a, id='e9', description='x', created={('environment', 'e9')}) is None
     assert tools.check_save_inventory_draft(no_environment) is None  # the names are resolved over the rows

@@ -304,13 +304,19 @@ optional:
 
 Names are matched without case: an entry in the same call first, then a recorded entry (confirmed or draft) the run
 may name (in its access or created by the session). A recorded confirmed entry named here is used as an end, never
-changed (the fields given for it are ignored); a recorded draft is updated with the fields given; anything else is
-created as a draft. `environment` names an existing environment or drafts a new one; every server listed joins it, and
-deployments and connections are in it. A deployment is matched by service, server, environment and `runtime_name`; a
-connection by its ends, port and protocol; a relation by its ends and kind; so the same call twice creates nothing new.
-A connection's `to` is a service: an external one is the target itself (`to_service_id`), any other is reached through
-its deployment in the environment; `from_server` / `to_server` are needed only when a service runs on more than one
-server. `part_of` on a service adds `part_of` relations; a `built_from` relation names a code project in the access. The
+changed (the fields given for it are ignored, but its `part_of` still adds draft relations); a recorded draft is
+updated with the fields given; anything else is created as a draft. `environment` names an existing environment or
+drafts a new one; every server listed and every server a deployment runs on joins it (a draft membership, listed in the
+reply), and deployments and connections are in it. A deployment is the recorded one of that service on that server in
+the environment: with `runtime_name` the one with that runtime name, without it the only one there (several: refused,
+`deployments[0]: service clickhouse has several deployments on server app-1 (clickhouse, ch2); give runtime_name.`);
+else it is created. A connection is matched by its ends, port and protocol, a relation by its ends and kind; so the same
+call twice (with or without the runtime names) creates nothing new, and the same relation or connection twice in one
+call is refused (`listed twice`). A connection's `to` is a service: an external one is the target itself
+(`to_service_id`), any other is reached through its deployment in the environment; `from_server` / `to_server` are
+needed only when a service runs on more than one server, `from_runtime_name` / `to_runtime_name` only when it runs more
+than once on that server, and every ambiguity names the field that resolves it. `part_of` on a service adds `part_of`
+relations; a `built_from` relation names a code project in the access. The
 pure `resolve_draft(payload, recorded)` turns the payload into a plan (steps create / update / use, a membership add)
 and refuses the first entry it cannot resolve with `<part>[<index>]: <reason>` (for example `connections[0]: no
 service named clickhous. Known services: clickhouse, clickhouse-backup.`, `connections[0]: clickhouse runs on app-1,
@@ -330,8 +336,8 @@ service held through one environment does not open its deployments elsewhere; a 
 a relation when its from-service is. Reads need the item usable. Writes need no role: a session (`Inventory changes need
 a session.`) and every item they name usable (`This <type> is not available in this run.`: a deployment names its
 environment, server and service; a connection its deployments; a relation its services or code project); a new
-environment, server or service needs only an environment in the access (`This run has no environments.`; in
-`save_inventory_draft` as `<part>[<index>]: This run has no environments.`). So an agent can draft a server, deploy a
+environment, server or service needs only an inventory resource (an environment, server or service) in the access
+(`This run has no environments or servers or services.`; in `save_inventory_draft` prefixed with `<part>[<index>]: `). So an agent can draft a server, deploy a
 service on it and connect it in one run, and cannot touch what is outside its access unless it created it. The read
 tools are offered in every run; the write tools only in a session turn (`catalog.INVENTORY_WRITES`): never to a subagent
 or an expert. An older stored access object with a role that no longer exists still loads (an unknown role is

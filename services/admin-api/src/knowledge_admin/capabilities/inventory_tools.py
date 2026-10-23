@@ -35,6 +35,7 @@ MAX_ITEMS = 100
 NO_SESSION = 'Inventory changes need a session.'
 NO_REVISION = 'revision is required: the revision you read'
 EITHER = 'Give either {0} or {1}.'
+INVENTORY_TYPES = ('environment', 'server', 'service')  # any of them in the access lets a run add new drafts
 DRAFTED = (
     'These entries are drafts: a person confirms or discards them in the environment workspace. Used entries were '
     'named, not changed (a confirmed entry is changed only by people).'
@@ -101,10 +102,11 @@ def first_refused(
 
 
 def _write(access: dict, kind: str, id, values: dict, created, rows, remove: bool = False) -> str | None:
-    """A new environment, server or service needs an environment in the access; every item named must be usable; an
-    existing item must be a draft (a confirmed server may still join an environment: a draft membership)."""
-    if id is None and kind in ('environment', 'server', 'service') and not access_rules.has_any(access, 'environment'):
-        return access_rules.refuse_none('environment')
+    """A new environment, server or service needs an inventory resource (environment, server or service) in the
+    access; every item named must be usable; an existing item must be a draft (a confirmed server may still join an
+    environment: a draft membership)."""
+    if id is None and kind in INVENTORY_TYPES and not may_create(access):
+        return access_rules.refuse_none(*INVENTORY_TYPES)
     if refusal := first_refused(access, refs(kind, id, values), created, rows, strict=True):
         return refusal
     row = None if id is None else (rows or {}).get((kind, str(id)))
@@ -112,6 +114,10 @@ def _write(access: dict, kind: str, id, values: dict, created, rows, remove: boo
     if row is not None and row.get('status') == 'confirmed' and not joins_only:
         return rules.confirmed_refusal(kind)
     return None
+
+
+def may_create(access: dict) -> bool:
+    return any(access_rules.has_any(access, kind) for kind in INVENTORY_TYPES)
 
 
 def _either(access: dict, values: dict, created, rows) -> str | None:
@@ -220,7 +226,9 @@ class _Plan:
         self.steps: list[dict] = []
         self.named: dict[str, dict] = {'server': {}, 'service': {}}  # this call's, by lower-cased name
         self.environment: dict | None = None  # {ref, name}
-        self.deployments: list[dict] = []  # this call's: {key, ref, service, server, server_name, port}
+        self.deployments: list[dict] = []  # this call's: {key, ref, service, server, server_name, runtime_name, port}
+        self.members: set = set()  # the servers in the environment, or joining it in this call
+        self.identities: set = set()  # the relations and connections this call names
 
     def _step(self, kind: str, action: str, where: str, name: str, key=None, row=None, values=None) -> dict:
         step = {
@@ -248,7 +256,13 @@ class _Plan:
 
     def _new(self, where: str) -> None:
         if not self.may_create:
-            raise Invalid(f'{where}: {access_rules.refuse_none("environment")}')
+            raise Invalid(f'{where}: {access_rules.refuse_none(*INVENTORY_TYPES)}')
+
+    def _once(self, where: str, name: str, identity: tuple) -> None:
+        """Refuses a relation or connection this call already names."""
+        if identity in self.identities:
+            raise Invalid(f'{where}: {name} is listed twice.')
+        self.identities.add(identity)
 
     def _recorded(self, part: str, name: str) -> dict | None:
         return next((row for row in self.recorded[part] if row['name'].lower() == name.lower()), None)
@@ -271,6 +285,15 @@ class _Plan:
             self._new('environment')
         ref = self._entry('environment', 'environment', row['name'] if row else name, None, row, {'name': name}, {})
         self.environment = {'ref': ref, 'name': row['name'] if row else name}
+        self.members = {s['id'] for s in self.recorded['servers'] if ref in (s.get('environment_ids') or [])}
+
+    def _join(self, where: str, server_ref, server_name: str) -> None:
+        """A draft membership of the server in the environment, unless it is a member or joins in this call."""
+        if server_ref in self.members:
+            return
+        self.members.add(server_ref)
+        values = {'environment_id': self.environment['ref'], 'server_id': server_ref}
+        self._step('membership', 'add', where, f'{server_name} in {self.environment["name"]}', values=values)
 
     def add(self, kind: str, where: str, entry: dict) -> None:
         """A server or service of the payload; a server joins the environment (a draft membership) unless it is in it."""
@@ -287,42 +310,45 @@ class _Plan:
         kept = row is not None and row['status'] == 'confirmed'
         service_type = recorded_type if kept else changes.get('service_type', recorded_type or 'unclassified')
         self.named[kind][name.lower()] = {'ref': ref, 'name': row['name'] if row else name, 'type': service_type}
-        if kind != 'server' or self.environment is None:
-            return
-        if row is not None and self.environment['ref'] in row.get('environment_ids', []):
-            return
-        joined = f'{self.named[kind][name.lower()]["name"]} in {self.environment["name"]}'
-        self._step(
-            'membership', 'add', where, joined, values={'environment_id': self.environment['ref'], 'server_id': ref}
-        )
+        if kind == 'server' and self.environment is not None:
+            self._join(where, ref, self.named[kind][name.lower()]['name'])
 
     def deployment(self, where: str, entry: dict) -> None:
+        """Matched to a recorded deployment of the service on the server in the environment: the one with the
+        runtime_name given, or without one the only one there (several: refused, naming them)."""
         if self.environment is None:
             raise Invalid(f'{where}: give the environment the deployments are in.')
         service = self._name('service', entry['service'], where)
         server = self._name('server', entry['server'], where)
-        runtime_name = (entry.get('runtime_name') or '').strip()
-        key = ('deployment', service['ref'], server['ref'], runtime_name)
-        if any(d['key'] == key for d in self.deployments):
-            raise Invalid(f'{where}: {service["name"]} on {server["name"]} is listed twice.')
+        given_name = entry.get('runtime_name')
         changes = _picked(entry, DEPLOYMENT_VALUES)
         ends = {'service_id': service['ref'], 'server_id': server['ref'], 'environment_id': self.environment['ref']}
-        row = next(
-            (
-                d
-                for d in self.recorded['deployments']
-                if (d['service_id'], d['server_id'], d['environment_id'], d['runtime_name'])
-                == (*ends.values(), runtime_name)
-            ),
-            None,
-        )
+        there = [
+            d
+            for d in self.recorded['deployments']
+            if (d['service_id'], d['server_id'], d['environment_id']) == tuple(ends.values())
+        ]
+        if given_name is not None:
+            there = [d for d in there if d['runtime_name'] == given_name.strip()]
+        if len(there) > 1:
+            names = ', '.join(d['runtime_name'] or '""' for d in there)
+            raise Invalid(
+                f'{where}: service {service["name"]} has several deployments on server {server["name"]} ({names}); '
+                'give runtime_name.'
+            )
+        row = there[0] if there else None
+        runtime_name = row['runtime_name'] if row else (given_name or '').strip()
+        key = ('deployment', row['id']) if row else ('deployment', service['ref'], server['ref'], runtime_name)
+        if any(d['key'] == key for d in self.deployments):
+            raise Invalid(f'{where}: {service["name"]} on {server["name"]} is listed twice.')
+        self._join(where, server['ref'], server['name'])
         name = f'{service["name"]} on {server["name"]} in {self.environment["name"]}'
         same = {f: v for f, v in changes.items() if f != 'runtime_name'}  # the runtime name is how it was matched
         ref = self._entry('deployment', where, name, key, row, {**ends, **changes}, same)
         port = changes.get('port', None if row is None else row['port'])
         self.deployments.append(
             {'key': key, 'ref': ref, 'service': service['ref'], 'server': server['ref'], 'server_name': server['name']}
-            | {'port': port}
+            | {'runtime_name': runtime_name, 'port': port}
         )
 
     def _candidates(self) -> list[dict]:
@@ -335,6 +361,7 @@ class _Plan:
                 'service': d['service_id'],
                 'server': d['server_id'],
                 'server_name': server_names.get(d['server_id'], str(d['server_id'])),
+                'runtime_name': d['runtime_name'],
                 'port': d['port'],
             }
             for d in self.recorded['deployments']
@@ -342,9 +369,11 @@ class _Plan:
         ]
         return self.deployments + recorded
 
-    def _end(self, where: str, name: str, server_name: str | None, side: str) -> tuple[dict, dict]:
-        """The service named and its one deployment in the environment (on server_name when given)."""
-        service = self._name('service', name, where)
+    def _end(self, where: str, entry: dict, side: str) -> tuple[dict, dict]:
+        """The service named on this side ('from' or 'to') and its one deployment in the environment, narrowed by
+        <side>_server and <side>_runtime_name when given; an ambiguity names the field that resolves it."""
+        service = self._name('service', entry['from_' if side == 'from' else 'to'], where)
+        server_name, runtime_name = entry.get(f'{side}_server'), entry.get(f'{side}_runtime_name')
         if self.environment is None:
             raise Invalid(f'{where}: give the environment the connections are in.')
         found = [c for c in self._candidates() if c['service'] == service['ref']]
@@ -353,12 +382,26 @@ class _Plan:
             server = self._name('server', server_name, where)
             found = [c for c in found if c['server'] == server['ref']]
             on = f' on {server["name"]}'
+        if runtime_name is not None:
+            found = [c for c in found if c['runtime_name'] == runtime_name.strip()]
+            on += f' with runtime_name {runtime_name}'
         if not found:
             raise Invalid(f'{where}: {service["name"]} has no deployment{on} in {self.environment["name"]}.')
-        if len(found) > 1:
-            servers = ', '.join(c['server_name'] for c in found)
-            raise Invalid(f'{where}: {service["name"]} runs on {servers}; give {side}_server.')
-        return service, found[0]
+        if len(found) == 1:
+            return service, found[0]
+        found = sorted(found, key=lambda c: c['server_name'].lower())
+        servers = {c['server'] for c in found}
+        if len(servers) == len(found):
+            names = ', '.join(c['server_name'] for c in found)
+            raise Invalid(f'{where}: {service["name"]} runs on {names}; give {side}_server.')
+        if len(servers) == 1:
+            names = ', '.join(c['runtime_name'] or '""' for c in found)
+            raise Invalid(
+                f'{where}: service {service["name"]} has several deployments on server {found[0]["server_name"]} '
+                f'({names}); give {side}_runtime_name.'
+            )
+        names = ', '.join(f'{c["server_name"]}/{c["runtime_name"]}' for c in found)
+        raise Invalid(f'{where}: {service["name"]} runs on {names}; give {side}_server and {side}_runtime_name.')
 
     def connection(self, where: str, entry: dict) -> None:
         to, host = entry.get('to'), entry.get('to_host')
@@ -366,7 +409,7 @@ class _Plan:
             raise Invalid(f'{where}: give to (a service) or to_host, not both.')
         if to is None and host is None:
             raise Invalid(f'{where}: give to (a service) or to_host.')
-        source, start = self._end(where, entry['from_'], entry.get('from_server'), 'from')
+        source, start = self._end(where, entry, 'from')
         values: dict[str, Any] = {'from_deployment_id': start['ref']}
         target_port = None
         if host is not None:
@@ -376,24 +419,27 @@ class _Plan:
             if target['type'] == 'external':
                 values['to_service_id'] = target['ref']
             else:
-                deployment = self._end(where, to, entry.get('to_server'), 'to')[1]
+                deployment = self._end(where, entry, 'to')[1]
                 values['to_deployment_id'], target_port = deployment['ref'], deployment['port']
             end = target['name']
         values |= _picked(entry, CONNECTION_VALUES)
         port, protocol = values.get('port', target_port), values.get('protocol', 'tcp')
+        to_host = (values.get('to_host') or '').lower().removesuffix('.')
+        identity = (values['from_deployment_id'], values.get('to_deployment_id'), values.get('to_service_id'))
+        name = f'{source["name"]} → {end}'
+        self._once(where, name, ('connection', *identity, to_host, port, protocol))
         row = next(
             (
                 r
                 for r in self.recorded['connections']
-                if (r['from_deployment_id'], r['to_deployment_id'], r['to_service_id'])
-                == (values['from_deployment_id'], values.get('to_deployment_id'), values.get('to_service_id'))
-                and (r['to_host'] or '') == (values.get('to_host') or '').lower().removesuffix('.')
+                if (r['from_deployment_id'], r['to_deployment_id'], r['to_service_id']) == identity
+                and (r['to_host'] or '') == to_host
                 and (r['port'], r['protocol']) == (port, protocol)
             ),
             None,
         )
         changes = _picked(entry, {'description': 'description'})
-        self._entry('connection', where, f'{source["name"]} → {end}', None, row, values, changes)
+        self._entry('connection', where, name, None, row, values, changes)
 
     def relation(self, where: str, entry: dict) -> None:
         source = self._name('service', entry['from_'], where)
@@ -410,25 +456,27 @@ class _Plan:
         else:
             target = self._name('service', entry['to'], where)
             values['to_service_id'], end = target['ref'], target['name']
+        identity = (source['ref'], kind, values.get('to_service_id'), values.get('to_code_project_id'))
+        name = f'{source["name"]} {kind} {end}'
+        self._once(where, name, ('relation', *identity))
         changes = _picked(entry, {'description': 'description'})
         row = next(
             (
                 r
                 for r in self.recorded['relations']
-                if (r['from_service_id'], r['kind'], r['to_service_id'], r['to_code_project_id'])
-                == (source['ref'], kind, values.get('to_service_id'), values.get('to_code_project_id'))
+                if (r['from_service_id'], r['kind'], r['to_service_id'], r['to_code_project_id']) == identity
             ),
             None,
         )
-        self._entry('relation', where, f'{source["name"]} {kind} {end}', None, row, values | changes, changes)
+        self._entry('relation', where, name, None, row, values | changes, changes)
 
 
 def resolve_draft(payload: dict, recorded: dict) -> list[dict]:
     """The plan for a save_inventory_draft payload (the argument model's dump: parts None or lists of entries with
     every field, None when not given; a connection's and relation's from is from_). recorded: the rows the run may
     name, by part (environments, servers with environment_ids, services with service_type, deployments, connections,
-    relations, code_projects {id, name}; each with id, status and revision) and may_create (an environment in the
-    access: new entries are allowed). Names are matched without case: this call's entries first, then the recorded
+    relations, code_projects {id, name}; each with id, status and revision) and may_create (an inventory resource in
+    the access: new entries are allowed). Names are matched without case: this call's entries first, then the recorded
     ones. Raises Invalid "<part>[<index>]: <reason>" on the first entry it cannot resolve."""
     plan = _Plan(recorded)
     plan.set_environment(payload.get('environment'))
@@ -462,9 +510,11 @@ def apply_draft(conn, project: UUID, plan: list[dict], author: dict) -> dict:
         try:
             if kind == 'membership':
                 environment_id, server_id = UUID(str(values['environment_id'])), UUID(str(values['server_id']))
-                if store.add_server_to_environment(conn, project, environment_id, server_id, author, status='draft'):
-                    entry_id = rules.membership_id(environment_id, server_id)
-                    out['created'].append({'kind': kind, 'name': step['name'], 'id': entry_id})
+                added = store.add_server_to_environment(
+                    conn, project, environment_id, server_id, author, status='draft'
+                )
+                entry_id = rules.membership_id(environment_id, server_id)
+                out['created' if added else 'used'].append({'kind': kind, 'name': step['name'], 'id': entry_id})
                 continue
             create, update, _ = WRITERS[kind]
             if step['action'] == 'create':
@@ -481,7 +531,7 @@ def apply_draft(conn, project: UUID, plan: list[dict], author: dict) -> dict:
 def _recorded(conn, project: UUID, access: dict, created: set) -> dict:
     """What resolve_draft may name: the environments, servers and services in the access or created by this session,
     the deployments whose environment, server and service are among them, the connections and relations from those,
-    the code projects in the access; may_create when the access has an environment."""
+    the code projects in the access; may_create when the access has an environment, server or service."""
 
     def mine(kind: str, rows: list[dict]) -> list[dict]:
         return [row for row in rows if usable(access, kind, row['id'], created)]
@@ -503,7 +553,7 @@ def _recorded(conn, project: UUID, access: dict, created: set) -> dict:
         except ValueError:
             continue
     return {
-        'may_create': access_rules.has_any(access, 'environment'),
+        'may_create': may_create(access),
         'environments': environments,
         'servers': servers,
         'services': services,
@@ -709,6 +759,7 @@ RELATION_TEXT = (
     'a code project)'
 )
 WHEN = 'Use save_inventory_draft to draft several entries that refer to each other in one call.'
+NEW_ENTRY = 'a new {0} needs an environment, server or service in this run'
 
 
 def _usage(purpose: str, fields: str, example: str) -> str:
@@ -735,7 +786,9 @@ async def get_environment_model(
     external services (id, name, address, ports used), external hosts with their ports, and the relations of its
     services. Every item carries its id, its revision (you need it to change a draft) and its status: draft (added by
     an agent, waiting for a person to confirm it) or confirmed; a server also has its membership_status in this
-    environment."""
+    environment.
+
+    Example: {"environment_id": "<environment id>"}"""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -748,7 +801,9 @@ async def get_environment_model(
 @tool
 async def list_servers(context, environment_id: Annotated[Id, Field(description='The environment id.')]) -> str:
     """The servers in the environment (with or without deployments), as JSON (id, name, hostname, description, tags,
-    status (draft or confirmed), revision, environment_ids)."""
+    status (draft or confirmed), revision, environment_ids).
+
+    Example: {"environment_id": "<environment id>"}"""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -767,7 +822,9 @@ async def list_deployments(
     service_id: Annotated[OptionalId, Field(description='The deployments of this service.')] = None,
 ) -> str:
     """The deployments on a server or of a service (give one), as JSON: service, server, environment, runtime, port,
-    version, status (draft or confirmed) and revision."""
+    version, status (draft or confirmed) and revision.
+
+    Example: {"server_id": "<server id>", "service_id": null}"""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -784,7 +841,9 @@ async def list_connections(
     deployment_id: Annotated[OptionalId, Field(description='Connections of this deployment.')] = None,
 ) -> str:
     """The connections from or to a service's deployments or one deployment (give one), as JSON: from and to
-    deployment, external service or host, port, protocol, description, status (draft or confirmed) and revision."""
+    deployment, external service or host, port, protocol, description, status (draft or confirmed) and revision.
+
+    Example: {"service_id": "<service id>", "deployment_id": null}"""
     return await asyncio.to_thread(
         _read,
         context['config'],
@@ -799,8 +858,8 @@ async def list_connections(
         'Draft an environment (a set of servers and the services deployed on them, such as prod or staging), or update '
         f'a draft environment. {SAVE} Put servers in it with save_server(environment_id) and deploy services with '
         f'save_deployment. {WHEN}',
-        f'Fields: name (required to create; up to 100 characters; {NAMES}), description (free text). A new '
-        'environment needs an environment in this run.',
+        f'Fields: name (required to create; up to 100 characters; {NAMES}), description (free text); '
+        f'{NEW_ENTRY.format("environment")}.',
         '{"name": "staging", "description": "Pre-production copy of prod"}',
     )
 )
@@ -825,7 +884,7 @@ async def save_environment(
         f'with save_deployment. SSH access is set up by a person, not here. {WHEN}',
         f'Fields: name (required to create; {NAMES}), hostname (required to create; {HOSTNAME}), description (free '
         'text), tags (up to 32 lowercase tags of 1–64 characters without commas), environment_id (an environment in '
-        'this run or drafted by this session). A new server needs an environment in this run.',
+        'this run or drafted by this session); ' + NEW_ENTRY.format('server') + '.',
         '{"name": "app-1", "hostname": "10.0.0.5", "description": "Docker host", "tags": ["docker"], '
         '"environment_id": "<environment id>"}',
     )
@@ -856,7 +915,7 @@ async def save_server(
         f'connections (save_connection to_service_id). {WHEN}',
         f'Fields: name (required to create; {NAMES}), service_type: {SERVICE_TYPE_TEXT}; service_role: '
         f'{SERVICE_ROLE_TEXT}; description (free text), owner (a team or person, free text), address (where an '
-        f'external service is reached; {HOSTNAME}). A new service needs an environment in this run.',
+        f'external service is reached; {HOSTNAME}); {NEW_ENTRY.format("service")}.',
         '{"name": "clickhouse", "service_type": "builtin", "service_role": "database", "description": "Analytics '
         'store"}',
     )
@@ -1061,7 +1120,13 @@ class DeploymentDraft(_Entry):
     service: str = Field(min_length=1, max_length=200, description='The service deployed, by name.')
     server: str = Field(min_length=1, max_length=200, description='The server it runs on, by name.')
     runtime: str | None = Field(default=None, max_length=80, description=RUNTIME_TEXT)
-    runtime_name: str | None = Field(default=None, max_length=200, description='The unit, container or pod name.')
+    runtime_name: str | None = Field(
+        default=None,
+        max_length=200,
+        description='The unit, container or pod name. Matches the recorded deployment with this runtime name; '
+        'without it, the only deployment of the service on the server in the environment (give it when there are '
+        'several).',
+    )
     port: int | None = Field(default=None, ge=1, le=65535, description='The port it listens on, 1–65535.')
     version: str | None = Field(default=None, max_length=200, description='The version or image tag, free text.')
     log_location: str | None = Field(default=None, max_length=1000, description='Where its logs are.')
@@ -1072,6 +1137,11 @@ class ConnectionDraft(_Entry):
     from_server: str | None = Field(
         default=None, max_length=200, description='Its server, by name: needed only when it runs on several servers.'
     )
+    from_runtime_name: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Its deployment's runtime name: needed only when it runs more than once on that server.",
+    )
     to: str | None = Field(
         default=None,
         max_length=200,
@@ -1079,6 +1149,11 @@ class ConnectionDraft(_Entry):
     )
     to_server: str | None = Field(
         default=None, max_length=200, description="The target's server: needed only when it runs on several servers."
+    )
+    to_runtime_name: str | None = Field(
+        default=None,
+        max_length=200,
+        description="The target deployment's runtime name: needed only when it runs more than once on that server.",
     )
     to_host: str | None = Field(default=None, max_length=253, description=f'An external host; or to. {HOSTNAME}')
     port: int | None = Field(
@@ -1128,17 +1203,23 @@ INVENTORY_DRAFT_EXAMPLE = """{
         'is optional.',
         'How names resolve: a name refers to an entry in this call first, then to a recorded entry (confirmed or '
         'draft) in this run or drafted by this session. A recorded confirmed entry named here is used as it is, never '
-        'changed (its fields here are ignored); a recorded draft is updated with the fields given; anything else is '
-        'created as a draft (a new entry needs an environment in this run). environment names an existing '
-        'environment or drafts a new one; every server listed joins it, and deployments and connections are in it.\n'
+        'changed (its fields here are ignored, but its part_of still adds draft relations); a recorded draft is '
+        'updated with the fields given; anything else is created as a draft (a new entry needs an environment, server '
+        'or service in this run). environment names an existing environment or drafts a new one; every server listed '
+        'and every server a deployment runs on joins it (a draft membership), and deployments and connections are in '
+        'it.\n'
         f'- servers: name, hostname ({HOSTNAME}), description, tags.\n'
         f'- services: name, service_type: {SERVICE_TYPE_TEXT}; service_role: {SERVICE_ROLE_TEXT}; description, owner, '
         'address (an external service), part_of (names of the services it is a component of).\n'
         f'- deployments: service and server (names), runtime ({RUNTIME_TEXT}), runtime_name (unit, container or pod '
-        'name), port (1–65535), version, log_location.\n'
+        'name), port (1–65535), version, log_location. A deployment is the recorded one of that service on that '
+        'server in the environment: with runtime_name the one with that runtime name, without it the only one there '
+        '(when there are several, give runtime_name); else it is created.\n'
         '- connections: from (a service name), to (a service name: an external service, or a service deployed in '
         f'the environment) or to_host ({HOSTNAME}), port (1–65535; needed for a host), protocol ({PROTOCOL_TEXT}), '
-        'description. from_server and to_server name the server only when that service runs on more than one.\n'
+        "description. A connection starts and ends at that service's deployment in the environment: from_server and "
+        'to_server name the server only when the service runs on more than one, from_runtime_name and '
+        'to_runtime_name the runtime name only when it runs more than once on that server.\n'
         f'- relations: from (a service name), kind: {RELATION_TEXT}; to (a service name, or a code project name for '
         'built_from), description.\n'
         'All or nothing: on any error nothing is written and the reply names the entry and the reason, such as '

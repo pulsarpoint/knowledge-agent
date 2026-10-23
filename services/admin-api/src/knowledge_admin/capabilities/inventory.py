@@ -2,7 +2,8 @@
 environment or code project, with links to related resources the model follows by their type and id (deployments,
 service relations and connections with their port and protocol; a service's connections to external hosts apart, under
 external). Every entry and link carries its status: draft (an agent's, waiting for a person) or confirmed (for a
-link: the deployment, membership, relation or connection behind it). Read-only.
+link: the deployment, membership, relation or connection behind it, or where none is (an environment a service is
+deployed in, a service an environment contains) the linked entry's own). Read-only.
 The tool runs where agents run (agent-session-worker, admin-api); configure() gives it that process's database.
 The workspace is the run's (a resource run pins config['project_id']) or the single application's. It answers only
 about a resource in the run's access object (check_get_resource); anything else, a linked resource too, reads as
