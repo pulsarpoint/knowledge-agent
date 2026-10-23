@@ -9,14 +9,12 @@ from fastapi import APIRouter, HTTPException, Query
 
 from knowledge_admin.data_root import host_path
 
-StorageArea = Literal['data', 'code', 'code_index', 'jira', 'documents', 'bootstrap']
+StorageArea = Literal['data', 'code', 'code_index', 'bootstrap']
 # The in-container variable Compose computes, and the .env variable that names the folder.
 ROOTS = {
     'data': ('DATA_ROOT_DIR', 'DATA_ROOT'),
     'code': ('CODE_ROOT', 'CODE_FOLDER'),
     'code_index': ('CODE_INDEX_ROOT', 'CODE_INDEX_FOLDER'),
-    'jira': ('JIRA_EXPORT_ROOT', 'JIRA_FOLDER'),
-    'documents': ('DOCUMENT_OUTPUT_ROOT', 'GENERATED_DOCS_FOLDER'),
     'bootstrap': ('BOOTSTRAP_DOCS_ROOT', 'DOCS_FOLDER'),
 }
 

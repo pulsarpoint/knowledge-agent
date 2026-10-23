@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { getDocumentationFolder, getDocumentationFolders, type DocumentationFolders, type FolderDocument } from "./api";
-import { getCollectionNames, type CollectionSummary } from "~/features/rag/api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
@@ -11,19 +9,8 @@ const folderLink = (folder: string) => `/documentation/folders/${folder.split("/
 const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 const when = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
 
-/** Collections whose folders include `source`: the folder itself, or a parent folder ("through" it). */
-function including(collections: Pick<CollectionSummary, "id" | "name" | "paths">[], source: string) {
-  return collections.flatMap((c) =>
-    c.paths
-      .filter((p) => p.source_path === source || source.startsWith(p.source_path + "/"))
-      .map((p) => ({ id: c.id, name: c.name, through: p.source_path === source ? null : p.source_path })),
-  );
-}
-
 export default function DocumentationFoldersView() {
   const [data, setData] = useState<DocumentationFolders | null>(null);
-  const [collections, setCollections] = useState<CollectionSummary[] | null>(null);
-  const [ragError, setRagError] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
@@ -34,30 +21,14 @@ export default function DocumentationFoldersView() {
       .catch((e) => {
         if (!controller.signal.aborted) setError(message(e, "Could not load documentation folders"));
       });
-    // Read-only RAG state: which collections include each folder. Indexing happens in RAG → Collections.
-    getCollectionNames(controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setCollections(result.collections);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setRagError(message(e, "RAG is unavailable"));
-      });
     return () => controller.abort();
   }, []);
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground">
-        Folders in the generated documents folder{data?.generated_folder ? ` (${data.generated_folder})` : ""}. To make
-        a folder searchable, create a collection with it in RAG → Collections.
-      </p>
+      <p className="text-muted-foreground">The folders your documents are filed in.</p>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {ragError && (
-        <Alert>
-          <AlertDescription>{`RAG collections unavailable: ${ragError}`}</AlertDescription>
         </Alert>
       )}
       {data === null ? (
@@ -74,63 +45,21 @@ export default function DocumentationFoldersView() {
               <TableHead>Documents</TableHead>
               <TableHead>Code projects</TableHead>
               <TableHead>Last generated</TableHead>
-              <TableHead>RAG collections</TableHead>
-              <TableHead>Index</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.folders.map((row) => {
-              const found = row.source_path && collections ? including(collections, row.source_path) : [];
-              return (
-                <TableRow key={row.folder}>
-                  <TableCell>
-                    <Link className="underline" to={folderLink(row.folder)}>
-                      {row.folder}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{row.document_count}</TableCell>
-                  <TableCell>{row.code_projects.join(", ") || "—"}</TableCell>
-                  <TableCell>{when(row.last_generated_at)}</TableCell>
-                  <TableCell>
-                    {collections === null ? (
-                      ragError ? (
-                        "—"
-                      ) : (
-                        "Loading…"
-                      )
-                    ) : found.length === 0 ? (
-                      <Badge variant="outline">Not indexed</Badge>
-                    ) : (
-                      <ul className="flex flex-col gap-1">
-                        {found.map((c) => (
-                          <li key={`${c.id}:${c.through ?? ""}`} className="text-sm">
-                            <Link className="underline" to={`/rag/collections/${c.id}`}>
-                              {c.name}
-                            </Link>
-                            {c.through && (
-                              <span className="ml-2 text-xs text-muted-foreground">{`through ${c.through}`}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {row.source_path ? (
-                      <Link
-                        className="underline"
-                        aria-label={`Index ${row.folder} in RAG → Collections`}
-                        to={`/rag/collections?folder=${encodeURIComponent(row.source_path)}`}
-                      >
-                        Index in RAG → Collections
-                      </Link>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {data.folders.map((row) => (
+              <TableRow key={row.folder}>
+                <TableCell>
+                  <Link className="underline" to={folderLink(row.folder)}>
+                    {row.folder}
+                  </Link>
+                </TableCell>
+                <TableCell>{row.document_count}</TableCell>
+                <TableCell>{row.code_projects.join(", ") || "—"}</TableCell>
+                <TableCell>{when(row.last_generated_at)}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       )}

@@ -67,6 +67,20 @@ def test_first_pull_records_every_ticket_and_a_repeat_records_nothing(store, tmp
     assert len(events(store)) == 3
 
 
+def test_a_pull_stores_tickets_and_records_events_with_no_file_export(store, tmp_path, monkeypatch):
+    monkeypatch.delenv('RAG_BACKOFFICE_KEY', raising=False)
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path / 'data'))
+    client, _ = setup(store, tmp_path)
+    assert auto_pull(store, a_schedule(store), transport=jira(ISSUES[:3]))[0] == 'succeeded'
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.jira_tickets').fetchone()['n'] == 3
+    assert [e['type'] for e in events(store)] == ['jira.ticket.created'] * 3
+    assert not (tmp_path / 'data').exists()
+    assert 'export_folder' not in client.get('/api/jira/tickets', headers=HEADERS).json()
+    ticket = client.get('/api/jira/tickets', headers=HEADERS).json()['tickets'][0]['id']
+    assert client.post(f'/api/jira/tickets/{ticket}/export', headers=HEADERS, json={}).status_code in (404, 405)
+
+
 def test_a_manual_fetch_records_what_changed(store, tmp_path):
     client, _ = setup(store, tmp_path)
     issues = copy.deepcopy(ISSUES[:2])

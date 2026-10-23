@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
-import { Download, FolderOutput, Ticket } from "lucide-react";
+import { Download, Ticket } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "./api";
+import { fetchJiraTickets, getJiraTickets, type JiraTickets } from "./api";
 import JiraPullStatus from "./JiraPullStatus";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Checkbox } from "~/components/ui/checkbox";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -20,7 +19,6 @@ const DEFAULT_JQL = "ORDER BY updated DESC, key DESC";
 
 export default function JiraTicketsView() {
   const [data, setData] = useState<JiraTickets | null>(null);
-  const folder = data?.export_folder ?? "the configured Jira folder";
   const [limit, setLimit] = useState("25");
   const [jql, setJql] = useState(DEFAULT_JQL);
   const [loading, setLoading] = useState(true);
@@ -30,12 +28,7 @@ export default function JiraTicketsView() {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("all");
   const [status, setStatus] = useState("all");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
-  const [exportSummary, setExportSummary] = useState<{ results: JiraExportResult[]; failures: string[] } | null>(null);
-  const exportController = useRef<AbortController | null>(null);
-  const busy = loading || fetching || exportProgress !== null;
-  useEffect(() => () => exportController.current?.abort(), []);
+  const busy = loading || fetching;
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -46,7 +39,6 @@ export default function JiraTicketsView() {
           setError(null);
           setLimit(String(result.connection?.last_fetch_limit ?? 25));
           setJql(result.connection?.jql ?? DEFAULT_JQL);
-          setSelected(new Set());
         }
       })
       .catch((error) => {
@@ -64,11 +56,9 @@ export default function JiraTicketsView() {
     setError(null);
     try {
       setData(await fetchJiraTickets(Number(limit), jql.trim()));
-      setSelected(new Set());
       setQuery("");
       setProject("all");
       setStatus("all");
-      setExportSummary(null);
     } catch (error) {
       setError(
         error instanceof ApiError ? error.message : "Could not fetch Jira tickets. The previous list is preserved.",
@@ -87,35 +77,6 @@ export default function JiraTicketsView() {
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
   );
-  const selectedTickets = filtered.filter((ticket) => selected.has(ticket.id));
-  async function exportTickets(event: FormEvent) {
-    event.preventDefault();
-    if (busy || !data?.connection || selectedTickets.length === 0) return;
-    const controller = new AbortController();
-    exportController.current = controller;
-    const results: JiraExportResult[] = [],
-      failures: string[] = [],
-      failedIds: string[] = [];
-    setExportSummary(null);
-    setExportProgress({ done: 0, total: selectedTickets.length });
-    for (const [index, ticket] of selectedTickets.entries()) {
-      if (controller.signal.aborted) return;
-      try {
-        results.push(await exportJiraTicket(ticket.id, data.connection.revision, controller.signal));
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        failures.push(
-          `${ticket.issue_key}: ${error instanceof ApiError ? error.message : "Export could not be confirmed. Retry to check the file."}`,
-        );
-        failedIds.push(ticket.id);
-      }
-      if (controller.signal.aborted) return;
-      setExportProgress({ done: index + 1, total: selectedTickets.length });
-    }
-    setSelected(new Set(failedIds));
-    setExportProgress(null);
-    setExportSummary({ results, failures });
-  }
   return (
     <div className="flex flex-col gap-6">
       {data?.connection?.has_token && <JiraPullStatus refreshKey={data.connection.last_successful_sync_at} />}
@@ -217,7 +178,6 @@ export default function JiraTicketsView() {
                   disabled={busy}
                   onChange={(event) => {
                     setQuery(event.target.value);
-                    setSelected(new Set());
                   }}
                 />
               </Field>
@@ -228,7 +188,6 @@ export default function JiraTicketsView() {
                   disabled={busy}
                   onValueChange={(value) => {
                     setProject(value);
-                    setSelected(new Set());
                   }}
                 >
                   <SelectTrigger id="jira-project" className="w-full">
@@ -253,7 +212,6 @@ export default function JiraTicketsView() {
                   disabled={busy}
                   onValueChange={(value) => {
                     setStatus(value);
-                    setSelected(new Set());
                   }}
                 >
                   <SelectTrigger id="jira-status" className="w-full">
@@ -277,61 +235,6 @@ export default function JiraTicketsView() {
               matches · Fetched {new Date(data.connection.last_successful_sync_at).toLocaleString()}
             </p>
           </div>
-          <form onSubmit={exportTickets} className="flex flex-col gap-3 border-t pt-5">
-            <div className="flex flex-wrap items-end gap-3">
-              <Button disabled={busy || selectedTickets.length === 0}>
-                <FolderOutput data-icon="inline-start" />
-                Export selected ({selectedTickets.length})
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/rag/collections">Open RAG collections</Link>
-              </Button>
-            </div>
-            <FieldDescription>
-              Each selected ticket becomes {folder}/&lt;KEY&gt;.md, a Markdown file with its description and all
-              comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Collections that hold{" "}
-              {folder} index the tickets at their next sync.
-            </FieldDescription>
-          </form>
-          {exportProgress && (
-            <p role="status" className="flex items-center gap-2 text-sm">
-              <Spinner />
-              Exporting {exportProgress.done} of {exportProgress.total} tickets. Keep this page open.
-            </p>
-          )}
-          {exportSummary && (
-            <Alert variant={exportSummary.failures.length > 0 ? "destructive" : "default"}>
-              <AlertTitle>
-                {exportSummary.failures.length > 0 ? "Export finished with errors" : "Export complete"}
-              </AlertTitle>
-              <AlertDescription>
-                <p>
-                  {exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved,{" "}
-                  {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in {folder}
-                  . {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.
-                </p>
-                {exportSummary.failures.length > 0 && (
-                  <>
-                    <p>Failed tickets remain selected for retry.</p>
-                    <ul className="list-disc pl-5">
-                      {exportSummary.failures.map((failure) => (
-                        <li key={failure}>{failure}</li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {exportSummary.results.length > 0 && (
-                  <p>
-                    Add {folder} to a collection in{" "}
-                    <Link className="underline underline-offset-4" to="/rag/collections">
-                      RAG → Collections
-                    </Link>{" "}
-                    if it is not in one yet, then refresh that collection to update search.
-                  </p>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
           {filtered.length === 0 ? (
             <Empty className="border">
               <EmptyHeader>
@@ -344,22 +247,6 @@ export default function JiraTicketsView() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-10">
-                      <Checkbox
-                        aria-label="Select all filtered tickets"
-                        disabled={busy}
-                        checked={
-                          selectedTickets.length === filtered.length
-                            ? true
-                            : selectedTickets.length > 0
-                              ? "indeterminate"
-                              : false
-                        }
-                        onCheckedChange={(checked) =>
-                          setSelected(new Set(checked === true ? filtered.map((ticket) => ticket.id) : []))
-                        }
-                      />
-                    </TableHead>
                     <TableHead>Ticket</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Priority</TableHead>
@@ -369,22 +256,7 @@ export default function JiraTicketsView() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((ticket) => (
-                    <TableRow key={ticket.id} data-state={selected.has(ticket.id) ? "selected" : undefined}>
-                      <TableCell className="align-top">
-                        <Checkbox
-                          aria-label={`Select ${ticket.issue_key}`}
-                          disabled={busy}
-                          checked={selected.has(ticket.id)}
-                          onCheckedChange={(checked) =>
-                            setSelected((previous) => {
-                              const next = new Set(previous);
-                              if (checked === true) next.add(ticket.id);
-                              else next.delete(ticket.id);
-                              return next;
-                            })
-                          }
-                        />
-                      </TableCell>
+                    <TableRow key={ticket.id}>
                       <TableCell className="max-w-md whitespace-normal align-top">
                         <a
                           href={`${data.connection!.base_url}/browse/${encodeURIComponent(ticket.issue_key)}`}

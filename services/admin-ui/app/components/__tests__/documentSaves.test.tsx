@@ -186,7 +186,7 @@ test("the brand-new draft page: banner, Save/Publish/Discard, an editable name, 
   show("/documents/d5");
   expect(await screen.findByText(BANNER)).toBeInTheDocument();
   for (const name of ["Save", "Publish", "Discard"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
-  for (const name of ["Save new version", "Create document", "Delete", "Export to folder", "Ask agent"])
+  for (const name of ["Save new version", "Create document", "Delete", "Ask agent"])
     expect(screen.queryByRole("button", { name })).toBeNull();
   expect(screen.queryByRole("tab", { name: "Version history" })).toBeNull();
   expect(screen.queryByRole("tab", { name: /^Drafts/ })).toBeNull();
@@ -223,7 +223,7 @@ test("Publish promotes the brand-new draft and the page shows the live document"
     "GET /api/documentation/resources": () => [200, resources],
     "POST /api/documentation/drafts/d5/promote": () => {
       published = true;
-      return [200, { document_id: "d5", version: 1, revision: 2, deleted_drafts: 0, export_error: null }];
+      return [200, { document_id: "d5", version: 1, revision: 2, deleted_drafts: 0 }];
     },
   });
   show("/documents/d5");
@@ -435,7 +435,7 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
     "GET /api/documentation/resources": () => [200, resources],
     "POST /api/documentation/drafts/d5/promote": () => [
       200,
-      { document_id: "d5", version: 1, revision: 2, deleted_drafts: 0, export_error: null },
+      { document_id: "d5", version: 1, revision: 2, deleted_drafts: 0 },
     ],
   });
   show("/documents?view=drafts");

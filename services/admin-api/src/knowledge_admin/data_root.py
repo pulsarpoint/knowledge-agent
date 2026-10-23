@@ -31,15 +31,7 @@ def host_path(container_path: str | None) -> str | None:
     return host + ('/' + relative if relative else '')
 
 
-def jira_folder() -> str:
-    """JIRA_FOLDER: where the Jira export writes, relative to DATA_ROOT (the RAG writer's path prefix)."""
-    relative = _relative(os.environ.get('JIRA_EXPORT_ROOT') or f'{data_dir()}/jira')
-    if not relative:
-        raise ValueError('JIRA_EXPORT_ROOT must be a folder inside DATA_ROOT_DIR')
-    return relative
-
-
-# Lowercase-only, unlike RAG folders: on case-insensitive filesystems (macOS) Payments and payments are one directory.
+# Lowercase-only: on case-insensitive filesystems (macOS) Payments and payments are one directory.
 SEGMENT = r'[a-z0-9_-][a-z0-9._-]*'
 FOLDER = re.compile(rf'{SEGMENT}(/{SEGMENT})*')
 FOLDER_RULE = (
@@ -50,20 +42,11 @@ FOLDER_RULE = (
 
 
 def documentation_folder(value: str) -> str:
-    """A folder under GENERATED_DOCS_FOLDER: RAG's folder segment rule, lowercase only. `services` is where the
-    service phase exports live, and RAG skips node_modules. Raises ValueError(FOLDER_RULE)."""
+    """A documentation folder: lowercase segments; `services` and node_modules are reserved. Raises ValueError(FOLDER_RULE)."""
     parts = value.split('/')
     if len(value) > 200 or not FOLDER.fullmatch(value) or 'node_modules' in parts or parts[0] == 'services':
         raise ValueError(FOLDER_RULE)
     return value
-
-
-def generated_docs_folder() -> str:
-    """GENERATED_DOCS_FOLDER: where documents are exported, relative to DATA_ROOT (a RAG collection folder prefix)."""
-    relative = _relative(os.environ.get('DOCUMENT_OUTPUT_ROOT') or f'{data_dir()}/generated-documents')
-    if not relative:
-        raise ValueError('DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR')
-    return relative
 
 
 DATA_SEGMENT = r'[A-Za-z0-9_-][A-Za-z0-9._-]*'

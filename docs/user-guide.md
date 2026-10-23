@@ -56,7 +56,7 @@ application (Administration), signed in through Keycloak and backed by PostgreSQ
 What you can actually do today:
 
 - **Curate a searchable knowledge base** (RAG): review **collections**, each holding
-  paths under `DATA_ROOT` that sources add (documents, Jira exports or source code),
+  paths under `DATA_ROOT` that sources add (source code),
   index them into a full-text (and optionally vector) index with **Refresh**, and
   search them — from the admin RAG pages and agents.
 - **Map source code**: register local folders or clone Git repositories, keep them
@@ -554,12 +554,7 @@ and search permission).
 
 1. Enter a **JQL** query (default `ORDER BY updated DESC, key DESC`) and the number of
    tickets (1–200), then **Fetch tickets**. Results are stored locally.
-2. Filter by text, project and status; tick tickets.
-3. **Export selected** writes each ticket to `jira/<KEY>.md` with metadata,
-   description and comments. Keep the page open until it finishes; failed tickets stay
-   selected. A RAG error fails the export with its message.
-4. Make sure a collection holds `jira` (RAG → Collections → Add folder), then
-   Refresh it or let Auto-sync pick it up.
+2. Filter by text, project and status. Tickets are read-only here; agents and event handlers use them from the database.
 
 **Users and agents** (on the Settings page, once a connection is saved) maps Jira users to agents: a ticket assigned
 to a mapped user is that agent's work. Search for a user as you type (or type a user key), choose an agent, **Add**;
@@ -795,8 +790,7 @@ error messages. `shell_run` runs in the sandboxed `shell-worker`, with `DATA_ROO
 instead. Migration 0101 closed the Generate documents chats that were open ("Closed by an update; start a new chat."). Earlier
 Generate documents runs stay readable at `/sessions/<id>` and in Agent runs. Custom prompts tagged `documentation` should tell the
 agent to write with `update_document`; copy the rules from **Write a document**. Migration 0073 removed the service,
-whole-environment and code-project generation; documents written by service phases keep exporting into
-`services/<service>/<phase>/`.
+whole-environment and code-project generation; documents written by service phases keep their phase layout.
 
 ### 4.13 Documents
 
@@ -815,7 +809,7 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
 - A document that is only a draft shows "Draft — not published yet" with **Save** (its name — slug and folder — can
   still change), **Publish** (it becomes version 1 of the document, same address) and **Discard**. It has no version
   history or Drafts tab until it is published.
-- A live document shows "Version n" with **Save**, **Export to folder**, **Download document folder** (ZIP),
+- A live document shows "Version n" with **Save**, **Download document folder** (ZIP),
   **Delete** and **Ask agent**. The first **Save** creates your draft of the document and the editor goes on editing
   it — "Editing your draft (created {time}, from version {n}). Save updates it; Promote makes it live." — later Saves
   update the same draft. Promote it on the **Drafts** tab.
@@ -842,8 +836,7 @@ only when a person publishes or promotes a draft.
   live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
   removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Promote**
   first ask "Discard unsaved changes?" (**Keep editing** does nothing).
-- A new document's draft opens at `/documents/{id}`; **Publish** creates the document there (a failed export is
-  shown). If a document with that name was created in the folder meanwhile, the draft becomes a draft of it and opens
+- A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created in the folder meanwhile, the draft becomes a draft of it and opens
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
 - **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
@@ -887,9 +880,8 @@ document keeps it in its folder.
 
 ### 4.14 Storage
 
-`/storage` — read-only overview of the data folder (`DATA_ROOT`) and its five folders: source code
-(`CODE_FOLDER`), code graphs (`CODE_INDEX_FOLDER`), Jira exports (`JIRA_FOLDER`), document
-exports (`GENERATED_DOCS_FOLDER`) and bootstrap docs (`DOCS_FOLDER`). Each shows host and
+`/storage` — read-only overview of the data folder (`DATA_ROOT`) and its three folders: source code
+(`CODE_FOLDER`), code graphs (`CODE_INDEX_FOLDER`) and bootstrap docs (`DOCS_FOLDER`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
 ### 4.15 Agent runs
@@ -1199,12 +1191,6 @@ Prompts that came with the application are tagged `documentation` plus what they
 3. **Test**: run a task such as "Check disk usage on the app servers"; inspect the **Worked** block.
 4. Use **Add feedback → Suggest improvements**, then **Review and apply → Apply to this agent** (or **Apply to a new clone** to try it first).
 
-### E. Bring Jira knowledge into RAG
-
-**Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
-selected** → make sure a collection holds `jira` (RAG → Collections → Add
-folder) → **Refresh** it or let Auto-sync pick it up.
-
 ### F. Make one code project's documentation searchable
 
 1. **Documents → New → Write with an agent**: pick the code project in **Settings**, ask for its documentation, then **Promote** the draft.
@@ -1233,10 +1219,8 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `CODE_FOLDER` | Folder inside `DATA_ROOT` for code projects and Git clones (default `code`) |
 | `CODE_INDEX_FOLDER` | Folder for code graph snapshots (default `code-index`) |
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
-| `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
 | `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
-| `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
 | `APP_ADMIN_*`, `KEYCLOAK_ADMIN_PASSWORD`, `PHOENIX_*`, `*_OAUTH2_PROXY_*` | Bootstrap credentials and gateway secrets |

@@ -28,7 +28,6 @@ def sessions(store, tmp_path, monkeypatch):
         (data / folder).mkdir(parents=True)
     monkeypatch.setenv('DATA_ROOT_DIR', str(data))
     monkeypatch.setenv('CODE_ROOT', str(data / 'code'))
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(data / 'generated-documents'))
     client = _client(tmp_path, repository_store=store)
     claude = client.post(
         '/api/llm/models',

@@ -172,7 +172,7 @@ test("Save on a new document creates a brand-new draft and opens it at /document
 });
 
 test("a stale draft shows the diff against the live version and promotes only on Promote anyway", async () => {
-  const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null };
+  const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 };
   const calls = api({
     ...base,
     "POST /api/documentation/drafts/d1/promote": (body) =>
@@ -270,9 +270,9 @@ test("version history notes the versions promoted from a draft", async () => {
   expect(screen.getByRole("button", { name: /^Version 1/ })).not.toHaveTextContent("from draft");
 });
 
-test("a notice handed over by the draft page (a promote whose export failed) shows on the document page", async () => {
+test("a notice handed over by the draft page shows on the document page", async () => {
   api(base);
-  const notice = "Draft promoted to version 1. Saved. Writing the document file failed; use Export to folder to retry.";
+  const notice = "Draft promoted to version 1.";
   const router = createMemoryRouter([{ path: "/documents/:documentId", element: <DocumentEditorView /> }], {
     initialEntries: [{ pathname: "/documents/doc-1", state: { notice } }],
   });
@@ -299,7 +299,7 @@ test("with unsaved changes, Edit on a draft asks first; Keep editing keeps the t
 });
 
 test("with unsaved changes, Promote on the Drafts tab asks first; Keep editing promotes nothing", async () => {
-  const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null };
+  const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 };
   const calls = api({ ...base, "POST /api/documentation/drafts/d1/promote": () => [200, promoted] });
   show("/documents/doc-1?tab=drafts&draft=d1");
   const view = within(await screen.findByRole("region", { name: "Draft" }));
@@ -361,7 +361,7 @@ test("the Drafts tab lists drafts newest first; Promote with two other drafts as
     "GET /api/documentation/drafts/d1": () => [200, fresh],
     "POST /api/documentation/drafts/d1/promote": () => [
       200,
-      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 2, export_error: null },
+      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 2 },
     ],
   });
   show("/documents/doc-1?tab=drafts&draft=d1");

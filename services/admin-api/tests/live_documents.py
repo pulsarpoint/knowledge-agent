@@ -1,10 +1,9 @@
 """Live documents for tests. People only ever save drafts (Publish and Promote make content live), so tests that need
-a live document to start from write it through the store, as the test admin, and export it like a promote does."""
+a live document to start from write it through the store, as the test admin."""
 
 from uuid import UUID
 
 from knowledge_admin.documents import store as lifecycle
-from knowledge_admin.documents.api import export_args, export_document, export_input
 from knowledge_admin.documents.store import CONTENT, LINK_COLUMNS, Provenance
 from test_repositories import HEADERS
 
@@ -14,14 +13,6 @@ DEFAULTS = {'description': '', 'purpose': 'explanation', 'audience': 'both', 'ta
 def admin(store, conn) -> UUID:
     """The principal the test HEADERS resolve to."""
     return store.actor(conn, HEADERS['X-Forwarded-User'], HEADERS['X-Forwarded-Email'])
-
-
-def _export(store, document_id: UUID) -> None:
-    try:
-        with store.connect() as conn:
-            export_document(**export_args(export_input(conn, document_id)))
-    except (OSError, ValueError):  # no DOCUMENT_OUTPUT_ROOT in this test: as a route, a failed export is ignored
-        pass
 
 
 def live_document(
@@ -36,7 +27,7 @@ def live_document(
     source_commits: dict | None = None,
     **fields,
 ) -> dict:
-    """A new live document in the caller's transaction, not exported (version 1, revision 1; the link fields in
+    """A new live document in the caller's transaction. (version 1, revision 1; the link fields in
     `fields` built-for). Returns {'id' (UUID), 'revision', 'version'}."""
     links = {field: [UUID(str(item)) for item in fields.pop(field, [])] for field in LINK_COLUMNS}
     content = {**DEFAULTS, **fields, 'title': title, 'markdown': markdown}
@@ -60,8 +51,7 @@ def replace_live_document(
     conn, document_id, markdown: str, actor: UUID | None = None, *, links: dict | None = None, **content
 ) -> dict:
     """Replace a live document's text (and any other `content` field) in place, a new version, in the caller's
-    transaction, as an internal writer does; `links` (link fields → ids) become its active links. Its drafts stay. Not
-    exported."""
+    transaction, as an internal writer does; `links` (link fields → ids) become its active links. Its drafts stay."""
     live = conn.execute('SELECT * FROM ka.documents WHERE id=%s AND NOT is_draft', (UUID(str(document_id)),)).fetchone()
     wanted = None
     snapshot = live['source_snapshot']
@@ -91,10 +81,9 @@ def write_live_document(
     *,
     folder: str | None = None,
     source_commits: dict | None = None,
-    export: bool = True,
     **fields,
 ) -> dict:
-    """A new live document of the workspace shop, written as the test admin and exported (version 1, revision 1; the
+    """A new live document of the workspace shop, written as the test admin (version 1, revision 1; the
     link fields in `fields` built-for). Returns {'id' (str), 'revision', 'version'}."""
     with store.connect() as conn:
         saved = live_document(
@@ -108,16 +97,13 @@ def write_live_document(
             source_commits=source_commits,
             **fields,
         )
-    if export:
-        _export(store, saved['id'])
     return {**saved, 'id': str(saved['id'])}
 
 
 def rewrite_live_document(store, document_id, markdown: str) -> dict:
-    """Replace a live document's text in place (a new version) as the test admin and export it; its drafts stay."""
+    """Replace a live document's text in place (a new version) as the test admin; its drafts stay."""
     with store.connect() as conn:
         saved = replace_live_document(conn, document_id, markdown, admin(store, conn))
-    _export(store, saved['id'])
     return {**saved, 'id': str(saved['id'])}
 
 

@@ -1,6 +1,6 @@
 import { request } from "./api";
 
-export type StorageArea = "data" | "code" | "code_index" | "jira" | "documents" | "bootstrap";
+export type StorageArea = "data" | "code" | "code_index" | "bootstrap";
 export interface StorageLocation {
   id: StorageArea;
   container_path: string | null;

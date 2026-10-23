@@ -15,12 +15,10 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.identity import request_actor
 from knowledge_admin.jira import sync as jira_sync
-from knowledge_admin.data_root import jira_folder
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.events import handlers_api
 from knowledge_admin.jira.client import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.jira.export import TicketExportInput, publish_ticket, ticket_markdown
 
 SETTINGS_FIELDS = """id,base_url,username,revision,jql,(credential_id IS NOT NULL) AS has_token,
     last_tested_at,last_test_error,last_successful_sync_at,last_fetch_limit,last_fetch_total"""
@@ -112,19 +110,10 @@ def create_assignee_handler(conn, project, actor) -> UUID:
     return handler_id
 
 
-def export_folder() -> str | None:
-    """The Jira export folder, or None when JIRA_EXPORT_ROOT is not a folder inside DATA_ROOT_DIR."""
-    try:
-        return jira_folder()
-    except ValueError:
-        return None
-
-
 def build_api(
     app: str,
     store: RepositoryStore | None,
     transport: httpx.BaseTransport | None = None,
-    backoffice_client: httpx.Client | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -285,7 +274,7 @@ def build_api(
                     (config['id'], project),
                 ).fetchall()
             )
-        return {'connection': config, 'tickets': rows, 'export_folder': export_folder()}
+        return {'connection': config, 'tickets': rows}
 
     @router.post('/jira/tickets/fetch')
     def fetch_tickets(value: TicketFetchInput, request: Request) -> dict:
@@ -295,57 +284,6 @@ def build_api(
             project = db.project(conn, app)
         jira_sync.pull_tickets(db, project, value.jql, value.limit, actor, transport)
         return list_tickets()
-
-    @router.post('/jira/tickets/{ticket_id}/export')
-    def export_ticket(ticket_id: UUID, value: TicketExportInput, request: Request) -> dict:
-        if export_folder() is None:
-            raise HTTPException(503, 'JIRA_EXPORT_ROOT must be a folder inside DATA_ROOT_DIR')
-        db = database()
-        subject, email = request_actor(request)
-        rag_key = os.environ.get('RAG_BACKOFFICE_KEY')
-        if backoffice_client is None or not rag_key:
-            raise HTTPException(503, 'RAG administration is not configured')
-        config, token = connection_credentials(db)
-        if config['revision'] != value.connection_revision:
-            raise HTTPException(409, 'Jira settings changed. Reload the ticket list before exporting')
-        with db.connect() as conn:
-            ticket = conn.execute(
-                """SELECT remote_id,issue_key FROM ka.jira_tickets
-                WHERE id=%s AND project_id=%s AND connection_id=%s AND out_of_scope_at IS NULL""",
-                (ticket_id, config['project_id'], config['id']),
-            ).fetchone()
-        if ticket is None:
-            raise HTTPException(404, 'Ticket is no longer in the saved selection. Fetch tickets again')
-        with JiraClient(config['base_url'], token, transport) as jira:
-            jira.current_user(config['username'])
-            issue, comments = jira.issue_with_comments(ticket['remote_id'])
-        if issue['key'] != ticket['issue_key']:
-            raise HTTPException(409, 'The ticket key changed in Jira. Fetch the ticket list again before exporting')
-        content = ticket_markdown(config['base_url'], issue, comments)
-        with db.connect() as conn:
-            # Keep settings stable during the short local publish, after all Jira traffic finishes.
-            current = conn.execute(
-                'SELECT revision,fetch_revision FROM ka.jira_connections WHERE id=%s FOR SHARE', (config['id'],)
-            ).fetchone()
-            if (
-                current is None
-                or current['revision'] != config['revision']
-                or current['fetch_revision'] != config['fetch_revision']
-            ):
-                raise HTTPException(409, 'Jira settings or tickets changed during export. Reload the list and retry')
-            actor = db.actor(conn, subject, email)
-            result = publish_ticket(backoffice_client, rag_key, config['project_id'], actor, issue['key'], content)
-            conn.execute(
-                """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,'jira.ticket_exported','jira_ticket',%s,%s)""",
-                (
-                    config['project_id'],
-                    actor,
-                    ticket_id,
-                    Jsonb({'path': result['path'], 'status': result['status'], 'comments': len(comments)}),
-                ),
-            )
-        return {**result, 'issue_key': issue['key'], 'comments': len(comments)}
 
     def connection_id(conn, project) -> UUID | None:
         row = conn.execute(

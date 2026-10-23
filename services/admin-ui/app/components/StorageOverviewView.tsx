@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ArrowRight, Database, FileText, Folder, FolderGit2, HardDrive, RefreshCw, Ticket } from "lucide-react";
+import { ArrowRight, Database, FileText, Folder, FolderGit2, HardDrive, RefreshCw } from "lucide-react";
 import {
   getStorage,
   getStorageDirectory,
@@ -31,11 +31,10 @@ const areas = {
     name: "Data folder",
     icon: HardDrive,
     purpose:
-      "DATA_ROOT, the one host folder that holds every folder below. RAG can index any folder in it; each service writes only to its own folder.",
-    layout:
-      "Top-level folders: code, code graphs, document exports, Jira exports and bootstrap docs, plus folders added for RAG.",
-    link: "/rag/collections",
-    action: "Manage RAG collections",
+      "DATA_ROOT, the one host folder that holds every folder below. Each service writes only to its own folder.",
+    layout: "Top-level folders: code, code graphs and bootstrap docs.",
+    link: null,
+    action: null,
   },
   code: {
     name: "Source code",
@@ -55,31 +54,11 @@ const areas = {
     link: "/code-graphs",
     action: "Generate and inspect graphs",
   },
-  jira: {
-    name: "Jira exports",
-    icon: Ticket,
-    purpose:
-      "One Markdown file per exported ticket. Add this folder to a collection in RAG → Collections to search tickets.",
-    layout: "One <KEY>.md file per ticket. Re-exporting a ticket replaces its file.",
-    link: "/jira/tickets",
-    action: "Export Jira tickets",
-  },
-  documents: {
-    name: "Document exports",
-    icon: FileText,
-    purpose:
-      "Markdown and D2 files exported from managed documents. PostgreSQL holds the original documents and version history.",
-    layout:
-      "Document slug → v1, v2, … → README.md and architecture-N.d2. Generation exports automatically; manual documents have an Export action.",
-    link: "/documents",
-    action: "Manage documents",
-  },
   bootstrap: {
     name: "Bootstrap docs",
     icon: Folder,
     purpose: "Documents seeded on a fresh install from the example Markdown;.",
-    layout:
-      "Markdown files. Add new knowledge as managed Documents, or connect a folder to a collection in RAG → Collections.",
+    layout: "Markdown files. Add new knowledge as managed Documents.",
     link: null,
     action: null,
   },
@@ -294,11 +273,7 @@ export default function StorageOverviewView() {
             <Empty>
               <EmptyHeader>
                 <EmptyTitle>This folder is empty</EmptyTitle>
-                <EmptyDescription>
-                  {area === "documents"
-                    ? "Write a document with an agent or export a saved document to create its version folder here."
-                    : "Use the management page to add content to this location."}
-                </EmptyDescription>
+                <EmptyDescription>Use the management page to add content to this location.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -382,7 +357,7 @@ export default function StorageOverviewView() {
           <CardDescription>Each step has a specific destination.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <ol className="grid gap-5 text-sm md:grid-cols-3">
+          <ol className="grid gap-5 text-sm md:grid-cols-2">
             <li>
               <p className="font-medium">1. Source code and server evidence</p>
               <p className="mt-1 text-muted-foreground">
@@ -391,34 +366,21 @@ export default function StorageOverviewView() {
               </p>
             </li>
             <li>
-              <p className="font-medium">2. Managed documents and exports</p>
+              <p className="font-medium">2. Managed documents</p>
               <p className="mt-1 text-muted-foreground">
-                Documents are saved with version history in PostgreSQL. Markdown and D2 exports are written into the
-                document export folder.
-              </p>
-            </li>
-            <li>
-              <p className="font-medium">3. RAG collections → search</p>
-              <p className="mt-1 text-muted-foreground">
-                Connect folders of the data folder to a collection in RAG → Collections, then refresh it. Extracted
-                text, hashes and embeddings are stored in PostgreSQL for search.
+                Documents are saved with version history in PostgreSQL. Agents read and draft them with the document
+                tools.
               </p>
             </li>
           </ol>
-          <Alert>
-            <AlertDescription>
-              Documents are written to the document export folder and Jira exports to the Jira export folder. Connect
-              these folders to a collection in RAG → Collections and refresh it to make them searchable.
-            </AlertDescription>
-          </Alert>
           <div className="flex items-start gap-3 text-sm">
             <Database className="mt-0.5 size-4 shrink-0" />
             <div>
               <p className="font-medium">Some information lives in the database, not in a content folder</p>
               <p className="mt-1 text-muted-foreground">
                 PostgreSQL stores managed documents and versions, service and environment relationships, agent
-                configuration, sessions, jobs, encrypted credentials, and RAG indexes. These records are managed through
-                their administration pages. Docker also keeps separate volumes for login data and traces.
+                configuration, sessions, jobs and encrypted credentials. These records are managed through their
+                administration pages. Docker also keeps separate volumes for login data and traces.
               </p>
             </div>
           </div>
@@ -426,9 +388,6 @@ export default function StorageOverviewView() {
         <CardFooter className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link to="/documents/new">Create a document</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/rag/collections">Refresh RAG collections</Link>
           </Button>
         </CardFooter>
       </Card>

@@ -1,21 +1,16 @@
-"""Managed Markdown documents: read, export and delete live documents, read a brand-new draft as the document it will
+"""Managed Markdown documents: read, download and delete live documents, read a brand-new draft as the document it will
 become and save a document's resource links. People never write live
 content here: every save is a draft (documents/drafts.py), and Publish / Promote make it live. The lifecycle itself is
 in documents/store.py."""
 
 from functools import partial
 import io
-import json
 import logging
-import os
 import re
 import zipfile
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal
 from uuid import UUID
 
-import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
@@ -83,165 +78,13 @@ def document_slug(name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:120].rstrip('-')
 
 
-def _output_root() -> Path:
-    configured = os.environ.get('DOCUMENT_OUTPUT_ROOT', '')
-    root = Path(configured)
-    if not configured or not root.is_absolute():
-        raise ValueError('DOCUMENT_OUTPUT_ROOT must be a mounted absolute path')
-    return root.resolve(strict=True)
-
-
-def export_location(slug: str, phase_metadata: dict | None = None, folder: str | None = None) -> tuple[Path, str]:
-    """Folder and main file of a document's current export: [<folder>/]<slug>/README.md or services/<svc>/<phase>/<phase>.md."""
-    root = _output_root()
-    if phase_metadata is None:
-        return (root / folder / slug if folder else root / slug), 'README.md'
-    service_folder = re.sub(r'[^a-z0-9]+', '-', phase_metadata['service_name'].lower()).strip('-')[:40] or 'service'
-    service_folder += '-' + str(UUID(phase_metadata['service_id']))[:8]
-    phase = phase_metadata['phase']
-    if phase not in ('overview', 'api', 'messaging'):
-        raise ValueError('Unknown code documentation phase')
-    return root / 'services' / service_folder / phase, f'{phase}.md'
-
-
-def export_document(document: dict, *, phase_metadata: dict | None = None) -> str:
-    """Materialize a saved version. PostgreSQL remains the source of truth."""
-    root = _output_root()
-    folder, main = export_location(document['slug'], phase_metadata, document.get('folder'))
-    files = document_files(document['markdown'])
-    files[main] = files.pop('README.md')
-    if document.get('source_commits'):
-        files['metadata.json'] = json.dumps({'source_commits': document['source_commits']}, indent=2) + '\n'
-    if phase_metadata is not None:
-        files['metadata.json'] = json.dumps(phase_metadata, ensure_ascii=False, indent=2) + '\n'
-    for parent in reversed([folder, *folder.parents]):
-        if parent == root or not parent.is_relative_to(root):
-            continue
-        if parent.is_symlink():
-            raise ValueError('Document output folders cannot be symbolic links')
-        parent.mkdir(exist_ok=True)
-    for name, content in files.items():
-        with NamedTemporaryFile(mode='w', encoding='utf-8', dir=folder, delete=False) as temporary:
-            staging = Path(temporary.name)
-            try:
-                temporary.write(content)
-                temporary.flush()
-                staging.replace(folder / name)
-            finally:
-                staging.unlink(missing_ok=True)
-    for entry in folder.iterdir():
-        if entry.is_file() and not entry.is_symlink() and entry.name not in files:
-            entry.unlink()
-    return str(folder)
-
-
-def export_input(conn, document_id: UUID) -> dict | None:
-    """Export input for a document's current version: slug, markdown, revision, source commits and phase metadata (a
-    document written by a service phase keeps exporting into its phase folder)."""
-    row = conn.execute(
-        """SELECT slug,folder,revision,phase_metadata,markdown,source_snapshot FROM ka.documents
-        WHERE id=%s AND NOT is_draft""",
-        (document_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    commits = {
-        item['id']: item['git_commit'] for item in row['source_snapshot']['code_projects'] if item.get('git_commit')
-    }
-    phase_metadata = {**row['phase_metadata'], 'source_commits': commits} if row['phase_metadata'] else None
-    return {
-        'slug': row['slug'],
-        'folder': row['folder'],
-        'markdown': row['markdown'],
-        'revision': row['revision'],
-        'source_commits': commits,
-        'phase_metadata': phase_metadata,
-    }
-
-
-def export_args(value: dict) -> dict:
-    phase_metadata = value.pop('phase_metadata')
-    return {'document': value, 'phase_metadata': phase_metadata}
-
-
-def _real_folder(root: Path, folder: Path) -> bool:
-    """A directory inside root reached without symbolic links."""
-    return (
-        folder.is_relative_to(root)
-        and folder != root
-        and folder.is_dir()
-        and not any(p.is_symlink() for p in [folder, *folder.parents] if p.is_relative_to(root) and p != root)
-    )
-
-
-def _remove_files(folder: Path, keep=lambda name: False) -> None:
-    for entry in folder.iterdir():
-        if entry.is_file() and not entry.is_symlink() and not keep(entry.name):
-            entry.unlink()
-    if not any(folder.iterdir()):
-        folder.rmdir()
-
-
-def remove_exported_folder(slug: str, folder: str | None = None) -> None:
-    """Remove the regular files of a document's [<folder>/]<slug>/ folder; subdirectories stay, and the folder goes only if empty."""
-    root = _output_root()
-    parent = root / folder if folder else root
-    target = parent / slug
-    if target.parent == parent and _real_folder(root, target):
-        _remove_files(target)
-
-
-def remove_export(current: dict) -> None:
-    """Remove a document's current export (see export_input); phase folders lose only the exporter's files."""
-    phase_metadata = current['phase_metadata']
-    if phase_metadata is None:
-        remove_exported_folder(current['slug'], current.get('folder'))
-        return
-    root = _output_root()
-    folder, main = export_location(current['slug'], phase_metadata)
-    if _real_folder(root, folder):
-        exporter = lambda name: name in (main, 'metadata.json') or re.fullmatch(r'architecture-\d+\.d2', name)
-        _remove_files(folder, keep=lambda name: not exporter(name))
-
-
-def backfill_exports(store: RepositoryStore) -> int:
-    """Write the current export of every live document that lacks one (e.g. after upgrading from <slug>/v<n>/ exports).
-
-    Idempotent: documents whose main export file exists are left untouched. Failures are logged, never raised.
-    """
-    try:
-        _output_root()
-        with store.connect() as conn:
-            ids = [row['id'] for row in conn.execute('SELECT id FROM ka.live_documents ORDER BY id').fetchall()]
-    except (OSError, ValueError, psycopg.Error) as error:
-        logger.warning('Skipping the document export backfill: %s', error)
-        return 0
-    written = 0
-    for document_id in ids:
-        try:
-            with store.connect() as conn:
-                current = export_input(conn, document_id)
-            if current is None:
-                continue
-            folder, main = export_location(current['slug'], current['phase_metadata'], current['folder'])
-            if (folder / main).is_file():
-                continue
-            export_document(**export_args(current))
-            written += 1
-        except (OSError, ValueError, KeyError, psycopg.Error) as error:
-            logger.warning('Could not export document %s: %s', document_id, error)
-    if written:
-        logger.info('Exported the current version of %d documents', written)
-    return written
-
-
 def export_conflict(conn, project: UUID, slug: str, folder: str | None, document_id: UUID | None = None) -> str | None:
-    """Why this document's export folder would overlap another export of GENERATED_DOCS_FOLDER, or None.
+    """Why this document's slug and folder would clash with another document or documentation folder, or None.
 
-    A folderless document exports to <slug>/, a folder document to <folder>/<slug>/. At every level a document's
-    export folder is never also a documentation folder or a parent of one, in either direction. Folders and slugs are
+    A folderless document is <slug>/, a folder document <folder>/<slug>/. At every level a document's
+    path is never also a documentation folder or a parent of one, in either direction. Folders and slugs are
     lowercase-only, so these exact comparisons also hold on case-insensitive filesystems. Live documents and brand-new
-    drafts (rows with a slug) reserve their export folders: a brand-new draft exports there when promoted."""
+    drafts (rows with a slug) reserve their names."""
     target = f'{folder}/{slug}' if folder else slug
     # starts_with, not LIKE: '_' is a valid folder character and must match literally.
     if conn.execute(
@@ -440,19 +283,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             headers={'Content-Disposition': f'attachment; filename="{document["slug"]}.zip"'},
         )
 
-    @router.post('/documents/{document_id}/export')
-    def export(document_id: UUID, request: Request) -> dict:
-        request_actor(request)
-        document = live_only(get_document(document_id))
-        try:
-            with database().connect() as conn:
-                folder = export_document(**export_args(export_input(conn, document['id'])))
-        except (ValueError, OSError):
-            raise HTTPException(
-                503, 'Could not export the document. Check the DOCUMENT_OUTPUT_ROOT mount and write permissions.'
-            ) from None
-        return {'folder': folder}
-
     @router.get('/documents/{document_id}/versions/{version}')
     def get_version(document_id: UUID, version: int) -> dict:
         db = database()
@@ -522,15 +352,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['revision'] != revision:
                 raise HTTPException(409, 'This document changed. Cancel, reload, and try again.')
             actor = db.actor(conn, subject, email)
-            current = export_input(conn, document_id)
             conn.execute('DELETE FROM ka.documents WHERE id=%s', (document_id,))
             audit(conn, project, actor, 'document.deleted', 'document', document_id, {'revision': revision})
-        # After the commit: the export goes so a Refresh drops it from search; a failure never fails the delete.
-        if current is not None:
-            try:
-                remove_export(current)
-            except (OSError, ValueError) as error:
-                logger.warning('Could not remove the export of deleted document %s: %s', document_id, error)
         return {'id': document_id}
 
     return router

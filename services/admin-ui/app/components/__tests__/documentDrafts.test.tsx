@@ -155,7 +155,7 @@ test("the draft page of a live document's draft shows its changes and sources; P
     "GET /api/documentation/drafts/d3": () => [200, ofLive],
     "POST /api/documentation/drafts/d3/promote": () => [
       200,
-      { document_id: "doc-3", version: 2, revision: 3, deleted_drafts: 0, export_error: null },
+      { document_id: "doc-3", version: 2, revision: 3, deleted_drafts: 0 },
     ],
   });
   const router = show("/documents/drafts/d3");
@@ -220,8 +220,7 @@ test("a stale promote keeps the warning, reloads the draft and sends confirm_sta
       reloaded ? { ...stale, live_version: 2, live_markdown: "# v2 live", stale: true } : stale,
     ],
     "POST /api/documentation/drafts/d2/promote": (body) => {
-      if (body.confirm_stale)
-        return [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null }];
+      if (body.confirm_stale) return [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 }];
       reloaded = true;
       return [409, { error: { message: STALE, code: "STALE_BASE" } }];
     },
@@ -262,29 +261,6 @@ test("a failed discard on the list shows why and refreshes the list so a retry w
   expect(await screen.findByText("Changed meanwhile")).toBeInTheDocument();
   await waitFor(() => expect(calls.filter((c) => c.key === "GET /api/documentation/drafts?new=true")).toHaveLength(2));
   expect(screen.getByText("Changed meanwhile")).toBeInTheDocument();
-});
-
-test("a promote whose export failed hands the export error to the document page", async () => {
-  api({
-    ...drafts3,
-    "GET /api/documentation/drafts/d3": () => [200, ofLive],
-    "POST /api/documentation/drafts/d3/promote": () => [
-      200,
-      {
-        document_id: "doc-3",
-        version: 2,
-        revision: 2,
-        deleted_drafts: 0,
-        export_error: "Saved. Writing the document file failed; use Export to folder to retry.",
-      },
-    ],
-  });
-  const router = show("/documents/drafts/d3");
-  fireEvent.click(await screen.findByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-3"));
-  expect(router.state.location.state).toEqual({
-    notice: "Draft promoted to version 2. Saved. Writing the document file failed; use Export to folder to retry.",
-  });
 });
 
 test("the Drafts tab lists the drafts with the resource filters: an environment asks GET /drafts?environment_id=", async () => {

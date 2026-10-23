@@ -224,7 +224,7 @@ test("the draft bar shows the agent draft; Compare opens it; a stale Promote ask
     "POST /api/documentation/drafts/d1/promote": (body) => {
       promoted += 1;
       return body.confirm_stale
-        ? [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null }]
+        ? [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 }]
         : [409, { error: { message: STALE, code: "STALE_BASE" } }];
     },
     "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [draft] }],
@@ -282,7 +282,7 @@ test("Promote sends the draft's latest revision after the agent saved into it ag
     "GET /api/documentation/drafts/d1": () => [200, { ...draft, stale: false, revision }],
     "POST /api/documentation/drafts/d1/promote": (body) =>
       body.revision === revision
-        ? [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null }]
+        ? [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 }]
         : [409, { error: { message: "The draft changed.", code: "CONFLICT" } }],
     "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [] }],
   });
@@ -323,7 +323,7 @@ test("Promote on the bar asks first when it deletes the document's other drafts;
     "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: listed }],
     "POST /api/documentation/drafts/d1/promote": () => [
       200,
-      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: listed.length - 1, export_error: null },
+      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: listed.length - 1 },
     ],
   });
   show("/documents/doc-1/agent/r1");
@@ -357,7 +357,7 @@ test("promoting another draft on the Drafts tab replaces the agent's draft: the 
     "GET /api/documentation/drafts/d2": () => [200, other],
     "POST /api/documentation/drafts/d2/promote": () => [
       200,
-      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 1, export_error: null },
+      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 1 },
     ],
   });
   show("/documents/doc-1/agent/r1?tab=drafts&draft=d2");

@@ -34,7 +34,6 @@ export interface JiraTicket {
 export interface JiraTickets {
   connection: JiraConnection | null;
   tickets: JiraTicket[];
-  export_folder: string | null;
 }
 export const getJiraSettings = (signal?: AbortSignal) =>
   request<{ connection: JiraConnection | null }>(`/api/jira/settings`, { signal });
@@ -54,21 +53,6 @@ export const fetchJiraTickets = (limit: number, jql: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ limit, jql }),
-  });
-
-export interface JiraExportResult {
-  issue_key: string;
-  path: string;
-  status: "created" | "updated" | "unchanged";
-  hash: string;
-  comments: number;
-}
-export const exportJiraTicket = (ticketId: string, connectionRevision: number, signal?: AbortSignal) =>
-  request<JiraExportResult>(`/api/jira/tickets/${encodeURIComponent(ticketId)}/export`, {
-    method: "POST",
-    signal,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ connection_revision: connectionRevision }),
   });
 
 /** A Jira user (by stable key) mapped to the agent that does the work assigned to them. */

@@ -64,7 +64,6 @@ def test_drafts_are_never_documents(docs, monkeypatch):
     assert [row['slug'] for row in docs.client.get(f'{API}/documents', headers=HEADERS).json()['documents']] == [
         'runbook'
     ]
-    assert not any('DRAFT ONLY TEXT' in path.read_text() for path in docs.out.rglob('*') if path.is_file())
     assert all(row['folder'] != 'plans' for row in docs.client.get(f'{API}/folders', headers=HEADERS).json()['folders'])
     with docs.store.connect() as conn:
         assert (

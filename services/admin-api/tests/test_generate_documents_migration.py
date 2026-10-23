@@ -7,7 +7,6 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents.api import export_input
 from old_documents import DOCUMENT_MODEL, before_0104  # noqa: F401  (fixture)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
@@ -130,11 +129,11 @@ def test_up_removes_the_generation_its_history_and_runs_but_keeps_documents(stor
             'SELECT origin,generation_id FROM ka.document_versions WHERE id=%s', (made['version'],)
         ).fetchone()
         assert (version['origin'], version['generation_id']) == ('generated', made['job'])  # history stays
-        # The service phase layout moved onto the document: its export folder does not change, also once 0104 moved the
-        # content onto the document row (export_input reads that shape).
+        # The service phase layout moved onto the document, also once 0104 moved the content onto the document row.
         conn.commit()
         run(conn, DOCUMENT_MODEL[1])
-        assert export_input(conn, made['document'])['phase_metadata'] == {**made['metadata'], 'source_commits': {}}
+        row = conn.execute('SELECT phase_metadata FROM ka.documents WHERE id=%s', (made['document'],)).fetchone()
+        assert row['phase_metadata'] == made['metadata']
         with pytest.raises(psycopg.errors.CheckViolation):
             with conn.transaction():
                 conn.execute("INSERT INTO ka.jobs(project_id,kind) VALUES (%s,'documentation_generate')", (project,))

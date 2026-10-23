@@ -253,7 +253,7 @@ test("the agent draft shows above the editor; Promote opens the new document", a
     "GET /api/documentation/drafts/d9": () => [200, draft],
     "POST /api/documentation/drafts/d9/promote": () => [
       200,
-      { document_id: "d9", version: 1, revision: 2, deleted_drafts: 0, export_error: null },
+      { document_id: "d9", version: 1, revision: 2, deleted_drafts: 0 },
     ],
   });
   const router = show();

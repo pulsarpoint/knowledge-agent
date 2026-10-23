@@ -11,12 +11,8 @@ from test_repositories import HEADERS
 
 
 @pytest.fixture
-def folders(store, tmp_path, monkeypatch):
+def folders(store, tmp_path):
     """Two documents in payments, one in team/payments and one without a folder, all for the Payments API project."""
-    output = tmp_path / 'data' / 'generated-documents'
-    output.mkdir(parents=True)
-    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path / 'data'))
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(output))
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         repo = uuid4()
@@ -42,15 +38,13 @@ def folders(store, tmp_path, monkeypatch):
     return _client(tmp_path, repository_store=store)
 
 
-def test_folders_list_their_documents_projects_and_rag_folder(folders, monkeypatch):
+def test_folders_list_their_documents_projects(folders):
     body = folders.get('/api/documentation/folders', headers=HEADERS).json()
-    assert body['generated_folder'] == 'generated-documents'
     assert [
-        (f['folder'], f['document_count'], f['code_projects'], f['last_generated_at'], f['source_path'])
-        for f in body['folders']
+        (f['folder'], f['document_count'], f['code_projects'], f['last_generated_at']) for f in body['folders']
     ] == [
-        ('payments', 2, ['Payments API'], None, 'generated-documents/payments'),
-        ('team/payments', 1, ['Payments API'], None, 'generated-documents/team/payments'),
+        ('payments', 2, ['Payments API'], None),
+        ('team/payments', 1, ['Payments API'], None),
     ]
     detail = folders.get('/api/documentation/folders/team/payments', headers=HEADERS).json()
     assert detail['folder'] == 'team/payments'
@@ -58,10 +52,6 @@ def test_folders_list_their_documents_projects_and_rag_folder(folders, monkeypat
         ('api-reference', 'Api reference', ['Payments API'], None)
     ]
     assert folders.get('/api/documentation/folders/missing', headers=HEADERS).status_code == 404
-    # Without a RAG path for the export folder the folders are still listed.
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/elsewhere/generated-documents')
-    elsewhere = folders.get('/api/documentation/folders', headers=HEADERS).json()
-    assert elsewhere['generated_folder'] is None and [f['source_path'] for f in elsewhere['folders']] == [None, None]
 
 
 @pytest.mark.parametrize(

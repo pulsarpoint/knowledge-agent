@@ -131,8 +131,8 @@ export default function DocumentsView() {
     setDiscardError("");
     setPublished("");
     try {
-      const result = await promoteDraft(draft.id, draft.revision, false);
-      setPublished(`Published “${draft.title}”.${result.export_error ? ` ${result.export_error}` : ""}`);
+      await promoteDraft(draft.id, draft.revision, false);
+      setPublished(`Published “${draft.title}”.`);
     } catch (e) {
       setDiscardError(e instanceof Error ? e.message : "Could not publish the draft");
     } finally {

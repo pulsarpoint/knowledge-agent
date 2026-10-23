@@ -56,7 +56,6 @@ export interface PromoteResult {
   revision: number;
   /** The document's other drafts the promote deleted. */
   deleted_drafts: number;
-  export_error: string | null;
   /** The promoted draft (added here; the server's answer does not repeat it). */
   draft_id: string;
 }
@@ -137,8 +136,6 @@ export const removeLink = (documentId: string, toId: string) =>
 export const draftPath = (draft: { id: string; document_id: string | null }) =>
   draft.document_id ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/${draft.id}`;
 /** What a page says after Publish made a brand-new draft the live document. */
-export const publishedNotice = (result: PromoteResult) =>
-  `Published as version ${result.version}.${result.export_error ? ` ${result.export_error}` : ""}`;
-/** What the document page says after a draft was promoted, with the export error when writing the file failed. */
-export const promotedNotice = (result: PromoteResult) =>
-  `Draft promoted to version ${result.version}.${result.export_error ? ` ${result.export_error}` : ""}`;
+export const publishedNotice = (result: PromoteResult) => `Published as version ${result.version}.`;
+/** What the document page says after a draft was promoted. */
+export const promotedNotice = (result: PromoteResult) => `Draft promoted to version ${result.version}.`;

@@ -27,10 +27,7 @@ from knowledge_admin.documents.api import (
     Slug,
     Tags,
     Title,
-    export_args,
     export_conflict,
-    export_document,
-    export_input,
 )
 from knowledge_admin.documents.store import CONTENT, DOCUMENT_NOT_FOUND, DRAFT_NOT_FOUND, NAME_IN_USE, Provenance
 from knowledge_admin.repositories import RepositoryStore
@@ -40,7 +37,6 @@ logger = logging.getLogger(__name__)
 KEEPS_NAME = "A draft of a published document keeps its document's name."
 RESOURCE_GONE = 'A selected resource is no longer available. Reload resources and update the selection.'
 SAVED_MEANWHILE = 'Another document was saved with this name at the same time. Try again.'
-EXPORT_FAILED = 'Saved. Writing the document file failed; use Export to folder to retry.'
 NEW_DEFAULTS = {'description': '', 'purpose': 'explanation', 'audience': 'both', 'tags': []}
 
 
@@ -501,20 +497,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(400, '; '.join(error['msg'] for error in exc.errors())) from None
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, SAVED_MEANWHILE) from None
-        try:  # after the commit, as the editor's save: a failed export never undoes the version
-            with db.connect() as conn:
-                current = export_input(conn, result['document_id'])
-            export_document(**export_args(current))
-            export_error = None
-        except (OSError, ValueError):
-            export_error = EXPORT_FAILED
         return jsonable_encoder(
             {
                 'document_id': result['document_id'],
                 'version': result['version'],
                 'revision': result['revision'],
                 'deleted_drafts': result['deleted_drafts'],
-                'export_error': export_error,
             }
         )
 

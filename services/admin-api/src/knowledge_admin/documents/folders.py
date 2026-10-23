@@ -1,10 +1,9 @@
-"""Documentation folders under GENERATED_DOCS_FOLDER, for browsing. Indexing happens in RAG → Collections; these routes
-never call RAG."""
+"""Documentation folders, for browsing."""
 
 from fastapi import APIRouter, HTTPException
 from functools import partial
 
-from knowledge_admin.data_root import FOLDER_RULE, documentation_folder, generated_docs_folder
+from knowledge_admin.data_root import FOLDER_RULE, documentation_folder
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
@@ -40,14 +39,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     WHERE project_id=%s AND folder IS NOT NULL GROUP BY folder) f ORDER BY f.folder""",
                 (project, project, project, project),
             ).fetchall()
-        try:
-            generated = generated_docs_folder()
-        except ValueError:
-            generated = None  # the export folder is outside DATA_ROOT: RAG cannot see it
-        return {
-            'generated_folder': generated,
-            'folders': [{**row, 'source_path': f'{generated}/{row["folder"]}' if generated else None} for row in rows],
-        }
+        return {'folders': rows}
 
     @router.get('/{folder:path}')
     def folder_documents(folder: str) -> dict:

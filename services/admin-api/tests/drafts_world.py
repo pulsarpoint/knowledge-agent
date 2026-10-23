@@ -1,4 +1,4 @@
-"""Documents for draft tests: the client, the export folder and the document Runbook (version 1, '# Runbook v1')."""
+"""Documents for draft tests: the client and the document Runbook (version 1, '# Runbook v1')."""
 
 from types import SimpleNamespace
 from uuid import UUID
@@ -13,15 +13,12 @@ API = '/api/documentation'
 
 
 @pytest.fixture
-def docs(store, tmp_path, monkeypatch):
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+def docs(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     created = write_live_document(store, 'runbook', 'Runbook', '# Runbook v1', description='How to run it')
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-    return SimpleNamespace(client=client, store=store, out=out, project=project, runbook=created['id'])
+    return SimpleNamespace(client=client, store=store, project=project, runbook=created['id'])
 
 
 def make_document(docs, slug: str, title: str) -> str:

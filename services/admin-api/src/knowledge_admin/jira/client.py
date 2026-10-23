@@ -333,7 +333,7 @@ class JiraClient:
                 validate_comment(comment, seen)
                 content_bytes += len(comment['body'].encode('utf-8'))
                 if content_bytes > 8_000_000:
-                    raise ValueError('Comment content exceeds export limit')
+                    raise ValueError('Comment content exceeds the size limit')
                 comments.append(comment)
             if len(comments) == total:
                 break
@@ -352,17 +352,17 @@ class JiraClient:
             # Do not publish a mixed snapshot when the issue changes during pagination.
             latest = self.get(f'issue/{remote_id}', {'fields': 'updated'})
             if latest['id'] != remote_id or latest['fields']['updated'] != issue['fields']['updated']:
-                raise ValueError('Issue changed during export')
+                raise ValueError('Issue changed while it was read')
         except (KeyError, TypeError, ValueError):
             raise HTTPException(
                 502,
-                'Jira returned incomplete, oversized, or changing ticket content. No file was written; retry the export',
+                'Jira returned incomplete, oversized, or changing ticket content. Retry later',
             ) from None
         return issue, comments
 
 
 def validate_comment(comment: dict, seen: set[str]) -> None:
-    """A comment as the pull and the export use it; `seen` collects the ids so a repeated one is refused."""
+    """A comment as the pull uses it; `seen` collects the ids so a repeated one is refused."""
     if not isinstance(comment['id'], str) or not comment['id'] or comment['id'] in seen:
         raise ValueError('Invalid or repeated comment')
     if not isinstance(comment['body'], str):

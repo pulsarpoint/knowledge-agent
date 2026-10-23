@@ -55,7 +55,7 @@ def build_api(
     router.include_router(agent_runs_api.build_api(app_name, repository_store))
     router.include_router(sessions_api.build_api(app_name, repository_store))
     router.include_router(discovery.build_api(app_name, repository_store))
-    router.include_router(repository_api.build_api(app_name, repository_store, backoffice_client))
+    router.include_router(repository_api.build_api(app_name, repository_store))
     from knowledge_admin.servers import operations_api
 
     router.include_router(operations_api.build_api(app_name, repository_store))
@@ -80,7 +80,7 @@ def build_api(
     router.include_router(agent_reviews.build_api(app_name, repository_store))
     router.include_router(mcp_api.build_api(app_name, repository_store))
     router.include_router(llm_api.build_api(app_name, repository_store))
-    router.include_router(jira_api.build_api(app_name, repository_store, jira_transport, backoffice_client))
+    router.include_router(jira_api.build_api(app_name, repository_store, jira_transport))
     router.include_router(schedules_api.build_api(app_name, repository_store))
     router.include_router(events_api.build_api(app_name, repository_store))
     router.include_router(event_handlers_api.build_api(app_name, repository_store))

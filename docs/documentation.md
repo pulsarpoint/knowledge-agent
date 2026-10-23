@@ -15,7 +15,7 @@ Since migration 0104 a document lives in three tables:
   version live and when. A draft row (`is_draft = true`) is either a **draft of a live document** (`draft_of` = the
   live id, `base_version` = the live version it started from, no slug or folder of its own) or a **brand-new
   document** that has never been live (its own slug and folder, no `draft_of`). Slugs are unique per folder among live
-  documents and brand-new drafts; brand-new drafts reserve their export folder.
+  documents and brand-new drafts; brand-new drafts reserve their name.
 - `ka.document_archive` holds the earlier live contents of a document (`document_id`, `version`, the same content
   columns, `created_at` = when that version went live, `archived_at`/`archived_by`). Version history is the archive
   rows plus the live row, by version number.
@@ -269,6 +269,6 @@ browsers reconnect.
 
 Migration 0073 dropped `documentation_generations`, `documentation_workflows` and `documentation_workflow_jobs`, the
 `documentation_generate` job kind and the `doc:*` run records, and added `documents.phase_metadata` (the service phase
-export layout, read by `export_input`). Saved documents, versions and exports stay.
+export layout). Saved documents and versions stay.
 
-The canonical content stays in PostgreSQL. Every new live version (Publish, Promote, an internal live write) also exports the current version to `DOCUMENT_OUTPUT_ROOT`, at `/work/data/<GENERATED_DOCS_FOLDER>` (default `generated-documents`) inside `DATA_ROOT`, replacing the previous export in place: `<document-slug>/README.md` (or `<folder>/<document-slug>/README.md` for a document in a lowercase documentation folder), `architecture-N.d2` and `metadata.json` (source commits), or `services/<service>-<id8>/<phase>/<phase>.md` for a document written by a code documentation phase of the removed one-shot generation (its layout is kept in `documents.phase_metadata`). Drafts are never exported (`/export` and `/bundle` are 404 for a brand-new draft); deleting a document removes its export. On startup admin-api re-exports any document whose current export is missing (for example after upgrading from the old `<slug>/v<version>/` layout, whose folders are left on disk but not indexed). File export failure does not discard database versions and is shown in the promote or job result. `POST /api/documentation/documents/{id}/export` retries export of the current saved version. `GET /api/documentation/documents/{id}/bundle` downloads the same document and diagram sources as a ZIP folder. The collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install) indexes this folder, so documents become searchable after **Refresh** in RAG → Collections; there is no separate publish step.
+The content lives in PostgreSQL only: no file is written when a version goes live or a document is deleted (the file export, its startup backfill and `POST /documents/{id}/export` were removed with RAG). `GET /api/documentation/documents/{id}/bundle` downloads a live document and its diagram sources as a ZIP folder; it is 404 for a brand-new draft.

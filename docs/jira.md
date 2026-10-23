@@ -7,7 +7,7 @@ The standalone admin has two pages:
 - [Jira Tickets](http://localhost:8183/jira/tickets): choose 1–200 tickets and
   select **Fetch tickets**. The default is 25, ordered by updated time descending.
   Add JQL to filter at Jira, then use text, project and status filters on the saved
-  list. Select tickets and **Export selected** to write Markdown into the Jira folder (`JIRA_FOLDER`, default `jira`).
+  list. Tickets stay in the database: the pull, the saved list, events and replies use them there.
 
 This adapter targets Jira Data Center. PATs use `Authorization: Bearer`, rather
 than username/password Basic auth. The saved username is checked against
@@ -108,9 +108,7 @@ cannot open; see the comment on the control page.
 One `primary` Jira connection is managed for the single workspace. Settings use
 optimistic revisions. The URL and encrypted token are read together under a shared
 row lock, so concurrent edits cannot pair one server with another server's token.
-No database lock is held during Jira HTTP requests. Export briefly holds a shared
-connection lock while publishing to the local RAG API, preventing a settings change
-from racing the final write.
+No database lock is held during Jira HTTP requests.
 
 The fetched selection is stored in `ka.jira_tickets`, upserted by connection and
 stable remote issue ID. Ticket IDs survive repeated fetches. Only after all pages
@@ -128,8 +126,7 @@ between requests and received chunks. Errors and redirects are returned as safe
 operator messages; rate limiting requires a later retry.
 
 All panel routes require the admin gateway and the `docs-admins` group. Ticket
-access follows admin access. Exported content follows the existing RAG access
-policy; Jira issue and comment restrictions are not copied as RAG permissions.
+access follows admin access; Jira issue and comment restrictions are not copied.
 Jira issues are never created or modified (posting an agent's answer as a comment is the only write, below). Scheduled background sync, attachment
 downloads and Cloud authentication remain future work.
 
@@ -138,50 +135,8 @@ downloads and Cloud authentication remain future work.
 | `GET /api/jira/settings` | Public configuration and token-presence flag |
 | `PUT /api/jira/settings` | Save URL, username and optional write-only token; current revision required on edits |
 | `POST /api/jira/test` | Check token owner and issue-search access; save the test result |
-| `GET /api/jira/tickets` | Read the last successful local selection; the response is `{connection, tickets, export_folder}`, where `export_folder` names the configured export folder |
-| `POST /api/jira/tickets/fetch` | Fetch and save matching tickets using `{ "limit": 25, "jql": "project = DEMO ORDER BY updated DESC" }`; returns the same `{connection, tickets, export_folder}` |
-| `POST /api/jira/tickets/{ticket_id}/export` | Export one saved ticket using `{ "connection_revision": 1 }`; returns path, status, hash, issue key and comment count |
-
-## Markdown export and RAG processing
-
-1. Fetch a JQL query, optionally narrow the saved list, and select tickets. Changing
-   a saved-list filter clears the selection; **Select all filtered tickets** selects
-   only the currently displayed rows.
-2. Select **Export selected** and keep the page open. Tickets are written to
-   `<JIRA_FOLDER>/<KEY>.md` (default `jira/<KEY>.md`), with no collection choice. A RAG error, such as the service
-   being unavailable, fails that ticket's export with its message and writes nothing.
-   Each ticket is an independent export; successes remain saved if another ticket fails,
-   and failed tickets remain selected for retry. Leaving the page stops the remaining
-   requests; an in-flight server request may still finish.
-3. Add the Jira folder (default `jira`) to a collection once (**RAG → Collections** → **Add folder**), then
-   **Refresh** it or turn on **Auto-sync**. This uses the existing incremental processing
-   and embedding pipeline. Exports do not refresh the collection or configure an embedding
-   provider.
-
-The API refetches the issue by its stored remote ID and retrieves every page from
-`/rest/api/2/issue/{id}/comment`. Only comments visible to the configured Jira user
-can be exported. The issue's embedded comment preview is never treated as a full
-comment list. A changing, incomplete, duplicate or oversized response fails the
-current ticket before publishing. Exports allow up to 10,000 visible comments and
-8 MB of comment bodies, subject to the existing request deadline and the RAG
-Settings file-size limit (2 MB by default). Nothing is silently truncated.
-
-`<ISSUE-KEY>.md` contains the issue metadata, source link, description and comments
-with author and timestamps. Jira wiki markup is converted with `jira2markdown`;
-attachment binaries and embedded images are not downloaded. Stable ordering and
-content, without a local export timestamp, keep identical exports byte-for-byte
-unchanged. An unchanged file is not rewritten. Edited/deleted comments are reflected
-on the next export, then in search after the next collection refresh.
-
-Files carry a source marker identifying the Jira server and remote issue ID.
-Existing files from another source are preserved with a conflict error. Refreshing
-an export replaces the complete generated file, including any manual edits below
-its marker. RAG compare-and-set hashes also protect changes made during publishing.
-Exporting a smaller selection never removes previously exported files; delete the files
-from the Jira folder on the host and **Refresh** the collection to clean their search data. Ticket key changes
-require fetching the list again; any export under the previous key remains until
-explicitly removed. `jira.ticket_exported` audit events record path, result and
-comment count, without ticket bodies or tokens.
+| `GET /api/jira/tickets` | Read the last successful local selection; the response is `{connection, tickets}` |
+| `POST /api/jira/tickets/fetch` | Fetch and save matching tickets using `{ "limit": 25, "jql": "project = DEMO ORDER BY updated DESC" }`; returns the same `{connection, tickets}` |
 
 ## Mock filtering and comments
 
@@ -194,7 +149,7 @@ Jira without applying this mock grammar.
 Try `project = DEMO AND status = "Open" ORDER BY updated DESC` (25 matches) or
 `key = DEMO-1`. Every mock issue has five comments, with comment pages capped at
 two results. The fifth comment contains **retry jitter resolved the payment
-timeout**, making it easy to verify the final page reached Markdown and RAG search.
+timeout**, making it easy to verify that every comment page was read.
 Rebuild the fixture after updating its code:
 
 ```sh

@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from "reac
 import { ArrowLeft, Bot, Save, Trash2 } from "lucide-react";
 import {
   deleteDocument,
-  exportDocument,
   folderError,
   getDocument,
   getDocumentResources,
@@ -483,27 +482,6 @@ function Editor({
           </Link>
         </Button>
         <div className="flex items-center gap-2">
-          {isLive && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pending || dirty}
-              onClick={async () => {
-                setPending(true);
-                setError("");
-                try {
-                  const result = await exportDocument(document.id);
-                  setNotice(`Exported to ${result.folder}`);
-                } catch (e) {
-                  failed(e, "Could not export document");
-                } finally {
-                  setPending(false);
-                }
-              }}
-            >
-              Export to folder
-            </Button>
-          )}
           {isLive && (
             <Button asChild type="button" variant="outline">
               <a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a>
@@ -1079,7 +1057,7 @@ export default function DocumentEditorView() {
         ? { kind: "document", id: documentId, title: "" }
         : { kind: "new-document", ...fields, ...(resourceFor ? { resourceFor } : {}) },
   );
-  // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
+  // A notice handed over in the navigation state (the new-document draft page's Promote).
   const location = useLocation();
   const handed = (location.state as { notice?: unknown } | null)?.notice;
   const [notice, setNotice] = useState(typeof handed === "string" ? handed : "");

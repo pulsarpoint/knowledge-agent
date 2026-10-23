@@ -1,4 +1,3 @@
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,8 +14,8 @@ HEADERS = {
 
 @pytest.fixture
 def env(store, tmp_path, monkeypatch):
-    """Admin client with a code root, a code-index root and a fake RAG listing `rag_paths`."""
-    monkeypatch.setenv('RAG_BACKOFFICE_KEY', 'private-service-key')
+    """Admin client with a code root, a code-index root and no RAG."""
+    monkeypatch.delenv('RAG_BACKOFFICE_KEY', raising=False)
     code, index = tmp_path / 'code', tmp_path / 'code-index'
     for folder in ('api', 'shared', 'tools/cli'):
         (code / folder).mkdir(parents=True)
@@ -24,33 +23,21 @@ def env(store, tmp_path, monkeypatch):
     index.mkdir()
     monkeypatch.setenv('CODE_ROOT', str(code))
     monkeypatch.setenv('CODE_INDEX_ROOT', str(index))
-    state = {'rag_paths': [], 'rag_up': True, 'calls': []}
+    client = TestClient(create_app(Config(apps=[App(name='docs')]), server=ServerConfig(), repository_store=store))
 
-    def upstream(request):
-        state['calls'].append(request)
-        if not state['rag_up']:
-            raise httpx.ConnectError('down')
-        collections = [{'name': 'code-docs', 'paths': [{'source_path': p} for p in state['rag_paths']]}]
-        return httpx.Response(200, json={'collections': collections})
+    def add(name, folders):
+        created = client.post(
+            '/api/code-projects',
+            headers=HEADERS,
+            json={'name': name, 'description': '', 'remote_url': None, 'folder_paths': folders},
+        )
+        assert created.status_code == 201, created.text
+        project = created.json()['id']
+        (index / project).mkdir()
+        (index / project / 'graph.sqlite').write_text('graph')
+        return project
 
-    cfg = Config(apps=[App(name='docs')])
-    server = ServerConfig()
-    with httpx.Client(base_url='http://rag.test', transport=httpx.MockTransport(upstream)) as backend:
-        client = TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend))
-
-        def add(name, folders):
-            created = client.post(
-                '/api/code-projects',
-                headers=HEADERS,
-                json={'name': name, 'description': '', 'remote_url': None, 'folder_paths': folders},
-            )
-            assert created.status_code == 201, created.text
-            project = created.json()['id']
-            (index / project).mkdir()
-            (index / project / 'graph.sqlite').write_text('graph')
-            return project
-
-        yield client, add, code, index, state
+    yield client, add, code, index
 
 
 def listed(client):
@@ -58,23 +45,21 @@ def listed(client):
 
 
 def test_remove_keeps_files_by_default_and_releases_the_folders(env):
-    client, add, code, index, state = env
+    client, add, code, index = env
     project = add('Payments', ['api'])
     removed = client.post(f'/api/code-projects/{project}/archive', headers=HEADERS)
     assert removed.status_code == 200, removed.text
     assert removed.json() == {'id': project, 'deleted': [], 'errors': []}
     assert project not in listed(client)
     assert (code / 'api' / 'main.py').exists() and (index / project).exists()
-    assert state['calls'] == []  # keeping files never asks RAG
     # The folder is free again for a new project.
     again = add('Payments again', ['api'])
     assert again in listed(client)
 
 
-def test_remove_with_delete_files_deletes_folders_and_code_graph(env):
-    client, add, code, index, state = env
+def test_remove_with_delete_files_deletes_folders_and_code_graph_without_asking_anyone(env):
+    client, add, code, index = env
     project = add('Payments', ['api', 'tools/cli'])
-    state['rag_paths'] = ['code/shared', 'rag-data/jira']
     removed = client.post(f'/api/code-projects/{project}/archive', headers=HEADERS, json={'delete_files': True})
     assert removed.status_code == 200, removed.text
     assert removed.json()['deleted'] == ['code/api', 'code/tools/cli', f'code-index/{project}']
@@ -87,7 +72,7 @@ def test_remove_with_delete_files_deletes_folders_and_code_graph(env):
 
 @pytest.mark.parametrize('other', [['api'], ['api/sub'], ['tools']])
 def test_delete_files_refuses_a_folder_another_project_maps(env, other):
-    client, add, code, index, state = env
+    client, add, code, index = env
     project = add('Payments', ['api', 'tools/cli'])
     (code / 'api' / 'sub').mkdir()
     blocker = add('Other', other)
@@ -98,29 +83,8 @@ def test_delete_files_refuses_a_folder_another_project_maps(env, other):
     assert (code / 'api' / 'main.py').exists() and (index / project).exists()
 
 
-@pytest.mark.parametrize('rag_path', ['code/api', 'code/api/src', 'code'])
-def test_delete_files_refuses_a_folder_a_rag_collection_indexes(env, rag_path):
-    client, add, code, index, state = env
-    project = add('Payments', ['api'])
-    state['rag_paths'] = [rag_path]
-    removed = client.post(f'/api/code-projects/{project}/archive', headers=HEADERS, json={'delete_files': True})
-    assert removed.status_code == 409
-    detail = removed.json()['error']['message']
-    assert 'code-docs' in detail and rag_path in detail
-    assert project in listed(client) and (code / 'api' / 'main.py').exists()
-
-
-def test_delete_files_needs_rag_to_check_collections(env):
-    client, add, code, index, state = env
-    project = add('Payments', ['api'])
-    state['rag_up'] = False
-    removed = client.post(f'/api/code-projects/{project}/archive', headers=HEADERS, json={'delete_files': True})
-    assert removed.status_code == 502
-    assert project in listed(client) and (code / 'api').exists()
-
-
 def test_remove_is_refused_while_a_job_runs(env, store):
-    client, add, code, index, state = env
+    client, add, code, index = env
     project = add('Payments', ['api'])
     with store.connect() as conn:
         conn.execute(
@@ -134,7 +98,7 @@ def test_remove_is_refused_while_a_job_runs(env, store):
 
 
 def test_a_folder_that_fails_to_delete_is_reported_after_removal(env, monkeypatch):
-    client, add, code, index, state = env
+    client, add, code, index = env
     project = add('Payments', ['api', 'shared'])
     import shutil
 
@@ -155,7 +119,7 @@ def test_a_folder_that_fails_to_delete_is_reported_after_removal(env, monkeypatc
 
 
 def test_remove_body_rejects_unknown_fields(env):
-    client, add, code, index, state = env
+    client, add, code, index = env
     project = add('Payments', ['api'])
     assert (
         client.post(f'/api/code-projects/{project}/archive', headers=HEADERS, json={'delete': True}).status_code == 400

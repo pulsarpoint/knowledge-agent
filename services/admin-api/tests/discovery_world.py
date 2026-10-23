@@ -18,7 +18,6 @@ def world(store, tmp_path, monkeypatch):
         (data / folder).mkdir(parents=True)
     monkeypatch.setenv('DATA_ROOT_DIR', str(data))
     monkeypatch.setenv('CODE_ROOT', str(data / 'code'))
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(data / 'generated-documents'))
     monkeypatch.setattr(inventory, '_store', store)
     client = _client(tmp_path, repository_store=store)
     model = client.post(

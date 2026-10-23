@@ -226,10 +226,8 @@ export interface DocumentationFolder {
   updated_at: string;
   last_generated_at: string | null;
   code_projects: string[];
-  source_path: string | null;
 }
 export interface DocumentationFolders {
-  generated_folder: string | null;
   folders: DocumentationFolder[];
 }
 export interface FolderDocument {
@@ -247,6 +245,3 @@ export const getDocumentationFolders = (signal?: AbortSignal) =>
   request<DocumentationFolders>("/api/documentation/folders", { signal });
 export const getDocumentationFolder = (folder: string, signal?: AbortSignal) =>
   request<{ folder: string; documents: FolderDocument[] }>(folderUrl(folder), { signal });
-
-export const exportDocument = (id: string) =>
-  request<{ folder: string }>(`/api/documentation/documents/${id}/export`, { method: "POST" });

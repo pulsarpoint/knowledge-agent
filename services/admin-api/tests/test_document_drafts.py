@@ -128,7 +128,6 @@ def test_promote_saves_a_live_version_with_the_drafts_sources(docs):
         'version': 2,
         'revision': 2,
         'deleted_drafts': 1,
-        'export_error': None,
     }
     assert docs.client.get(f'{API}/drafts/{draft["id"]}', headers=HEADERS).status_code == 404  # the draft is gone
     assert outcome(docs, draft['id']) == 'promoted'
@@ -140,7 +139,6 @@ def test_promote_saves_a_live_version_with_the_drafts_sources(docs):
         document['markdown'],
         document['origin'],
     ) == (2, 'runbook', 'How to run it', '# Runbook v2', 'manual')
-    assert (docs.out / 'runbook' / 'README.md').read_text() == '# Runbook v2'
     with docs.store.connect() as conn:
         copied = conn.execute(
             """SELECT kind,source_title,source_version FROM ka.document_sources WHERE document_id=%s
@@ -199,7 +197,6 @@ def test_a_new_document_draft_creates_the_document_with_the_resources_that_still
         [server['id']],
         [],
     )
-    assert (docs.out / 'servers/web-1/disk-layout/README.md').read_text() == '# Disks'
     assert (created['id'], created['version'], promoted.json()['deleted_drafts']) == (draft['id'], 1, 0)  # same id
     assert outcome(docs, draft['id']) == 'promoted'
 
@@ -215,7 +212,7 @@ def test_a_brand_new_drafts_name_cannot_be_taken_by_a_live_document(docs):
     assert taken.json()['error']['message'] == NAME_IN_USE.format(slug='overview')
     promoted = promote(docs, draft)
     assert promoted.status_code == 200 and promoted.json()['document_id'] == draft['id']
-    # Its export folder is checked on promote, as a save checks it: a folder named like the document is refused.
+    # Its name is checked on promote, as a save checks it: a folder named like the document is refused.
     nested = new_draft(docs, slug='notes', folder='overview', title='Notes', markdown='# Notes')
     refused = promote(docs, nested)
     assert refused.status_code == 409 and 'holds the export of the document overview' in refused.text

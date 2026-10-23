@@ -373,147 +373,6 @@ def test_editing_deployments_keeps_document_links_and_deleting_them_removes_the_
     assert current['source_snapshot']['services'][0]['name'] == 'API'
 
 
-def test_saving_exports_current_version_in_place(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    created = write_live_document(store, 'payments-runbook', 'Payments', '# Payments\n\n```d2\na -> b\n```\n')
-    assert (out / 'payments-runbook' / 'README.md').read_text().startswith('# Payments')
-    assert (out / 'payments-runbook' / 'architecture-1.d2').exists()
-    save_and_promote(client, created['id'], markdown='# Payments v2')
-    assert (out / 'payments-runbook' / 'README.md').read_text().startswith('# Payments v2')
-    assert not (out / 'payments-runbook' / 'architecture-1.d2').exists()
-    assert not list(out.glob('payments-runbook/v*'))
-
-
-def test_export_failure_keeps_the_saved_version(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
-    draft = client.post(f'{DOCS}/drafts', headers=HEADERS, json={'slug': 'x', 'title': 'X', 'markdown': '# X'}).json()
-    response = client.post(f'{DOCS}/drafts/{draft["id"]}/promote', headers=HEADERS, json={'revision': 1})
-    assert response.status_code == 200 and response.json()['export_error']
-    assert client.get(f'{DOCS}/documents/{draft["id"]}', headers=HEADERS).json()['version'] == 1
-
-
-def test_editor_save_keeps_source_commit_metadata(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    repo = str(store.save('shop', RepositoryInput(remote_url='example/api', token='private'), 'admin', ''))
-    created = live(store, VALUE, code_project_ids=[repo], source_commits={repo: 'a' * 40})
-    assert (out / 'payments-runbook' / 'metadata.json').exists()
-    save_and_promote(client, created['id'], markdown='# Two')
-    assert 'a' * 40 in (out / 'payments-runbook' / 'metadata.json').read_text()
-
-
-def test_cleanup_leaves_subdirectories_and_symlinks(tmp_path, monkeypatch):
-    from knowledge_admin.documents.api import export_document
-
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
-    target = tmp_path / 'target.txt'
-    target.write_text('keep')
-    folder = tmp_path / 'doc'
-    (folder / 'v1').mkdir(parents=True)
-    (folder / 'stale.txt').write_text('x')
-    (folder / 'link.txt').symlink_to(target)
-    export_document({'slug': 'doc', 'markdown': '# D', 'revision': 1})
-    assert not (folder / 'stale.txt').exists() and (folder / 'v1').is_dir()
-    assert (folder / 'link.txt').is_symlink() and target.read_text() == 'keep'
-
-
-def test_deleting_a_document_removes_its_export(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    created = write_live_document(store, 'gone', 'G', '# G')
-    keep = write_live_document(store, 'kept', 'K', '# K')
-    assert (out / 'gone' / 'README.md').exists()
-    (out / 'gone' / 'v1').mkdir()
-    (out / 'gone' / 'v1' / 'README.md').write_text('old')
-    endpoint = '/api/documentation/documents/' + created['id']
-    assert client.delete(endpoint, headers=HEADERS, params={'revision': 1, 'confirmed': True}).status_code == 200
-    assert not (out / 'gone' / 'README.md').exists() and (out / 'gone' / 'v1' / 'README.md').exists()
-    assert (out / 'kept' / 'README.md').exists()
-    # A missing export folder never fails the delete.
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
-    response = client.delete(
-        '/api/documentation/documents/' + keep['id'], headers=HEADERS, params={'revision': 1, 'confirmed': True}
-    )
-    assert response.status_code == 200
-
-
-def test_remove_export_of_a_phase_document_keeps_other_files(tmp_path, monkeypatch):
-    from knowledge_admin.documents.api import export_document, export_location, remove_export
-
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
-    metadata = {'service_name': 'Payments API', 'service_id': str(uuid4()), 'phase': 'api'}
-    document = {'slug': 'payments-api', 'markdown': '# API\n\n```d2\na -> b\n```\n', 'revision': 1}
-    folder = Path(export_document(document, phase_metadata=metadata))
-    assert export_location(document['slug'], metadata) == (folder, 'api.md')
-    (folder / 'v1').mkdir()
-    (folder / 'notes.txt').write_text('keep')
-    remove_export({**document, 'phase_metadata': metadata})
-    assert {p.name for p in folder.iterdir()} == {'v1', 'notes.txt'}
-    (folder / 'notes.txt').unlink()
-    (folder / 'v1').rmdir()
-    export_document(document, phase_metadata=metadata)
-    remove_export({**document, 'phase_metadata': metadata})
-    assert not folder.exists()
-
-
-def test_startup_backfill_writes_missing_exports_only(store, tmp_path, monkeypatch):
-    import os
-    from knowledge_admin.documents.api import backfill_exports
-
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    write_live_document(store, 'legacy', 'L', '# Legacy')
-    write_live_document(store, 'current', 'C', '# Current')
-    # legacy only has an old <slug>/v1/ export from before the upgrade
-    (out / 'legacy' / 'README.md').unlink()
-    (out / 'legacy' / 'v1').mkdir()
-    (out / 'legacy' / 'v1' / 'README.md').write_text('# Legacy')
-    current = out / 'current' / 'README.md'
-    old = time.time() - 3600
-    os.utime(current, (old, old))
-    assert backfill_exports(store) == 1
-    assert (out / 'legacy' / 'README.md').read_text() == '# Legacy' and (out / 'legacy' / 'v1').is_dir()
-    assert current.stat().st_mtime == old
-    assert backfill_exports(store) == 0
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
-    assert backfill_exports(store) == 0  # logged, never raised
-
-
-def test_app_startup_runs_the_export_backfill(store, tmp_path, monkeypatch):
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    write_live_document(store, 'legacy', 'L', '# Legacy')
-    (out / 'legacy' / 'README.md').unlink()
-    with _client(tmp_path, repository_store=store) as client:  # entering the client runs the lifespan
-        for _ in range(100):
-            if (out / 'legacy' / 'README.md').exists():
-                break
-            time.sleep(0.05)
-        assert client.get('/health').status_code == 200
-    assert (out / 'legacy' / 'README.md').read_text() == '# Legacy'
-
-
-def test_app_starts_when_the_backfill_fails(store, tmp_path, monkeypatch):
-    import knowledge_admin.app as app_module
-
-    def broken(store):
-        raise RuntimeError('boom')
-
-    monkeypatch.setattr(app_module, 'backfill_exports', broken)
-    with _client(tmp_path, repository_store=store) as client:
-        assert client.get('/health').status_code == 200
-
-
 def test_document_slug_comes_from_the_name():
     from knowledge_admin.documents.api import document_slug
 
@@ -523,29 +382,16 @@ def test_document_slug_comes_from_the_name():
     assert document_slug('a' * 119 + ' b') == 'a' * 119
 
 
-def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tmp_path, monkeypatch):
-    from knowledge_admin.documents.api import export_args, export_document, export_input
-
+def test_folder_documents_keep_their_folder_on_edit(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        saved = live_document(
-            conn, project, 'api-reference', 'API reference', '# API\n\n```d2\na -> b\n```\n', folder='team/payments'
-        )
-        export_document(**export_args(export_input(conn, saved['id'])))
-    folder = out / 'team' / 'payments' / 'api-reference'
-    assert (folder / 'README.md').read_text().startswith('# API') and (folder / 'architecture-1.d2').is_file()
-    assert not (out / 'api-reference').exists()
+        saved = live_document(conn, project, 'api-reference', 'API reference', '# API', folder='team/payments')
     endpoint = '/api/documentation/documents/' + str(saved['id'])
     assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
-    # A promoted draft keeps the document's folder and name; its export is rewritten in place.
+    # A promoted draft keeps the document's folder and name.
     save_and_promote(client, str(saved['id']), title='API guide', markdown='# Guide')
     assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
-    assert (out / 'team/payments/api-reference/README.md').read_text() == '# Guide'
-    assert not (out / 'team/payments/api-reference/architecture-1.d2').exists()
     # The same slug may exist once per folder and once without a folder.
     with store.connect() as conn:
         for other in ('other', None):
@@ -554,14 +400,31 @@ def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tm
         with store.connect() as conn:
             live_document(conn, project, 'api-reference', 'Twice', '# T', folder='team/payments')
     assert client.delete(endpoint, headers=HEADERS, params={'revision': 2, 'confirmed': True}).status_code == 200
-    assert not (out / 'team/payments/api-reference').exists()
 
 
-def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, tmp_path, monkeypatch):
+def test_publishing_and_deleting_write_no_files(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    draft = client.post(f'{DOCS}/drafts', headers=HEADERS, json={'slug': 'x', 'title': 'X', 'markdown': '# X'}).json()
+    response = client.post(f'{DOCS}/drafts/{draft["id"]}/promote', headers=HEADERS, json={'revision': 1})
+    assert response.status_code == 200 and 'export_error' not in response.json()
+    document = response.json()
+    assert client.post(f'{DOCS}/documents/{document["document_id"]}/export', headers=HEADERS).status_code in (404, 405)
+    assert list(out.iterdir()) == []
+    deleted = client.delete(
+        f'{DOCS}/documents/{document["document_id"]}',
+        headers=HEADERS,
+        params={'revision': document['revision'], 'confirmed': True},
+    )
+    assert deleted.status_code == 200 and list(out.iterdir()) == []
+
+
+def test_a_folder_never_shares_a_top_level_name_with_a_document(store, tmp_path):
     from knowledge_admin.documents.api import export_conflict
 
     client = _client(tmp_path, repository_store=store)
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
     write_live_document(store, 'payments', 'P', '# P')
     with store.connect() as conn:
         project = store.project(conn, 'shop')
@@ -601,34 +464,6 @@ def test_colliding_folder_and_folderless_publishes_are_serialized(store, tmp_pat
         assert thread.is_alive()  # waits for the first transaction instead of reading around it
     thread.join(10)
     assert outcome == {'result': 409}
-
-
-def test_exports_in_a_shared_folder_leave_siblings_alone_and_refuse_symlinked_parents(store, tmp_path, monkeypatch):
-    from knowledge_admin.documents.api import export_args, export_document, export_input
-
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        first = live_document(conn, project, 'one', 'One', '# One\n\n```d2\na -> b\n```\n', folder='team/payments')
-        second = live_document(conn, project, 'two', 'Two', '# Two\n\n```d2\nc -> d\n```\n', folder='team/payments')
-        for saved in (first, second):
-            export_document(**export_args(export_input(conn, saved['id'])))
-        assert (out / 'team/payments/two/architecture-1.d2').is_file()
-        edited = replace_live_document(conn, first['id'], '# One')
-        export_document(**export_args(export_input(conn, edited['id'])))
-    assert not (out / 'team/payments/one/architecture-1.d2').exists()
-    assert (out / 'team/payments/two/README.md').is_file() and (out / 'team/payments/two/architecture-1.d2').is_file()
-    # A symbolic link anywhere in the folder path is refused and nothing is written through it.
-    outside = tmp_path / 'outside'
-    outside.mkdir()
-    (out / 'linked').symlink_to(outside)
-    with store.connect() as conn:
-        escaped = live_document(conn, project, 'three', 'Three', '# Three', folder='linked/deep')
-        with pytest.raises(ValueError):
-            export_document(**export_args(export_input(conn, escaped['id'])))
-    assert list(outside.iterdir()) == []
 
 
 def test_a_document_never_conflicts_with_its_own_export(store):

@@ -26,7 +26,6 @@ NO_LINKS = {'code_project_ids': [], 'service_ids': [], 'server_ids': [], 'deploy
 
 @pytest.fixture
 def client(store, tmp_path, monkeypatch):
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path / 'missing'))  # exports fail quietly
     return _client(tmp_path, repository_store=store)
 
 

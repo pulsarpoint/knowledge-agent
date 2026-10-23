@@ -1,7 +1,6 @@
 """Standalone admin application."""
 
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 
 import httpx
@@ -13,22 +12,9 @@ from starlette.exceptions import HTTPException
 
 from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.api import build_api
-from knowledge_admin.documents.api import backfill_exports
 from knowledge_admin.sessions.hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.tools.fixture import sync_tools
-
-logger = logging.getLogger(__name__)
-
-
-async def backfill_document_exports(store: RepositoryStore | None) -> None:
-    """Re-export documents that lack a current export; runs in the background and never blocks startup."""
-    if store is None:
-        return
-    try:
-        await asyncio.to_thread(backfill_exports, store)
-    except Exception:  # noqa: BLE001 - a startup convenience must never take the service down
-        logger.exception('Document export backfill failed')
 
 
 def create_app(
@@ -43,7 +29,6 @@ def create_app(
     async def lifespan(app):
         if repository_store is not None:  # ka.tools = tools/tools.json (the fixture is the only writer)
             await asyncio.to_thread(sync_tools, repository_store)
-        backfill = asyncio.create_task(backfill_document_exports(repository_store))
         hub = None
         if repository_store is not None:  # live session pages: one database listener per process
             hub = app.state.session_hub = SessionHub(repository_store.conninfo)
@@ -51,8 +36,6 @@ def create_app(
         try:
             yield
         finally:
-            backfill.cancel()
-            await asyncio.gather(backfill, return_exceptions=True)
             if hub is not None:
                 await hub.stop()
 

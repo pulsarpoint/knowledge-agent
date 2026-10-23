@@ -7,7 +7,6 @@ import shutil
 import sqlite3
 from uuid import UUID, uuid4
 
-import httpx
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
@@ -18,7 +17,6 @@ from knowledge_admin.identity import request_actor
 from knowledge_admin.data_root import host_path
 from knowledge_admin.code_projects.paths import code_path, code_root
 from knowledge_admin.code_projects.processing import index_directory, CodeProcessingError
-from knowledge_admin.rag.files import RagFiles
 
 
 class RemoveInput(BaseModel):
@@ -31,7 +29,7 @@ def overlaps(a: str, b: str) -> bool:
     return a == b or a.startswith(b + '/') or b.startswith(a + '/')
 
 
-def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: httpx.Client | None = None) -> APIRouter:
+def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
     repository_store = partial(storage, store, 'Repository storage', message='Repository storage is not configured')
@@ -102,30 +100,14 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
                 )
             return {'job_id': job}
 
-    def rag_paths(project: UUID) -> list[tuple[str, str]]:
-        """(collection, source_path) for every folder connected in RAG."""
-        key = os.environ.get('RAG_BACKOFFICE_KEY')
-        if backoffice_client is None or not key:
-            raise HTTPException(
-                503, 'RAG is not configured, so connected folders cannot be checked. Keep the files instead.'
-            )
-        listing = RagFiles(backoffice_client, key, project, None).request(
-            'GET', 'collections', params={'status': 'false'}
-        )
-        return [(c['name'], p['source_path']) for c in listing.get('collections', []) for p in c.get('paths', [])]
-
     @router.post('/code-projects/{repository_id}/archive')
     def archive_project(repository_id: UUID, value: RemoveInput | None = None):
         """Remove the project everywhere and release its folders. With delete_files, also delete its folders
-        under code/ and its code graph, unless another project maps them or a RAG collection indexes them."""
+        under code/ and its code graph, unless another project maps them."""
         value = value or RemoveInput()
         selected = repository_store()
-        connected: list[tuple[str, str]] = []
         if value.delete_files:
             root = code_root()
-            with selected.connect() as conn:
-                project = selected.project(conn, app_name)
-            connected = rag_paths(project)
         with workspace(selected, app_name) as (conn, project):
             repo = conn.execute(
                 """SELECT id,clone_path FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
@@ -158,13 +140,6 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
                                 409,
                                 f'code/{folder} is also used by code project {other["name"]} '
                                 f'(code/{other["path"]}). Nothing was removed; keep the files or unmap it there first.',
-                            )
-                    for collection, source in connected:
-                        if overlaps(f'code/{folder}', source):
-                            raise HTTPException(
-                                409,
-                                f'RAG collection {collection} indexes {source}. Nothing was removed; '
-                                'remove that folder in RAG → Collections first or keep the files.',
                             )
             conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (repository_id,))
             conn.execute('DELETE FROM ka.code_project_folders WHERE code_project_id=%s', (repository_id,))

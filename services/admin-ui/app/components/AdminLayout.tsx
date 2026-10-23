@@ -223,7 +223,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                         : jiraSettings
                                           ? "Configure access to your Jira Data Center server and test the connection."
                                           : jiraTickets
-                                            ? "Filter Jira tickets and export their content to RAG."
+                                            ? "Filter the Jira tickets saved by the pull."
                                             : "";
   return (
     <SidebarProvider>

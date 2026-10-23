@@ -5,7 +5,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from knowledge_admin.documents.api import backfill_exports
 from knowledge_admin.documents.store import Provenance, create_draft
 from live_documents import write_live_document
 from test_api import _client
@@ -37,8 +36,7 @@ def save_links(client, endpoint: str, revision: int, **ids):
 
 
 @pytest.fixture
-def client(store, tmp_path, monkeypatch):
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path / 'missing'))  # exports fail quietly unless a test sets it
+def client(store, tmp_path):
     return _client(tmp_path, repository_store=store)
 
 
@@ -118,11 +116,7 @@ def test_a_links_only_save_keeps_the_version_and_a_promoted_draft_makes_a_new_on
     assert client.get(endpoint + '/versions/3', headers=HEADERS).status_code == 404
 
 
-def test_readers_never_show_drafts_as_documents(store, client, tmp_path, monkeypatch):
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path))
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+def test_readers_never_show_drafts_as_documents(store, client):
     live = write_live_document(store, VALUE['slug'], 'Payments runbook', VALUE['markdown'])
     content = {
         'title': 'Payments draft',
@@ -137,7 +131,7 @@ def test_readers_never_show_drafts_as_documents(store, client, tmp_path, monkeyp
         prov = Provenance('person', None)
         brand_new = create_draft(conn, project, prov, content, origin='manual', slug='draft-only', folder='team')
         of_live = create_draft(conn, project, prov, content, origin='manual', document_id=UUID(live['id']))
-    write_live_document(store, 'guide', 'Payments guide', '# G', folder='team', export=False)
+    write_live_document(store, 'guide', 'Payments guide', '# G', folder='team')
     listing = client.get(DOCUMENTS, params={'q': 'payments'}, headers=HEADERS).json()
     assert listing['total'] == 2
     assert {row['title'] for row in listing['documents']} == {'Payments runbook', 'Payments guide'}
@@ -149,7 +143,6 @@ def test_readers_never_show_drafts_as_documents(store, client, tmp_path, monkeyp
         response = client.delete(f'{DOCUMENTS}/{draft}', headers=HEADERS, params={'revision': 1, 'confirmed': True})
         assert response.status_code == 404
         assert client.get(f'{DOCUMENTS}/{draft}/bundle', headers=HEADERS).status_code == 404
-        assert client.post(f'{DOCUMENTS}/{draft}/export', headers=HEADERS).status_code == 404
     # A brand-new draft opens as the document it will become (is_draft) and owns its links; a draft of a document
     # opens only as a draft.
     opened = client.get(f'{DOCUMENTS}/{brand_new}', headers=HEADERS).json()
@@ -165,7 +158,3 @@ def test_readers_never_show_drafts_as_documents(store, client, tmp_path, monkeyp
     assert [(f['folder'], f['document_count']) for f in folders] == [('team', 1)]
     detail = client.get('/api/documentation/folders/team', headers=HEADERS).json()['documents']
     assert [d['slug'] for d in detail] == ['guide']
-    # The export backfill writes live documents only.
-    assert backfill_exports(store) == 1  # the guide (written without an export) — the runbook already has its export
-    assert (out / 'team' / 'guide' / 'README.md').is_file() and not (out / 'team' / 'draft-only').exists()
-    assert backfill_exports(store) == 0
