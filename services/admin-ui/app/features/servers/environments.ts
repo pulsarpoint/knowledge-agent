@@ -129,7 +129,7 @@ export interface EnvironmentModel {
   /** How many of its entries are drafts (a server's membership counts on its own). */
   drafts: number;
   /** Document drafts waiting for the environment, its servers and its services (not counted in `drafts`). */
-  document_drafts?: number;
+  document_drafts: number;
 }
 /** The header line "N drafts to review" (inventory and document drafts together; "(1 document)" names the document
  * ones when there are inventory drafts too), or null when nothing waits. */
@@ -144,6 +144,19 @@ const membership = (environmentId: string, serverId: string) =>
   `/api/environments/${encodeURIComponent(environmentId)}/servers/${encodeURIComponent(serverId)}`;
 export const getEnvironmentModel = (id: string, signal?: AbortSignal) =>
   request<EnvironmentModel>(`/api/environments/${encodeURIComponent(id)}/model`, { signal });
+/** A document draft waiting for review in an environment: of the environment, a member server or a service in it. */
+export interface EnvironmentDocumentDraft {
+  id: string;
+  title: string;
+  /** A new document's draft; else a new version of a live document. */
+  new: boolean;
+  resource: { type: "environment" | "server" | "service"; id: string; name: string };
+}
+/** The document drafts the model's document_drafts counts, each with the resource it belongs to. */
+export const getEnvironmentDocumentDrafts = (id: string, signal?: AbortSignal) =>
+  request<{ drafts: EnvironmentDocumentDraft[] }>(`/api/environments/${encodeURIComponent(id)}/document-drafts`, {
+    signal,
+  });
 /** Puts the server in the environment (also when it is there already). */
 export const addServerToEnvironment = (environmentId: string, serverId: string) =>
   request<void>(membership(environmentId, serverId), { method: "PUT" });

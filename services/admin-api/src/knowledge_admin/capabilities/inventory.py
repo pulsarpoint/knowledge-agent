@@ -147,7 +147,7 @@ def _rows(conn, query: str, resource_id: UUID) -> list[dict]:
     return conn.execute(limited, parameters).fetchall()
 
 
-def _readable_documents(conn, config: dict[str, Any], documents: list[dict]) -> list[dict]:
+def readable_documents(conn, config: dict[str, Any], documents: list[dict]) -> list[dict]:
     """The listed documents get_document would read in this run (MAX_ITEMS + 1 at most): those of a resource the run
     was given, and the others it may read (given directly, or also linked to a resource it was given)."""
     from knowledge_admin.capabilities.document_tools import readable  # document_tools imports this module
@@ -202,7 +202,7 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
         # The live document tagged inventory built for it, as the resource page picks it (a brand-new draft is not a
         # document get_document reads).
         inventory = inventory_document(conn, project, resource_type, key, live_only=True)
-        documents = _readable_documents(conn, config, resource_document_list(conn, project, resource_type, key))
+        documents = readable_documents(conn, config, resource_document_list(conn, project, resource_type, key))
     found = {'type': resource_type, **row}
     if resource_type == 'server':
         found.update(_server_extras(config, str(key)))

@@ -7,7 +7,7 @@ import DraftView from "./DraftView";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 
-/** /documents/drafts/:draftId — a draft of a live document on its own page (a discovery proposal links here): the
+/** /documents/drafts/:draftId — a draft of a live document on its own page (the environment's Drafts to review links here): the
  * changes against the live version, sources, Edit, Discard and Promote, which opens the document. A brand-new draft
  * opens at /documents/{id} (the id the document keeps when it is published): this page sends it there. */
 export default function DraftPageView() {

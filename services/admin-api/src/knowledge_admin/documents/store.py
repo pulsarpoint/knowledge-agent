@@ -723,11 +723,24 @@ LISTED = """WITH r(position,type,id,name) AS (SELECT * FROM unnest(%s::int[],%s:
 # What the Documents tab lists: live documents, and the drafts of new documents (a draft of a live document is no row).
 LIVE, NEW_DRAFTS = 'NOT d.is_draft', 'd.is_draft AND d.draft_of IS NULL'
 DRAFTS_WAITING = 'SELECT DISTINCT draft_of FROM ka.documents WHERE is_draft AND draft_of = ANY(%s)'
-# The document drafts (new documents and drafts of documents) linked to an environment, its servers and its services.
-ENVIRONMENT_DRAFTS = """SELECT count(*)::int AS n FROM ka.document_drafts_view v WHERE v.project_id=%(project)s AND (
-    %(environment)s=ANY(v.environment_ids)
-    OR v.server_ids && ARRAY(SELECT server_id FROM ka.environment_servers WHERE environment_id=%(environment)s)
-    OR v.service_ids && ARRAY(SELECT service_id FROM ka.service_deployments WHERE environment_id=%(environment)s))"""
+# The document drafts (new documents and drafts of documents) of an environment, its member servers and its services:
+# a draft belongs to a resource through its document's links or its own (a pending link, added on publish). One row
+# per draft, under the first resource (environment, servers, services; built for before linked), by resource and title.
+ENVIRONMENT_DRAFTS = """WITH r(position,type,id,name) AS (
+        SELECT 0,'environment',e.id,e.name FROM ka.environments e WHERE e.id=%(environment)s
+        UNION ALL SELECT 1,'server',h.id,h.name FROM ka.servers h
+            WHERE h.id IN (SELECT server_id FROM ka.environment_servers WHERE environment_id=%(environment)s)
+        UNION ALL SELECT 2,'service',s.id,s.name FROM ka.services s
+            WHERE s.id IN (SELECT service_id FROM ka.service_deployments WHERE environment_id=%(environment)s))
+    SELECT * FROM (SELECT DISTINCT ON (x.id) x.id,x.title,x.draft_of IS NULL AS new,
+        r.position,r.type,r.id AS resource_id,r.name AS resource_name
+        FROM ka.documents x
+        JOIN ka.document_resources l ON l.removed_at IS NULL AND (l.document_id=x.id OR l.document_id=x.draft_of)
+        JOIN r ON CASE r.type WHEN 'server' THEN l.server_id=r.id WHEN 'service' THEN l.service_id=r.id
+            ELSE l.environment_id=r.id END
+        WHERE x.is_draft AND x.project_id=%(project)s
+        ORDER BY x.id,r.position,l.connection='built_for' DESC) d
+    ORDER BY d.position,lower(d.resource_name),d.resource_id,lower(d.title),d.id"""
 
 
 def description_short(description: str | None) -> str:
@@ -737,10 +750,19 @@ def description_short(description: str | None) -> str:
     return first if len(first) <= SHORT_DESCRIPTION else first[:SHORT_DESCRIPTION].rstrip() + '…'
 
 
-def environment_document_drafts(conn, project: UUID, environment_id: UUID) -> int:
-    """How many document drafts wait for review in an environment: drafts of new documents and of live documents
-    linked to the environment, its member servers or its services."""
-    return conn.execute(ENVIRONMENT_DRAFTS, {'project': project, 'environment': environment_id}).fetchone()['n']
+def environment_document_drafts(conn, project: UUID, environment_id: UUID) -> list[dict]:
+    """The document drafts waiting for review in an environment (ENVIRONMENT_DRAFTS): drafts of new documents and of
+    live documents linked to the environment, its member servers or its services, by the draft's links too.
+    Each: {id, title, new (a new document, else a new version), resource {type, id, name}}."""
+    return [
+        {
+            'id': row['id'],
+            'title': row['title'],
+            'new': row['new'],
+            'resource': {'type': row['type'], 'id': row['resource_id'], 'name': row['resource_name']},
+        }
+        for row in conn.execute(ENVIRONMENT_DRAFTS, {'project': project, 'environment': environment_id}).fetchall()
+    ]
 
 
 def resource_document_list(conn, project: UUID, kind: str, resource_id: UUID, *, documents: str = LIVE) -> list[dict]:

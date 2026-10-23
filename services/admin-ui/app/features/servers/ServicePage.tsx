@@ -84,6 +84,7 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
           content: (
             <EntryDocuments
               entry={{ kind: "service", id: serviceId, name: service.name }}
+              refresh={chatTurns}
               onChanged={() => setVersion((value) => value + 1)}
             />
           ),

@@ -660,7 +660,7 @@ def _new_document(
 
 
 def _list_documents(config: dict[str, Any], resource: dict) -> str:
-    from knowledge_admin.capabilities.inventory import _readable_documents
+    from knowledge_admin.capabilities.inventory import readable_documents
 
     found = resource_of(config['access'], resource)
     if isinstance(found, str):
@@ -669,7 +669,7 @@ def _list_documents(config: dict[str, Any], resource: dict) -> str:
     session = config.get('session_id')
     with connect() as conn:
         project = project_of(conn, config)
-        live = _readable_documents(conn, config, resource_document_list(conn, project, kind, UUID(key)))
+        live = readable_documents(conn, config, resource_document_list(conn, project, kind, UUID(key)))
         drafted = {row['draft_of'] for row in conn.execute(RUN_DRAFTS, (session,))} if session else set()
         new = (
             conn.execute(OWN_NEW_LINKED.format(column=ENTRY_COLUMNS[kind]), (session, project, key)).fetchall()

@@ -154,6 +154,7 @@ export default function ServerPage({ serverId }: { serverId: string }) {
           content: (
             <EntryDocuments
               entry={{ kind: "server", id: serverId, name: server.name }}
+              refresh={version}
               onChanged={() => setVersion((value) => value + 1)}
             />
           ),

@@ -200,6 +200,7 @@ test("the workspace's Add service reloads the model and selects the service", as
     external: [],
     external_services: [],
     drafts: 0,
+    document_drafts: 0,
   };
   let current = base;
   const calls = api({

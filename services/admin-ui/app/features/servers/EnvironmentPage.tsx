@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { draftsLabel, getEnvironment, getEnvironmentModel, type EnvironmentAsset } from "./environments";
 import { DraftBadge } from "./ConfirmDraftSheet";
+import EnvironmentDocumentDrafts from "./EnvironmentDocumentDrafts";
 import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
@@ -13,7 +14,8 @@ import { Skeleton } from "~/components/ui/skeleton";
 
 /** One environment: a header (name, description, System map, "N drafts to review" linking to the workspace's
  * Drafts filter, or to the Documents tab when only document drafts wait; Discover and Chat on the right) and tabs:
- * Workspace (its servers and services), Documents (the environment's own) and Chats (ResourceChats). */
+ * Workspace (its servers and services), Documents (Drafts to review: every document draft the header counts; then the
+ * environment's own documents) and Chats (ResourceChats). */
 export default function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
       (model) => {
         if (controller.signal.aborted) return;
         setDrafts(model.drafts);
-        setDocumentDrafts(model.document_drafts ?? 0);
+        setDocumentDrafts(model.document_drafts);
       },
       () => {},
     );
@@ -118,7 +120,17 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
         {
           value: "documents",
           label: "Documents",
-          content: <EntryDocuments entry={entry} ownOnly onChanged={() => setVersion((value) => value + 1)} />,
+          content: (
+            <div className="flex flex-col gap-6">
+              <EnvironmentDocumentDrafts environmentId={environmentId} refresh={version + chatTurns} />
+              <EntryDocuments
+                entry={entry}
+                ownOnly
+                refresh={chatTurns}
+                onChanged={() => setVersion((value) => value + 1)}
+              />
+            </div>
+          ),
         },
       ]}
       actions={<DiscoverWizard resource={{ type: "environment", id: environmentId, name: environment.name }} />}

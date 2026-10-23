@@ -127,6 +127,7 @@ test("the workspace's Add server reloads the model and selects the server", asyn
     external: [],
     external_services: [],
     drafts: 0,
+    document_drafts: 0,
   };
   let current = empty;
   const calls = api({

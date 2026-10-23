@@ -297,7 +297,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
     built = live(store, 'built', 'Built', **{kind: [target]})
     linked = live(store, 'linked', 'Linked')
     live(store, 'unrelated', 'Unrelated', **{kind: [elsewhere]})
-    new_draft(client, 'draft', 'Draft', **{kind: [target]})  # drafts are not shown
+    new_draft(client, 'draft', 'Draft', **{kind: [target]})  # new documents' drafts: test_document_drafts_review
     links = client.put(f'{DOCUMENTS}/{linked}/links', headers=HEADERS, json={**NO_LINKS, kind: [target], 'revision': 1})
     assert links.status_code == 200, links.text
     url = f'/api/inventory/{entry}/{target}/documents'

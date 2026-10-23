@@ -494,6 +494,7 @@ test("the environment header links its drafts to the workspace's Drafts filter",
         external: [],
         external_services: [],
         drafts: 2,
+        document_drafts: 0,
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
@@ -575,6 +576,7 @@ test("the header link to the drafts keeps the open chat and goes to the workspac
         external: [],
         external_services: [],
         drafts: 1,
+        document_drafts: 0,
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
@@ -615,6 +617,7 @@ test("a turn of the page chat reloads the workspace and the drafts count (its ag
         external: [],
         external_services: [],
         drafts,
+        document_drafts: 0,
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
@@ -692,6 +695,58 @@ test("the environment's Documents tab lists only the environment's own documents
   expect(screen.queryByRole("link", { name: "Web host notes" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("tab", { name: "Workspace" }));
   expect(location).toBe("");
+});
+
+test("the header's document drafts link opens the Documents tab, where Drafts to review lists every counted draft", async () => {
+  const environment = { id: "e1", name: "Production", description: "", status: "confirmed", revision: 1 };
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      { ...environment, created_at: at, updated_at: at, services: [], servers: [] },
+    ],
+    "GET /api/environments/e1/model": () => [
+      200,
+      {
+        environment,
+        servers: [],
+        services: [],
+        connections: [],
+        relations: [],
+        external: [],
+        external_services: [],
+        drafts: 0,
+        document_drafts: 2,
+      },
+    ],
+    "GET /api/environments/e1/document-drafts": () => [
+      200,
+      {
+        drafts: [
+          { id: "d1", title: "api tuning", new: true, resource: { type: "service", id: "v1", name: "api" } },
+          { id: "d2", title: "web-1 runbook", new: false, resource: { type: "server", id: "s1", name: "web-1" } },
+        ],
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+  });
+  render(
+    <MemoryRouter initialEntries={["/environments/e1"]}>
+      <EnvironmentPage environmentId="e1" />
+    </MemoryRouter>,
+  );
+  await userEvent.click(await screen.findByRole("link", { name: "2 drafts to review" }));
+  const review = within(await screen.findByRole("region", { name: "Drafts to review" }));
+  const items = review.getAllByRole("listitem");
+  expect(items).toHaveLength(2);
+  expect(within(items[0]).getByRole("link", { name: "api tuning" })).toHaveAttribute("href", "/documents/drafts/d1");
+  expect(items[0]).toHaveTextContent("api");
+  expect(items[0]).toHaveTextContent("New document");
+  expect(within(items[1]).getByRole("link", { name: "web-1 runbook" })).toHaveAttribute("href", "/documents/drafts/d2");
+  expect(items[1]).toHaveTextContent("web-1");
+  expect(items[1]).toHaveTextContent("New version");
+  // The environment's own documents stay below, own-only.
+  expect(screen.getByText("No documents yet.")).toBeInTheDocument();
 });
 
 test("routes: resource pages; the proposals and discovery run routes are gone", () => {

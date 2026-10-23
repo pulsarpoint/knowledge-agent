@@ -20,9 +20,12 @@ export default function EntryDocuments({
   entry,
   onChanged,
   ownOnly = false,
+  refresh = 0,
 }: {
   entry: MapEntry;
   onChanged?: () => void;
+  /** Changing it reloads the documents (the page chat's agent may have drafted some). */
+  refresh?: number;
   /** Only the entry's own documents, not its children's (the environment page: each server and service shows its own). */
   ownOnly?: boolean;
 }) {
@@ -37,7 +40,7 @@ export default function EntryDocuments({
       })
       .catch(() => undefined); // nothing shown; the sheet shows its own errors
     return () => controller.abort();
-  }, [entry.kind, entry.id, version]);
+  }, [entry.kind, entry.id, version, refresh]);
   const inventory = documents?.inventory_document ?? null;
   const list = (documents?.documents ?? []).filter((item) => !ownOnly || item.resource.id === entry.id);
   return (

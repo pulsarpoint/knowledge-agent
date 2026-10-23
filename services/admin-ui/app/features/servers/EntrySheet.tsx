@@ -467,9 +467,11 @@ export default function EntrySheet({
     }
   }
   const page = ENTRY_PAGES[entry.kind];
-  // The entry's own linked documents (the list also has its children's documents); the inventory document apart.
+  // The entry's own linked documents (the list also has its children's documents and new documents' drafts, which
+  // are not published yet); the inventory document apart.
   const own = documents.documents.filter(
-    (document) => document.resource.id === entry.id && document.id !== documents.inventory_document?.id,
+    (document) =>
+      document.resource.id === entry.id && !document.is_draft && document.id !== documents.inventory_document?.id,
   );
   const deployments = links ? [...links.deployments.values()] : [];
   const mine = deployments.filter((deployment) => deployment.service_id === entry.id);

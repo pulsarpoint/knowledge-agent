@@ -101,6 +101,7 @@ test("shows a service's connections and relations in words, and its documents", 
           listed("d2", "Design", "built_for"),
           listed("d1", "Runbook", "linked"),
           listed("d3", "Disk notes", "built_for", false, { type: "server", id: "s1", name: "prod-1" }),
+          { ...listed("d4", "New tuning notes", "linked"), is_draft: true },
         ],
       },
     }),
@@ -124,6 +125,9 @@ test("shows a service's connections and relations in words, and its documents", 
   expect(documents.getAllByRole("link", { name: "api overview" })).toHaveLength(1);
   // a child's document is on the resource page's list, not among the entry's own links
   expect(documents.queryByRole("link", { name: "Disk notes" })).toBeNull();
+  // a new document's draft is no link yet (it is linked on publish): not listed, no Remove
+  expect(documents.queryByRole("link", { name: "New tuning notes" })).toBeNull();
+  expect(documents.queryByRole("button", { name: "Remove link: New tuning notes" })).toBeNull();
 });
 
 test("adds a connection to another deployment with the target's port prefilled", async () => {

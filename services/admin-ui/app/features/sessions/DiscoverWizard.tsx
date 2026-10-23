@@ -13,7 +13,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
 /** The library prompt a discovery run starts from: "Server discovery" when the library has it, else the chat's default. */
-export const discoveryPrompt = (options: AgentOptions, fallback: string) =>
+const discoveryPrompt = (options: AgentOptions, fallback: string) =>
   options.prompts.find((item) => item.name === "Server discovery")?.id ?? fallback;
 
 /** Discover…: a run on the resource from a library prompt (its text can be edited first), which saves what it finds as

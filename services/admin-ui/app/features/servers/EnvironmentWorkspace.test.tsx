@@ -42,6 +42,7 @@ function model(): EnvironmentModel {
     external: [],
     external_services: [],
     drafts: 0,
+    document_drafts: 0,
   };
 }
 
