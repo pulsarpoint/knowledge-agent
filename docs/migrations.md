@@ -279,7 +279,7 @@ A server discovery run is now an ordinary run started from a server (`POST /api/
 is the prompt's text. The seeded prompt **Server discovery** gets a version 2 with that text (read what the inventory
 records first, explore with read-only commands with `ssh_run` on the server named in the context, never copy secrets,
 propose with `propose_service` and `propose_document`, correct a refused proposal and call again, finish with a short
-report) and version 2 becomes active, but only when nobody changed the prompt (one version, revision 1). New workspaces
+report; 0129 replaces `propose_service` with `save_inventory_draft`) and version 2 becomes active, but only when nobody changed the prompt (one version, revision 1). New workspaces
 get the new text as version 1. A customized "Server discovery" prompt, or another prompt tagged `server-discovery`, is
 left alone: add that the server is the one named in the context, to run commands with `ssh_run` on it, and the rule
 "When a proposal is refused, the result says why: correct it and call again." Open discovery runs (pinned with the old
@@ -500,3 +500,17 @@ down migration recreates them backfilled: the label from the environment's name,
 from `depends_on` and `built_from` relations and one `connects_to` per pair of services with a connection (port and
 protocol of the oldest as attributes). Lost on the way down: `part_of` relations and connections to external hosts
 (0125's down drops them with their tables).
+
+## 0129_service_proposals_gone
+
+Service proposals give way to inventory drafts (0128): `discovery_proposals` keeps only document proposals. Service
+proposals are deleted with the document proposals about them, and `service_proposal_id` with its constraints and index
+is dropped. The seeded **Server discovery** prompt no longer proposes services with `propose_service` (gone): where
+its active text is still 0106's seed, a new version becomes active that saves inventory findings as drafts with
+`save_inventory_draft` (one call with the server, services, deployments, connections and relations; a person confirms
+them in the environment workspace) and still proposes documents with `propose_document`; the rest of the prompt is
+kept, and the seeded description follows. A prompt whose text a person changed is left alone (replace its
+`propose_service` step yourself). New workspaces get the new text as version 1. The down migration restores the shape
+(service proposals are not restored), removes the new prompt version where it is still the active, newest version with
+0129's text (the version before it is active again), and restores 0106's seed for new workspaces; workspaces created
+after 0129 keep the new text.

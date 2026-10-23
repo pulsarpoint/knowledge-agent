@@ -477,6 +477,17 @@ chat."). Their proposals stay reviewable.
   `POST /api/sessions` and `GET /api/sessions?server_id=`. The separate discovery run page is gone; run links
   `/servers/:id/discovery/:runId` open the server page on that run.
 - The code no longer adds a discovery system prompt or a "short report" line. A customized **Server discovery** prompt
-  should say: read the inventory first, propose with `propose_service` and `propose_document`, correct and retry when a
+  should say: read the inventory first, save inventory findings as drafts with `save_inventory_draft` (since 0129;
+  `propose_service` is gone) and propose documents with `propose_document`, correct and retry when a draft or a
   proposal is refused, finish with a short report.
 - Every run's inventory tools and `get_document` now answer only about what the run was given.
+
+## Upgrading to inventory drafts
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Agents write the
+inventory as drafts (`save_inventory_draft` and the `save_*` tools); a person confirms or discards them in the
+environment workspace. Migration 0129 deletes the service proposals (`propose_service` is gone; document proposals
+stay) and gives the untouched **Server discovery** prompt a new version that saves inventory findings with
+`save_inventory_draft`, in one call with the whole picture, and still proposes documents with `propose_document`. A
+**Server discovery** prompt whose text was changed is left alone: replace its `propose_service` step with
+`save_inventory_draft` yourself.
