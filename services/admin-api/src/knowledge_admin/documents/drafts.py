@@ -481,7 +481,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 actor = db.actor(conn, *request_actor(request))
                 # The export lock write_live and a discovery accept take, so a promote cannot deadlock with them.
                 conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
-                if row['draft_of'] is None:  # a brand-new document's export folder must be free
+                if row['draft_of'] is None:  # a brand-new document's path must not be a folder
                     conflict = export_conflict(conn, project, row['slug'], row['folder'], draft_id)
                     if conflict:
                         raise HTTPException(409, conflict)

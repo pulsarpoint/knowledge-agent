@@ -21,7 +21,6 @@ def create_app(
     cfg: Config,
     *,
     server: ServerConfig,
-    backoffice_client: httpx.Client | None = None,
     repository_store: RepositoryStore | None = None,
     jira_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
@@ -63,9 +62,7 @@ def create_app(
     def health():
         return {'status': 'ok'}
 
-    app.include_router(
-        build_api({a.name: a for a in cfg.apps}, server, backoffice_client, repository_store, jira_transport)
-    )
+    app.include_router(build_api({a.name: a for a in cfg.apps}, server, repository_store, jira_transport))
     if repository_store is not None:
         from knowledge_admin.sessions import run_record
 

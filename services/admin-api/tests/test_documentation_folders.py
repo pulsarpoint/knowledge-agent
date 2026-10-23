@@ -1,4 +1,4 @@
-"""Documentation folders: listed from the database for browsing; indexing happens in RAG → Collections."""
+"""Documentation folders: listed from the database for browsing."""
 
 from uuid import uuid4
 

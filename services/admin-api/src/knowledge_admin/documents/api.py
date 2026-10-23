@@ -106,9 +106,9 @@ def export_conflict(conn, project: UUID, slug: str, folder: str | None, document
             (project, parent, name, document_id),
         ).fetchone():
             if parent is None:
-                return f'The folder {name} holds the export of the document {name}. Choose another folder.'
+                return f'The folder {name} is used by the document {name}. Choose another folder.'
             return (
-                f'The folder {parent}/{name} holds the export of the document {name} in the folder {parent}. '
+                f'The folder {parent}/{name} is used by the document {name} in the folder {parent}. '
                 'Choose another folder.'
             )
     return None

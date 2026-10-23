@@ -1,5 +1,5 @@
 """Memory search: full text (websearch_to_tsquery over name, content and metadata values) and vector distance among
-entries embedded with the query's profile, merged by reciprocal rank as RAG does. Without a query: the filtered
+entries embedded with the query's profile, merged by reciprocal rank. Without a query: the filtered
 entries, newest first. Vectors of another profile (another model, maybe other dimensions) are never compared."""
 
 import json

@@ -13,7 +13,6 @@ dependencies = [
     "uvicorn>=0.30",
     "psycopg[binary]>=3.2",
     "cryptography>=44",
-    "jira2markdown>=0.5.1",
     "asyncssh>=2.21,<3",
     "mcp>=1.26,<2",
     "litellm==1.100.0",

@@ -1,6 +1,6 @@
 """Embeddings for any service: one call for a list of texts, and the profile that names which model made a vector
 (a vector is only compared with vectors of the same profile). Errors are ModelUnavailable; callers decide what that
-means (RAG answers 502, memory saves without a vector)."""
+means (memory saves without a vector)."""
 
 import hashlib
 import json

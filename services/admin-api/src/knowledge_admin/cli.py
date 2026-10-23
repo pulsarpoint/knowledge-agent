@@ -6,10 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-import httpx
 import uvicorn
 
-from knowledge_admin.config import ConfigError, load_config, load_env_file, resolve_rag, resolve_server
+from knowledge_admin.config import ConfigError, load_config, load_env_file, resolve_server
 from knowledge_admin.app import create_app
 from knowledge_admin.repositories import RepositoryStore
 
@@ -25,9 +24,6 @@ def main() -> int:
         load_env_file(args.env_file)
         cfg = load_config(args.target)
         server = resolve_server(cfg.server)
-        rag_url = resolve_rag(cfg.rag)
-        if not rag_url:
-            raise ConfigError('Set DOCS_WIKI_RAG_URL or [rag] url before starting the admin API')
     except ConfigError as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 2
@@ -36,11 +32,10 @@ def main() -> int:
         repository_store = RepositoryStore(
             '', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL']
         )
-    with httpx.Client(base_url=rag_url, timeout=30.0) as backoffice:
-        uvicorn.run(
-            create_app(cfg, server=server, backoffice_client=backoffice, repository_store=repository_store),
-            host=args.host,
-            port=args.port,
-            timeout_graceful_shutdown=5,
-        )  # open session streams reconnect; they must not block shutdown
+    uvicorn.run(
+        create_app(cfg, server=server, repository_store=repository_store),
+        host=args.host,
+        port=args.port,
+        timeout_graceful_shutdown=5,
+    )  # open session streams reconnect; they must not block shutdown
     return 0

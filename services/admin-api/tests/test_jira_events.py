@@ -68,7 +68,6 @@ def test_first_pull_records_every_ticket_and_a_repeat_records_nothing(store, tmp
 
 
 def test_a_pull_stores_tickets_and_records_events_with_no_file_export(store, tmp_path, monkeypatch):
-    monkeypatch.delenv('RAG_BACKOFFICE_KEY', raising=False)
     monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path / 'data'))
     client, _ = setup(store, tmp_path)
     assert auto_pull(store, a_schedule(store), transport=jira(ISSUES[:3]))[0] == 'succeeded'

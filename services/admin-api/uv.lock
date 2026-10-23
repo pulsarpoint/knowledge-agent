@@ -838,18 +838,6 @@ wheels = [
 ]
 
 [[package]]
-name = "jira2markdown"
-version = "0.5.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyparsing" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/a1/601d79910c9dc5ce54532cecc3db66864b03dc116e6706137ab31806e2f3/jira2markdown-0.5.1.tar.gz", hash = "sha256:e23f1ae5368ef93399de82ca75d4837ebefbb1a4bf15af153f659ced9ee5fcd7", size = 12009, upload-time = "2026-08-13T05:59:50.5Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/6a/6ca58447460d31b6f6c34b1893db5fcded5d066d1158d07c677d8ceb9a19/jira2markdown-0.5.1-py3-none-any.whl", hash = "sha256:0c37b7428ea5c0886944c856d24490a6e0a271a62e28d52b07034f46e392279c", size = 15233, upload-time = "2026-08-13T05:59:51.669Z" },
-]
-
-[[package]]
 name = "jiter"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -965,7 +953,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
-    { name = "jira2markdown" },
     { name = "knowledge-llm" },
     { name = "litellm" },
     { name = "mcp" },
@@ -994,7 +981,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "jira2markdown", specifier = ">=0.5.1" },
     { name = "knowledge-llm", editable = "../../packages/llm-settings" },
     { name = "litellm", specifier = "==1.100.0" },
     { name = "mcp", specifier = ">=1.26,<2" },
@@ -1822,15 +1808,6 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
-]
-
-[[package]]
-name = "pyparsing"
-version = "3.3.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f3/91/9c6ee907786a473bf81c5f53cf703ba0957b23ab84c264080fb5a450416f/pyparsing-3.3.2.tar.gz", hash = "sha256:c777f4d763f140633dcb6d8a3eda953bf7a214dc4eff598413c070bcdc117cbc", size = 6851574, upload-time = "2026-01-21T03:57:59.36Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
 ]
 
 [[package]]

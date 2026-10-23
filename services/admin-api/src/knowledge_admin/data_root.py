@@ -58,7 +58,7 @@ DATA_FOLDER_RULE = (
 
 
 def data_folder(value: str) -> str:
-    """A folder under DATA_ROOT as RAG names it (relative, no '..', no hidden segment). Raises ValueError(DATA_FOLDER_RULE)."""
+    """A folder under DATA_ROOT (relative, no '..', no hidden segment). Raises ValueError(DATA_FOLDER_RULE)."""
     if len(value) > 500 or not DATA_FOLDER.fullmatch(value):
         raise ValueError(DATA_FOLDER_RULE)
     return value

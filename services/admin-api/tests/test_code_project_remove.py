@@ -14,8 +14,7 @@ HEADERS = {
 
 @pytest.fixture
 def env(store, tmp_path, monkeypatch):
-    """Admin client with a code root, a code-index root and no RAG."""
-    monkeypatch.delenv('RAG_BACKOFFICE_KEY', raising=False)
+    """Admin client with a code root and a code-index root."""
     code, index = tmp_path / 'code', tmp_path / 'code-index'
     for folder in ('api', 'shared', 'tools/cli'):
         (code / folder).mkdir(parents=True)

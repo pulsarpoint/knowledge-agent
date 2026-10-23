@@ -1,17 +1,16 @@
 # Administration API
 
-Independent FastAPI application for Jira settings/tickets, services/server inventory, code projects, RAG workspace management,
+Independent FastAPI application for Jira settings/tickets, services/server inventory, code projects, documents, memory,
 agents and agent run records. All `/api` routes require the forwarded `docs-admins` group. Only the
 admin OAuth gateway may expose this service; `/health` is its internal health check.
 
-Startup configuration lives in `knowledge_admin/config.py` (`DOCS_WIKI_RAG_URL`,
-`DOCS_WIKI_ADMIN_GROUP`) and Phoenix tracing in `knowledge_admin/sessions/tracing.py`
+Startup configuration lives in `knowledge_admin/config.py` (`DOCS_WIKI_ADMIN_GROUP`) and Phoenix tracing in `knowledge_admin/sessions/tracing.py`
 (`DOCS_WIKI_PHOENIX_*`); the variable names are unchanged. Docker binds no API host port.
 
 ```sh
 uv sync --frozen
 uv run --frozen pytest -q
-uv run --frozen ruff format   # settings in the repository root ruff.toml (shared with rag and packages/)
+uv run --frozen ruff format   # settings in the repository root ruff.toml (shared with packages/)
 # Native development; set the PostgreSQL and issuer variables described below first.
 uv run --frozen knowledge-admin "$DATA_ROOT/docs" --env-file ../../.env
 ```
@@ -68,14 +67,12 @@ config = get_agent_config('operations')  # Saved ID; custom agents use their UUI
 ```
 
 `knowledge_agents/config.py` reads a consistent database snapshot and returns a JSON-compatible
-dictionary: `model`, `system_prompt`, `instructions`, `grounded` (its "Answer only from documents" switch) and
-`access`, the access object. Identity, description, when-to-use text, availability and revisions are included.
+dictionary: `model`, `system_prompt`, `instructions` and `access`, the access object. Identity, description, when-to-use text, availability and revisions are included.
 No records are created or updated by loading. A missing agent raises `LookupError`.
 
 `access` is the only description of what the agent may use: its stored references (and roles), each loaded into an
-entry `{type, id, name, description_short}` with what the tools need (`resource_entries`); deleted collections,
-archived code projects and other references to resources that no longer exist are skipped, as are skills and MCP
-servers that are switched off. Agents are granted whole RAG collections; there are no subfolder grants. A pinned run
+entry `{type, id, name, description_short}` with what the tools need (`resource_entries`); archived code projects and other references to resources that no longer exist are skipped, as are skills and MCP
+servers that are switched off. A pinned run
 configuration has no per-kind sections either: a run's access object is the agent's narrowed to what it was given,
 with the direct children of that (its code projects and servers, its deployed services, its services and servers). An
 ad-hoc run (no agents row) holds what it was picked, each checked and loaded, and is built the same way
@@ -85,9 +82,6 @@ allowed, a key: `access.ssh_reason`) gets its SSH credential, and `ssh_run` refu
 
 - A code project carries absolute `folder_paths` under `CODE_ROOT` and, when it has a generated graph, `graph_path`
   and `code_root`.
-- A collection carries its `paths` (folders under `DATA_ROOT_DIR`). The document tools search and read by collection
-  name and collection-relative path (`search_documents`, `read_document(collection, path)`), confined to the run's
-  collections. Agents that are not grounded get the collection folders as read roots.
 - A skill carries its `description` (`load_skill` reads its instructions).
 - A server carries its connection: `hostname`, `port`, `username`, `allow_sudo`, `known_hosts`, `enabled`,
   `ssh_allowed` and `private_key_ref`, always the server's own (there are no per-agent overrides).

@@ -430,7 +430,7 @@ def test_a_folder_never_shares_a_top_level_name_with_a_document(store, tmp_path)
         project = store.project(conn, 'shop')
         assert (
             export_conflict(conn, project, 'api', 'payments/api')
-            == 'The folder payments holds the export of the document payments. Choose another folder.'
+            == 'The folder payments is used by the document payments. Choose another folder.'
         )
         assert export_conflict(conn, project, 'api', 'team/payments') is None
         live_document(conn, project, 'api', 'A', '# A', folder='team/payments')
@@ -484,7 +484,7 @@ def test_nested_exports_never_share_a_folder_in_either_direction(store):
         project = store.project(conn, 'shop')
         # Document b in folder a exports to a/b/: the folders a/b and a/b/c (at any depth) are refused.
         live_document(conn, project, 'b', 'B', '# B', folder='a')
-        message = 'The folder a/b holds the export of the document b in the folder a. Choose another folder.'
+        message = 'The folder a/b is used by the document b in the folder a. Choose another folder.'
         assert export_conflict(conn, project, 'x', 'a/b') == message
         assert export_conflict(conn, project, 'x', 'a/b/c') == message
         assert export_conflict(conn, project, 'x', 'a/bc') is None

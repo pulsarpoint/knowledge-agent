@@ -160,7 +160,7 @@ def test_a_brand_new_draft_can_be_renamed_until_published(docs):
     clash = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'other'})
     assert clash.status_code == 409 and clash.json()['error']['message'] == NAME_IN_USE.format(slug='other')
     nested = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'x', 'folder': 'runbook'})
-    assert nested.status_code == 409 and 'holds the export of the document runbook' in nested.text
+    assert nested.status_code == 409 and 'is used by the document runbook' in nested.text
     assert docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'Bad Name'}).status_code == 400
     assert docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'folder': 'Servers'}).status_code == 400
     current = docs.client.get(url, headers=HEADERS).json()

@@ -63,17 +63,20 @@ def test_admin_audit_has_no_application_prefixed_routes(tmp_path):
     'method,path',
     [
         ('POST', '/api/admin/backoffice/init'),
-        ('GET', '/api/admin/backoffice/init/stream'),
         ('GET', '/api/admin/backoffice/status'),
+        ('GET', '/api/rag/settings'),
+        ('GET', '/api/rag/collections'),
+        ('GET', '/api/rag/jobs'),
+        ('POST', '/api/rag/search'),
     ],
 )
-def test_retired_initialization_routes_do_not_reach_rag(tmp_path, method, path):
-    def unexpected_request(request):
-        pytest.fail('Retired initialization route contacted RAG')
+def test_the_rag_proxy_is_gone(tmp_path, method, path):
+    assert _client(tmp_path).request(method, path, headers={'X-Forwarded-Groups': 'docs-admins'}).status_code == 404
 
-    with httpx.Client(base_url='http://rag.test', transport=httpx.MockTransport(unexpected_request)) as upstream:
-        client = _client(tmp_path, backoffice_client=upstream)
-        assert client.request(method, path, headers={'X-Forwarded-Groups': 'docs-admins'}).status_code == 404
+
+def test_create_app_takes_no_rag_client(tmp_path):
+    with pytest.raises(TypeError):
+        _client(tmp_path, backoffice_client=None)
 
 
 @pytest.mark.parametrize('groups', ['', 'readers', 'docs-admins-other'])

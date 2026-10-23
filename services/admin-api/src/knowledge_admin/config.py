@@ -1,4 +1,4 @@
-"""Startup configuration: the workspace (a docs folder or a TOML file), the admin group and the RAG URL."""
+"""Startup configuration: the workspace (a docs folder or a TOML file) and the admin group."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ class App:
 class Config:
     apps: list[App]
     server: dict | None = None
-    rag: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -31,7 +30,7 @@ class ServerConfig:
 
 
 def load_config(target: Path) -> Config:
-    """A docs folder names the single workspace; a TOML file lists [[apps]] with optional [server] and [rag] tables."""
+    """A docs folder names the single workspace; a TOML file lists [[apps]] with an optional [server] table."""
     target = Path(target)
     if target.is_dir():
         return Config(apps=[App(name=target.name)])
@@ -52,13 +51,10 @@ def load_config(target: Path) -> Config:
         if name in {app.name for app in apps}:
             raise ConfigError(f'{target}: duplicate app name {name!r}')
         apps.append(App(name=name))
-    sections = {}
-    for key in ('server', 'rag'):
-        value = data.get(key)
-        if value is not None and not isinstance(value, dict):
-            raise ConfigError(f'{target}: {key} must be a table')
-        sections[key] = value
-    return Config(apps=apps, **sections)
+    server = data.get('server')
+    if server is not None and not isinstance(server, dict):
+        raise ConfigError(f'{target}: server must be a table')
+    return Config(apps=apps, server=server)
 
 
 def resolve_server(server_section: dict | None, env: Mapping[str, str] | None = None) -> ServerConfig:
@@ -67,12 +63,6 @@ def resolve_server(server_section: dict | None, env: Mapping[str, str] | None = 
     if admin_group is not None and not isinstance(admin_group, str):
         raise ConfigError('[server] admin_group must be a string')
     return ServerConfig(admin_group=admin_group or 'docs-admins')
-
-
-def resolve_rag(rag_section: dict | None, env: Mapping[str, str] | None = None) -> str | None:
-    env = os.environ if env is None else env
-    url = env.get('DOCS_WIKI_RAG_URL') or (rag_section or {}).get('url')
-    return url if isinstance(url, str) and url else None
 
 
 def load_env_file(path: Path | None) -> None:
