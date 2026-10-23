@@ -1,4 +1,4 @@
-"""The embedding model memory uses: the project's RAG embedding model (RAG Settings), decoded with the process's
+"""The embedding model memory uses: the project's memory embedding model (Memory page), decoded with the process's
 credential key. embed_text never raises: no model, a disabled one or a failing call gives no vector, and the entry is
 found by its words until it is embedded again."""
 
@@ -12,8 +12,8 @@ from knowledge_llm import ModelUnavailable, RuntimeModel, decode_model, embeddin
 
 def current_model(conn, project_id: UUID) -> RuntimeModel | None:
     row = conn.execute(
-        """SELECT m.* FROM ka.rag_workspaces w JOIN ka.llm_models m ON m.id=w.embedding_model_id
-        WHERE w.project_id=%s AND m.enabled AND m.api_format='embeddings'""",
+        """SELECT m.* FROM ka.memory_settings s JOIN ka.llm_models m ON m.id=s.embedding_model_id
+        WHERE s.project_id=%s AND m.enabled AND m.api_format='embeddings'""",
         (project_id,),
     ).fetchone()
     if row is None:

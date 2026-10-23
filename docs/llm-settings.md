@@ -42,8 +42,9 @@ existing vectors. Connection changes during indexing prevent a stale worker from
 publishing its results; rerun the folder to use the updated connection.
 
 Migration `0037_embedding_models` moves existing workspace embedding connections
-and encrypted keys into `ka.llm_models`. `ka.rag_workspaces.embedding_model_id`
-references the selected connection. Existing vector profiles are preserved.
+and encrypted keys into `ka.llm_models`. Memory uses the connection selected in
+`ka.memory_settings.embedding_model_id` (Memory page; `0132` copied it from the RAG workspace).
+Existing vector profiles are preserved.
 See [RAG administration](rag.md) for deployment and processing details.
 
 ## Credentials
@@ -78,7 +79,8 @@ authenticated user identity; validation errors never echo input values.
 - `PUT /api/llm/models/{id}`: update with its current `revision`.
 - `POST /api/llm/models/{id}/test`: test with `{ "revision": 1 }`.
 - `PUT /api/agents/{id}/model`: select an agent's chat connection.
-- `PUT /api/rag/settings`: save processing settings and `embedding_model_id`.
+- `GET`/`PUT /api/memory/settings`: the memory embedding model (`embedding_model_id`, an embeddings connection or `null`).
+- `PUT /api/rag/settings`: save processing settings.
 
 Embedding models use `api_format: "embeddings"`, `provider: "openai"` or `"bedrock"`,
 and require `embedding_dimensions` and a nonempty `embedding_version`. OpenAI

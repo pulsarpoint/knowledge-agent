@@ -30,9 +30,19 @@ const page = (memories: unknown[], extra = {}) => ({
   ...extra,
 });
 
+const settings = { embedding_model_id: null };
+const llm = {
+  models: [
+    { id: "embed", name: "Document vectors", api_format: "embeddings", enabled: true },
+    { id: "off", name: "Retired vectors", api_format: "embeddings", enabled: false },
+    { id: "chat", name: "Chat model", api_format: "responses", enabled: true },
+  ],
+};
+
 function api(handler: (url: string, init?: RequestInit) => unknown) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    const body = handler(url, init);
+    const body =
+      url === "/api/memory/settings" && !init?.method ? settings : url === "/api/llm" ? llm : handler(url, init);
     if (body instanceof Response) return body;
     if (body === undefined) throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
     return new Response(JSON.stringify(body));
@@ -60,6 +70,26 @@ test("lists entries with who saved them, metadata and the not-embedded badge", a
   expect(within(row).getByText("service = payments")).toBeInTheDocument();
   expect(within(row).getByText("Not embedded")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Re-embed/ })).toBeInTheDocument();
+});
+
+test("the embedding model is chosen on the Memory page and never offers chat models", async () => {
+  const user = userEvent.setup();
+  const fetch = api((url, init) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url === "/api/memories") return page([]);
+    if (url === "/api/memory/settings" && init?.method === "PUT") return JSON.parse(init.body as string);
+  });
+  view();
+  await user.click(await screen.findByRole("combobox", { name: "Embedding model" }));
+  expect(screen.queryByRole("option", { name: "Chat model" })).not.toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Retired vectors (disabled)" })).toHaveAttribute("aria-disabled", "true");
+  await user.click(screen.getByRole("option", { name: "Document vectors" }));
+  await waitFor(() =>
+    expect(JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string)).toEqual({
+      embedding_model_id: "embed",
+    }),
+  );
+  expect(screen.getByRole("link", { name: "LLM Settings" })).toHaveAttribute("href", "/llm-settings");
 });
 
 test("searching and clicking a metadata badge filter the list", async () => {

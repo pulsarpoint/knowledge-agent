@@ -1098,8 +1098,8 @@ it, Save says so and **Load current** brings in the latest version (your edits a
 earlier version and shows what restoring it would change in the current text; **Restore** makes an old version the newest as a new revision,
 so nothing is lost. **Delete** (after confirmation) removes the entry and its whole history.
 
-**Embedding.** Entries are embedded with the RAG embedding model (4.3, RAG Settings) so search finds related wording. When
-no embedding model is configured, or embedding fails, the entry is still saved and shows **Not embedded**: it is found
+**Embedding.** Entries are embedded with the embedding model chosen at the top of the Memory page (connections are managed in LLM Settings) so search
+finds related wording. When no embedding model is configured, or embedding fails, the entry is still saved and shows **Not embedded**: it is found
 by words only. After fixing the model, **Re-embed** on the page embeds those entries.
 
 **Events.** Every change records an event with the source `memory`: `memory.saved`, `memory.updated`,

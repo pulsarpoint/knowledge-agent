@@ -1,7 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
-import { getLlmSettings, type ModelProfile } from "~/features/llm/api";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { ragRequest, type RagConfig, type RagSettings } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -13,21 +10,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~
 export default function RagSettingsView() {
   const [config, setConfig] = useState<RagConfig | null>(null);
   const [settings, setSettings] = useState<RagSettings | null>(null);
-  const [models, setModels] = useState<ModelProfile[]>([]);
-  const [embeddingModelId, setEmbeddingModelId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([ragRequest<RagConfig>("settings", "GET", undefined, controller.signal), getLlmSettings()])
-      .then(([row, llm]) => {
+    ragRequest<RagConfig>("settings", "GET", undefined, controller.signal)
+      .then((row) => {
         if (controller.signal.aborted) return;
         setConfig(row);
         setSettings(row.settings);
-        setEmbeddingModelId(row.embedding_model_id);
-        setModels(llm.models.filter((model) => model.api_format === "embeddings"));
         setError("");
       })
       .catch((e) => {
@@ -35,9 +28,7 @@ export default function RagSettingsView() {
       });
     return () => controller.abort();
   }, [reload]);
-  const dirty =
-    JSON.stringify(settings) !== JSON.stringify(config?.settings) || embeddingModelId !== config?.embedding_model_id;
-  const selectedModel = models.find((model) => model.id === embeddingModelId);
+  const dirty = JSON.stringify(settings) !== JSON.stringify(config?.settings);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -64,9 +55,7 @@ export default function RagSettingsView() {
         </Alert>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          File size and model settings take effect without restarting Docker.
-        </p>
+        <p className="text-sm text-muted-foreground">File size settings take effect without restarting Docker.</p>
         <Button variant="outline" disabled={busy} onClick={() => setReload((v) => v + 1)}>
           Reload settings
         </Button>
@@ -81,11 +70,9 @@ export default function RagSettingsView() {
               const row = await ragRequest<RagConfig>("settings", "PUT", {
                 revision: config.revision,
                 settings,
-                embedding_model_id: embeddingModelId,
               });
               setConfig(row);
               setSettings(row.settings);
-              setEmbeddingModelId(row.embedding_model_id);
               setNotice("RAG settings saved. Refresh affected collections to apply changes.");
             });
           }}
@@ -145,67 +132,6 @@ export default function RagSettingsView() {
               </Field>
             </FieldGroup>
           </FieldSet>
-          <FieldSet disabled={busy} className="rounded-lg border p-5">
-            <FieldLegend>Embeddings</FieldLegend>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="embedding-model">Embedding model</FieldLabel>
-                <Select
-                  value={embeddingModelId ?? "none"}
-                  disabled={busy}
-                  onValueChange={(value) => setEmbeddingModelId(value === "none" ? null : value)}
-                >
-                  <SelectTrigger id="embedding-model">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="none">Not configured</SelectItem>
-                      {models.map((model) => (
-                        <SelectItem key={model.id} value={model.id} disabled={!model.enabled}>
-                          {model.name}
-                          {!model.enabled && " (disabled)"}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <FieldDescription>
-                  Manage embedding connections, dimensions, versions, and API keys in{" "}
-                  <Link className="underline underline-offset-4" to="/llm-settings">
-                    LLM Settings
-                  </Link>
-                  .
-                </FieldDescription>
-                {selectedModel && (
-                  <FieldDescription>
-                    {selectedModel.model} · {selectedModel.embedding_dimensions} dimensions · Version{" "}
-                    {selectedModel.embedding_version}
-                  </FieldDescription>
-                )}
-              </Field>
-              <FieldDescription>
-                Changing the model, version, or dimensions refreshes vectors while reusing unchanged parsed text.
-                Increment the version when replacing a model behind the same name.
-              </FieldDescription>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || dirty || !selectedModel?.enabled}
-                onClick={() =>
-                  run(async () => {
-                    await ragRequest("test/embedding", "POST");
-                    setNotice("Embedding connection successful; returned dimensions match settings.");
-                  })
-                }
-              >
-                Test embedding connection
-              </Button>
-            </FieldGroup>
-          </FieldSet>
-          <p className="text-sm text-muted-foreground">
-            Save settings before testing the selected embedding connection.
-          </p>
           <Button className="self-start" type="submit" disabled={busy || !dirty}>
             Save RAG settings
           </Button>

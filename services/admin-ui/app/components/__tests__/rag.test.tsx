@@ -8,11 +8,10 @@ import type { RagConfig } from "~/features/rag/api";
 const config: RagConfig = {
   revision: 3,
   settings: { max_file_bytes: 2000000 },
-  embedding_model_id: null,
   data_root: { container_root: "/work/data", host_root: "/srv/knowledge", jira_folder: "jira" },
 };
 
-test("settings show the data folder read-only and save only max file size and model selection", async () => {
+test("settings show the data folder read-only and save only max file size", async () => {
   const fetch = vi.fn(
     async (url: string, init?: RequestInit) =>
       new Response(
@@ -39,7 +38,8 @@ test("settings show the data folder read-only and save only max file size and mo
   fireEvent.click(screen.getByRole("button", { name: "Save RAG settings" }));
   await screen.findByText(/RAG settings saved/);
   const saved = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string);
-  expect(saved).toEqual({ revision: 3, settings: { max_file_bytes: 3000000 }, embedding_model_id: null });
+  expect(saved).toEqual({ revision: 3, settings: { max_file_bytes: 3000000 } });
+  expect(screen.queryByLabelText("Embedding model")).toBeNull();
 });
 
 test("search picks collections, sends no mode by default and renders evidence as text", async () => {
@@ -117,48 +117,4 @@ test("search sends the chosen mode", async () => {
       expect.objectContaining({ body: JSON.stringify({ query: "x", top: 10, mode: "hybrid" }) }),
     ),
   );
-});
-
-test("RAG selects a saved embedding connection and never offers chat models", async () => {
-  const user = userEvent.setup();
-  const fetch = vi.fn(
-    async (url: string, init?: RequestInit) =>
-      new Response(
-        JSON.stringify(
-          url === "/api/llm"
-            ? {
-                models: [
-                  {
-                    id: "embed",
-                    name: "Document vectors",
-                    model: "embedding-test",
-                    api_format: "embeddings",
-                    embedding_dimensions: 3,
-                    embedding_version: "1",
-                    enabled: true,
-                  },
-                  { id: "chat", name: "Chat model", api_format: "responses", enabled: true },
-                ],
-              }
-            : init?.method === "PUT"
-              ? { ...config, ...JSON.parse(init.body as string), revision: 4 }
-              : config,
-        ),
-      ),
-  );
-  vi.stubGlobal("fetch", fetch);
-  render(
-    <MemoryRouter>
-      <RagSettingsView />
-    </MemoryRouter>,
-  );
-  await user.click(await screen.findByRole("combobox", { name: "Embedding model" }));
-  expect(screen.queryByRole("option", { name: "Chat model" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("option", { name: "Document vectors" }));
-  expect(screen.getByRole("link", { name: "LLM Settings" })).toHaveAttribute("href", "/llm-settings");
-  await user.click(screen.getByRole("button", { name: "Save RAG settings" }));
-  await screen.findByText(/RAG settings saved/);
-  const saved = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string);
-  expect(saved.embedding_model_id).toBe("embed");
-  expect(saved.settings).toEqual({ max_file_bytes: 2000000 });
 });

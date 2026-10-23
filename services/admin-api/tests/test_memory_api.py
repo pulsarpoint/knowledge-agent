@@ -80,7 +80,7 @@ def test_reembed_needs_a_model(client):
     response = client.post('/api/memories/re-embed', headers=HEADERS)
     assert (
         response.status_code == 409
-        and response.json()['error']['message'] == 'Select an embedding model in RAG Settings.'
+        and response.json()['error']['message'] == 'Select an embedding model on the Memory page.'
     )
 
 
@@ -112,3 +112,28 @@ def test_current_profile_is_reported_for_the_embedded_badge(client, store, monke
     assert listed['memories'][0]['embedding_profile'] == 'old'
     one = client.get(f'/api/memories/{entry["id"]}', headers=HEADERS).json()
     assert (one['current_profile'], one['memory']['embedding_profile']) == ('new', 'old')
+
+
+def test_settings_choose_the_embedding_model(store, tmp_path):
+    from test_embedding_models import EMBEDDING
+    from test_llm import create
+
+    client = _client(tmp_path, repository_store=store)
+    model = create(client, EMBEDDING)
+    assert client.get('/api/memory/settings', headers=HEADERS).json() == {'embedding_model_id': None}
+    saved = client.put('/api/memory/settings', headers=HEADERS, json={'embedding_model_id': model['id']})
+    assert saved.status_code == 200 and saved.json() == {'embedding_model_id': model['id']}
+    assert client.get('/api/memory/settings', headers=HEADERS).json() == {'embedding_model_id': model['id']}
+    assert client.put('/api/memory/settings', headers=HEADERS, json={'embedding_model_id': None}).json() == {
+        'embedding_model_id': None
+    }
+
+
+def test_settings_accept_only_embedding_models(store, tmp_path):
+    from test_llm import OPENAI, create
+
+    client = _client(tmp_path, repository_store=store)
+    chat = create(client, OPENAI)
+    response = client.put('/api/memory/settings', headers=HEADERS, json={'embedding_model_id': chat['id']})
+    assert response.status_code == 400 and response.json()['error']['message'] == 'Select an embedding model.'
+    assert client.get('/api/memory/settings').status_code == 403

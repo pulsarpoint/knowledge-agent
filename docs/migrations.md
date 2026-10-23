@@ -537,3 +537,9 @@ where it is still the seeded one. New workspaces get the new texts as version 1.
 table empty (in its 0129 shape) and removes the new prompt versions where they are still the active, newest,
 untouched ones, restoring the earlier seeds for new workspaces.
 
+
+## 0132_memory_settings
+
+`ka.memory_settings` holds one row per project with the embedding model memory uses (`embedding_model_id`, set to NULL
+when the connection is deleted). It is filled from `rag_workspaces.embedding_model_id`, so memory search keeps using the
+model it used before. The down migration copies the setting back to the workspace and drops the table.

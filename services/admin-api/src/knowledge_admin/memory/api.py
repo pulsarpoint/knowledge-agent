@@ -22,7 +22,8 @@ PAGE, MAX_PAGE, MAX_OFFSET = 25, 50, 100000
 NOT_FOUND = 'Memory entry not found.'
 STALE = 'This entry changed since you opened it.'
 EXISTS = 'An entry named {name} already exists.'
-NO_MODEL = 'Select an embedding model in RAG Settings.'
+NO_MODEL = 'Select an embedding model on the Memory page.'
+NOT_EMBEDDING = 'Select an embedding model.'
 BAD_METADATA = 'metadata must be a JSON object of text values.'
 
 
@@ -31,6 +32,11 @@ class Draft(BaseModel):
     name: str = Field(max_length=200)
     metadata: dict = Field(default_factory=dict)
     content: str = Field(max_length=20000)
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    embedding_model_id: UUID | None = None
 
 
 class Edit(Draft):
@@ -58,6 +64,33 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     def audit(conn, project: UUID, who: memory.Author, action: str, entry_id: UUID, name: str) -> None:
         write_audit(conn, project, who.actor_id, action, 'memory', entry_id, {'name': name})
+
+    @router.get('/memory/settings')
+    def read_settings() -> dict:
+        db = database()
+        with db.connect() as conn:
+            row = conn.execute(
+                'SELECT embedding_model_id FROM ka.memory_settings WHERE project_id=%s', (db.project(conn, app),)
+            ).fetchone()
+        return {'embedding_model_id': str(row['embedding_model_id']) if row and row['embedding_model_id'] else None}
+
+    @router.put('/memory/settings')
+    def save_settings(payload: Settings) -> dict:
+        db = database()
+        with db.connect() as conn:
+            if (
+                payload.embedding_model_id is not None
+                and not conn.execute(
+                    "SELECT 1 FROM ka.llm_models WHERE id=%s AND api_format='embeddings'", (payload.embedding_model_id,)
+                ).fetchone()
+            ):
+                raise HTTPException(400, NOT_EMBEDDING)
+            conn.execute(
+                """INSERT INTO ka.memory_settings(project_id,embedding_model_id) VALUES (%s,%s)
+                ON CONFLICT (project_id) DO UPDATE SET embedding_model_id=EXCLUDED.embedding_model_id""",
+                (db.project(conn, app), payload.embedding_model_id),
+            )
+        return read_settings()
 
     @router.get('/memories')
     def list_memories(

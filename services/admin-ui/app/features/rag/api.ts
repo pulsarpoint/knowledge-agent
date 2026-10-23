@@ -11,7 +11,6 @@ export interface RagDataRoot {
 export interface RagConfig {
   revision: number;
   settings: RagSettings;
-  embedding_model_id: string | null;
   data_root: RagDataRoot;
 }
 export interface RagJob {

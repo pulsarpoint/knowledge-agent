@@ -12,6 +12,7 @@ import {
   type MemoryEntry,
   type MemoryFilters,
 } from "./api";
+import EmbeddingModelSelect from "./EmbeddingModelSelect";
 import MemorySheet from "./MemorySheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -165,6 +166,7 @@ export default function MemoryView() {
             </SelectContent>
           </Select>
         </Field>
+        <EmbeddingModelSelect onChange={refresh} onError={setError} />
         <Button variant="outline" onClick={refresh}>
           <RefreshCw data-icon="inline-start" />
           Refresh
@@ -193,9 +195,7 @@ export default function MemoryView() {
         </div>
       )}
       {!embeddingModel && (
-        <p className="text-sm text-muted-foreground">
-          No embedding model in RAG Settings: entries are found by words only.
-        </p>
+        <p className="text-sm text-muted-foreground">No embedding model selected: entries are found by words only.</p>
       )}
       {notice && (
         <Alert variant="destructive">

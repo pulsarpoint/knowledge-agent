@@ -90,3 +90,10 @@ export const deleteMemory = (id: string, revision: number) =>
   request<void>(`/api/memories/${id}?revision=${revision}`, { method: "DELETE" });
 export const reembedMemories = () =>
   request<{ embedded: number; failed: number }>("/api/memories/re-embed", { method: "POST" });
+export const getMemorySettings = (signal?: AbortSignal) =>
+  request<{ embedding_model_id: string | null }>("/api/memory/settings", { signal });
+export const saveMemorySettings = (embeddingModelId: string | null) =>
+  request<{ embedding_model_id: string | null }>(
+    "/api/memory/settings",
+    json({ embedding_model_id: embeddingModelId }, "PUT"),
+  );
