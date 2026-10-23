@@ -130,21 +130,21 @@ RUN_DRAFTS = (
 # search_documents: the expression of the full-text index on live documents (migration 0133), title above description
 # above content; a query must use it exactly for the index to serve it.
 SEARCH_VECTOR = (
-    "(setweight(to_tsvector('simple', coalesce(d.title, '')), 'A') "
-    "|| setweight(to_tsvector('simple', coalesce(d.description, '')), 'B') "
-    "|| setweight(to_tsvector('simple', coalesce(d.markdown, '')), 'C'))"
+    "(setweight(to_tsvector('english', coalesce(d.title, '')), 'A') "
+    "|| setweight(to_tsvector('english', coalesce(d.description, '')), 'B') "
+    "|| setweight(to_tsvector('english', coalesce(d.markdown, '')), 'C'))"
 )
 # The kinds of resource a linked document is readable through (check_get_document, _linked).
 LINK_KINDS = tuple(ENTRY_COLUMNS)
 # The best live documents the run may read (search_scope: given, or linked to a resource in it) for the query, with a
 # snippet of each (ts_headline only on the rows returned).
 SEARCH = f"""SELECT found.id,found.title,found.description,found.tags,
-    ts_headline('simple', found.markdown, websearch_to_tsquery('simple', %(query)s),
+    ts_headline('english', found.markdown, websearch_to_tsquery('english', %(query)s),
         'MaxWords=30, MinWords=15, StartSel=**, StopSel=**') AS snippet
     FROM (SELECT d.id,d.title,d.description,d.tags,d.markdown,
-        ts_rank_cd({SEARCH_VECTOR}, websearch_to_tsquery('simple', %(query)s)) AS rank
+        ts_rank_cd({SEARCH_VECTOR}, websearch_to_tsquery('english', %(query)s)) AS rank
         FROM ka.documents d WHERE d.project_id=%(project)s AND NOT d.is_draft
-        AND {SEARCH_VECTOR} @@ websearch_to_tsquery('simple', %(query)s)
+        AND {SEARCH_VECTOR} @@ websearch_to_tsquery('english', %(query)s)
         AND (d.id=ANY(%(document)s::uuid[]) OR EXISTS (SELECT 1 FROM ka.document_resources r
             WHERE r.document_id=d.id AND r.removed_at IS NULL AND (r.server_id=ANY(%(server)s::uuid[])
             OR r.service_id=ANY(%(service)s::uuid[]) OR r.environment_id=ANY(%(environment)s::uuid[])
@@ -811,7 +811,8 @@ DocumentId = Annotated[
     Field(
         min_length=1,
         max_length=64,
-        description="A document id: from list_documents, get_resource, new_document or the run's context.",
+        description="A document id: from search_documents, list_documents, get_resource, new_document or the run's "
+        'context.',
     ),
 ]
 Content = Annotated[
@@ -921,7 +922,8 @@ class EditDocument(ToolArguments):
     document_id: str = Field(
         min_length=1,
         max_length=64,
-        description="A document id: from list_documents, get_resource, new_document or the run's context.",
+        description="A document id: from search_documents, list_documents, get_resource, new_document or the run's "
+        'context.',
     )
     old_text: str = Field(
         min_length=1, max_length=200_000, description='The exact passage to replace; it must occur exactly once.'

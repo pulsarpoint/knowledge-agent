@@ -547,7 +547,7 @@ model it used before. The down migration copies the setting back to the workspac
 ## 0133_document_search
 
 `search_documents` searches the database: the partial GIN index `documents_search` on live documents (`NOT is_draft`)
-over `setweight(to_tsvector('simple', title), 'A') || … description 'B' || … markdown 'C'` (the `simple` configuration,
-like memory search). The tool's query repeats the expression (`capabilities/document_tools.py` `SEARCH_VECTOR`) so the
+over `setweight(to_tsvector('english', title), 'A') || … description 'B' || … markdown 'C'` (the `english`
+configuration: stemmed, so "rotate" finds "rotation"; memory search keeps `simple`). The tool's query repeats the expression (`capabilities/document_tools.py` `SEARCH_VECTOR`) so the
 index serves it. The "Answer only from documents" mode goes with the RAG reading tools: `ka.agents.documents_grounded`
 is dropped. The down migration drops the index and adds the column back, off for every agent.

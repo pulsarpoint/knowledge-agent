@@ -135,10 +135,7 @@ Test chats from before migration 0081 were deleted with their tables; their run 
 ### Finding documents
 
 Every agent finds documents with `search_documents(query, limit?)`: full-text search over the published documents the
-run may read (see [Document tools](documentation.md#document-tools)), then reads one with `get_document`. There is no
-"Answer only from documents" mode any more: migration 0133 dropped `ka.agents.documents_grounded` with the RAG reading
-tools (`read_document`, `report_not_covered`), their citations and the turn's `grounding` (cited sources and
-coverage). Old end events that still carry `grounding` are shown without it.
+run may read (see [Document tools](documentation.md#document-tools)), then reads one with `get_document`.
 Migration 0071 removed the former Reader application's conversations and its
 `ka.reader_settings` and two columns of the old Test chat table.
 

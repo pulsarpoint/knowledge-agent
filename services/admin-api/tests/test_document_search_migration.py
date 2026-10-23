@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from knowledge_admin.capabilities.document_tools import SEARCH_VECTOR
+from knowledge_admin.capabilities.document_tools import SEARCH, SEARCH_VECTOR
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0133_document_search.up.sql', '0133_document_search.down.sql'
@@ -30,11 +30,16 @@ def test_up_indexes_live_documents_and_drops_the_grounded_column(store):
         found = index(conn)
         assert found is not None and 'gin' in found['indexdef'] and 'NOT is_draft' in found['indexdef']
         assert grounded_column(conn) is None
+        # the tool's own expression and query function (SEARCH filters with both) on a near-empty table
+        assert f"{SEARCH_VECTOR} @@ websearch_to_tsquery('english', %(query)s)" in SEARCH
         conn.execute('SET LOCAL enable_seqscan = off')
         plan = conn.execute(
-            f"EXPLAIN SELECT id FROM ka.documents d WHERE NOT d.is_draft AND {SEARCH_VECTOR} @@ to_tsquery('simple','x')"
+            'EXPLAIN SELECT id FROM ka.documents d WHERE NOT d.is_draft AND '
+            f"{SEARCH_VECTOR} @@ websearch_to_tsquery('english', %(query)s)",
+            {'query': 'rotation'},
         ).fetchall()
-        assert any('documents_search' in row['QUERY PLAN'] for row in plan)
+        text = '\n'.join(row['QUERY PLAN'] for row in plan)
+        assert 'documents_search' in text, text
 
 
 def test_down_drops_the_index_and_restores_the_column(store):

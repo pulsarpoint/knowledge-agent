@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from drafts_world import docs  # noqa: F401  (fixture)
 from knowledge_admin.capabilities import inventory
@@ -178,7 +179,7 @@ def test_limit(lib):
     assert len(search(config, query='shared')['documents']) == 10
     assert len(search(config, query='shared', limit=3)['documents']) == 3
     assert len(search(config, query='shared', limit=25)['documents']) == 25
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         search(config, query='shared', limit=26)
 
 
@@ -186,6 +187,12 @@ def test_web_search_syntax(lib):
     config = {**lib.config, 'access': access(('server', lib.web), ('document', lib.loose))}
     assert ids(search(config, query='"rotate nightly"')) == [lib.web_doc]
     assert ids(search(config, query='rotation -nightly')) == [lib.loose]
+
+
+def test_words_are_stemmed(lib):
+    """The 'english' configuration: "rotate" finds the documents about rotation."""
+    config = {**lib.config, 'access': access(('document', lib.loose))}
+    assert ids(search(config, query='rotate')) == [lib.loose]
 
 
 def test_the_empty_answer_suggests_list_documents(lib):
