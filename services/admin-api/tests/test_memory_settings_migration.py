@@ -10,6 +10,7 @@ from test_llm import HEADERS, create
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0132_memory_settings.up.sql', '0132_memory_settings.down.sql'
+RAG_GONE = '0134_rag_gone.down.sql'  # rag_workspaces, which 0132 reads and its down writes
 
 
 def run(conn, name):
@@ -30,6 +31,7 @@ def test_up_copies_the_workspace_model_and_search_still_uses_it(store, tmp_path,
     with store.connect() as conn:
         shop = store.project(conn, f'shop-{uuid4().hex[:6]}')
         bare = store.project(conn, f'bare-{uuid4().hex[:6]}')
+        run(conn, RAG_GONE)
         run(conn, DOWN)
         workspace(conn, shop, model['id'])
         run(conn, UP)
@@ -46,6 +48,7 @@ def test_down_gives_the_model_back_to_the_workspace_and_drops_the_table(store, t
         conn.execute(
             'INSERT INTO ka.memory_settings(project_id,embedding_model_id) VALUES (%s,%s)', (shop, model['id'])
         )
+        run(conn, RAG_GONE)
         workspace(conn, shop, None)
         run(conn, DOWN)
         row = conn.execute('SELECT embedding_model_id FROM ka.rag_workspaces WHERE project_id=%s', (shop,)).fetchone()

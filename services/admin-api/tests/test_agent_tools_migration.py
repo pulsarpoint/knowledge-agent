@@ -11,6 +11,7 @@ from implied_tools import implied_tools
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0078_agent_tools.up.sql', '0078_agent_tools.down.sql'
 LATER = (
+    '0134_rag_gone.down.sql',  # 0114 down rebuilds the collection selections from rag_collections
     '0133_document_search.down.sql',  # agents.documents_grounded, which the backfill reads
     '0115_tools_always_on.down.sql',
     '0114_drop_agent_resource_tables.down.sql',
@@ -25,7 +26,7 @@ def run(conn, *names):
 
 
 def roll_back_later(conn):
-    """0133, 0115, 0114 and 0084 down. 0114 down switches a kind on only for an agent that references something of it; the seeded
+    """0134, 0133, 0115, 0114 and 0084 down. 0114 down switches a kind on only for an agent that references something of it; the seeded
     Search and Code agents reference nothing in the test database, so their seeded switches are set again (0133 down
     brings Answer only from documents back off)."""
     run(conn, *LATER)
@@ -81,7 +82,7 @@ def test_backfill_reproduces_todays_tools_for_every_capability_combination(store
 
 def test_checks_and_cascade(store):
     with store.connect() as conn:
-        run(conn, LATER[1])  # the table as 0115 down recreates it, empty
+        run(conn, LATER[2])  # the table as 0115 down recreates it, empty
         conn.execute("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','read_file')")
         for statement, error in (
             (

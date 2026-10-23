@@ -19,6 +19,7 @@ from test_repositories import HEADERS
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0113_agent_access.up.sql', '0113_agent_access.down.sql'
 DROP_UP, DROP_DOWN = '0114_drop_agent_resource_tables.up.sql', '0114_drop_agent_resource_tables.down.sql'
+RAG_GONE = '0134_rag_gone.down.sql'  # the collection tables these older migrations read
 EMPTY = {'resources': []}
 
 
@@ -66,6 +67,7 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
         '/api/mcp/servers', headers=HEADERS, json={'name': 'Docs', 'url': 'http://mock.test/mcp'}
     ).json()['id']
     with w.store.connect() as conn:
+        run(conn, RAG_GONE)
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (w.project,))
         collections = sorted(
             str(
@@ -455,6 +457,7 @@ def test_the_old_storage_is_dropped_and_down_converts_the_access_back(world):
     ).json()['id']
     with w.store.connect() as conn:
         assert old_names(conn) == (set(), set())
+        run(conn, RAG_GONE)
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (w.project,))
         collection = conn.execute(
             "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'runbooks') RETURNING id", (w.project,)

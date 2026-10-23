@@ -52,6 +52,7 @@ def test_api_analysis_fixture_is_editable_and_not_automatically_assigned(store, 
     updated = client.get(f'/api/skills/{skill["id"]}', headers=HEADERS).json()
     assert updated['instructions'] == 'An administrator replacement.' and updated['enabled'] is False
     with store.connect() as conn:
+        conn.execute((repo / 'db/migrations/0134_rag_gone.down.sql').read_text(), prepare=False)  # 0114 down reads it
         conn.execute((repo / 'db/migrations/0114_drop_agent_resource_tables.down.sql').read_text(), prepare=False)
         with pytest.raises(psycopg.errors.RaiseException, match='edited or assigned'):
             conn.execute((repo / 'db/migrations/0059_api_analysis_skill.down.sql').read_text(), prepare=False)

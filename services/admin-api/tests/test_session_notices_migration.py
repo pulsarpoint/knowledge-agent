@@ -122,6 +122,7 @@ def test_down_removes_the_notices_and_up_restores_them(store):
     project, _, (first, _) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
+        run(conn, '0134_rag_gone.down.sql')  # 0114 down reads rag_collections
         run(conn, '0133_document_search.down.sql')  # 0084 reads agents.documents_grounded, which 0133 dropped
         run(conn, TOOLS_DOWN)  # 0084 up fills ka.agent_tools, which 0115 dropped
         run(conn, DROP_DOWN)  # 0084 down reads the capability switches 0114 dropped

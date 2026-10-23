@@ -48,7 +48,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
 done
 if [ "$ready" != 1 ]; then docker logs "$test_container"; exit 1; fi
 
-# The old collection pipeline is retired by migration 39; test its historical schema at 38.
+# The old document pipeline is retired by migration 39; test its historical schema at 38.
 run_migrate postgres goto 38 > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/schema.sql > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }

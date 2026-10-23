@@ -205,6 +205,9 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     ssh_ready(world)
     sid = start(world, {'service_id': str(world.nginx)})
     with world.store.connect() as conn:
+        conn.execute(
+            (MIGRATIONS / '0134_rag_gone.down.sql').read_text(), prepare=False
+        )  # 0112 up reads rag_collections
         conn.execute((MIGRATIONS / '0116_drop_run_resources.down.sql').read_text(), prepare=False)
         recorded = {  # as a run started before 0116 recorded what it was given
             'code_project_ids': [str(world.shop)],

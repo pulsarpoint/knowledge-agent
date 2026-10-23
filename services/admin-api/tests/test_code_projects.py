@@ -190,6 +190,7 @@ def test_code_administration_requires_admin_before_mount_access(workspace, path)
 def test_migration_preserves_existing_checkouts_and_agent_links(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute((migrations / '0134_rag_gone.down.sql').read_text(), prepare=False)  # 0114 down reads it
         conn.execute((migrations / '0114_drop_agent_resource_tables.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0026_code_projects.down.sql').read_text(), prepare=False)
         project = store.project(conn, 'shop')
