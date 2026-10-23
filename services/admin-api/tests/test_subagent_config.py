@@ -87,7 +87,6 @@ def parent(without=(), **change) -> dict:
         'model': MODEL,
         'system_prompt': {'content': 'Lead the work.'},
         'instructions': 'Use the runbook.',
-        'grounded': False,
         'record': {'run_key': 'run:x'},
     }
     value.update(change)

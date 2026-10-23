@@ -19,7 +19,6 @@ const usage = (turn: number, input: number, output: number, reasoning = 0) =>
     reasoning_tokens: reasoning,
     total_tokens: input + output,
   });
-const sources = [{ n: 1, path: "payments/retries.md", heading_path: "payments", anchor: null }];
 
 test("a turn is your message, the work and the final answer", () => {
   const [turn] = groupTurns([
@@ -39,7 +38,7 @@ test("a turn is your message, the work and the final answer", () => {
     event(1, "input", { task: "Cite the runbook.", comment: true }),
     event(1, "message", { text: "Three retries [1]." }),
     usage(1, 300, 50),
-    event(1, "end", { status: "completed", grounding: { sources, not_covered: false } }),
+    event(1, "end", { status: "completed" }),
   ]);
   expect(turn.input).toBe("How many retries?");
   expect(turn.work.map((item) => item.kind)).toEqual(["reasoning", "message", "tool", "comment"]);
@@ -52,7 +51,6 @@ test("a turn is your message, the work and the final answer", () => {
   expect(turn.work[3].text).toBe("Cite the runbook.");
   expect([turn.answer, turn.status, turn.toolCalls, turn.error]).toEqual(["Three retries [1].", "completed", 1, null]);
   expect(turn.usage).toEqual({ input: 1300, output: 250, cached: 20, reasoning: 30, total: 1550, calls: 2 });
-  expect(turn.grounding?.sources).toEqual(sources);
 });
 
 test("a message followed by more work moves into the work; a running turn has no end", () => {
@@ -85,7 +83,7 @@ test("a page that starts in the middle of a turn, failed and stopped turns", () 
     [5, "Stop me.", "stopped"],
     [6, "Odd end.", "failed"],
   ]);
-  expect(turns[0]).toMatchObject({ answer: "Partial.", work: [], grounding: null });
+  expect(turns[0]).toMatchObject({ answer: "Partial.", work: [] });
   expect(turns[1].error).toBe("Agent execution failed (RuntimeError).");
   expect(turns.every((turn) => turn.subagents.length === 0)).toBe(true);
 });

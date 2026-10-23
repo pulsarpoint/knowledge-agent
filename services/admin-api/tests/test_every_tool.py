@@ -2,10 +2,7 @@
 turn), every expert (narrowed by the request's expert_ids), every tool of the MCP servers in its access; the access
 object alone decides what a tool may do. A request carries no tool switches and there are no roles."""
 
-import asyncio
-
 from knowledge_admin.agents.runner import instructions_and_tools
-from knowledge_admin.capabilities.documents import check_report_not_covered, report_not_covered
 from knowledge_admin.knowledge_agents.subagents import subagent_config
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, WAKEUPS
 from test_discovery_runs import config_of, ssh_ready
@@ -18,7 +15,6 @@ from discovery_world import world  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 EVERY = list(CATALOG)
-NOT_GROUNDED = 'This run does not answer only from documents.'
 EXPERT = {
     'id': 'e1',
     'name': 'Payments expert',
@@ -34,15 +30,13 @@ def names(c, subagents=True) -> list[str]:
     return [tool.name for tool in [*tools, *experts]]
 
 
-def test_a_saved_agent_an_ad_hoc_run_and_a_grounded_agent_get_every_tool():
+def test_a_saved_agent_and_an_ad_hoc_run_get_every_tool():
     saved = config()
     saved['experts'] = [EXPERT]
     assert names(saved) == [*EVERY, 'ask_payments_expert']
     ad_hoc = config()  # nothing in its access
     ad_hoc['id'] = 'ad-hoc'
     assert names(ad_hoc) == EVERY
-    grounded = config(documents=True, grounded=True)
-    assert names(grounded) == EVERY
     # every tool has its built-in description
     _, tools, _, _ = instructions_and_tools(saved, subagents=True)
     assert all(tool.description == CATALOG[tool.name].usage for tool in tools)
@@ -83,18 +77,6 @@ def test_the_prompt_has_no_tool_notes():
     c = config(entries=[MCP])
     prompt, _, _, _ = instructions_and_tools(c, subagents=True)
     assert 'Tool notes' not in prompt
-
-
-def test_report_not_covered_refuses_outside_a_grounded_run():
-    access = {'resources': []}
-    assert check_report_not_covered(access, reason='missing') == NOT_GROUNDED
-    assert check_report_not_covered(access, grounded=True, reason='missing') is None
-    plain = config(documents=True)
-    assert asyncio.run(report_not_covered({'config': plain}, 'gap')) == NOT_GROUNDED
-    grounded = config(documents=True, grounded=True)
-    context = {'config': grounded}
-    assert asyncio.run(report_not_covered(context, 'gap')).startswith('Recorded.')
-    assert context['grounding']['reported'] == 'gap'
 
 
 # Through /api/sessions
@@ -150,21 +132,3 @@ def test_the_options_carry_no_tools(agent, ask):
     assert 'tools' not in options and 'subagents_allowed' not in options['agent']
     plain = ask.s.client.get(f'/api/sessions/options?document_id={ask.document["id"]}', headers=HEADERS).json()
     assert 'tools' not in plain
-
-
-def test_a_search_counts_as_grounding_only_in_a_grounded_run():
-    """search_documents is offered in every run; a refused or plain search must not make an ungrounded turn
-    'not covered'."""
-    from types import SimpleNamespace
-
-    from knowledge_admin.knowledge_agents.native_sessions import grounding_of
-
-    state = {'excerpts': [], 'searches': 1, 'empty_searches': 1, 'reported': None}
-
-    def turn(c):
-        return SimpleNamespace(context_wrapper=SimpleNamespace(context={'config': c, 'grounding': dict(state)}))
-
-    assert grounding_of(turn(config()), 'An answer.') is None
-    assert grounding_of(turn(config(documents=True)), 'An answer.') is None
-    grounded = grounding_of(turn(config(documents=True, grounded=True)), 'An answer.')
-    assert grounded is not None and grounded['not_covered'] is True

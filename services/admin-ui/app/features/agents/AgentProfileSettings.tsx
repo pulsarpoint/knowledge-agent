@@ -179,20 +179,6 @@ export default function AgentProfileSettings({
                     Additional notes for every run. The system prompt below always applies.
                   </FieldDescription>
                 </Field>
-                <Field orientation="horizontal">
-                  <Switch
-                    id="documents-grounded"
-                    disabled={busy}
-                    checked={draft.documents_grounded}
-                    onCheckedChange={(documents_grounded) => change({ documents_grounded })}
-                  />
-                  <div>
-                    <FieldLabel htmlFor="documents-grounded">Answer only from documents</FieldLabel>
-                    <FieldDescription>
-                      Search the knowledge base, cite every claim, and report questions the documents do not cover.
-                    </FieldDescription>
-                  </div>
-                </Field>
                 <Field orientation="horizontal" data-invalid={needsWhen || undefined}>
                   <Switch
                     id="agent-expert"

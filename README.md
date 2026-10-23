@@ -9,7 +9,7 @@ and resource selections are stored in PostgreSQL. Keycloak provides login and
 Phoenix remains available for tracing.
 
 Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
-and connection tests work. Agent Test (Admin → Agents) runs models; agents can be set to answer only from documents with citations.
+and connection tests work. Agent Test (Admin → Agents) runs models; agents find documents with full-text search (`search_documents`).
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
 **New here? Start with the [User Guide](docs/user-guide.md)** — how to use the

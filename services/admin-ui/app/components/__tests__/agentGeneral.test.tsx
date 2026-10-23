@@ -31,7 +31,6 @@ const writer: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_grounded: false,
   revision: 1,
   model_id: "claude",
   system_prompt: "You are an expert technical writer.",
@@ -190,7 +189,8 @@ test("All agents has no type column and New agent opens one wizard", async () =>
 test("General has no role switch and saves Instructions", async () => {
   const user = userEvent.setup();
   open("/agents/search");
-  await screen.findByRole("switch", { name: "Answer only from documents" });
+  await screen.findByRole("textbox", { name: "Instructions" });
+  expect(screen.queryByRole("switch", { name: "Answer only from documents" })).toBeNull();
   expect(screen.queryByRole("switch", { name: /editor/i })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Resources" })).toBeNull();
   await user.type(screen.getByRole("textbox", { name: "Instructions" }), "Check the runbook first.");
@@ -208,7 +208,7 @@ test("General has no role switch and saves Instructions", async () => {
 
 test("General has no inventory role: every agent writes inventory drafts", async () => {
   open("/agents/search");
-  await screen.findByRole("switch", { name: "Answer only from documents" });
+  await screen.findByRole("textbox", { name: "Instructions" });
   const switches = screen.getAllByRole("switch").map((item) => item.getAttribute("id"));
   expect(switches).not.toContain("agent-inventory-editor");
   expect(screen.queryByText(/add and change servers, services/)).not.toBeInTheDocument();

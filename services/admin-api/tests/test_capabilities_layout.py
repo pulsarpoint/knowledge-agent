@@ -24,7 +24,6 @@ def test_capabilities_hold_the_implementations_without_the_agents_sdk():
         '__init__.py',
         'context.py',
         'files.py',
-        'documents.py',
         'ssh.py',
         'code_graph.py',
         'code_search.py',

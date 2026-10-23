@@ -485,7 +485,6 @@ def build(
             'system_prompt': {'content': system_prompt},
             'instructions': '',
             'settings_revision': None,
-            'grounded': False,
         },
         None,
     )

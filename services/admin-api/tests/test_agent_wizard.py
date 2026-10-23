@@ -172,7 +172,7 @@ def test_generation_uses_no_tools_and_does_not_save(store, wizard, monkeypatch):
     assert result.headers['cache-control'] == 'no-store'
     assert client.get('/api/agents', headers=HEADERS).json() == before
     config, task, kwargs = calls[0]
-    assert config['access']['resources'] == [] and not config['grounded']
+    assert config['access']['resources'] == [] and 'grounded' not in config
     assert task['catalog'] == catalog
     assert task['role'] == 'Investigate payments without sudo.'
     assert kwargs['output_type'] is AgentProposal

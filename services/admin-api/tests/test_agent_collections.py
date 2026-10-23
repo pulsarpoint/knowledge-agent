@@ -57,9 +57,9 @@ def collections(config):
     return [item for item in config['access']['resources'] if item['type'] == 'collection']
 
 
-def test_ungrounded_document_agents_read_every_collection_path(monkeypatch):
+def test_document_agents_read_every_collection_path(monkeypatch):
     config = with_access(
-        {'grounded': False},
+        {},
         [
             entry('collection', 'a', 'payments', paths=['/work/code/payments', '/work/rag-data/jira']),
             entry('collection', 'b', 'old', paths=['/work/rag-data/old']),

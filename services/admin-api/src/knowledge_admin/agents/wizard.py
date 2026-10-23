@@ -197,7 +197,6 @@ def build_api(app_name, store):
                 'enabled': True,
                 'api_key_ref': {'id': model_id} if model.api_key else None,
             },
-            'grounded': False,
             # every config that runs tools has one
             'access': {'resources': []},
         }

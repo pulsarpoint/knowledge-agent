@@ -37,7 +37,6 @@ export interface AgentProfile {
   when_to_use: string;
   enabled: boolean;
   expert?: boolean;
-  documents_grounded: boolean;
   revision: number;
   model_id: string | null;
   system_prompt: string;
@@ -65,18 +64,7 @@ export const getAgentConfig = (id: string) => request<Record<string, unknown>>(p
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + "/options");
 /** Saves the agent: its details and its access object as references (missing ones are dropped). */
 export const saveAgent = (value: AgentProfile) => {
-  const {
-    revision,
-    name,
-    description,
-    when_to_use,
-    enabled,
-    documents_grounded,
-    instructions,
-    access,
-    expert,
-    model_id,
-  } = value;
+  const { revision, name, description, when_to_use, enabled, instructions, access, expert, model_id } = value;
   return request<AgentProfile>(
     path(value.id),
     json("PUT", {
@@ -85,7 +73,6 @@ export const saveAgent = (value: AgentProfile) => {
       description,
       when_to_use,
       enabled,
-      documents_grounded,
       instructions,
       access: {
         resources: access.resources.filter((item) => !item.missing).map(({ type, id }) => ({ type, id })),

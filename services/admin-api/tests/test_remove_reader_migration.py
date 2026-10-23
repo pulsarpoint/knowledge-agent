@@ -1,4 +1,4 @@
-"""Migration 0071 removes the Reader: its conversations and the schema only it used; grounding stays."""
+"""Migration 0071 removes the Reader: its conversations and the schema only it used."""
 
 from pathlib import Path
 from uuid import uuid4
@@ -23,7 +23,7 @@ def column(conn, table, name):
     )
 
 
-def test_reader_schema_is_gone_and_grounding_stays(store):
+def test_reader_schema_is_gone(store):
     with store.connect() as conn:
         conn.execute(sql('0084_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
@@ -32,9 +32,6 @@ def test_reader_schema_is_gone_and_grounding_stays(store):
             conn, 'agent_sessions', 'hidden_by_owner_at'
         )
         assert column(conn, 'agent_sessions', 'idle_timeout')
-        assert [row['id'] for row in conn.execute('SELECT id FROM ka.agents WHERE documents_grounded ORDER BY id')] == [
-            'search'
-        ]
 
 
 def test_up_deletes_reader_conversations_and_keeps_admin_sessions(store):

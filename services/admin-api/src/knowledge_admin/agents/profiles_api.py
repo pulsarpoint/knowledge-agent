@@ -17,7 +17,7 @@ from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits
 
 
 EXPERT_NEEDS_WHEN = 'Experts need When to use.'
-AGENT = """SELECT id,name,description,when_to_use,enabled,model_id,system_prompt,documents_grounded,expert,cloned_from,
+AGENT = """SELECT id,name,description,when_to_use,enabled,model_id,system_prompt,expert,cloned_from,
     revision,access,instructions,created_by,updated_by,created_at,updated_at FROM ka.agents WHERE id=%s"""
 
 
@@ -116,7 +116,6 @@ class ProfileInput(BaseModel):
     description: str = Field(max_length=4000)
     when_to_use: str = Field(max_length=4000)
     enabled: bool = Field(strict=True)
-    documents_grounded: bool | None = Field(default=None, strict=True)
     access: AccessInput
     instructions: str = Field(max_length=INSTRUCTIONS_LIMIT)
     expert: bool | None = Field(default=None, strict=True)  # Offer as an expert; None keeps the switch
@@ -299,16 +298,14 @@ def build_api(app_name, store):
                     **({'expert': expert} if expert != old['expert'] else {}),
                 }
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
-                grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute(
-                    """UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,documents_grounded=%s,
+                    """UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,
                     access=%s,instructions=%s,model_id=%s,expert=%s,revision=revision+1,updated_by=%s WHERE id=%s""",
                     (
                         value.name,
                         value.description,
                         value.when_to_use,
                         value.enabled,
-                        grounded,
                         Jsonb(access),
                         value.instructions,
                         model_id,

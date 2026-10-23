@@ -201,7 +201,6 @@ def config(responses_api, tmp_path):
             'enabled': True,
             'api_key_ref': {'id': 'model-key'},
         },
-        'grounded': False,
     }
     # its access: a code project, a collection, an enabled skill and a service (no MCP server, no SSH server)
     return with_access(

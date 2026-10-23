@@ -124,10 +124,10 @@ def test_duplicate_name_raises():
 
 
 def test_camel():
-    assert [camel(n) for n in ('list_files', 'ssh_run', 'report_not_covered')] == [
+    assert [camel(n) for n in ('list_files', 'ssh_run', 'search_documents')] == [
         'ListFiles',
         'SshRun',
-        'ReportNotCovered',
+        'SearchDocuments',
     ]
 
 

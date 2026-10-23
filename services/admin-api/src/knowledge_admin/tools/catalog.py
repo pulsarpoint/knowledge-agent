@@ -15,7 +15,6 @@ from knowledge_admin.capabilities import (  # noqa: F401
     code_graph,
     code_search,
     document_tools,
-    documents,
     files,
     inventory,
     inventory_tools,

@@ -4,7 +4,6 @@ import { cancelWakeup, formatTokens, statusLabels } from "./api";
 import { toolUsageLine } from "./runs";
 import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from "./turns";
 import type { SessionRun } from "./useSessionEvents";
-import GroundingSources from "./GroundingSources";
 import Markdown from "~/components/Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -158,12 +157,6 @@ function TurnView({
       {turn.answer !== null && (
         <article aria-label="Agent answer" className="flex flex-col gap-2">
           <Markdown content={turn.answer} />
-          {turn.grounding?.sources.length ? <GroundingSources sources={turn.grounding.sources} /> : null}
-          {turn.grounding?.not_covered && (
-            <p className="text-xs text-muted-foreground">
-              The documentation does not cover this{turn.grounding.reason ? `: ${turn.grounding.reason}` : "."}
-            </p>
-          )}
         </article>
       )}
       {live && (

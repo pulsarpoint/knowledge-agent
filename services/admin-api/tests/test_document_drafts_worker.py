@@ -59,21 +59,15 @@ def document(sessions, slug: str, folder: str | None, markdown: str) -> dict:
 
 def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions):
     alpha = document(sessions, 'alpha', 'team', '# Alpha v1')
-    document(sessions, 'beta', None, '# Beta')
-    document(sessions, 'gamma', 'team/deep', '# Gamma')
+    beta = document(sessions, 'beta', None, '# Beta')
+    gamma = document(sessions, 'gamma', 'team/deep', '# Gamma')
+    document(sessions, 'delta', 'team', '# Delta')
     sid, run = runner(sessions)
     tool_call(sessions, sid, 1, 1, 'get_document', {'document_id': str(alpha['id'])})
-    tool_call(
-        sessions,
-        sid,
-        1,
-        2,
-        'read_document',
-        {'collection': 'documents', 'path': 'generated-documents/beta/README.md'},
-        as_text=True,
-    )
-    tool_call(sessions, sid, 1, 3, 'read_document', {'collection': 'documents', 'path': 'team/deep/gamma/README.md'})
-    tool_call(sessions, sid, 1, 4, 'read_document', {'collection': 'documents', 'path': 'team/alpha/notes.md'})
+    tool_call(sessions, sid, 1, 2, 'get_document', {'document_id': str(beta['id'])}, as_text=True)
+    tool_call(sessions, sid, 1, 3, 'get_document', {'document_id': str(gamma['id'])})
+    # a read_document call recorded before the RAG reading tools went is not a source
+    tool_call(sessions, sid, 1, 4, 'read_document', {'collection': 'documents', 'path': 'team/delta/README.md'})
     tool_call(sessions, sid, 1, 5, 'get_document', {'document_id': 'not-a-uuid'})
     tool_call(sessions, sid, 1, 6, 'list_files', {'path': 'team/alpha/README.md'})
     with sessions.store.connect() as conn:  # alpha changes after the run read it

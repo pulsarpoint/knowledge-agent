@@ -13,7 +13,6 @@ const turn = (n: number, work: Turn["work"]): Turn => ({
   work,
   toolCalls: work.length,
   answer: "Done.",
-  grounding: null,
   status: "completed",
   error: null,
   usage: { input: 0, output: 0, cached: 0, reasoning: 0, total: 0, calls: 0 },

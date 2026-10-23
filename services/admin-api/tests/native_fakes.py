@@ -139,11 +139,7 @@ class FakeAgent:
             if 'error' in script:
                 raise script['error']
             await session.add_items([{'role': 'assistant', 'content': script['answer']}])
-            # A grounded turn's run context holds its grounded configuration and the documents tools' state
-            # (capabilities.documents).
-            grounded = {'grounded': True}
-            context = {'config': grounded, 'grounding': script['grounding']} if 'grounding' in script else {}
-            return SimpleNamespace(final_output=script['answer'], context_wrapper=SimpleNamespace(context=context))
+            return SimpleNamespace(final_output=script['answer'], context_wrapper=SimpleNamespace(context={}))
         finally:
             self.running -= 1
 

@@ -1,9 +1,7 @@
 """agent-session-worker runs Test sessions like Generate documents sessions — turns, comments while the agent works,
-Stop — but a Test session has no draft, a completed turn's end event carries its grounding (redacted), and every model
-call adds its tokens, reasoning tokens and one model call to the session."""
+Stop — but a Test session has no draft, and every model call adds its tokens, reasoning tokens and one model call to the session."""
 
 import asyncio
-import json
 
 import pytest
 from fastapi.encoders import jsonable_encoder
@@ -18,15 +16,6 @@ from run_helpers import events, post, wait_for
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 
 KEY = 'bedrock-secret-token'  # the Claude connection's key, decrypted for each turn
-SOURCES = {
-    'excerpts': [
-        {'n': 1, 'path': 'retries.md', 'collection': 'payments', 'text': 'Three retries.'},
-        {'n': 2, 'path': 'timeouts.md', 'collection': 'payments', 'text': 'Thirty seconds.'},
-    ],
-    'searches': 1,
-    'empty_searches': 0,
-    'reported': None,
-}
 
 
 @pytest.fixture
@@ -49,7 +38,7 @@ def claimed(store) -> dict:
     return row
 
 
-def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tested):
+def test_a_test_session_turn_leaves_no_draft_and_records_usage(tested):
     sessions, sid = tested
     store, url = sessions.store, f'/api/sessions/{sid}'
     started, gate, hung, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event(), []
@@ -68,7 +57,6 @@ def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tes
                     llm(message('Three retries [1].'), input_tokens=120, output_tokens=20, reasoning=4),
                 ],
                 'answer': 'Three retries [1].',
-                'grounding': SOURCES,
             },
             {'steps': [hang('model', hung, cancelled)], 'answer': 'never reached'},
         ]
@@ -104,51 +92,10 @@ def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tes
     assert turn1[0]['payload']['kind'] == 'test_session'
     assert [e['payload'].get('comment', False) for e in turn1 if e['kind'] == 'input'] == [False, True]
     assert [e['payload']['reasoning_tokens'] for e in turn1 if e['kind'] == 'usage'] == [6, 4]
-    assert turn1[-1]['payload'] == {
-        'status': 'completed',
-        'grounding': {
-            'sources': [{'n': 1, 'path': 'payments/retries.md', 'heading_path': 'payments', 'anchor': None}],
-            'not_covered': False,
-            'results': 2,
-            'reason': None,
-            'near_misses': [
-                {'path': 'payments/retries.md', 'heading_path': 'payments'},
-                {'path': 'payments/timeouts.md', 'heading_path': 'payments'},
-            ],
-        },
-    }
+    assert turn1[-1]['payload'] == {'status': 'completed'}
     assert [e['payload'] for e in recorded if e['run_key'] == f'cc:{sid}:2' and e['kind'] == 'end'] == [
         {'status': 'stopped'}
-    ]  # a stopped turn has no answer, so no grounding
-
-
-def test_grounding_in_the_end_event_is_redacted(tested):
-    sessions, sid = tested
-    store, url = sessions.store, f'/api/sessions/{sid}'
-    leaked = {**SOURCES, 'excerpts': [{'n': 1, 'path': f'keys/{KEY}.md', 'collection': 'payments', 'text': KEY}]}
-    fake = FakeAgent(
-        [
-            {
-                'steps': [llm(message('See [1].'), input_tokens=3, output_tokens=2)],
-                'answer': 'See [1].',
-                'grounding': leaked,
-            },
-            {'steps': [llm(message('Nothing to cite.'))], 'answer': 'Nothing to cite.'},
-        ]
-    )
-
-    async def scenario():
-        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
-        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, url + '/messages', {'text': 'Anything else?'})
-        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
-        await post(sessions, url + '/close')
-        await asyncio.wait_for(runner, 5)
-
-    asyncio.run(scenario())
-    first, second = [e['payload'] for e in events(store, sid) if e['kind'] == 'end']
-    assert KEY not in json.dumps(first) and first['grounding']['sources'][0]['n'] == 1
-    assert second == {'status': 'completed'}  # an ungrounded turn has no grounding
+    ]
 
 
 def test_a_session_pinned_before_claude_code_was_removed_still_runs(tested):

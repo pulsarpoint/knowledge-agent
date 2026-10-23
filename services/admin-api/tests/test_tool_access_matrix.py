@@ -73,9 +73,7 @@ ARGS = {
     'code_search': {'path': '/code/payments', 'language': 'Python', 'name': 'limit'},
     'ast_grep': {'path': '/code/payments', 'language': 'Python', 'pattern': 'def $F(): $$$B'},
     'code_graph': {'project_id': 'c1'},
-    'search_documents': {'query': 'limits', 'collection': 'payments'},
-    'read_document': {'collection': 'payments', 'path': 'limits.md'},
-    'report_not_covered': {'reason': 'missing'},
+    'search_documents': {'query': 'limits'},
     'ssh_run': {'server_id': 's1', 'command': 'uptime'},
     'get_available_resources': {'resource_type': None},
     'get_resource': {'resource_type': 'server', 'resource_id': 's1'},
@@ -109,15 +107,12 @@ ARGS = {
 
 NO_FILES = 'This run has no code projects or collections.'
 NO_CODE = 'This run has no code projects.'
-NO_COLLECTIONS = 'This run has no collections.'
 NO_SERVERS = 'This run has no servers.'
 NO_DOCUMENTS = 'This run has no documents.'
 NOT_SERVER = 'This server is not available in this run.'
 NOT_CODE = 'This code project is not available in this run.'
-NOT_COLLECTION = 'This collection is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
 NOT_SKILL = 'This skill is not available in this run.'
-NOT_GROUNDED = 'This run does not answer only from documents.'
 WITH_SERVER = ('server', 'server_with_services', 'new_document', 'environment')
 LINKED_TOO = (
     'Documents linked to a server, service or environment in this run are usable too: list_documents lists them.'
@@ -139,7 +134,6 @@ def some(names, value) -> dict:
 
 FILES = row(NO_FILES, code_and_collection=None, other=None)
 CODE = row(NO_CODE, code_and_collection=None, other=None)
-COLLECTION = row(NO_COLLECTIONS, code_and_collection=None, other=NOT_COLLECTION)
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
 # usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
 USE = row(
@@ -159,9 +153,7 @@ EXPECTED = {
     'code_search': CODE,
     'ast_grep': CODE,
     'code_graph': row(NO_CODE, code_and_collection=None, other=NOT_CODE),
-    'search_documents': COLLECTION,
-    'read_document': COLLECTION,
-    'report_not_covered': row(NOT_GROUNDED),  # a grounded run passes grounded=True (below)
+    'search_documents': ALWAYS,  # the search keeps to the documents the run may read (test_document_search)
     'ssh_run': SERVER_ROW,
     'get_available_resources': ALWAYS,
     'get_resource': SERVER_ROW,
@@ -257,10 +249,3 @@ def test_a_subagent_given_all_of_its_parents_resources_is_allowed():
     assert check_run_subagent(ACCESS['empty'], resources=None) is None
     assert check_run_subagent(ACCESS['code_and_collection'], resources={'collection_ids': ['k1']}) is None
     assert check_run_subagent(ACCESS['code_and_collection'], resources={'code_project_ids': ['c9']}) == NOT_CODE
-
-
-def test_report_not_covered_is_allowed_in_a_grounded_run_whatever_its_access():
-    from knowledge_admin.capabilities.documents import check_report_not_covered
-
-    for access in ACCESS.values():
-        assert check_report_not_covered(access, grounded=True, reason='missing') is None

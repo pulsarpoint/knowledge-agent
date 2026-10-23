@@ -103,8 +103,7 @@ limit, no per-turn time limit, no 300-second limit).
   with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
   Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
-  `event_session` for event runs); **Full record** links to it. The `end`
-  event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
+  `event_session` for event runs); **Full record** links to it.
 - `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and event runs;
   refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
@@ -116,8 +115,8 @@ limit, no per-turn time limit, no 300-second limit).
   `memory_notes`; **Review and apply** reads it.
 
 The Test tab and the run page (`/sessions/:id`) share `RunWorkspace` (`services/admin-ui/app/components`):
-a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer
-with its sources, a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
+a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer,
+a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
 box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream (fed by the admin-api session hub, see
 [documentation](documentation.md)); `groupTurns`
 turns events into turns. An `ask_<slug>` call shows in the Worked block as `Asked <name> · <task> · <n> tool calls · <tokens>
@@ -133,18 +132,18 @@ Worked line counts only its own work.
 
 Test chats from before migration 0081 were deleted with their tables; their run records (`run:<id>`) stay in Agent runs.
 
-### Grounded answers
+### Finding documents
 
-With Documents on and **Answer only from documents** on, an agent reads its granted
-collections through `search_documents` and `read_document` (no file/shell tools for
-documents), cites claims with `[n]`, and calls `report_not_covered` to mark uncovered
-questions **not covered**. Try it in the agent's **Test** tab.
+Every agent finds documents with `search_documents(query, limit?)`: full-text search over the published documents the
+run may read (see [Document tools](documentation.md#document-tools)), then reads one with `get_document`. There is no
+"Answer only from documents" mode any more: migration 0133 dropped `ka.agents.documents_grounded` with the RAG reading
+tools (`read_document`, `report_not_covered`), their citations and the turn's `grounding` (cited sources and
+coverage). Old end events that still carry `grounding` are shown without it.
 Migration 0071 removed the former Reader application's conversations and its
 `ka.reader_settings` and two columns of the old Test chat table.
 
-**Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
-(repositories) off for the Search agent; its down migration does not turn Code back
-on. Saving the agent's settings changes what runs next; conversations already started keep the configuration they began with.
+Saving the agent's settings changes what runs next; conversations already started keep the configuration they began
+with.
 
 The former code-agent service and its "Ask the code" escalation were
 removed; agents read code with their own tools (`list_files`, `read_file`,

@@ -52,7 +52,6 @@ beforeEach(() => {
   });
   agents = ["search", "operations", "code", "custom-code"].map((id) => ({
     id,
-    documents_grounded: false,
     name: id === "custom-code" ? "Payments code" : llm.agentNames[id as llm.AgentName],
     description: "",
     when_to_use: "",

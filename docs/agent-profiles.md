@@ -9,7 +9,7 @@ inherited from another agent. Agents share these tabs:
 
 | Tab | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Answer only from documents**, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
+| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
 | Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
 | Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
@@ -53,7 +53,7 @@ access, `load_skill`, `run_subagent` (except in a subagent's own run) and one to
 Tools tab, no per-agent tool choice, no edited usage text and no "Needs …" rule (migration 0115 dropped
 `ka.agent_tools` and `ka.tools.needs`). The access object decides what a tool may do: each tool checks its arguments
 against the run's resources and roles and refuses the rest (for example "This document is not available in this
-run."; `report_not_covered` outside a grounded run refuses "This run does not answer only from documents."). Agent
+run."; `search_documents` returns only documents the run may read). Agent
 runs, run records, session pages and Test chats still show how often each tool was used. See
 [Agent execution](agents.md#tools).
 

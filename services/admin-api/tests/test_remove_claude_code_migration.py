@@ -19,6 +19,7 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0084_remove_claude_code.up.sql', '0084_remove_claude_code.down.sql'
 LATER = '0114_drop_agent_resource_tables.down.sql'  # 0084 down reads the capability switches
 TOOLS = '0115_tools_always_on.down.sql'  # ka.agent_tools, which 0084 fills
+GROUNDED = '0133_document_search.down.sql'  # agents.documents_grounded, which 0084 reads
 FLAGS = ('repositories_enabled', 'documents_enabled', 'documents_grounded', 'ssh_enabled')
 
 
@@ -65,6 +66,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         model = a_model(conn, actor)
+        run(conn, GROUNDED)
         run(conn, TOOLS)
         run(conn, LATER)
         run(conn, DOWN)

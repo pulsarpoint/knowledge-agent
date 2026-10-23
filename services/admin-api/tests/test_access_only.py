@@ -82,15 +82,14 @@ def test_mcp_entries_carry_their_url_and_token_reference(analyst):
     assert entry['bearer_token_ref'] in credential_references(config)
 
 
-def config_of(*entries: dict, grounded: bool = False) -> dict:
-    """A configuration that is only its access object (and what every run has: a prompt, a model, grounding)."""
+def config_of(*entries: dict) -> dict:
+    """A configuration that is only its access object (and what every run has: a prompt, a model)."""
     return {
         'id': 'agent',
         'name': 'Agent',
         'model': None,
         'system_prompt': {'content': 'You answer.'},
         'instructions': '',
-        'grounded': grounded,
         'project_id': PROJECT,
         'access': {'resources': [{**item, 'source': 'given'} for item in entries]},
     }
@@ -124,7 +123,6 @@ def test_the_tools_work_from_access_entries_alone(monkeypatch, tmp_path):
     config = config_of(SERVER, code, collection)
     assert runner.code_paths(config) == [tmp_path / 'api']
     assert runner.document_paths(config) == [Path('/data/docs')]
-    assert runner.document_paths(config_of(SERVER, code, collection, grounded=True)) == []
     assert runner.get_ssh(config, {'k1': 'KEY'}) == [config['access']['resources'][0]]
 
     seen = {}

@@ -42,24 +42,6 @@
     "summary": "Search symbols and follow callers and callees. Offered when a selected code project has a generated graph."
   },
   {
-    "name": "search_documents",
-    "group": "documents",
-    "label": "Search documents",
-    "summary": "Search the knowledge base for citable excerpts."
-  },
-  {
-    "name": "read_document",
-    "group": "documents",
-    "label": "Read document",
-    "summary": "Read one knowledge-base document."
-  },
-  {
-    "name": "report_not_covered",
-    "group": "documents",
-    "label": "Report not covered",
-    "summary": "Mark a question the documents do not answer."
-  },
-  {
     "name": "ssh_run",
     "group": "servers",
     "label": "SSH",
@@ -154,6 +136,12 @@
     "group": "inventory",
     "label": "Read document",
     "summary": "Read a document (this run's draft of it, if any) given to this run or linked to a resource in it."
+  },
+  {
+    "name": "search_documents",
+    "group": "documents",
+    "label": "Search documents",
+    "summary": "Find published documents by words, with a snippet of each."
   },
   {
     "name": "list_documents",

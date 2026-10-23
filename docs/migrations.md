@@ -543,3 +543,11 @@ untouched ones, restoring the earlier seeds for new workspaces.
 `ka.memory_settings` holds one row per project with the embedding model memory uses (`embedding_model_id`, set to NULL
 when the connection is deleted). It is filled from `rag_workspaces.embedding_model_id`, so memory search keeps using the
 model it used before. The down migration copies the setting back to the workspace and drops the table.
+
+## 0133_document_search
+
+`search_documents` searches the database: the partial GIN index `documents_search` on live documents (`NOT is_draft`)
+over `setweight(to_tsvector('simple', title), 'A') || … description 'B' || … markdown 'C'` (the `simple` configuration,
+like memory search). The tool's query repeats the expression (`capabilities/document_tools.py` `SEARCH_VECTOR`) so the
+index serves it. The "Answer only from documents" mode goes with the RAG reading tools: `ka.agents.documents_grounded`
+is dropped. The down migration drops the index and adds the column back, off for every agent.

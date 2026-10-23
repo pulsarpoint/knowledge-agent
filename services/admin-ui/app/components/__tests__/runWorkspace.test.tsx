@@ -56,13 +56,7 @@ const conversation = [
   event(1, "usage", { input_tokens: 1300, output_tokens: 200, total_tokens: 1500 }),
   event(1, "tool_result", { name: "search_documents", call_id: "c1", preview: "[1] Three retries." }),
   event(1, "message", { text: "Three retries [1]." }),
-  event(1, "end", {
-    status: "completed",
-    grounding: {
-      sources: [{ n: 1, path: "payments/retries.md", heading_path: "payments", anchor: null }],
-      not_covered: false,
-    },
-  }),
+  event(1, "end", { status: "completed" }),
   event(2, "input", { task: "And timeouts?" }),
   event(2, "error", { message: "Agent execution failed (RuntimeError)." }),
   event(2, "end", { status: "failed" }),
@@ -119,7 +113,6 @@ test("a turn is your message, a collapsed Worked block and the answer with its s
   expect(within(within(first).getByLabelText("Agent answer")).getByTestId("markdown")).toHaveTextContent(
     "Three retries [1].",
   );
-  expect(within(first).getByLabelText("Cited sources")).toHaveTextContent("payments/retries.md");
   expect(within(first).getByRole("button", { name: "Feedback on turn 1" })).toBeVisible();
   expect(within(second).getByText("Agent execution failed (RuntimeError).")).toBeVisible();
   expect(within(third).getByText("Stopped.")).toBeVisible();

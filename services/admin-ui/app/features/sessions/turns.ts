@@ -23,17 +23,6 @@ export interface TurnUsage {
   total: number;
   calls: number;
 }
-export interface TurnSource {
-  n: number;
-  path: string;
-  heading_path: string;
-  anchor: string | null;
-}
-export interface TurnGrounding {
-  sources: TurnSource[];
-  not_covered: boolean;
-  reason?: string | null;
-}
 /** A helper the agent started with run_subagent (its events carry the call id as parent_call_id): its task, its own
  * work and answer, its usage and tool calls, and its status — working until the agent's run_subagent result arrives,
  * then done, or failed when that result is an error; stopped when the turn ended first. */
@@ -58,7 +47,6 @@ export interface Turn {
   work: WorkItem[];
   toolCalls: number;
   answer: string | null;
-  grounding: TurnGrounding | null;
   status: TurnStatus;
   error: string | null;
   usage: TurnUsage;
@@ -192,7 +180,7 @@ function answered<T extends Pending>({ pending, ...rest }: T) {
 
 /** A session's events as turns, in order: your message (null when the loaded page starts inside the turn), the work
  * (thinking, tool calls with their results, comments you sent while it worked, messages written along the way), the
- * final answer — the last message with no thinking or tool call after it — with its grounding, the status (working
+ * final answer — the last message with no thinking or tool call after it —, the status (working
  * until the turn's end event), the usage of its model calls and its subagents (events with a parent_call_id, never
  * part of the main work). Pure: the same events give the same turns. */
 export function groupTurns(events: SessionEvent[]): Turn[] {
@@ -207,7 +195,6 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
         work: [],
         toolCalls: 0,
         answer: null,
-        grounding: null,
         status: "working",
         error: null,
         usage: noUsage(),
@@ -241,7 +228,6 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
         break;
       case "end":
         turn.status = ENDED[text(p, "status")] ?? "failed";
-        turn.grounding = (p.grounding as TurnGrounding | undefined) ?? null;
         // Still working when the turn ended (stopped, failed, or cancelled while waiting for a slot): stopped.
         for (const sub of turn.helpers.values()) if (sub.status === "working") sub.status = "stopped";
         break;

@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from knowledge_admin.identity import request_actor
-from knowledge_admin.data_root import documentation_folder, generated_docs_folder
+from knowledge_admin.data_root import documentation_folder
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as lifecycle
 from knowledge_admin.documents.api import (
@@ -309,7 +309,6 @@ def free_folder(conn, project, kind: str, entry_slug: str) -> str:
 # or replaced; store.DRAFT_OUTCOME), for session rows and the live session state: a run has one once its agent saved
 # a document with new_document, update_document or edit_document.
 SESSION_DRAFT = lifecycle.DRAFT_OUTCOME.format(draft='s.last_draft_id') + ' AS document_draft'
-DOCUMENT_TOOLS = ['get_document', 'read_document']
 
 
 def call_arguments(payload: dict) -> dict:
@@ -324,20 +323,6 @@ def call_arguments(payload: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def export_key(path: str) -> tuple[str | None, str] | None:
-    """(folder, slug) of a document export path [<GENERATED_DOCS_FOLDER>/][<folder>/]<slug>/README.md, else None."""
-    parts = [part for part in path.strip().split('/') if part]
-    try:
-        prefix = generated_docs_folder().split('/')
-    except ValueError:
-        prefix = []
-    if prefix and parts[: len(prefix)] == prefix and len(parts) > len(prefix) + 1:
-        parts = parts[len(prefix) :]
-    if len(parts) < 2 or parts[-1] != 'README.md':
-        return None
-    return '/'.join(parts[:-2]) or None, parts[-2]
-
-
 # The version of a live document that was live at a moment: the live row or an archive row, by when it went live.
 VERSION_AT = """SELECT version,title FROM (
     SELECT version,title,version_created_at AS live_from FROM ka.documents WHERE id=%s AND NOT is_draft
@@ -348,34 +333,23 @@ VERSION_AT = """SELECT version,title FROM (
 def record_run_sources(
     conn, project: UUID, draft_id: UUID, document_id: UUID | None, session_id: UUID, turn: int
 ) -> None:
-    """Recompute a run draft's read sources: every document the run read with get_document or read_document (an
-    export path) in turns 1..turn, at the version live at its first read. The parent source (the document the draft
-    revises, `document_id`) stays as create_draft wrote it. Reads only: no row of ka.projects or of a live document is
-    locked."""
+    """Recompute a run draft's read sources: every document the run read with get_document in turns 1..turn, at the
+    version live at its first read. The parent source (the document the draft revises, `document_id`) stays as
+    create_draft wrote it. Reads only: no row of ka.projects or of a live document is locked."""
     conn.execute("DELETE FROM ka.document_sources WHERE document_id=%s AND kind='read'", (draft_id,))
     keys = [f'cc:{session_id}:{number}' for number in range(1, turn + 1)]
     calls = conn.execute(
         """SELECT payload,created_at FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call'
-        AND payload->>'name'=ANY(%s) ORDER BY id""",
-        (keys, DOCUMENT_TOOLS),
+        AND payload->>'name'='get_document' ORDER BY id""",
+        (keys,),
     ).fetchall()
     for call in calls:
         arguments = call_arguments(call['payload'])
-        if call['payload']['name'] == 'get_document':
-            try:
-                wanted = UUID(str(arguments.get('document_id', '')))
-            except ValueError:
-                continue
-            found = live_document(conn, project, wanted)
-        else:
-            key = export_key(str(arguments.get('path', '')))
-            if key is None:
-                continue
-            found = conn.execute(
-                """SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft AND folder IS NOT DISTINCT FROM %s
-                AND slug=%s AND phase_metadata IS NULL""",
-                (project, *key),
-            ).fetchone()
+        try:
+            wanted = UUID(str(arguments.get('document_id', '')))
+        except ValueError:
+            continue
+        found = live_document(conn, project, wanted)
         if found is None or found['id'] == document_id:
             continue
         version = conn.execute(VERSION_AT, (found['id'], found['id'], call['created_at'])).fetchone()

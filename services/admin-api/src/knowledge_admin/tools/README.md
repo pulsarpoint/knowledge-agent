@@ -2,7 +2,8 @@
 
 Implementations live in `knowledge_admin/capabilities/`:
 `files.py` (list/read/search files), `ast_grep.py`, `code_search.py`, `code_graph.py` (the CodeGraph queries and
-`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `document_tools.py` (`list_documents`, `get_document`, `new_document`, `update_document`, `edit_document`), `ssh.py`, `subagents.py`, `skills.py`, `mcp.py`
+`current_graph`), `document_tools.py` (`search_documents`, `list_documents`, `get_document`, `new_document`,
+`update_document`, `edit_document`), `ssh.py`, `subagents.py`, `skills.py`, `mcp.py`
 (MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
 `worker.py` for the shell worker service). They do not import the Agents SDK.
 
@@ -61,7 +62,9 @@ texts state each tool's purpose, the draft rule, every field's format and allowe
 schemas' field descriptions say the same per field.
 
 The document tools (`capabilities/document_tools.py`; group `documents`, `get_document` in `inventory`): reads
-`list_documents` (a server's, service's or environment's documents and its children's, the inventory document first,
+`search_documents` (full-text search over the published documents the run may read, never drafts: the GIN expression
+index of migration 0133, `SEARCH_VECTOR`, title above description above text, `ts_headline` snippets; its scope is
+`search_scope(access)`, the `get_document` rule as SQL parameters), `list_documents` (a server's, service's or environment's documents and its children's, the inventory document first,
 with `published` and `your_draft`) and `get_document` (this run's draft of the document when it has one, else the live
 version), offered in every run; writes `new_document`, `update_document` (the whole text; `resource` links the document
 to a server, service or environment when the draft is published: the draft holds the link,
@@ -74,7 +77,6 @@ the run's resources by `resource_of`). `new_document` names the folder and slug 
 (`drafts.free_folder`, `drafts.free_slug`), refuses a title already used by a document linked to the resource (`A
 document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
-`read_document` is different: it reads a knowledge-base file from `search_documents` results, for citing.
 
 `load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
 name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this
@@ -144,8 +146,8 @@ folders or our PostgreSQL index. `WebSearchTool` is also an OpenAI-hosted Respon
 tool. Neither is currently registered. `ShellTool` requires a local executor or
 an OpenAI-hosted environment. The installed LiteLLM/Bedrock integration accepts
 function tools, so those SDK tool classes cannot be substituted directly for our
-functions. `search_files` is local literal-text search; a tool for our RAG
-`/search` API would be a separate capability.
+functions. `search_files` is local literal-text search; `search_documents` is full-text search over the documents
+in PostgreSQL.
 
 ## Structural source search
 

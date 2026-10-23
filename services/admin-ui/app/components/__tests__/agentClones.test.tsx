@@ -31,7 +31,6 @@ const base: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_grounded: false,
   revision: 3,
   model_id: null,
   system_prompt: "Operate servers.",

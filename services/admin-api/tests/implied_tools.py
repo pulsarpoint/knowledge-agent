@@ -4,6 +4,9 @@ the migrations that wrote ka.agent_tools rows do."""
 
 from knowledge_admin.tools.catalog import CATALOG
 
+# Tools the backfill gave that are gone from the catalog (0133 removed the RAG reading tools), with their group.
+GONE = {'read_document': 'documents', 'report_not_covered': 'documents'}
+
 
 def _grounded(config):
     return bool(config['documents']['enabled'] and config['documents'].get('grounded', False))
@@ -44,7 +47,7 @@ def item(name, mode, usage=None, group=None, subagent_allowed=True):
     """One entry of the old tools section."""
     return {
         'tool': name,
-        'group': group or CATALOG[name].group,
+        'group': group or (GONE[name] if name in GONE else CATALOG[name].group),
         'mode': mode,
         'usage': usage,
         'subagent_allowed': subagent_allowed,
@@ -53,5 +56,7 @@ def item(name, mode, usage=None, group=None, subagent_allowed=True):
 
 def implied_tools(config):
     return {
-        'items': [item(name, 'on' if name in DEFAULT_ON and DEFAULT_ON[name](config) else 'off') for name in CATALOG]
+        'items': [
+            item(name, 'on' if name in DEFAULT_ON and DEFAULT_ON[name](config) else 'off') for name in [*CATALOG, *GONE]
+        ]
     }

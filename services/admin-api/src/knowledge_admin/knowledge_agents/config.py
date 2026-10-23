@@ -71,7 +71,6 @@ class AgentConfig(TypedDict):
     system_prompt: dict[str, Any]
     instructions: str
     settings_revision: int | None
-    grounded: bool  # answers only from its collections: the agent's "Answer only from documents" switch
     access: dict[str, Any]  # what the agent holds: its stored access with each entry loaded; a run pins its own
 
 
@@ -132,7 +131,6 @@ SECTIONS: dict[str, str] = {
     'instructions': 'General',
     'when_to_use': 'General',
     'model': 'General',
-    'grounded': 'General',
     'resources': 'Resources',
 }
 
@@ -153,12 +151,11 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'instructions': config['instructions'],
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
-        'grounded': bool(config['grounded']),
         'resources': _access(config['access']),
     }
 
 
-SAVED = """SELECT revision,when_to_use,model_id,system_prompt,documents_grounded,access,instructions
+SAVED = """SELECT revision,when_to_use,model_id,system_prompt,access,instructions
     FROM ka.agents WHERE id=%s"""
 
 
@@ -175,7 +172,6 @@ def saved_config(conn, agent_id: str) -> dict[str, Any]:
         'instructions': row['instructions'],
         'when_to_use': row['when_to_use'],
         'model': {'id': row['model_id']} if row['model_id'] else None,
-        'grounded': bool(row['documents_grounded']),
         'access': row['access'],
     }
 
@@ -358,8 +354,8 @@ def load_entries(
 
 
 def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
-    """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent: its instructions, model and
-    grounding, and its access object as it holds it: the stored references with each item loaded into its entry
+    """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent: its instructions and model,
+    and its access object as it holds it: the stored references with each item loaded into its entry
     (resource_entries: a server with its connection, a code project with its folders and graph, ...); a reference to
     an item that no longer exists is skipped. Servers use their own SSH settings. A run is given what it picks of it
     and the children of that (sessions.run_access.agent_access).
@@ -375,7 +371,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
         agent = conn.execute(
             """SELECT id,name,description,when_to_use,enabled,revision,model_id,system_prompt,
-            documents_grounded,access,instructions FROM ka.agents WHERE id=%s""",
+            access,instructions FROM ka.agents WHERE id=%s""",
             (agent_id,),
         ).fetchone()
         if agent is None:
@@ -406,7 +402,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'system_prompt': {'content': agent['system_prompt']},
                 'instructions': agent['instructions'],
                 'settings_revision': None,
-                'grounded': bool(agent['documents_grounded']),  # its "Answer only from documents" switch
                 'access': {'resources': resources},
             }
         )

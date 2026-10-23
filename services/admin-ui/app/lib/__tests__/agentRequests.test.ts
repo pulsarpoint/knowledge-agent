@@ -20,7 +20,6 @@ test("Save sends the access object as references and drops missing ones", async 
   );
   await saveAgent({
     ...lead,
-    documents_grounded: false,
     model_id: null,
     system_prompt: "p",
     instructions: "Notes",
@@ -53,7 +52,6 @@ test("Save sends no roles", async () => {
   );
   await saveAgent({
     ...lead,
-    documents_grounded: false,
     model_id: null,
     system_prompt: "p",
     instructions: "",

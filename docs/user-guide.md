@@ -622,7 +622,7 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
@@ -640,7 +640,7 @@ with **Suggest improvements** through the API like a Test session.
 
 **Test tab.** The Test tab is the same chat as **Ask agent**. Type a message and send it: it starts a Test run, which the
 agent session worker runs (the URL keeps `session_id`). The workspace shows your message, a collapsed **Worked** block
-(thinking, tool calls with their results, comments you sent while it worked) and the answer with its cited sources; the
+(thinking, tool calls with their results, comments you sent while it worked) and the answer; the
 header shows the tokens, model calls and tools used, and the sidebar **Agents in this run** the agent's status (on a
 narrow screen open **Run details**). **Send message** works while the agent works (your comment reaches it at its next
 step); **Stop** ends the current turn.
@@ -668,8 +668,7 @@ only notes ticked, **Save memory notes**. When notes were sent, the sheet lists 
 entry) and any refused names with the reason; **Done** closes it.
 
 **Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources (there are
-no roles): a tool without what it needs refuses (for example `This run has no servers.`), and
-`report_not_covered` works only with **Answer only from documents**. Every agent can read the inventory of its resources
+no roles): a tool without what it needs refuses (for example `This run has no servers.`). Every agent can read the inventory of its resources
 (`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`), and every agent in a conversation
 can add to it as **drafts** (`save_environment`, `save_server`, `save_service`, `save_deployment`, `save_connection`,
 `save_relation`, `remove_inventory_item`, and `save_inventory_draft` for a whole picture in one call), only for what is
@@ -721,9 +720,8 @@ limit (they end with the answer, **Stop**, **New chat** (it closes the open run)
 without activity. A message is blocked if the agent is disabled, has no enabled model, or other tabs have unsaved
 changes.
 
-**Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
-(repositories) off for the Search agent; its down migration does not turn Code back
-on. Saving the agent's settings changes what runs next.
+Saving the agent's settings changes what runs next. Migration 0133 removed **Answer only from documents** (agents find
+documents with `search_documents` and read them with `get_document`).
 
 
 Removing an agent that has history (test chats, chats started with **Run agent**, documentation sessions or run records
@@ -1310,8 +1308,7 @@ resources and roles decide).
 | `get_resource`, `get_document` | Inventory tools: the run was given the resource or document | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or linked to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
 | `list_documents`, `new_document`, `update_document`, `edit_document` | Document tools: the run has the resource (or the document) | Draft documents of a server, service or environment in the run's access; every write is a draft a person publishes (see Drafts and connections) |
 | MCP tools | The run has the MCP server | Every tool of the tested MCP servers in the run's access |
-| `search_documents`, `read_document` | The run has collections | Search and read only the granted RAG collections; **Answer only from documents** asks the agent to answer from them and cite every claim |
-| `report_not_covered` | **Answer only from documents** on (else "This run does not answer only from documents.") | Records what is missing and marks the answer **not covered** |
+| `search_documents` | Every run | Full-text search over the published documents the run may read (given to it, or linked to a server, service, environment or code project in it); drafts are never searched. Returns each match's id, title, short description, tags, linked resources and a short snippet; read one with `get_document` |
 | `run_subagent` | Agent sessions (never inside a subagent) | Starts a helper with every tool but `run_subagent`, a subset of the run's resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
 | `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and the run did not leave it out (sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
 | `load_skill` | The skill is in the run's access and enabled | Returns the skill's instructions by name; any other name gets "This skill is not available in this run." |

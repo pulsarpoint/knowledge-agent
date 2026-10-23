@@ -20,7 +20,7 @@ APPLY_WORKING = (
 )
 ORIGINAL_CHANGED = 'The original changed; review again.'
 # Everything an agent runs with on ka.agents. Name, description, enabled and cloned_from belong to the agent itself.
-CONFIGURATION = ('when_to_use', 'model_id', 'system_prompt', 'documents_grounded', 'access', 'instructions')
+CONFIGURATION = ('when_to_use', 'model_id', 'system_prompt', 'access', 'instructions')
 
 
 class ApplyInput(BaseModel):

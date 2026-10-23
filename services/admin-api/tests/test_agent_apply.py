@@ -18,7 +18,7 @@ def rows(conn, agent_id: str) -> dict[str, list]:
     between two agents."""
     return {
         'agent': conn.execute(
-            """SELECT when_to_use,model_id,system_prompt,documents_grounded,access,instructions
+            """SELECT when_to_use,model_id,system_prompt,access,instructions
             FROM ka.agents WHERE id=%s""",
             (agent_id,),
         ).fetchone(),

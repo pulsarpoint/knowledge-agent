@@ -28,8 +28,8 @@ SERVER = entry(
 MCP = entry('mcp_server', 'm1', 'Docs', url='http://mcp.test', enabled=True, bearer_token_ref=None)
 
 
-def config(documents=False, grounded=False, ssh=False, entries=()):
-    """A run's configuration: its access holds the SSH server (ssh) and entries; grounded only with documents."""
+def config(ssh=False, entries=()):
+    """A run's configuration: its access holds the SSH server (ssh) and entries."""
     value = {
         'id': 'agent',
         'name': 'Agent',
@@ -37,7 +37,6 @@ def config(documents=False, grounded=False, ssh=False, entries=()):
         'instructions': '',
         'enabled': True,
         'system_prompt': {'content': 'Answer.'},
-        'grounded': documents and grounded,
     }
     return with_access(value, [*([SERVER] if ssh else []), *entries])
 
@@ -87,7 +86,7 @@ def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
 
 
 def test_the_prompt_no_longer_carries_tool_sentences():
-    prompt = get_prompt(config(documents=True, ssh=True))
+    prompt = get_prompt(config(ssh=True))
     for sentence in (
         'Use shell_run for Bash pipelines',
         'Use code_search to find',

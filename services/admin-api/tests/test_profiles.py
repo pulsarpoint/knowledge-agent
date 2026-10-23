@@ -167,38 +167,19 @@ def test_skills_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(st
     ] == [skills[0]]
 
 
-def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_path, monkeypatch):
-    monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
-    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path.resolve()))
+def test_there_is_no_answer_only_from_documents_switch(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    agent = create(client, 'Grounded docs')
+    agent = create(client, 'Docs agent')
     saved = client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
-    assert saved['documents_grounded'] is False
-    with store.connect() as conn:
-        conn.execute(
-            "INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (store.project(conn, 'shop'),)
-        )
-        collection = conn.execute(
-            "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'runbooks') RETURNING id",
-            (store.project(conn, 'shop'),),
-        ).fetchone()['id']
-    access = {
-        'resources': [{'type': 'collection', 'id': str(collection)}],
-    }
+    assert 'documents_grounded' not in saved
     payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'instructions')}
-    updated = client.put(
-        f'/api/agents/{agent["id"]}', headers=HEADERS, json={**payload, 'access': access, 'documents_grounded': True}
-    )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()['documents_grounded'] is True
-    kept = client.put(
+    refused = client.put(
         f'/api/agents/{agent["id"]}',
         headers=HEADERS,
-        json={**payload, 'revision': updated.json()['revision'], 'access': access},
+        json={**payload, 'access': {'resources': []}, 'documents_grounded': True},
     )
-    assert kept.json()['documents_grounded'] is True
-    config = client.get(f'/api/agents/{agent["id"]}/config', headers=HEADERS).json()
-    assert config['grounded'] is True
+    assert refused.status_code == 400
+    assert 'grounded' not in client.get(f'/api/agents/{agent["id"]}/config', headers=HEADERS).json()
 
 
 def test_plain_create_endpoint_is_removed(store, tmp_path):

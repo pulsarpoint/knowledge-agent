@@ -31,7 +31,7 @@ def stored(world, agent_id: str) -> dict:
 
 def body(agent: dict, **changes) -> dict:
     """A PUT body from a GET: the access references as GET returns them (extra keys are ignored)."""
-    keys = ('revision', 'name', 'description', 'when_to_use', 'enabled', 'documents_grounded', 'access', 'instructions')
+    keys = ('revision', 'name', 'description', 'when_to_use', 'enabled', 'access', 'instructions')
     return {**{key: agent[key] for key in keys}, **changes}
 
 

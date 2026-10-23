@@ -23,7 +23,6 @@ const agent: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_grounded: false,
   revision: 4,
   model_id: null,
   system_prompt: "Prompt",

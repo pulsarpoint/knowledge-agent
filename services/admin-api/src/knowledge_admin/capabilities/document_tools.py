@@ -1,5 +1,6 @@
 """The document tools. Every agent write to a document is a draft in the real documents, which a person publishes on
-the document's page: list_documents lists a resource's documents with the run's drafts; get_document reads a document
+the document's page: search_documents finds published documents by words (full-text, drafts never); list_documents
+lists a resource's documents with the run's drafts; get_document reads a document
 (the run's open draft of it when it has one, else the live version); new_document creates a new document as a draft
 built for a server, service or environment; update_document (the whole text, optionally linking a resource) and
 edit_document (one exact passage) save the run's draft of a document.
@@ -126,6 +127,37 @@ OWN_NEW_LINKED = """SELECT d.id,d.title,d.description,d.tags FROM ka.documents d
 RUN_DRAFTS = (
     'SELECT draft_of FROM ka.documents WHERE is_draft AND session_id=%s AND draft_of IS NOT NULL AND NOT edited'
 )
+# search_documents: the expression of the full-text index on live documents (migration 0133), title above description
+# above content; a query must use it exactly for the index to serve it.
+SEARCH_VECTOR = (
+    "(setweight(to_tsvector('simple', coalesce(d.title, '')), 'A') "
+    "|| setweight(to_tsvector('simple', coalesce(d.description, '')), 'B') "
+    "|| setweight(to_tsvector('simple', coalesce(d.markdown, '')), 'C'))"
+)
+# The kinds of resource a linked document is readable through (check_get_document, _linked).
+LINK_KINDS = tuple(ENTRY_COLUMNS)
+# The best live documents the run may read (search_scope: given, or linked to a resource in it) for the query, with a
+# snippet of each (ts_headline only on the rows returned).
+SEARCH = f"""SELECT found.id,found.title,found.description,found.tags,
+    ts_headline('simple', found.markdown, websearch_to_tsquery('simple', %(query)s),
+        'MaxWords=30, MinWords=15, StartSel=**, StopSel=**') AS snippet
+    FROM (SELECT d.id,d.title,d.description,d.tags,d.markdown,
+        ts_rank_cd({SEARCH_VECTOR}, websearch_to_tsquery('simple', %(query)s)) AS rank
+        FROM ka.documents d WHERE d.project_id=%(project)s AND NOT d.is_draft
+        AND {SEARCH_VECTOR} @@ websearch_to_tsquery('simple', %(query)s)
+        AND (d.id=ANY(%(document)s::uuid[]) OR EXISTS (SELECT 1 FROM ka.document_resources r
+            WHERE r.document_id=d.id AND r.removed_at IS NULL AND (r.server_id=ANY(%(server)s::uuid[])
+            OR r.service_id=ANY(%(service)s::uuid[]) OR r.environment_id=ANY(%(environment)s::uuid[])
+            OR r.code_project_id=ANY(%(code_project)s::uuid[]))))
+        ORDER BY rank DESC,lower(d.title),d.id LIMIT %(limit)s) found
+    ORDER BY found.rank DESC,lower(found.title),found.id"""
+LINKS = """SELECT document_id,server_id,service_id,environment_id,code_project_id FROM ka.document_resources
+    WHERE document_id=ANY(%s) AND removed_at IS NULL"""
+NO_MATCH = (
+    'No published document matches "{query}". Try other words, or list the documents of a server, service or '
+    'environment with list_documents.'
+)
+MAX_SEARCH = 25
 
 
 class DraftText(BaseModel):
@@ -183,12 +215,7 @@ def _linked(conn, document: UUID | None) -> list[tuple[str, str]]:
     return [
         (kind, str(row[column]))
         for row in conn.execute(LINKED, (document,)).fetchall()
-        for kind, column in (
-            ('server', 'server_id'),
-            ('service', 'service_id'),
-            ('environment', 'environment_id'),
-            ('code_project', 'code_project_id'),
-        )
+        for kind, column in ENTRY_COLUMNS.items()
         if row[column] is not None
     ]
 
@@ -274,6 +301,53 @@ def check_update_document(
 def check_edit_document(access: dict, document_id: str, linked: list[tuple[str, str]] = (), **_) -> str | None:
     """None when allowed, else the refusal text (as check_update_document)."""
     return check_update_document(access, document_id, linked)
+
+
+def search_scope(access: dict) -> dict[str, list[str]]:
+    """check_get_document as SQL parameters (SEARCH): the ids of the documents given to the run and of the servers,
+    services, environments and code projects a linked document is readable through. Ids that are not uuids (a new
+    document's 'new:<uuid>') are left out: they never name a live document."""
+    return {
+        kind: [str(key) for item in access_rules.entries(access, kind) if (key := _uuid(item['id'])) is not None]
+        for kind in ('document', *LINK_KINDS)
+    }
+
+
+def check_search_documents(access: dict, **_) -> str | None:
+    """Always allowed: the search itself keeps to the documents the run may read (search_scope)."""
+    return None
+
+
+def _search_documents(config: dict[str, Any], query: str, limit: int) -> str:
+    access = config['access']
+    with connect() as conn:
+        project = project_of(conn, config)
+        rows = conn.execute(SEARCH, {'query': query, 'project': project, 'limit': limit, **search_scope(access)})
+        rows = rows.fetchall()
+        links = conn.execute(LINKS, ([row['id'] for row in rows],)).fetchall() if rows else []
+    if not rows:
+        return NO_MATCH.format(query=query)
+    resources: dict[UUID, list[dict[str, str]]] = {}
+    for link in links:  # only the run's own resources: a run learns nothing about what lies outside its list
+        for kind in LINK_KINDS:
+            key = link[ENTRY_COLUMNS[kind]]
+            found = access_rules.entry(access, kind, str(key)) if key is not None else None
+            if found is not None:
+                resources.setdefault(link['document_id'], []).append(
+                    {'type': kind, 'id': str(key), 'name': found.get('name') or ''}
+                )
+    documents = [
+        {
+            'document_id': str(row['id']),
+            'title': row['title'],
+            'description_short': description_short(row['description']),
+            'tags': list(row['tags'] or []),
+            'resources': sorted(resources.get(row['id'], []), key=lambda item: (item['type'], item['name'].lower())),
+            'snippet': ' '.join(row['snippet'].split()),
+        }
+        for row in rows
+    ]
+    return dumps({'documents': documents})
 
 
 def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: bool = False) -> dict | None:
@@ -764,6 +838,24 @@ async def get_document(
     ] = None,
 ) -> str:
     return await asyncio.to_thread(_get_document, context['config'], document_id, section, start_line, end_line)
+
+
+@tool(usage=texts.SEARCH_DOCUMENTS)
+async def search_documents(
+    context,
+    query: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=500,
+            description='Words to find; "quoted phrase", or, -word to leave out (web search syntax).',
+        ),
+    ],
+    limit: Annotated[int, Field(ge=1, le=MAX_SEARCH, description='How many documents at most, 1–25.')] = 10,
+) -> str:
+    if refusal := check_search_documents(context['config']['access'], query=query, limit=limit):
+        return refusal
+    return await asyncio.to_thread(_search_documents, context['config'], query, limit)
 
 
 @tool(usage=texts.LIST_DOCUMENTS)

@@ -25,10 +25,18 @@ DOCUMENT_ID = "document_id (from list_documents, get_resource, new_document or t
 GET_DOCUMENT = (
     'Read one managed document by id: without section or lines, its outline and text as JSON (text up to 50,000 '
     "characters); with section (a heading) or start_line/end_line, those lines with numbers. Reads this run's draft of "
-    f'the document when it has one, else the live version. {USABLE} Not the same as read_document, which reads a '
-    'knowledge-base file from search_documents results by collection and path, to cite as [n].\n\n'
+    f'the document when it has one, else the live version. {USABLE}\n\n'
     f'Fields: {DOCUMENT_ID}; section (optional); start_line, end_line (optional, 1-based, inclusive).\n\n'
     'Example: {"document_id": "<document id>", "section": "Backup"}\n\n' + INVENTORY
+)
+SEARCH_DOCUMENTS = (
+    'Search the published documents this run may read (given to it, or linked to a server, service, environment or '
+    'code project in it) by words, as JSON: the best matches first (a match in the title counts most, then the '
+    'description, then the text), each with document_id, title, description_short, tags, resources (the resources of '
+    'this run it is linked to: type, id, name) and snippet (a few words around the match, matches in **bold**). Drafts '
+    'are not searched: only published documents. Read a result with get_document. When nothing matches, try other '
+    'words or list_documents.\n\nFields: query (words; "a phrase" in quotes, or, -word to leave a word out); limit '
+    '(optional: 1–25 documents, 10 when omitted).\n\nExample: {"query": "backup restore", "limit": 5}'
 )
 LIST_DOCUMENTS = (
     'The documents linked to a server, service or environment of this run and to the resources that belong to it (an '

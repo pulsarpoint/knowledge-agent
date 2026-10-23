@@ -20,6 +20,7 @@ REMOVED = '0084_remove_claude_code.down.sql'  # renames ka.agent_sessions back t
 LATER = '0081_test_sessions.down.sql'  # 0080 down re-adds agent_sessions.agent_version_id
 DROPPED = '0114_drop_agent_resource_tables.down.sql'  # the per-type tables 0080 materialised versions into
 TOOLS_DROPPED = '0115_tools_always_on.down.sql'  # ka.agent_tools, which 0080 materialised versions' tools into
+GROUNDED_DROPPED = '0133_document_search.down.sql'  # agents.documents_grounded, which 0080 reads and writes
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (
     ('agents', 'active_config_version_id'),
@@ -38,6 +39,8 @@ BEFORE = {
 def with_old_tables(conn) -> None:
     """0115 and 0114 down, once: these tests write and read ka.agent_tools and the per-type tables (0114 down fills
     them from each agent's access; 0115 down recreates ka.agent_tools empty)."""
+    if conn.execute("SELECT to_regclass('ka.documents_search') AS r").fetchone()['r'] is not None:
+        conn.execute((MIGRATIONS / GROUNDED_DROPPED).read_text(), prepare=False)
     if conn.execute("SELECT to_regclass('ka.agent_tools') AS r").fetchone()['r'] is None:
         conn.execute((MIGRATIONS / TOOLS_DROPPED).read_text(), prepare=False)
     if conn.execute("SELECT to_regclass('ka.agent_configs') AS r").fetchone()['r'] is None:
@@ -97,7 +100,7 @@ def legacy(config: dict) -> dict:
         **config,
         'documents': {
             'enabled': bool(collections),
-            'grounded': config.pop('grounded'),
+            'grounded': False,  # a configuration loaded today has no grounded mode (0133)
             'all_collections': False,
             'collections': collections,
         },
@@ -155,9 +158,8 @@ def sections(config: dict) -> dict:
     """config.sections and what the agent runs with by kind: the items of each section (a version saved before 0113
     and a configuration loaded from an access object compare alike)."""
     documents, code = config['documents'], config['code']
-    grounded = bool(documents.get('grounded', False))  # the agent's switch, as config.sections reads it
     return {
-        **agent_config.sections({**config, 'grounded': grounded}),
+        **agent_config.sections(config),
         'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
         'documents': {
             'enabled': documents['enabled'],
@@ -293,8 +295,8 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     expected['documents']['collections'].remove(runbooks)  # deleted and archived items are dropped
     expected['code']['projects'].remove(unselected)
     expected = held(expected)
-    # the working copy differed everywhere (neither answers only from documents)
-    assert [key for key in expected if drifted[key] == expected[key]] == ['grounded']
+    # the working copy differed everywhere
+    assert [key for key in expected if drifted[key] == expected[key]] == []
     convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     migrated = held(sections(legacy(after)))

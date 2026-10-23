@@ -30,7 +30,6 @@ from pydantic import BaseModel
 
 from knowledge_admin.sessions.activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.sessions.tracing import trace_secrets
-from knowledge_admin.sessions import grounding
 from knowledge_admin.llm.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
@@ -316,9 +315,7 @@ def code_paths(config: dict[str, Any]) -> list[Path]:
 
 
 def document_paths(config: dict[str, Any]) -> list[Path]:
-    """The folders of the collections in the run's access, which an ungrounded run reads directly."""
-    if documents_grounded(config):
-        return []
+    """The folders of the collections in the run's access."""
     return [
         Path(path) for item in access_rules.entries(config['access'], 'collection') for path in item.get('paths', [])
     ]
@@ -341,20 +338,14 @@ def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict
     return servers
 
 
-def documents_grounded(config: dict[str, Any]) -> bool:
-    return bool(config.get('grounded'))
-
-
 def get_prompt(config: dict[str, Any]) -> str:
-    """The active prompt with the grounding policy, the agent's instructions and the access rules. A run started from a
+    """The active prompt with the agent's instructions and the access rules. A run started from a
     resource names it in one line (Resource: <type> <id> (<name>)); the run's resources are not in the prompt
     (get_available_resources lists them); its skills are listed by name and description (load_skill gives their
     instructions)."""
     prompt = config['system_prompt']['content']
     if not prompt.strip():
         raise ValueError('The agent requires a system prompt.')
-    if documents_grounded(config):
-        prompt += grounding.POLICY
     prompt += '\n\n' + config['instructions']
     if listed := skills.section(config['access']):
         prompt += '\n\n' + listed

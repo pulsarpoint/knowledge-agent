@@ -32,7 +32,6 @@ const summary = (id: string, name: string, enabled = true): profiles.AgentSummar
   description: "",
   when_to_use: "",
   enabled,
-  documents_grounded: false,
   revision: 3,
   model_id: "m1",
   system_prompt: "",

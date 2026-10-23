@@ -9,15 +9,12 @@ from agents.tool_context import ToolContext
 from knowledge_admin.agents.runner import get_prompt
 from access_helpers import entry, with_access
 from knowledge_admin import access as access_rules
-from test_document_tools import rag  # noqa: F401  (fixture)
 from tool_helpers import tool, tools
 
-ast_grep, code_graph, code_search, read_document, search_documents, list_files, read_file, shell_run, ssh_run = tools(
+ast_grep, code_graph, code_search, list_files, read_file, shell_run, ssh_run = tools(
     'ast_grep',
     'code_graph',
     'code_search',
-    'read_document',
-    'search_documents',
     'list_files',
     'read_file',
     'shell_run',
@@ -67,7 +64,6 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         'enabled': True,
         'instructions': '',
         'system_prompt': {'content': 'Analyse code.'},
-        'grounded': False,
     }
     return {'config': with_access(config, entries), 'credentials': {}, 'workspace': folders['workspace']}
 
@@ -93,18 +89,6 @@ def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeyp
     assert invoke(ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN) == code
     assert invoke(code_graph, context, project_id='given') == code
     assert invoke(ssh_run, context, server_id='host', command='uptime') == access_rules.refuse_none('server')
-    documents = access_rules.refuse_none('collection')
-    assert invoke(search_documents, context, query='limits') == documents
-    assert invoke(read_document, context, collection='payments', path='limits.md') == documents
-
-
-def test_document_search_uses_only_the_given_collections(rag, folders):
-    calls, _ = rag
-    context = run_context(folders, collections=['payments'])
-    assert '[1] payments/retries.md' in invoke(search_documents, context, query='retries')
-    search = next(json.loads(call.content) for call in calls if call.url.path == '/search')
-    assert search['collections'] == ['payments']
-    assert invoke(search_documents, context, query='x', collection='private') == access_rules.refuse_use('collection')
 
 
 def test_ssh_reaches_only_the_given_servers(folders):

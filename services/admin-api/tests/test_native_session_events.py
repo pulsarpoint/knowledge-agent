@@ -136,7 +136,6 @@ def test_tool_summaries_and_failures():
     assert summary('ast_grep', {'rule': 'id: x', 'path': '/c/app'}) == 'id: x in /c/app'
     assert summary('ssh_run', {'server_id': 'prod-1', 'command': 'uptime'}) == 'prod-1: uptime'
     assert summary('search_documents', {'query': 'refunds'}) == 'refunds'
-    assert summary('read_document', {'collection': 'runbooks', 'path': 'pay.md'}) == 'runbooks/pay.md'
     assert summary('code_graph', {'action': 'overview'}) == 'overview'
     assert summary('Docs__lookup', {'q': 'x'}) == '' and summary('read_file', 'not json') == ''
     assert tool_failed('{"exit_code": 2}') and tool_failed('{"timed_out": true}') and tool_failed(SDK_ERROR)

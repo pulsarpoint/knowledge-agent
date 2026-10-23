@@ -160,14 +160,15 @@ through the document tools below, which write the run's draft. The editing rules
 Every agent run has the document tools; what it may do with them is decided by its access object, not by a role (there
 is no Content editor role and no `editable` flag on a document entry; stored access objects that still carry them load,
 the keys ignored).
-A document is **usable** when it is in the run's access or linked to a server, service or environment in it; a run may
-read and draft every usable document, and create new documents for any server, service or environment in its access.
+A document is **usable** when it is in the run's access or linked to a server, service, environment or code project in
+it; a run may read and draft every usable document, and create new documents for any server, service or environment in its access.
 Subagents and experts get the read tools only (`search_documents`, `list_documents`, `get_document`).
 
 | Tool | What it does |
 |---|---|
+| `search_documents(query, limit?)` | Full-text search over the **published** usable documents (drafts are never searched): `websearch_to_tsquery('simple', query)` (words, `"a phrase"`, `or`, `-word`), ranked with `ts_rank_cd`, a title match above a description match above a text match; `limit` 1–25 (10). Each result: `document_id`, title, `description_short`, tags, `resources` (its links to the run's own servers, services, environments and code projects: type, id, name) and `snippet` (`ts_headline`, about 30 words, matches in `**bold**`). Nothing found says so and points to `list_documents`. The index is the partial GIN expression index `documents_search` on live rows (migration 0133); the query repeats its expression (`document_tools.SEARCH_VECTOR`) and its scope is the run's access as SQL parameters (`search_scope`, the `get_document` rule). |
 | `list_documents(resource)` | The documents linked to a server, service or environment of the run (`resource`: `{type, id}` or `{type, name}`) and to what belongs to it: id, title, short description, tags, `published` (false for a new document the run drafted) and `your_draft`; the inventory document first. |
-| `get_document(document_id, section?, start_line?, end_line?)` | The run's draft of the document when it has one, else the live version: outline and text, or the asked lines numbered. (`read_document` reads a knowledge-base file from `search_documents` results instead.) |
+| `get_document(document_id, section?, start_line?, end_line?)` | The run's draft of the document when it has one, else the live version: outline and text, or the asked lines numbered. |
 | `new_document(resource, title, content, description?, tags?)` | Creates a new document as a brand-new draft built for the resource (`built_for`, `added_how = 'agent_run'`, the run's `session_id`); folder and slug come from the resource and the title. A title already used by a document linked to the same resource is refused with that document's id. Returns the id the document keeps once published. |
 | `update_document(document_id, content, title?, description?, resource?)` | Saves the run's draft of the document with its complete content. With `resource`, the document is linked to that server, service or environment: a new document's draft gets the link at once, a draft of a live document holds it and Promote adds it (see **Links**). |
 | `edit_document(document_id, old_text, new_text)` | Replaces one exact passage (it must occur once) in the run's draft, started from the live text when there is none yet; an empty `new_text` removes it. |
@@ -205,8 +206,8 @@ servers it is deployed on) is not linked; the agent may use it, but the document
 existing document never changes that document's links. Later saves update the same draft until a person saves (edits), promotes or discards it,
 or another draft of the document is promoted (which deletes this one); the next save then starts a new draft of the
 live version, and the tool result says what happened to the earlier draft. A person's edit of a run's brand-new draft
-makes it theirs: the run's next save is refused until they promote or discard it. The draft's sources are the documents the run read (`get_document`, or
-`read_document` of an export path), at the version live at the first read. Nothing goes live until a person promotes the draft.
+makes it theirs: the run's next save is refused until they promote or discard it. The draft's sources are the documents the run read with `get_document`,
+at the version live at the first read. Nothing goes live until a person promotes the draft.
 
 There is one conversation per page visit. Earlier runs stay readable at `/sessions/{id}` and in Activity → Agent runs, including the runs of the
 removed Docs → Generate documents.

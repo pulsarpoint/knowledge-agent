@@ -21,7 +21,7 @@ from agents import RunHooks
 from agents.run_config import CallModelData, ModelInputData
 from cryptography.exceptions import InvalidTag
 
-from knowledge_admin.sessions import tracing as agent_tracing, grounding, run_record
+from knowledge_admin.sessions import tracing as agent_tracing, run_record
 from knowledge_admin.sessions.activity import tool_failed
 from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -71,8 +71,6 @@ def summary(name: str, arguments: Any) -> str:
         return f'{value("server_id")}: {value("command")}'
     if name == 'search_documents':
         return value('query')
-    if name == 'read_document':
-        return f'{value("collection")}/{value("path")}'
     if name == 'code_graph':
         return f'{value("action")} {value("query") or value("node_id")}'.strip()
     if name == 'run_subagent':
@@ -216,18 +214,6 @@ def failure(exc: BaseException, secrets: Iterable[str]) -> str:
         return f'Agent execution failed ({name}). {hint}'
     room = 500 - len(f'Agent execution failed ({name}: ). {hint}')
     return f'Agent execution failed ({name}: {reason[:room]}). {hint}'
-
-
-def grounding_of(result: Any, answer: str) -> dict[str, Any] | None:
-    """The cited sources and coverage of a grounded turn, from its run context's grounding state (the documents tools
-    keep it there), or None for an ungrounded turn (its document searches are not grounding: every run has the
-    tools)."""
-    context = getattr(getattr(result, 'context_wrapper', None), 'context', None)
-    if not isinstance(context, dict):
-        return None
-    if not (context.get('config') or {}).get('grounded'):
-        return None
-    return grounding.result(answer, context.get('grounding'))
 
 
 def _retrieve(task: asyncio.Task) -> None:
@@ -438,18 +424,7 @@ class NativeRunner(shared.SessionRunner):
                 comments.closed = True
                 await comments.settle()
             answer = clean_text(events.draft(None if result is None else result.final_output), secrets)
-            end = {'status': END_STATUS[status]}
-            sources = None
-            if status == 'waiting':
-                try:
-                    sources = grounding_of(result, answer)
-                except Exception as exc:  # the turn still ends with its answer; only the cited sources are lost
-                    logger.warning(
-                        'Agent session %s turn %s grounding failed (%s)', self.id, number, type(exc).__name__
-                    )
-            if sources is not None:
-                end['grounding'] = sources  # the recorder redacts it with the turn's secrets
-            recorder.add('end', end)
+            recorder.add('end', {'status': END_STATUS[status]})
             recorder.close()  # no event after 'end'
             await asyncio.to_thread(recorder.flush)
             if status != 'waiting' and comments is not None:
