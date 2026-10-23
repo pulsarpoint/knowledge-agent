@@ -218,7 +218,7 @@ test("shows the server, its services and documents, and its chats", async () => 
   expect(await screen.findByRole("heading", { name: "web-1", level: 1 })).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1");
-  expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/servers/s1/proposals");
+  expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
   await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(await screen.findByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");
   expect(screen.queryByRole("region", { name: "Services" })).not.toBeInTheDocument();
@@ -231,7 +231,6 @@ test("shows the server, its services and documents, and its chats", async () => 
   const chats = await screen.findByRole("region", { name: "Chats" });
   expect(await within(chats).findByRole("button", { name: /Disk usage/ })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
-  expect(screen.queryByRole("region", { name: "Proposals panel" })).toBeNull();
 });
 
 test("Chat opens a new conversation; the first message starts a run from the server that may not change content", async () => {
@@ -249,11 +248,9 @@ test("Chat opens a new conversation; the first message starts a run from the ser
   expect(within(pane).getByText("Ask the agent about this server.")).toBeInTheDocument();
   await waitFor(() => expect(within(pane).getByRole("button", { name: "Settings" })).toBeEnabled());
   expect(within(pane).queryByText("No draft saved in this turn")).toBeNull();
-  // the settings sheet offers no proposal tool (only the Propose wizard turns them on) and no document-editing tool
+  // the settings sheet offers no tool choices
   fireEvent.click(within(pane).getByRole("button", { name: "Settings" }));
   const sheet = await screen.findByRole("dialog");
-  expect(within(sheet).queryByRole("checkbox", { name: "Propose service" })).toBeNull();
-  expect(within(sheet).queryByRole("checkbox", { name: "Propose document" })).toBeNull();
   expect(within(sheet).queryByRole("checkbox", { name: "Save a document" })).toBeNull();
   fireEvent.keyDown(sheet, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -266,7 +263,6 @@ test("Chat opens a new conversation; the first message starts a run from the ser
   expect(body.message).toBe("Disk usage?");
   expect(body.resources.server_ids).toContain("s1");
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1?chat=r1"));
-  expect(screen.queryByRole("region", { name: "Proposals panel" })).toBeNull();
 });
 
 test("a ?chat= link opens the page with the chat on that run", async () => {

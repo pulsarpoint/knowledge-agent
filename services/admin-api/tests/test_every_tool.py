@@ -125,15 +125,11 @@ def test_a_resource_run_offers_every_tool(world):
     assert [tool['name'] for tool in preview.json()['tools']] == EVERY  # no experts in this workspace
 
 
-def test_a_resource_chat_may_propose_without_a_role(world):
+def test_a_resource_chat_has_no_role_to_ask_for(world):
     ssh_ready(world)
-    created = world.client.post('/api/sessions', headers=HEADERS, json=body(world, tags=['proposals']))
+    created = world.client.post('/api/sessions', headers=HEADERS, json=body(world))
     assert created.status_code == 201, created.text
-    chat = config_of(world, created.json()['id'])
-    assert 'roles' not in chat['access']
-    spec = CATALOG['propose_document']
-    arguments = spec.arguments.model_validate({'title': 'Disks', 'markdown': '# Disks', 'description': ''})
-    assert asyncio.run(spec.run({'config': chat}, arguments)).startswith('Proposal 1:')
+    assert 'roles' not in config_of(world, created.json()['id'])['access']
     refused = world.client.post('/api/sessions', headers=HEADERS, json=body(world, content_editor=True))
     assert refused.status_code == 400  # no longer a request field
 

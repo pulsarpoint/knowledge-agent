@@ -42,13 +42,6 @@ LIST = SUMMARY.replace(
     1,
 )
 assert LIST != SUMMARY
-PROPOSAL_COUNTS = ''.join(
-    f""",(SELECT count(*) FROM ka.discovery_proposals dp WHERE dp.session_id=s.id
-        AND dp.status='{status}')::int AS {status}"""
-    for status in ('pending', 'accepted', 'rejected')
-)
-LIST_WITH_PROPOSALS = LIST.replace(',p.email AS started_by', ',p.email AS started_by' + PROPOSAL_COUNTS, 1)
-assert LIST_WITH_PROPOSALS != LIST
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -85,7 +78,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         offset: int = Query(0, ge=0),
     ) -> dict:
         """Runs, newest first: those started from a document or having a tag (both open first, then by activity; a
-        tag's runs with their proposal counts: a resource's chats), of one purpose, or an agent's Test and event
+        tag's runs: a resource's chats), of one purpose, or an agent's Test and event
         sessions."""
         response.headers['Cache-Control'] = 'no-store'
         db = database()
@@ -104,7 +97,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if tag is not None:
                 where.append('s.tags @> ARRAY[%s]::text[]')
                 values.append(tag)
-            query = LIST_WITH_PROPOSALS if tag is not None else LIST
             order = (
                 "s.status='closed',s.last_activity_at DESC,s.id"
                 if document_id or tag is not None
@@ -112,7 +104,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             )
             return {
                 'sessions': conn.execute(
-                    f'{query} WHERE {" AND ".join(where)} ORDER BY {order} LIMIT %s OFFSET %s',
+                    f'{LIST} WHERE {" AND ".join(where)} ORDER BY {order} LIMIT %s OFFSET %s',
                     (*values, 100 if document_id or agent_id else 50, offset),
                 ).fetchall()
             }
@@ -162,9 +154,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             pinned, _, _ = start.build(conn, project, value, None, db.conninfo)
             # As a run stores it (jsonb) and its turns read it: the instructions list its resources in that order.
             stored = conn.execute('SELECT %s::jsonb AS config', (Jsonb(pinned),)).fetchone()['config']
-            shown = debug.view(
-                conn, db, project, stored, tags=value.tags, prompt_id=value.prompt_id, prompt_text=value.system_prompt
-            )
+            shown = debug.view(conn, db, project, stored, prompt_id=value.prompt_id, prompt_text=value.system_prompt)
         return {'config': pinned, 'first_message': value.message, **shown}
 
     @router.post('', status_code=201)
@@ -191,7 +181,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
             row = conn.execute(
-                'SELECT agent_config,access,tags,prompt_snapshot FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
+                'SELECT agent_config,access,prompt_snapshot FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
                 (session_id, project),
             ).fetchone()
             if row is None:
@@ -202,7 +192,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 db,
                 project,
                 {**row['agent_config'], 'access': row['access']},
-                tags=row['tags'],
                 prompt_id=snapshot.get('prompt_id'),
                 prompt_text=snapshot.get('system_prompt') or '',
             )

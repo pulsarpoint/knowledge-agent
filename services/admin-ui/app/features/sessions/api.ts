@@ -2,7 +2,6 @@ import { request } from "~/lib/api";
 import type { ToolCount } from "./runs";
 import type { AgentKey, ResourceIds } from "~/lib/resources";
 import type { Turn } from "./turns";
-import type { Proposal } from "~/features/servers/discovery";
 
 export const formatTokens = (value: number) => value.toLocaleString("en-US");
 const json = (method: string, value: unknown) => ({
@@ -79,7 +78,7 @@ export interface SessionSummary {
   output_tokens: number;
   cached_tokens: number;
   purpose: SessionPurpose;
-  /** A resource's chats carry its tag (servers/<id>, …); wizard runs also `proposals`. */
+  /** A resource's chats carry its tag (servers/<id>, …). */
   tags?: string[];
   model_calls: number;
   reasoning_tokens: number;
@@ -259,8 +258,6 @@ export interface SessionDebug {
   instructions: string;
   /** The library prompt and its version (null: the text was edited before the start); null: no library prompt. */
   prompt: { id: string; name: string; version: number | null } | null;
-  /** `wizard`: the prompt was written in the Propose wizard. */
-  prompt_source: "library" | "wizard";
   agent_instructions: string;
   skills: { name: string }[];
   tools: { name: string; description: string }[];
@@ -277,23 +274,6 @@ export const getSessionDebug = (id: string, signal?: AbortSignal) =>
 export const previewSession = (value: StartInput, signal?: AbortSignal) =>
   request<{ config: Record<string, unknown>; first_message: string } & SessionDebug>("/api/sessions/preview", {
     ...json("POST", value),
-    signal,
-  });
-/** A run's proposals on a resource's Proposals page. */
-export interface ProposalRun {
-  session_id: string;
-  title: string;
-  started_at: string;
-  started_by: string | null;
-  proposals: Proposal[];
-}
-/** Every proposal made in the runs tagged with a resource, grouped by run (newest first), of one status or all. */
-export const getResourceProposals = (
-  resource: { type: ResourceType; id: string },
-  status?: Proposal["status"],
-  signal?: AbortSignal,
-) =>
-  request<{ runs: ProposalRun[] }>(`/api/discovery/proposals${query({ tag: resourceTag(resource), status })}`, {
     signal,
   });
 export const startSession = (value: StartInput) => request<SessionDetail>("/api/sessions", json("POST", value));
@@ -354,7 +334,7 @@ export interface StartInput {
     | { server_id: string }
     | { service_id: string }
     | { environment_id: string };
-  /** Tags the run gets besides its resource's (the backend adds that one), e.g. `proposals`. */
+  /** Tags the run gets besides its resource's (the backend adds that one). */
   tags?: string[];
   agent_id?: string;
   /** A saved agent's run from Run agent on the Agents page (a chat session); omitted: a Test session. */
@@ -369,13 +349,9 @@ export interface StartInput {
   };
   expert_ids: string[];
 }
-/** A resource's chats (listed by tag) also carry their proposal counts. */
 export type RunSummary = SessionSummary & {
   started_by: string | null;
   draft_id: string | null;
-  pending?: number;
-  accepted?: number;
-  rejected?: number;
 };
 export const agentRunPath = (documentId: string, runId: string) =>
   `/documents/${encodeURIComponent(documentId)}/agent/${encodeURIComponent(runId)}`;

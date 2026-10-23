@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getServerPage, type ServerPageData } from "./discovery";
-import ProposeWizard from "~/features/sessions/ProposeWizard";
+import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
 import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
@@ -12,7 +12,7 @@ import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
-/** One server: a header (details, SSH state, Proposals; Chat and Propose on the right) and tabs Overview (the services
+/** One server: a header (details, SSH state; Chat and Discover on the right) and tabs Overview (the services
  * deployed on it; a draft deployment with its badge and Confirm / Discard), Documents and Chats (ResourceChats: the chat opens beside the page on wide screens). */
 export default function ServerPage({ serverId }: { serverId: string }) {
   const [data, setData] = useState<ServerPageData | null>(null);
@@ -79,9 +79,6 @@ export default function ServerPage({ serverId }: { serverId: string }) {
           </Badge>
         </div>
         {discovery.reason && <p className="text-sm text-muted-foreground">{discovery.reason}</p>}
-        <Link className="self-start text-sm underline" to={`/servers/${encodeURIComponent(serverId)}/proposals`}>
-          Proposals
-        </Link>
       </div>
     </>
   );
@@ -162,7 +159,9 @@ export default function ServerPage({ serverId }: { serverId: string }) {
           ),
         },
       ]}
-      actions={<ProposeWizard resource={{ type: "server", id: serverId, name: server.name }} blockedReason={blocked} />}
+      actions={
+        <DiscoverWizard resource={{ type: "server", id: serverId, name: server.name }} blockedReason={blocked} />
+      }
     />
   );
 }

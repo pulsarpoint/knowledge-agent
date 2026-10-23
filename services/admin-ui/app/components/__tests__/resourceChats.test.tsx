@@ -170,23 +170,18 @@ test("the page shows Info and the resource's chats; no chat until one is asked f
     [RUNS]: () => [
       200,
       {
-        sessions: [
-          run("r2", "waiting", "Disk usage"),
-          run("r1", "closed", "Propose documents", ["services/v1", "proposals"]),
-        ],
+        sessions: [run("r2", "waiting", "Disk usage"), run("r1", "closed", "Discover this service.", ["services/v1"])],
       },
     ],
   });
-  show("/services/v1", <a href="/x">Proposals</a>);
+  show("/services/v1");
   expect(screen.getByText("The payments service.")).toBeInTheDocument();
   const chats = await screen.findByRole("region", { name: "Chats" });
   expect(await within(chats).findByRole("button", { name: /Disk usage/ })).toHaveTextContent("Waiting for you");
-  const wizard = within(chats).getByRole("button", { name: /Propose documents/ });
-  expect(within(wizard).getByText("proposals")).toBeInTheDocument();
-  expect(within(within(chats).getByRole("button", { name: /Disk usage/ })).queryByText("proposals")).toBeNull();
+  expect(within(chats).getByRole("button", { name: /Discover this service/ })).toBeInTheDocument();
   expect(within(chats).getByRole("button", { name: "New chat" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Proposals" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
   expect(screen.queryByRole("tab")).toBeNull();
   expect(wide.value).toBe(false);
@@ -245,28 +240,6 @@ test("a ?chat= of another resource's run is not opened on this page", async () =
 test("Chat opens the latest open chat", async () => {
   live.sessions.r2 = detail("r2", "waiting");
   api({ ...base(), [RUNS]: () => [200, { sessions: [run("r2", "waiting", "Open one")] }] });
-  show();
-  await screen.findByRole("button", { name: /Open one/ });
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
-  expect(await screen.findByRole("heading", { name: "Chat r2" })).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r2"));
-});
-
-test("Chat never opens a Propose wizard run as the latest open chat", async () => {
-  live.sessions.r3 = detail("r3", "working", ["services/v1", "proposals"]);
-  live.sessions.r2 = detail("r2", "waiting");
-  api({
-    ...base(),
-    [RUNS]: () => [
-      200,
-      {
-        sessions: [
-          run("r3", "working", "Propose documents for this service.", ["services/v1", "proposals"]),
-          run("r2", "waiting", "Open one"),
-        ],
-      },
-    ],
-  });
   show();
   await screen.findByRole("button", { name: /Open one/ });
   fireEvent.click(screen.getByRole("button", { name: "Chat" }));
@@ -345,7 +318,7 @@ test("the service page shows the service's information in the service panel, and
   expect(panel.getByRole("region", { name: "Relations" })).toBeInTheDocument();
   expect(panel.getByRole("region", { name: "Code projects" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
-  expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/services/v1/proposals");
+  expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
   // the documents are in their own tab, not in the panel
   expect(panel.queryByRole("tab", { name: "Documents" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Documents" })).not.toBeInTheDocument();
@@ -497,7 +470,7 @@ test("the environment page shows its workspace of servers and services, and its 
   expect(screen.queryByRole("region", { name: "Chats" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Documents" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/environments/e1/proposals");
+  expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
   await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
   expect(await screen.findByText("No chats yet. Start one with Chat or New chat.")).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Servers" })).not.toBeInTheDocument();
@@ -675,27 +648,25 @@ test("the environment's Documents tab lists only the environment's own documents
   expect(location).toBe("");
 });
 
-test("routes: resource pages and their proposals; the discovery run route is gone", () => {
+test("routes: resource pages; the proposals and discovery run routes are gone", () => {
   const paths = routes.map((item) => [item.path, item.file]);
   expect(paths).toEqual(
     expect.arrayContaining([
       ["servers/:serverId", "./routes/server.tsx"],
       ["services/:serviceId", "./routes/service.tsx"],
       ["environments/:environmentId", "./routes/environment.tsx"],
-      ["servers/:serverId/proposals", "./routes/resourceProposals.tsx"],
-      ["services/:serviceId/proposals", "./routes/resourceProposals.tsx"],
-      ["environments/:environmentId/proposals", "./routes/resourceProposals.tsx"],
     ]),
   );
   expect(routes.find((item) => item.path === "servers/:serverId")!.children ?? []).toEqual([]);
   expect(JSON.stringify(routes)).not.toContain("discovery");
+  expect(JSON.stringify(routes)).not.toContain("roposals");
 });
 
 test("a resource chat's path and its resource from the tags", () => {
   expect(resourceChatPath({ type: "server", id: "s 1" }, "r1")).toBe("/servers/s%201?chat=r1");
   expect(resourceChatPath({ type: "environment", id: "e1" })).toBe("/environments/e1");
-  expect(resourceOf(["proposals", "services/v1"])).toEqual({ type: "service", id: "v1" });
-  expect(resourceOf(["proposals"])).toBeNull();
+  expect(resourceOf(["handoff", "services/v1"])).toEqual({ type: "service", id: "v1" });
+  expect(resourceOf(["handoff"])).toBeNull();
 });
 
 test("a resource chat's session page links to its resource page on that chat", async () => {

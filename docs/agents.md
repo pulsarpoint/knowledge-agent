@@ -28,20 +28,18 @@ limit, no per-turn time limit, no 300-second limit).
 - Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
   `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
-  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `tag`, `offset`; with `tag` each row
-  has proposal counts and open runs come first); every row has its `tags`. `GET /api/sessions/options` and
+  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `tag`, `offset`; with `tag` open runs come first); every row has its `tags`. `GET /api/sessions/options` and
   `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent, a chat on a
-  server, service or environment, the Propose wizard and the agent's Test tab use it). `started_from.server_id`,
+  server, service or environment, the Discover sheet and the agent's Test tab use it). `started_from.server_id`,
   `service_id` or `environment_id` starts a resource run (purpose `resource`) tagged `servers/<id>`, `services/<id>`
   or `environments/<id>` and pinned with `started_from` ({type, id, name}); a server run also has `server_id`. A start
   may add its own `tags` (lowercase parts separated by `/`, at most 10 with the resource tag; a resource tag must be
-  the one of where it starts); the Propose wizard adds `proposals`. The options take `?server_id=`, `?service_id=` or
+  the one of where it starts). The options take `?server_id=`, `?service_id=` or
   `?environment_id=`: their prompts are the enabled ones tagged `assistant` and with the type (the seeded
   "<Type> assistant" prompt first). The preview returns the pinned `config`, the `first_message` and the same view as
   `GET /api/sessions/{id}/debug`: the run's `instructions` and `tools` as its turns give them to the model, the
-  library `prompt` it came from (`prompt_source` `wizard` for a run tagged `proposals`), `agent_instructions`,
-  `skills`, `resources` by name and `model`. `GET /api/discovery/proposals?tag=&status=` lists the proposals of the
-  runs with a tag, grouped by run, newest run first.
+  library `prompt` it came from, `agent_instructions`,
+  `skills`, `resources` by name and `model`.
 - Document tools: every agent write to a document is a draft in the real documents, which a person publishes on the
   document's page; every write reply ends with "This is a draft: a person publishes it on the document's page.". No
   role: a document is usable (read and drafted) when it is in the run's access or linked (built for or linked) to a
@@ -85,21 +83,12 @@ limit, no per-turn time limit, no 300-second limit).
   the run was not given is not available. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
   hostnames, connections and server instructions come from `get_resource`. The document tools' schemas are the same in
-  every run; given another document they answer with the documents the run may use. The proposal tool
-  `propose_document` is offered in every run like every tool; its check allows it in a run whose starting server,
-  service or environment is in its access. Inventory findings are not proposals: services, deployments, connections and relations are
-  saved as drafts with the `save_*` tools (`save_inventory_draft` for many at once) and a person confirms or discards
-  them in the environment workspace (`propose_service` and service proposals are gone, migration 0129). Accepting a document proposal creates a
-  draft with the run's `session_id` (a brand-new draft, or a draft of the document it updates; it becomes the run's
-  last draft); a person publishes or promotes it. A new document is built for the service it is about, else for the
-  run's server, service or environment (for a run without `started_from`, the proposal's server), in that resource's
-  folder (`servers/<slug>`, `service-documents/<slug>`, `environments/<slug>`); a document about a service is accepted
-  even when the run's resource is gone (then in the service's folder). The new draft is tagged `inventory`
-  (the resource's inventory document) when no document tagged `inventory` is built for the resource yet (live or
-  brand-new draft); otherwise it is an ordinary document beside it. Discovery never adds the tag to an existing
-  document and never changes a document tagged `inventory`: a proposal titled like it is a new document, not a new
-  version, and a matched document tagged `inventory` before the accept gets a new document, never a draft of it. A
-  person decides whether the new one replaces it (moving the tag) or merges it by hand.
+  every run; given another document they answer with the documents the run may use. Proposals are gone (migration 0131): a discovery run (the
+  Discover sheet, the seeded **Server discovery** prompt) saves inventory findings (services, deployments, connections
+  and relations) as drafts with the `save_*` tools (`save_inventory_draft` for many at once), which a person confirms or
+  discards in the environment workspace, and drafts documents with `new_document` (built for the resource it is for)
+  and `update_document` / `edit_document` (an existing document); a person publishes them on their pages. There is no
+  approval step and no `ka.discovery_proposals`.
   Operating knowledge goes in documents.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since

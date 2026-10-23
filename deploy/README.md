@@ -470,7 +470,7 @@ prompt **Write a document** and closes the open Generate documents chats ("Close
 
 After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0102 updates
 the untouched **Server discovery** prompt to version 2 and closes open discovery runs ("Closed by an update; start a new
-chat."). Their proposals stay reviewable.
+chat.").
 
 - A discovery run starts from **Ask agent** on a server's page, through `POST /api/sessions` with `started_from.server_id`.
 - `POST /api/servers/{id}/discovery` and `GET /api/servers/{id}/discovery` are removed and now return 404. Use
@@ -478,16 +478,27 @@ chat."). Their proposals stay reviewable.
   `/servers/:id/discovery/:runId` open the server page on that run.
 - The code no longer adds a discovery system prompt or a "short report" line. A customized **Server discovery** prompt
   should say: read the inventory first, save inventory findings as drafts with `save_inventory_draft` (since 0129;
-  `propose_service` is gone) and propose documents with `propose_document`, correct and retry when a draft or a
-  proposal is refused, finish with a short report.
+  `propose_service` is gone) and draft documents with `new_document`, `update_document` and `edit_document` (since
+  0131; `propose_document` is gone), correct and retry when a draft or a document is refused, finish with a short
+  report.
 - Every run's inventory tools and `get_document` now answer only about what the run was given.
 
 ## Upgrading to inventory drafts
 
 After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Agents write the
 inventory as drafts (`save_inventory_draft` and the `save_*` tools); a person confirms or discards them in the
-environment workspace. Migration 0129 deletes the service proposals (`propose_service` is gone; document proposals
-stay) and gives the untouched **Server discovery** prompt a new version that saves inventory findings with
-`save_inventory_draft`, in one call with the whole picture, and still proposes documents with `propose_document`. A
-**Server discovery** prompt whose text was changed is left alone: replace its `propose_service` step with
+environment workspace. Migration 0129 deletes the service proposals (`propose_service` is gone) and gives the untouched **Server
+discovery** prompt a new version that saves inventory findings with `save_inventory_draft`, in one call with the whole
+picture. A **Server discovery** prompt whose text was changed is left alone: replace its `propose_service` step with
 `save_inventory_draft` yourself.
+
+## Upgrading to documents without proposals
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0131 drops
+`ka.discovery_proposals`: proposals are gone (pending ones are lost, accepted ones already made their drafts). Agents
+draft documents with `new_document`, `update_document` and `edit_document`, and a person publishes them on the
+document's page. The **Propose…** wizard is now **Discover…**: it starts a run from a library prompt, and the
+Proposals pages (`/servers/:id/proposals`, and the same for services and environments) and `/api/discovery/…` are
+removed. The seeded **Server discovery**, **Write a document** and **Revise a document** prompts get a new version
+that names the new tools (`save_document` is now `update_document`), only where their text is still the seeded one;
+a prompt whose text was changed is left alone: replace `propose_document` and `save_document` in it yourself.

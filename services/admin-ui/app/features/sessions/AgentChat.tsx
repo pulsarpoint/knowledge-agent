@@ -63,7 +63,7 @@ import {
  * service or environment (its page): the runs tagged with it; the page lists them and has New chat, so the pane has neither
  * New chat nor Earlier runs; `fresh` starts on a new conversation instead of the latest open run; blockedReason (a server
  * whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the same version; Chat opens
- * the latest open chat that is not a Propose wizard run. Every chat has a Debug tab beside the conversation: what the
+ * the latest open chat. Every chat has a Debug tab beside the conversation: what the
  * model receives (DebugPanel). */
 const NEEDS_NAME = "Give the document a title and folder first.";
 export default function AgentChat({
@@ -143,13 +143,7 @@ export default function AgentChat({
       .then((value) => {
         if (controller.signal.aborted) return;
         setRuns(value.sessions);
-        // a Propose wizard run (tag proposals) is opened from the list, never as the resource's latest chat
-        if (!chosenNow.current)
-          setRunId(
-            value.sessions.find(
-              (item) => item.status !== "closed" && !(tag !== null && (item.tags ?? []).includes("proposals")),
-            )?.id ?? null,
-          );
+        if (!chosenNow.current) setRunId(value.sessions.find((item) => item.status !== "closed")?.id ?? null);
       })
       .catch(() => {
         if (!controller.signal.aborted) setListFailed(true);

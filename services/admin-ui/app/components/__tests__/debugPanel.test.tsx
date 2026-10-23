@@ -134,18 +134,6 @@ test("what the start left out is said above the instructions", async () => {
   expect(await screen.findByText(note)).toBeInTheDocument();
 });
 
-test("a wizard run's prompt was written in the Propose wizard", async () => {
-  api({ "GET /api/sessions/r1/debug": () => [200, { ...view, prompt: null, prompt_source: "wizard" }] });
-  render(
-    <MemoryRouter>
-      <DebugPanel runId="r1" input={null} />
-    </MemoryRouter>,
-  );
-  const prompt = await screen.findByRole("region", { name: "Prompt" });
-  expect(within(prompt).getByText("Written in the Propose wizard")).toBeInTheDocument();
-  expect(within(prompt).queryByRole("link")).toBeNull();
-});
-
 test("the agent's instructions and skills are labelled", async () => {
   api({
     "GET /api/sessions/r1/debug": () => [

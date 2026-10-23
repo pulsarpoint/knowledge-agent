@@ -15,7 +15,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.3 RAG: collections, processing, settings, search](#43-rag-collections-processing-settings-search)
   - [4.4 Code projects](#44-code-projects)
   - [4.5 Servers](#45-servers)
-    - [Chats and proposals](#chats-and-proposals)
+    - [Chats and Discover](#chats-and-discover)
   - [4.6 Environments](#46-environments)
   - [4.7 Services](#47-services)
   - [4.8 Jira](#48-jira)
@@ -351,8 +351,8 @@ Registering does not connect to anything.
 
 A server cannot be deleted while service deployments reference it.
 
-A server's name opens its page (`/servers/:id`): a header (details, SSH state, **Proposals**; **Chat**, **New chat** and
-**Propose** on the right) and tabs **Overview** (the services deployed on it), **Documents** and **Chats**; the open tab
+A server's name opens its page (`/servers/:id`): a header (details, SSH state; **Chat**, **New chat** and
+**Discover** on the right) and tabs **Overview** (the services deployed on it), **Documents** and **Chats**; the open tab
 is kept in the URL (`?view=documents`, `?view=chats`). Services (`/services/:id`: Overview is the service panel) and
 environments (`/environments/:id`: the first tab is the Workspace) have the same kind of page. In the environment
 workspace, the selected service's column has its own tabs **Details** and **Documents**. **Connections and documents**
@@ -370,63 +370,34 @@ description, and "· <name>" when it belongs to a child. The resource's inventor
 documents, then the children's, grouped by child; a document linked to several of them is listed once. With none:
 "No documents yet.".
 
-#### Chats and proposals
+#### Chats and Discover
 
 **Chats** lists the conversations on the server (service, environment): open ones first, then by last activity; runs
-started from **Propose…** carry a `proposals` badge. **Chat** opens the latest open chat that is not a Propose… run
-(or a new one), **New chat** a new one, and a chat in the list that chat. The chat stays hidden until you ask for it;
+**Chat** opens the latest open chat (or a new one), **New chat** a new one, and a chat in the list that chat. The chat stays hidden until you ask for it;
 on very wide screens (2xl) it opens beside the Info, below that as a second tab (**Info** / **Chat**). The URL keeps
 the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of another page is refused.
 
 A chat answers questions about the resource: its prompt is the resource type's assistant prompt (**Server
 assistant**, **Service assistant**, **Environment assistant** in **Administration → Prompts**), which uses the
 smallest read-only command that answers. **Settings** locks the resource on; you may add other resources. A server
-chat needs SSH to be set up and allowed for the server. A plain chat may not change content: its proposal and
-edit tools refuse.
+chat needs SSH to be set up and allowed for the server. A plain chat only drafts: documents it writes
+and inventory it saves are drafts for you to confirm.
 
 Every chat (here, Ask agent beside a document, Documents → New and an agent's Test tab) has a **Debug** tab beside the
 **Conversation**. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
-system prompt, with **Copy**), **Prompt** (the library prompt and version it came from, linked, or "Written in the
-Propose wizard"; the agent's instructions and skills), **Tools** (each name and description as the model sees it),
+system prompt, with **Copy**), **Prompt** (the library prompt and version it came from, linked; the agent's
+instructions and skills), **Tools** (each name and description as the model sees it),
 **Resources** and **Model**. Before the first message it shows what the next conversation would start with; secrets
 are never shown.
 
-**Propose…** starts a run that explores the resource. It saves the services it finds as drafts in the inventory
-(you confirm or discard them in the environment workspace) and proposes documents for your review. It is a small wizard:
-
-1. **What** — on a server, **Services on this server** (saved as drafts) and/or **Documents**; on a service or environment,
-   **Documents** only.
-2. **Options** — for documents: an overview
-   document, one document per service (servers and environments), the aspects to cover (configuration, logs, health
-   checks, ports and paths); and extra instructions.
-3. **Review** — the prompt built from those choices (the steps of the **Server discovery** prompt, one block per
-   option; edit it as you like). The run gets every tool, like every run, and may propose for its resource; the prompt
-   asks only for what you chose. **Start** starts the run and opens it as the page's chat, so you can
-   watch it and write to it while it works.
-
-**Proposals** (`/servers/:id/proposals`, and the same for services and environments) lists every proposal made in
-the resource's runs, grouped by run (newest first, with who started it and **Open chat**), with a status filter
-(**All**, **Pending**, **Accepted**, **Rejected**). **Review** opens one proposal:
-
-- A **document** shows its text and what it is about (a recorded service, or the resource the run started from).
-
-Inventory findings are not proposals: services, deployments, connections and relations appear as drafts in the
-environment workspace, where you confirm or discard them.
-
-**Accept** never writes a document live: a new document becomes a draft (a generated document named in `servers/<server>/`, in
-`servers/<server>-2`, `-3`, ... when the folder would overlap another document's export, or in
-`server-documents/<server>` when `servers` itself is a document's export), and a new version of an existing document
-becomes a draft of that document. The accepted proposal says "Waiting to be published" (a new document) or "Waiting
-to be promoted" (a new version) with **Open draft**; **Publish** on the draft makes the new document live (it is
-built for the server or service), **Promote** on the document's Drafts tab makes the new version live, and the proposal
-then shows **Open document**. A new document is tagged `inventory` (the server's or service's inventory document) when no document tagged
-`inventory` is built for it yet; otherwise it is an ordinary document beside it. Discovery never tags an existing
-document and never changes the inventory document: a proposal with its title is a new document, not a new version, and
-you decide whether to replace the inventory document with it (move the tag: edit the tags of both and promote) or merge
-them by hand. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
-review it and accept.
-**Reject** discards the proposal. If a document was added since the proposal was made, it turns into a new version
-and asks you to look at it again.
+**Discover…** starts a run that explores the resource from a library prompt. The sheet offers the prompts (the seeded
+**Server discovery** is chosen when the library has it) and shows the prompt's text, which you may edit; the chat
+settings of the resource give the model and resources. **Start** starts the run and opens it as the page's chat, so you
+can watch it and write to it while it works. The run saves what it finds as drafts: services, deployments,
+connections and relations in the inventory (`save_inventory_draft`), documents with `new_document` (linked to the
+resource it is for) or `update_document` / `edit_document` (a document that already exists). You confirm or discard the
+inventory drafts in the environment workspace, and publish the documents on their pages (**Documents** tab of the
+resource, marked "Draft — not published"). Nothing the run writes is live until a person publishes it.
 
 The agent is told to use read-only commands, but SSH itself is not read-only: anything
 the login can do, the agent can do. Use a login with only the permissions you want the
@@ -441,8 +412,8 @@ environment when one of its deployments is; a service deployed in two environmen
 
 - The list shows each environment with the number of services and servers in it: filter, **Map** (the System map
   rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
-- An environment's page (`/environments/:id`) has a header (name, description, **System map**, **Proposals**; **Chat**,
-  **New chat** and **Propose** on the right; Chat opens the agent chat beside the page) and three tabs, the open one kept
+- An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat**,
+  **New chat** and **Discover** on the right; Chat opens the agent chat beside the page) and three tabs, the open one kept
   in the URL (`?view=documents` or `?view=chats`; none: Workspace):
   - **Documents**: the environment's own inventory document and documents (a server's or service's documents are in
     its column of the workspace);
@@ -844,7 +815,7 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
 
 #### Drafts and connections
 
-Anything a person or an agent saves is a **draft** (an accepted discovery document proposal too); a version goes live
+Anything a person or an agent saves is a **draft** (a document a discovery run drafts too); a version goes live
 only when a person publishes or promotes a draft.
 
 - The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
@@ -860,7 +831,7 @@ only when a person publishes or promotes a draft.
   first ask "Discard unsaved changes?" (**Keep editing** does nothing).
 - A new document's draft opens at `/documents/{id}`; **Publish** creates the document there (a failed export is
   shown). If a document with that name was created in the folder meanwhile, the draft becomes a draft of it and opens
-  on its draft page (`/documents/drafts/{id}`, where a discovery proposal's draft of a live document opens too) asking
+  on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
 - **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
   live version was built from).
@@ -1322,7 +1293,7 @@ resources and roles decide).
 | `ast_grep` | The run has code projects | Structural code queries; 30 s timeout |
 | `ssh_run` | The run has the server and it is allowed SSH with a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | `get_resource`, `get_document` | Inventory tools: the run was given the resource or document | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or linked to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
-| Proposal tool | **Propose…** wizard runs | `propose_document` acts only in a content-editor run started from a server, service or environment (the **Propose…** wizard asks for the role). A plain chat refuses it. It records a proposal that you accept or reject. Inventory findings are saved as drafts with the `save_*` tools instead |
+| `list_documents`, `new_document`, `update_document`, `edit_document` | Document tools: the run has the resource (or the document) | Draft documents of a server, service or environment in the run's access; every write is a draft a person publishes (see Drafts and connections) |
 | MCP tools | The run has the MCP server | Every tool of the tested MCP servers in the run's access |
 | `search_documents`, `read_document` | The run has collections | Search and read only the granted RAG collections; **Answer only from documents** asks the agent to answer from them and cite every claim |
 | `report_not_covered` | **Answer only from documents** on (else "This run does not answer only from documents.") | Records what is missing and marks the answer **not covered** |

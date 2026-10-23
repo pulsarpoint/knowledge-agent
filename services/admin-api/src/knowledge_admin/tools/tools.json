@@ -156,12 +156,6 @@
     "summary": "Read a document (this run's draft of it, if any) given to this run or linked to a resource in it."
   },
   {
-    "name": "propose_document",
-    "group": "inventory",
-    "label": "Propose document",
-    "summary": "Propose a document for review (runs started from a server, service or environment)."
-  },
-  {
     "name": "list_documents",
     "group": "documents",
     "label": "List documents",

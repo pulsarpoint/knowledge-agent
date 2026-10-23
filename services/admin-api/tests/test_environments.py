@@ -169,6 +169,9 @@ def test_migration_reapply_and_populated_rollback_protection(store):
         conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'Retained')", (project,))
         # 0104's views read documents.phase_metadata, which 0073's rollback drops: roll 0104 back first (0107 before it).
         conn.execute(
+            (migrations / '0131_proposals_gone.down.sql').read_text(), prepare=False
+        )  # 0131 drops discovery_proposals, which older migrations change
+        conn.execute(
             (migrations / '0127_environment_workspace.down.sql').read_text(), prepare=False
         )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((migrations / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)

@@ -18,6 +18,7 @@ def run(conn, name):
 @pytest.fixture(autouse=True)
 def before_0104(store):
     with store.connect() as conn:
+        run(conn, '0131_proposals_gone.down.sql')  # 0131 drops discovery_proposals, which older migrations change
         run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again
         run(conn, '0126_inventory_drop_old.down.sql')  # 0126 drops what 0109 and older change
         run(conn, '0109_tags_not_flags.down.sql')

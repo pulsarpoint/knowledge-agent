@@ -53,6 +53,9 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
     with store.connect() as conn:
         # 0104's views read documents.phase_metadata, which 0073's rollback drops: roll 0104 back first (0107 before it).
         conn.execute(
+            (MIGRATIONS / '0131_proposals_gone.down.sql').read_text(), prepare=False
+        )  # 0131 drops discovery_proposals, which older migrations change
+        conn.execute(
             (MIGRATIONS / '0127_environment_workspace.down.sql').read_text(), prepare=False
         )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((MIGRATIONS / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)

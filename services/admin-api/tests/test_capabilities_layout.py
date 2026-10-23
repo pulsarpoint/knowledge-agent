@@ -32,7 +32,6 @@ def test_capabilities_hold_the_implementations_without_the_agents_sdk():
         'inventory.py',
         'inventory_tools.py',
         'memory.py',
-        'discovery.py',
         'document_tools.py',
         'skills.py',
         'subagents.py',

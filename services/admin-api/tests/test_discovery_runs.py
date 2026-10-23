@@ -7,7 +7,6 @@ from access_helpers import of
 from uuid import UUID, uuid4
 
 import asyncssh
-import pytest
 from inventory_rows import environment_id
 
 from discovery_world import world  # noqa: F401  (fixture)
@@ -204,18 +203,12 @@ def test_a_document_of_a_server_run_links_its_server_and_not_the_services_on_it(
     }
 
 
-def test_two_runs_on_one_server_can_run_at_once_and_are_listed_with_their_counts(world):
+def test_two_runs_on_one_server_can_run_at_once_and_are_listed(world):
     ssh_ready(world)
     first = start(world).json()['id']
     second = start(world, message='Look at the databases.').json()['id']
     with world.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (first,))
-        conn.execute(
-            """INSERT INTO ka.discovery_proposals(project_id,session_id,server_id,number,kind,payload,status,decided_at,result_id)
-            VALUES (%s,%s,%s,1,'document','{"title":"a"}','pending',NULL,NULL),
-                   (%s,%s,%s,2,'document','{"title":"b"}','rejected',now(),NULL)""",
-            (world.project, first, world.server['id'], world.project, first, world.server['id']),
-        )
     other = world.client.post(
         '/api/servers', headers=HEADERS, json={'name': 'web-2', 'hostname': '10.0.0.8', 'ssh_allowed': True}
     ).json()
@@ -223,8 +216,6 @@ def test_two_runs_on_one_server_can_run_at_once_and_are_listed_with_their_counts
     start(world, other)
     runs = world.client.get(f'/api/sessions?tag=servers/{world.server["id"]}', headers=HEADERS).json()['sessions']
     assert [run['id'] for run in runs] == [second, first]
-    assert (runs[1]['pending'], runs[1]['accepted'], runs[1]['rejected']) == (1, 0, 1)
-    assert (runs[0]['pending'], runs[0]['accepted'], runs[0]['rejected']) == (0, 0, 0)
     assert runs[1]['status'] == 'working' and runs[0]['model_name'] == 'GPT' and runs[0]['purpose'] == 'resource'
 
 
@@ -264,26 +255,6 @@ def test_the_options_for_a_server(world):
     both = world.client.get(f'/api/sessions/options?server_id={world.server["id"]}&new_document=1', headers=HEADERS)
     assert both.status_code == 400 and both.json()['error']['message'] == ONE_START
     assert world.client.get(f'/api/sessions/options?server_id={uuid4()}', headers=HEADERS).status_code == 404
-
-
-def test_the_proposal_tools_are_refused_in_a_run_not_started_from_a_server(world):
-    ssh_ready(world)
-    started = world.client.post(
-        '/api/sessions',
-        headers=HEADERS,
-        json={
-            'started_from': {'new_document': {'folder': 'servers', 'name': 'Web'}},
-            'model_id': world.model,
-            'system_prompt': 'You write.',
-            'message': 'Write.',
-            'resources': {'server_ids': [world.server['id']]},
-        },
-    )
-    assert started.status_code == 201, started.text
-    config = config_of(world, started.json()['id'])
-    assert 'started_from' not in config
-    with pytest.raises(ValueError, match='The proposal tools work only in a run started from a server'):
-        call(config, 'propose_document', title='T', description='', markdown='# t')
 
 
 def test_the_old_discovery_routes_are_gone(world):

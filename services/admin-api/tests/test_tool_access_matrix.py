@@ -80,7 +80,6 @@ ARGS = {
     'get_available_resources': {'resource_type': None},
     'get_resource': {'resource_type': 'server', 'resource_id': 's1'},
     'get_document': {'document_id': 'd1'},
-    'propose_document': {'started_from': {'type': 'server', 'id': 's1', 'name': 'web-1'}},
     'list_documents': {'resource': {'type': 'server', 'id': 's1'}},
     'new_document': {'resource': {'type': 'server', 'id': 's1'}, 'title': 'Disks', 'content': '# Disks'},
     'update_document': {'document_id': 'd1', 'content': '# Runbook'},
@@ -142,7 +141,6 @@ FILES = row(NO_FILES, code_and_collection=None, other=None)
 CODE = row(NO_CODE, code_and_collection=None, other=None)
 COLLECTION = row(NO_COLLECTIONS, code_and_collection=None, other=NOT_COLLECTION)
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
-PROPOSE = row(NOT_SERVER, **some(WITH_SERVER, None))
 # usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
 USE = row(
     NOT_DOCUMENT,
@@ -168,7 +166,6 @@ EXPECTED = {
     'get_available_resources': ALWAYS,
     'get_resource': SERVER_ROW,
     'get_document': USE,
-    'propose_document': PROPOSE,
     'list_documents': SERVER_ROW,
     'new_document': SERVER_ROW,
     'update_document': USE,
@@ -267,9 +264,3 @@ def test_report_not_covered_is_allowed_in_a_grounded_run_whatever_its_access():
 
     for access in ACCESS.values():
         assert check_report_not_covered(access, grounded=True, reason='missing') is None
-
-
-def test_proposals_outside_a_resource_run_are_left_to_the_tool():
-    from knowledge_admin.capabilities.discovery import check_propose_document
-
-    assert check_propose_document(ACCESS['server'], started_from=None) is None

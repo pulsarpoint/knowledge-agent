@@ -1,5 +1,5 @@
 """0102: the seeded Server discovery prompt carries what code used to add (rewritten only when nobody changed it); open
-discovery runs from before are closed, and their proposals stay reviewable."""
+discovery runs from before are closed."""
 
 from pathlib import Path
 from uuid import uuid4
@@ -8,7 +8,6 @@ from psycopg.types.json import Jsonb
 
 from discovery_world import world  # noqa: F401  (fixture)
 from session_rows import a_model
-from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0102_discovery_runs.up.sql', '0102_discovery_runs.down.sql'
@@ -61,6 +60,7 @@ def test_up_rewrites_the_untouched_prompt_to_version_2(store):
 def test_a_new_workspace_gets_version_2s_text_as_version_1(store):
     with store.connect() as conn:
         conn.commit()
+        run(conn, '0131_proposals_gone.down.sql')  # 0131 drops discovery_proposals, which older migrations change
         run(conn, '0106_resource_runs.down.sql')  # 0106 seeds its own text
         project = store.project(conn, f'shop-{uuid4().hex[:6]}')
         prompt = active(conn, project)
@@ -112,11 +112,11 @@ def test_a_customized_prompt_is_left_alone_both_ways(store):
         assert (prompt['version'], prompt['versions']) == (2, 2)
 
 
-def test_up_closes_open_discovery_runs_whose_proposals_stay_listed(world):
+def test_up_closes_open_discovery_runs(world):
     store = world.store
     with store.connect() as conn:
         conn.commit()
-        run(conn, '0129_service_proposals_gone.down.sql')  # this test keeps a service proposal
+        run(conn, '0131_proposals_gone.down.sql')  # 0106 and 0102 still see the proposals table
         run(conn, '0115_tools_always_on.down.sql')  # 0106 up deletes old tools' ka.agent_tools rows
         run(conn, '0106_resource_runs.down.sql')  # discovery runs as 0102 saw them
         actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
@@ -134,11 +134,6 @@ def test_up_closes_open_discovery_runs_whose_proposals_stay_listed(world):
                 VALUES (%s,1,%s,'Next.',%s)""",
                 (runs[status], actor, 'queued' if status != 'closed' else 'discarded'),
             )
-        conn.execute(
-            """INSERT INTO ka.discovery_proposals(project_id,session_id,server_id,number,kind,payload)
-            VALUES (%s,%s,%s,1,'service','{"name":"redis"}')""",
-            (world.project, runs['working'], world.server['id']),
-        )
         conn.commit()
         run(conn, DOWN)
         run(conn, UP)
@@ -159,6 +154,3 @@ def test_up_closes_open_discovery_runs_whose_proposals_stay_listed(world):
         assert rows[runs[status]]['status'] == 'closed' and rows[runs[status]]['status_message'] == CLOSED
         assert queued[runs[status]] == 'discarded'
     assert rows[runs['closed']]['status_message'] != CLOSED
-    listed = world.client.get(f'/api/discovery/{runs["working"]}/proposals', headers=HEADERS)
-    assert listed.status_code == 200, listed.text
-    assert [item['payload']['name'] for item in listed.json()['proposals']] == ['redis']

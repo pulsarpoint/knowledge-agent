@@ -112,9 +112,7 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
       </Section>
       <Section title="Prompt">
         <p className="text-sm">
-          {view.prompt_source === "wizard" ? (
-            "Written in the Propose wizard"
-          ) : view.prompt ? (
+          {view.prompt ? (
             <>
               <Link className="underline" to={`/prompts/${encodeURIComponent(view.prompt.id)}`}>
                 {view.prompt.name}

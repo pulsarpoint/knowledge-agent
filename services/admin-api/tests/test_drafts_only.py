@@ -1,6 +1,5 @@
 """Every save is a draft: no route writes live content directly; links are saved on their own (a live document or a
-brand-new draft); a brand-new draft opens at /documents/{id} and may be renamed until it is published. Accepting a
-discovery document proposal creates a draft; publishing a brand-new one attaches it to its inventory entry."""
+brand-new draft); a brand-new draft opens at /documents/{id} and may be renamed until it is published."""
 
 from uuid import UUID, uuid4
 
@@ -15,8 +14,6 @@ from knowledge_admin.documents.store import (
     Provenance,
     create_draft,
 )
-from test_discovery_review import decide, listed, propose, run  # noqa: F401  (run: fixture)
-from test_discovery_runs import config_of, start
 from test_document_resources_api import resource
 from test_repositories import HEADERS
 
@@ -235,151 +232,3 @@ def test_draft_rows_say_whether_their_document_is_published_and_its_title(docs):
     assert [(row['id'], row['published']) for row in of_document] == [(of_live['id'], True)]
     assert docs.client.get(f'{API}/drafts/{of_live["id"]}', headers=HEADERS).json()['published'] is True
     assert docs.client.get(f'{API}/drafts/{brand_new["id"]}', headers=HEADERS).json()['published'] is False
-
-
-# Discovery: accepting a document proposal creates a draft; publishing a brand-new one attaches it to its entry.
-
-
-def draft_row(store, draft_id) -> dict | None:
-    with store.connect() as conn:
-        return conn.execute('SELECT * FROM ka.documents WHERE id=%s', (UUID(str(draft_id)),)).fetchone()
-
-
-def attachments(store, document_id) -> list[tuple]:
-    """The resources a live document is linked to (shown on their pages); none for a draft."""
-    with store.connect() as conn:
-        return [
-            (row['server_id'], row['service_id'])
-            for row in conn.execute(
-                """SELECT r.server_id,r.service_id FROM ka.document_resources r JOIN ka.live_documents d ON d.id=r.document_id
-                WHERE r.document_id=%s AND r.removed_at IS NULL ORDER BY r.created_at,r.id""",
-                (UUID(str(document_id)),),
-            )
-        ]
-
-
-def publish(world, draft_id, path='promote'):
-    revision = world.client.get(f'{API}/drafts/{draft_id}', headers=HEADERS).json()['revision']
-    return world.client.post(f'{API}/drafts/{draft_id}/{path}', headers=HEADERS, json={'revision': revision})
-
-
-def test_accepting_a_new_document_proposal_creates_a_brand_new_draft(run):
-    world, sid, config = run
-    propose(config, 'propose_document', title='Disk layout', markdown='# Disks', description='Mounts')
-    [proposal] = listed(world, sid)
-    accepted = decide(world, proposal, 'accept')
-    assert accepted.status_code == 200, accepted.text
-    body = accepted.json()
-    draft_id = body['proposal']['draft_id']
-    assert draft_id is not None and body['result_id'] == draft_id
-    assert (body['proposal']['status'], body['proposal']['draft_published']) == ('accepted', False)
-    row = draft_row(world.store, draft_id)
-    assert (row['is_draft'], row['draft_of'], row['origin'], str(row['session_id'])) == (True, None, 'generated', sid)
-    assert (row['folder'], row['slug'], row['title'], row['markdown'], row['description']) == (
-        'servers/web-1',
-        'web-1-disk-layout',
-        'Disk layout',
-        '# Disks',
-        'Mounts',
-    )
-    with world.store.connect() as conn:
-        links = conn.execute(
-            'SELECT server_id,service_id,connection,added_how,session_id FROM ka.document_resources WHERE document_id=%s',
-            (UUID(draft_id),),
-        ).fetchall()
-        live = conn.execute("SELECT count(*) AS n FROM ka.live_documents WHERE title='Disk layout'").fetchone()['n']
-    assert [
-        (str(r['server_id']), r['service_id'], r['connection'], r['added_how'], str(r['session_id'])) for r in links
-    ] == [(world.server['id'], None, 'built_for', 'discovery', sid)]
-    assert live == 0 and attachments(world.store, draft_id) == []  # nothing live, nothing attached yet
-    [listed_proposal] = listed(world, sid)
-    assert (listed_proposal['draft_id'], listed_proposal['draft_published']) == (draft_id, False)
-    # The draft opens at /documents/{id} as a brand-new draft.
-    opened = world.client.get(f'{API}/documents/{draft_id}', headers=HEADERS).json()
-    assert (opened['is_draft'], opened['published']) == (True, False)
-
-
-def test_publishing_a_discovery_draft_attaches_it_once(run):
-    world, sid, config = run
-    propose(config, 'propose_document', title='Disk layout', markdown='# Disks')
-    propose(config, 'propose_document', title='nginx ports', markdown='# Ports', about_service='nginx')
-    first, about = listed(world, sid)
-    assert decide(world, first, 'accept').status_code == 200
-    assert decide(world, about, 'accept').status_code == 200
-    first, about = listed(world, sid)
-    # A second accepted proposal pointing at the same draft must not attach it twice.
-    other = start(world).json()['id']
-    propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# Disks, again')
-    [second] = listed(world, other)
-    assert decide(world, second, 'accept').status_code == 200
-    with world.store.connect() as conn:
-        conn.execute(
-            'UPDATE ka.discovery_proposals SET draft_id=%s WHERE session_id=%s', (UUID(first['draft_id']), UUID(other))
-        )
-    published = publish(world, first['draft_id'])
-    assert published.status_code == 200, published.text
-    assert attachments(world.store, first['draft_id']) == [(UUID(world.server['id']), None)]
-    found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
-    attached = [
-        *([found['inventory_document']] if found['inventory_document'] else []),
-        *(
-            item
-            for item in found['documents']
-            if item['resource']['id'] == str(world.server['id'])
-            and item['id'] != (found['inventory_document'] or {}).get('id')
-        ),
-    ]
-    assert sorted(item['title'] for item in attached) == ['Disk layout', 'web-1 overview']
-    first, about = listed(world, sid)
-    assert (first['draft_id'], first['draft_published'], about['draft_published']) == (
-        first['result_id'],
-        True,
-        False,
-    )
-    # A document about a service attaches to the service.
-    assert publish(world, about['draft_id']).status_code == 200
-    assert attachments(world.store, about['draft_id']) == [(None, world.nginx)]
-
-
-def test_discarding_a_discovery_draft_attaches_nothing(run):
-    world, sid, config = run
-    propose(config, 'propose_document', title='Disk layout', markdown='# Disks')
-    [proposal] = listed(world, sid)
-    draft_id = decide(world, proposal, 'accept').json()['proposal']['draft_id']
-    discarded = publish(world, draft_id, 'discard')
-    assert discarded.status_code == 200, discarded.text
-    assert draft_row(world.store, draft_id) is None and attachments(world.store, draft_id) == []
-    [proposal] = listed(world, sid)
-    assert (proposal['status'], proposal['draft_id'], proposal['draft_published']) == ('accepted', None, False)
-
-
-def test_accepting_an_update_proposal_creates_a_draft_of_the_document(run):
-    world, sid, config = run
-    propose(config, 'propose_document', title='web-1 overview', markdown='# web-1, updated')
-    [proposal] = listed(world, sid)
-    document_id = proposal['document_id']
-    accepted = decide(world, proposal, 'accept')
-    assert accepted.status_code == 200, accepted.text
-    draft_id = accepted.json()['proposal']['draft_id']
-    row = draft_row(world.store, draft_id)
-    assert (row['is_draft'], str(row['draft_of']), row['base_version'], row['markdown'], row['origin']) == (
-        True,
-        document_id,
-        1,
-        '# web-1, updated',
-        'generated',
-    )
-    live = world.client.get(f'{API}/documents/{document_id}', headers=HEADERS).json()
-    assert (live['version'], live['revision'], live['markdown']) == (1, 1, '# web-1 overview\n\nBody.')
-    [proposal] = listed(world, sid)
-    assert (proposal['document_id'], proposal['draft_id'], proposal['draft_published']) == (
-        document_id,
-        draft_id,
-        False,
-    )
-    assert publish(world, draft_id).status_code == 200
-    [proposal] = listed(world, sid)
-    assert (proposal['draft_id'], proposal['draft_published']) == (None, True)  # promoted: the draft row is gone
-    live = world.client.get(f'{API}/documents/{document_id}', headers=HEADERS).json()
-    assert (live['version'], live['markdown']) == (2, '# web-1, updated')
-    assert attachments(world.store, document_id) == [(UUID(world.server['id']), None)]  # attached once, as before

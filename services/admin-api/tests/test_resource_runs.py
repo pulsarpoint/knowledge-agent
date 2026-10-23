@@ -1,6 +1,5 @@
 """Chats on servers, services and environments: runs with purpose resource, tagged with the resource they start from
-(servers/<id>, services/<id>, environments/<id>), listed by tag; each type's assistant prompt is a new chat's default;
-the proposal tools work only when the request asks for the content editor role (the Propose wizard)."""
+(servers/<id>, services/<id>, environments/<id>), listed by tag; and each type's assistant prompt is a new chat's default."""
 
 from access_helpers import ids
 from knowledge_admin.agents.runner import ssh_servers
@@ -9,7 +8,7 @@ from uuid import uuid4
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.sessions.start import BAD_TAG, RESOURCE_TAG, TOO_MANY_TAGS, assistant_prompt_id
-from test_discovery_runs import call, config_of, pinned_of, ssh_ready
+from test_discovery_runs import pinned_of, ssh_ready
 from test_repositories import HEADERS
 
 
@@ -115,7 +114,7 @@ def test_request_tags_are_added_and_validated(world):
 def test_the_runs_of_a_tag_are_listed_open_first_then_by_activity(world):
     ssh_ready(world)
     first = start(world, {'server_id': world.server['id']}).json()['id']
-    second = start(world, {'server_id': world.server['id']}, tags=['proposals']).json()['id']
+    second = start(world, {'server_id': world.server['id']}, tags=['nightly']).json()['id']
     closed = start(world, {'server_id': world.server['id']}).json()['id']
     service_run = start(world, {'service_id': str(world.nginx)}).json()['id']
     with world.store.connect() as conn:
@@ -127,43 +126,13 @@ def test_the_runs_of_a_tag_are_listed_open_first_then_by_activity(world):
     assert listed.status_code == 200, listed.text
     runs = listed.json()['sessions']
     assert [run['id'] for run in runs] == [first, second, closed]
-    assert runs[1]['tags'] == ['proposals', f'servers/{world.server["id"]}'] and runs[0]['purpose'] == 'resource'
-    assert (runs[0]['pending'], runs[0]['accepted'], runs[0]['rejected']) == (0, 0, 0)
-    wizard = world.client.get('/api/sessions', headers=HEADERS, params={'tag': 'proposals'}).json()['sessions']
+    assert runs[1]['tags'] == ['nightly', f'servers/{world.server["id"]}'] and runs[0]['purpose'] == 'resource'
+    wizard = world.client.get('/api/sessions', headers=HEADERS, params={'tag': 'nightly'}).json()['sessions']
     assert [run['id'] for run in wizard] == [second]
     service = world.client.get('/api/sessions', headers=HEADERS, params={'tag': f'services/{world.nginx}'})
     assert [run['id'] for run in service.json()['sessions']] == [service_run]
     gone = world.client.get('/api/sessions', headers=HEADERS, params={'server_id': world.server['id']})
     assert len(gone.json()['sessions']) == 4  # the old server filter is gone: an unknown parameter is ignored
-
-
-def test_a_server_run_proposes_documents_without_a_role(world):
-    ssh_ready(world)
-    created = start(world, {'server_id': world.server['id']}, tags=['proposals'])
-    assert created.status_code == 201, created.text
-    config = config_of(world, created.json()['id'])
-    assert 'roles' not in config['access']
-    said = call(config, 'propose_document', title='Disks', description='', markdown='# x')
-    assert said.startswith('Proposal 1: new document "Disks"')
-
-
-def test_propose_document_works_on_a_service_or_environment_run(world):
-    created = start(world, {'service_id': str(world.nginx)})
-    assert created.status_code == 201, created.text
-    config = config_of(world, created.json()['id'])
-    said = call(config, 'propose_document', title='Health checks', description='How to check nginx.', markdown='# x')
-    assert said == 'Proposal 1: new document "Health checks" about service nginx.'
-    environment = config_of(world, start(world, {'environment_id': str(world.environment)}).json()['id'])
-    said = call(environment, 'propose_document', title='Production', description='The environment.', markdown='# x')
-    assert said == 'Proposal 1: new document "Production" about environment Production.'
-    with world.store.connect() as conn:
-        rows = conn.execute(
-            'SELECT session_id,server_id,service_id FROM ka.discovery_proposals ORDER BY created_at'
-        ).fetchall()
-    assert [(str(row['session_id']), row['server_id'], row['service_id']) for row in rows] == [
-        (created.json()['id'], None, world.nginx),
-        (environment['session_id'], None, None),
-    ]
 
 
 def test_a_new_chats_prompt_is_its_types_assistant_prompt(world):

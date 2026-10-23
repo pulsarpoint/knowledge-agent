@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { FileJson } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getService, type ServiceAsset } from "./services";
-import ProposeWizard from "~/features/sessions/ProposeWizard";
+import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import ServicePanel from "./ServicePanel";
 import EntryDocuments from "./EntryDocuments";
@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One service: a header (name, Proposals; Chat and Propose on the right) and tabs Overview (the service panel, as in
+/** One service: a header (name; Chat and Discover on the right) and tabs Overview (the service panel, as in
  * the environment workspace, then its agent context, code folders and server access), Documents and Chats
  * (ResourceChats). */
 export default function ServicePage({ serviceId }: { serviceId: string }) {
@@ -52,7 +52,6 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
     ) : (
       <Skeleton className="h-60" />
     );
-  const id = encodeURIComponent(serviceId);
   return (
     <ResourceChats
       onSessionChange={() => setChatTurns((value) => value + 1)}
@@ -61,9 +60,6 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
         <div className="flex flex-col gap-1">
           {back}
           <h1 className="break-words text-2xl font-semibold">{service.name}</h1>
-          <Link className="self-start text-sm underline" to={`/services/${id}/proposals`}>
-            Proposals
-          </Link>
         </div>
       }
       pages={[
@@ -93,7 +89,7 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
           ),
         },
       ]}
-      actions={<ProposeWizard resource={{ type: "service", id: serviceId, name: service.name }} />}
+      actions={<DiscoverWizard resource={{ type: "service", id: serviceId, name: service.name }} />}
     />
   );
 }

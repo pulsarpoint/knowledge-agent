@@ -91,9 +91,9 @@ def test_debug_shows_the_instructions_and_tools_the_runner_sends(world):
     instructions, tools = runner_view(world, sid)
     assert shown['instructions'] == instructions
     assert shown['tools'] == tools
-    assert {tool['name'] for tool in tools} >= {'ssh_run', 'get_resource', 'propose_document', 'run_subagent'}
+    assert {tool['name'] for tool in tools} >= {'ssh_run', 'get_resource', 'new_document', 'run_subagent'}
     assert shown['model'] == {'id': world.model, 'name': 'GPT'}
-    assert shown['prompt_source'] == 'library' and shown['prompt'] is None  # no library prompt was chosen
+    assert shown['prompt'] is None  # no library prompt was chosen
     assert shown['agent_instructions'] == '' and shown['skills'] == []
     assert [(item['type'], item['name'], item['source']) for item in shown['access']['resources']] == [
         ('server', 'web-1', 'given'),
@@ -111,7 +111,7 @@ def test_the_preview_shows_the_same_before_the_run_starts(world):
     assert preview.json()['tools'] == shown['tools']
     assert preview.json()['config']['started_from']['type'] == 'server'
     # the rest of the Debug tab too, built by the same view
-    for key in ('prompt', 'prompt_source', 'agent_instructions', 'skills', 'access', 'model'):
+    for key in ('prompt', 'agent_instructions', 'skills', 'access', 'model'):
         assert preview.json()[key] == shown[key], key
     prompt_id = assistant_prompt_id(world.project, 'server')
     with world.store.connect() as conn:
@@ -124,13 +124,9 @@ def test_the_preview_shows_the_same_before_the_run_starts(world):
         '/api/sessions/preview', headers=HEADERS, json=body(world, prompt_id=str(prompt_id), system_prompt=content)
     ).json()
     assert chosen['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': 1}
-    wizard = world.client.post(
-        '/api/sessions/preview', headers=HEADERS, json=body(world, tags=['proposals'], prompt_id=str(prompt_id))
-    ).json()
-    assert wizard['prompt_source'] == 'wizard' and wizard['prompt'] is None
 
 
-def test_a_library_prompt_and_its_version_and_a_wizard_prompt(world):
+def test_a_library_prompt_and_its_version(world):
     ssh_key(world)
     prompt_id = assistant_prompt_id(world.project, 'server')
     with world.store.connect() as conn:
@@ -141,12 +137,9 @@ def test_a_library_prompt_and_its_version_and_a_wizard_prompt(world):
         ).fetchone()['content']
     shown = debug(world, start(world, prompt_id=str(prompt_id), system_prompt=content))
     assert shown['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': 1}
-    assert shown['prompt_source'] == 'library'
     edited = debug(world, start(world, prompt_id=str(prompt_id), system_prompt=content + '\nAnd be brief.'))
     assert edited['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': None}
-    wizard = debug(world, start(world, tags=['proposals']))
-    assert wizard['prompt_source'] == 'wizard' and wizard['prompt'] is None
-    assert 'roles' not in wizard['access']
+    assert 'roles' not in shown['access']
 
 
 def test_secrets_never_show(world):

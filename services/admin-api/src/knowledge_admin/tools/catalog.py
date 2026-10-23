@@ -14,7 +14,6 @@ from knowledge_admin.capabilities import (  # noqa: F401
     ast_grep,
     code_graph,
     code_search,
-    discovery,
     document_tools,
     documents,
     files,

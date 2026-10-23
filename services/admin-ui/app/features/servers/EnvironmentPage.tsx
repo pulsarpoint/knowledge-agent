@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getEnvironment, getEnvironmentModel, type EnvironmentAsset } from "./environments";
 import { DraftBadge } from "./ConfirmDraftSheet";
-import ProposeWizard from "~/features/sessions/ProposeWizard";
+import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
@@ -11,8 +11,8 @@ import { environmentMapPath } from "./inventoryMap";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** One environment: a header (name, description, System map, Proposals, "N drafts to review" linking to the workspace's
- * Drafts filter; Propose and Chat on the right) and tabs:
+/** One environment: a header (name, description, System map, "N drafts to review" linking to the workspace's
+ * Drafts filter; Discover and Chat on the right) and tabs:
  * Workspace (its servers and services), Documents (the environment's own) and Chats (ResourceChats). */
 export default function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
@@ -83,9 +83,6 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
             <Link className="underline" to={environmentMapPath(environmentId)}>
               System map
             </Link>
-            <Link className="underline" to={`/environments/${id}/proposals`}>
-              Proposals
-            </Link>
             {drafts > 0 && (
               <Link className="font-medium underline" to={`/environments/${id}?${draftsLink}`}>
                 {drafts === 1 ? "1 draft to review" : `${drafts} drafts to review`}
@@ -112,7 +109,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
           content: <EntryDocuments entry={entry} ownOnly onChanged={() => setVersion((value) => value + 1)} />,
         },
       ]}
-      actions={<ProposeWizard resource={{ type: "environment", id: environmentId, name: environment.name }} />}
+      actions={<DiscoverWizard resource={{ type: "environment", id: environmentId, name: environment.name }} />}
     />
   );
 }

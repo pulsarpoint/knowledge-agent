@@ -7,7 +7,6 @@ import { useWidePage } from "~/lib/widePage";
 import { cn } from "~/lib/utils";
 import AgentChat from "./AgentChat";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
@@ -180,7 +179,6 @@ export default function ResourceChats({
               >
                 <span className="min-w-0 break-words font-medium">{item.title}</span>
                 <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  {(item.tags ?? []).includes("proposals") && <Badge variant="secondary">proposals</Badge>}
                   <span>{statusLabels[item.status]}</span>
                   <span>{new Date(item.last_activity_at).toLocaleString()}</span>
                 </span>

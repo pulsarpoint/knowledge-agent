@@ -2,7 +2,6 @@
 tagged `inventory` built for it (the most recently updated live one, else a brand-new draft); services.operations_notes
 and documents.inventory are gone; documents and drafts filter by one tag (disposable DB)."""
 
-import asyncio
 import re
 from pathlib import Path
 
@@ -10,11 +9,8 @@ import psycopg
 import pytest
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.documents.store import Provenance, create_draft, inventory_document
-from knowledge_admin.tools.catalog import CATALOG
 from live_documents import live_document, write_live_document
-from pydantic import ValidationError
 from test_api import _client
-from test_discovery_runs import config_of, ssh_ready, start
 from test_get_resource import get, given
 from test_repositories import HEADERS
 
@@ -355,56 +351,6 @@ def test_draft_rows_carry_their_tags(store, client):
     assert client.get(f'{DRAFTS}/{of_ops}', headers=HEADERS).json()['tags'] == ['Ops', 'inventory']
 
 
-# Discovery
-
-
-@pytest.fixture
-def discovery(world):
-    ssh_ready(world)
-    sid = start(world).json()['id']
-    return world, sid, config_of(world, sid)
-
-
-def propose(config, tool, **arguments):
-    spec = CATALOG[tool]
-    return asyncio.run(spec.run({'config': config}, spec.arguments.model_validate(arguments)))
-
-
-def accept_only(world, sid) -> str:
-    [proposal] = world.client.get(f'/api/discovery/{sid}/proposals', headers=HEADERS).json()['proposals']
-    accepted = world.client.post(
-        f'/api/discovery/proposals/{proposal["id"]}/accept', headers=HEADERS, json={'revision': proposal['revision']}
-    )
-    assert accepted.status_code == 200, accepted.text
-    return accepted.json()['result_id']
-
-
-def test_discovery_tags_a_new_document_only_when_the_resource_has_none_and_never_tags_an_existing_one(discovery):
-    """Review Focus 3."""
-    world, sid, config = discovery
-    with world.store.connect() as conn:
-        existing = live_document(
-            conn, world.project, 'disks', 'Disk layout', '# Disks', server_ids=[world.server['id']], tags=['ops']
-        )
-    propose(config, 'propose_document', title='Disk layout', markdown='# new disks', description='')
-    update = accept_only(world, sid)
-    with world.store.connect() as conn:
-        row = conn.execute('SELECT draft_of,tags FROM ka.documents WHERE id=%s', (update,)).fetchone()
-        assert (str(row['draft_of']), row['tags']) == (str(existing['id']), ['ops'])  # no tag added
-        assert tags_of(conn, existing['id']) == ['ops']
-    other = start(world).json()['id']
-    propose(config_of(world, other), 'propose_document', title='Network', markdown='# Net', description='')
-    first = accept_only(world, other)
-    with world.store.connect() as conn:
-        assert tags_of(conn, first) == ['inventory']  # web-1 had no document tagged inventory
-    third = start(world).json()['id']
-    propose(config_of(world, third), 'propose_document', title='Users', markdown='# Users', description='')
-    second = accept_only(world, third)
-    with world.store.connect() as conn:
-        assert tags_of(conn, second) == []  # the brand-new draft tagged inventory counts
-        assert tags_of(conn, first) == ['inventory']
-
-
 # Nothing reads the removed columns
 
 
@@ -432,18 +378,13 @@ def test_nothing_reads_operations_notes_or_the_inventory_flag():
     assert found == []
 
 
-def test_the_inventory_tag_matches_in_any_case(discovery):
-    world, sid, config = discovery
+def test_the_inventory_tag_matches_in_any_case(world):
     with world.store.connect() as conn:
         marked = live_document(
             conn, world.project, 'hw', 'Hardware', '# Hw', server_ids=[world.server['id']], tags=['Inventory']
         )
         found = inventory_document(conn, world.project, 'server', world.server['id'], live_only=True)
         assert found is not None and str(found['id']) == str(marked['id'])
-    propose(config, 'propose_document', title='Network', markdown='# Net', description='')
-    new = accept_only(world, sid)
-    with world.store.connect() as conn:
-        assert tags_of(conn, new) == []  # a document tagged Inventory already is the inventory document
 
 
 def test_the_tag_filter_is_trimmed_and_a_blank_one_filters_nothing(store, client):

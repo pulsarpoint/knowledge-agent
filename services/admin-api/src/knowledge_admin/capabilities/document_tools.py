@@ -701,7 +701,7 @@ def _list_documents(config: dict[str, Any], resource: dict) -> str:
     return dumps({'documents': documents[:MAX_LISTED], **({'truncated': True} if cut else {})})
 
 
-class Proposal(BaseModel):
+class ToolArguments(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
 
     @field_validator('*')
@@ -823,7 +823,7 @@ async def update_document(
     return await asyncio.to_thread(_save, context['config'], document_id, change, resource)
 
 
-class EditDocument(Proposal):
+class EditDocument(ToolArguments):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)  # config is inherited: no stripping
 
     document_id: str = Field(

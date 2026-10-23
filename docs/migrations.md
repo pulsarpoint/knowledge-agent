@@ -524,3 +524,16 @@ An agent's draft of a live document may hold `linked` links to servers, services
 for stays the document's own) and also checks a changed `connection`. Brand-new drafts held their links before. The down
 migration deletes the links drafts of live documents hold (they were never published) and restores the trigger that
 refuses any link on such a draft.
+
+## 0131_proposals_gone
+
+Proposals are gone: agents draft documents (`new_document`, `update_document`, `edit_document`) and the inventory
+(`save_inventory_draft`), and a person confirms or publishes. `ka.discovery_proposals` is dropped (pending proposals
+are lost; accepted ones already made their drafts). The seeded **Server discovery** prompt (drafts the inventory, drafts
+documents with the document tools, no `propose_document`), **Write a document** and **Revise a document**
+(`save_document` is now `update_document`) each get a new version, but only where the active, newest version is still
+the text 0129, 0101 or 0100 seeded; a prompt a person changed is left alone. The Server discovery description follows
+where it is still the seeded one. New workspaces get the new texts as version 1. The down migration recreates the
+table empty (in its 0129 shape) and removes the new prompt versions where they are still the active, newest,
+untouched ones, restoring the earlier seeds for new workspaces.
+

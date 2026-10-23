@@ -11,8 +11,6 @@ from knowledge_admin.agents.runner import instructions_and_tools, known_secrets
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.activity import redact
 
-WIZARD_TAG = 'proposals'  # a run started from the Propose wizard: its prompt was written there
-
 
 def instructions_and_tool_list(config: dict[str, Any], secrets: list[str]) -> dict[str, Any]:
     """{instructions, tools: [{name, description}]} as a session turn gives them to the model (a session turn offers
@@ -49,18 +47,15 @@ def view(
     project: UUID,
     config: dict[str, Any],
     *,
-    tags: list[str],
     prompt_id: UUID | str | None,
     prompt_text: str,
 ) -> dict[str, Any]:
-    """The Debug tab of a configuration. tags, prompt_id, prompt_text: the run's (or the start request's)."""
+    """The Debug tab of a configuration. prompt_id, prompt_text: the run's (or the start request's)."""
     secrets = known_secrets(store, config)
-    wizard = WIZARD_TAG in tags
     model = config['model']
     return {
         **instructions_and_tool_list(config, secrets),
-        'prompt': None if wizard else prompt_origin(conn, project, prompt_id, prompt_text),
-        'prompt_source': 'wizard' if wizard else 'library',
+        'prompt': prompt_origin(conn, project, prompt_id, prompt_text),
         'agent_instructions': redact(config['instructions'], secrets),
         'skills': [{'name': item['name']} for item in access_rules.listing(config['access'], 'skill')],
         # what the run may use: resources with their source (never their connections: access.listing)
