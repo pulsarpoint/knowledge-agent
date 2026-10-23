@@ -28,7 +28,6 @@ def function_tool(spec: ToolSpec, usage: str) -> FunctionTool:
 class ExpertResources(BaseModel):
     model_config = ConfigDict(extra='forbid')
     code_project_ids: list[str] = Field(default_factory=list)
-    collection_ids: list[str] = Field(default_factory=list)
     server_ids: list[str] = Field(default_factory=list)
     service_ids: list[str] = Field(default_factory=list)
 

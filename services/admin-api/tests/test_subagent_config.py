@@ -34,7 +34,7 @@ MODEL = {
     'api_key_ref': {'id': 'model-key'},
 }
 CREDENTIALS = {'model-key': 'model-secret', 'ssh-key': 'ssh-secret', 'mcp-token': 'mcp-secret'}
-NO_RESOURCES = {'code_project_ids': [], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
+NO_RESOURCES = {'code_project_ids': [], 'server_ids': [], 'service_ids': []}
 
 
 ENTRIES = [
@@ -68,7 +68,6 @@ ENTRIES = [
         graph_path='/index/worker/graph.sqlite',
         code_root='/code',
     ),
-    entry('collection', 'runbooks', 'runbooks', paths=['/data/runbooks']),
     entry('skill', 'inspect', 'Inspect', description='Inspect first.'),
     entry('mcp_server', 'docs', 'Docs', url='http://docs.test/mcp', enabled=True, bearer_token_ref={'id': 'mcp-token'}),
 ]
@@ -76,7 +75,7 @@ ENTRIES = [
 
 def parent(without=(), **change) -> dict:
     """A fixed lead agent's pinned configuration: its access holds an SSH server, a service, two code projects with
-    graphs, a collection, a skill and an MCP server (but the ids in without); instructions."""
+    graphs, a skill and an MCP server (but the ids in without); instructions."""
     value = {
         'id': 'lead',
         'name': 'Lead',
@@ -107,7 +106,7 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_the_given_r
     assert [s['id'] for s in selected_servers(sub)] == ['docs'] and 'tools' not in sub
     assert [p['id'] for p in entries(sub['access'], 'code_project')] == ['worker']
     assert entries(sub['access'], 'code_project')[0]['graph_path'] == '/index/worker/graph.sqlite'
-    assert entries(sub['access'], 'collection') == [] and entries(sub['access'], 'server') == []
+    assert entries(sub['access'], 'server') == []
     assert sub['system_prompt'] == {'content': PROMPT} and PROMPT.startswith(
         'You are a helper started by another agent'
     )
@@ -131,7 +130,6 @@ def test_without_resources_a_subagent_keeps_the_parents_lists():
         ('service', 'payments'),
         ('code_project', 'app'),
         ('code_project', 'worker'),
-        ('collection', 'runbooks'),
         ('mcp_server', 'docs'),
     ]
 
@@ -168,9 +166,9 @@ def test_a_service_the_run_holds_through_a_server_can_be_given_to_a_subagent():
         ({'code_project_ids': ['billing']}, {}, WIDER.format(kind='code project', id='billing')),
         ({'service_ids': ['ledger']}, {}, WIDER.format(kind='service', id='ledger')),
         (
-            {'collection_ids': ['runbooks']},
-            {'without': ['runbooks']},
-            WIDER.format(kind='collection', id='runbooks'),
+            {'server_ids': ['prod']},
+            {'without': ['prod']},
+            WIDER.format(kind='server', id='prod'),
         ),  # a kind the parent does not use
         (
             {'code_project_ids': ['app']},  # a per-run parent's access is its run's

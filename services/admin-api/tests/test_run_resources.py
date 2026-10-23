@@ -21,24 +21,13 @@ TABLES = {'agent_sessions_cc', 'agent_sessions', 'operations_runs'}  # as 0076 l
 
 @pytest.fixture
 def narrowed_agent(sessions):
-    """A native agent, Code analyst, that may be given the Payments API code project, the runbooks collection,
-    Test host (SSH allowed, saved key, its own instructions) and the Payments service, which is also deployed on Test
-    host. Not in its selection: Payments worker and the private collection. prod-1 does not allow SSH."""
+    """A native agent, Code analyst, that may be given the Payments API code project, Test host (SSH allowed, saved
+    key, its own instructions) and the Payments service, which is also deployed on Test host. Not in its selection:
+    Payments worker. prod-1 does not allow SSH."""
     client, store = sessions.client, sessions.store
     host, key = ssh_setup(client)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (project,))
-        collections = {
-            name: str(
-                conn.execute(
-                    """INSERT INTO ka.rag_collections(project_id,name,description)
-            VALUES (%s,%s,%s) RETURNING id""",
-                    (project, name, f'The {name} documents'),
-                ).fetchone()['id']
-            )
-            for name in ('runbooks', 'private')
-        }
         conn.execute(
             """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name,port)
             VALUES (%s,%s,%s,%s,'payments-api',8080)""",
@@ -54,18 +43,15 @@ def narrowed_agent(sessions):
         analyst=analyst,
         host=host,
         key=key,
-        runbooks=collections['runbooks'],
-        private=collections['private'],
     )
     allow(found)
     return found
 
 
-def allow(s, code=None, collections=None, servers=None, services=None) -> None:
-    """The analyst's access object: by default its selection (Payments API, runbooks, Test host, Payments)."""
+def allow(s, code=None, servers=None, services=None) -> None:
+    """The analyst's access object: by default its selection (Payments API, Test host, Payments)."""
     given = {
         'code_project': [s.repo] if code is None else code,
-        'collection': [s.runbooks] if collections is None else collections,
         'server': [s.host['id']] if servers is None else servers,
         'service': [s.service] if services is None else services,
     }

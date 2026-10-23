@@ -91,7 +91,7 @@ start request names (`expert_ids`). Subagents never get them, and an expert's ow
 Calls share the turn's limit of 16 helpers with subagents.
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
-  enabled code/document roots and the run's workspace. Absolute paths are checked
+  folders of the run's code projects and its workspace. Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.
 - `ast_grep`. Runs the native ast-grep CLI in search-only mode to
   return complete functions, methods, classes, or other matched syntax nodes.
@@ -126,7 +126,7 @@ Calls share the turn's limit of 16 helpers with subagents.
   the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.
 - `shell_run`. A normal function tool sending Bash commands to the
-  internal `shell-worker` service. Refuses a run without code projects or collections.
+  internal `shell-worker` service. Refuses a run without code projects.
   The worker provides Bash, Python, `rg`, `ast-grep`, Git and standard utilities.
   Each command sees only selected source/document/graph paths, mounted read-only,
   plus writable scratch files shared with the file tools for the duration of a run.

@@ -42,7 +42,6 @@ beforeEach(() => {
     service: [],
     environment: [],
     code_project: [],
-    collection: [],
     document: [],
     skill: [],
     mcp_server: [],

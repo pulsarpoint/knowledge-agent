@@ -17,9 +17,6 @@ class SubagentResources(BaseModel):
     code_project_ids: list[str] = Field(
         default_factory=list, description='Code project IDs from get_available_resources.'
     )
-    collection_ids: list[str] = Field(
-        default_factory=list, description='Document collection IDs from get_available_resources.'
-    )
     server_ids: list[str] = Field(default_factory=list, description='SSH server IDs from get_available_resources.')
     service_ids: list[str] = Field(default_factory=list, description='Service IDs from get_available_resources.')
 

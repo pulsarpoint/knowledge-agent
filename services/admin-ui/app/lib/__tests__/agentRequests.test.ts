@@ -28,7 +28,7 @@ test("Save sends the access object as references and drops missing ones", async 
         { type: "server", id: "s1", name: "web-1", description_short: "Web" },
         { type: "document", id: "d1", name: "Runbook", description_short: "" },
         { type: "document", id: "d2", name: "Guide", description_short: "" },
-        { type: "collection", id: "gone", name: "", description_short: "", missing: true },
+        { type: "service", id: "gone", name: "", description_short: "", missing: true },
       ],
     },
   });

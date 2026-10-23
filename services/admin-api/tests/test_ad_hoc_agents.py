@@ -120,18 +120,6 @@ def test_what_cannot_be_given_is_refused_by_name(sessions):
         f'Environment {unknown} is not available: it was removed, archived or disabled.'
     )
     with s.store.connect() as conn:
-        project = s.store.project(conn, 'shop')
-        conn.execute(
-            "INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}') ON CONFLICT DO NOTHING", (project,)
-        )
-        deleted = conn.execute(
-            "INSERT INTO ka.rag_collections(project_id,name,deleted_at) VALUES (%s,'old-runbooks',now()) RETURNING id",
-            (project,),
-        ).fetchone()['id']
-    assert refusal(s, collection_ids=[str(deleted)]) == (
-        'Collection old-runbooks is not available: it was removed, archived or disabled.'
-    )
-    with s.store.connect() as conn:
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (s.worker,))
     assert refusal(s, code_project_ids=[s.worker]) == (
         'Code project Payments worker is not available: it was removed, archived or disabled.'

@@ -14,11 +14,6 @@ def data_dir() -> PurePosixPath:
     return root
 
 
-def data_path(source_path: str) -> PurePosixPath:
-    """A RAG collection folder (relative to DATA_ROOT) as a container path."""
-    return data_dir() / source_path
-
-
 def _relative(container_path: str) -> str | None:
     """The path relative to DATA_ROOT_DIR ('' for the root itself), or None outside it."""
     path, root = PurePosixPath(container_path), data_dir()

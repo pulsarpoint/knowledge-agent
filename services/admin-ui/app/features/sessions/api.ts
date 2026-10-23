@@ -311,7 +311,6 @@ export interface AgentOptions {
     services: AgentBringer[];
     environments: AgentBringer[];
     code_projects: AgentResource[];
-    collections: AgentResource[];
     documents: { id: string; name: string; linked: boolean }[];
   };
   experts: { id: string; name: string; when_to_use: string }[];

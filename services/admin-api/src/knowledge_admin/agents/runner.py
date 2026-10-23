@@ -34,7 +34,7 @@ from knowledge_admin.llm.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp, skills
-from knowledge_admin.capabilities.files import available_documents, mounted
+from knowledge_admin.capabilities.files import mounted
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, SUBAGENT, WAKEUPS
 from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin import access as access_rules
@@ -233,10 +233,9 @@ async def create_agent(
     model_api_key = credentials[reference['id']] if reference is not None else None
     get_ssh(config, credentials)  # a check: raises when a usable server's SSH key was not supplied
     prompt, function_tools, experts, selected_mcp = instructions_and_tools(config, subagents=subagents, tools=tools)
-    for path in code_paths(config):  # a missing document collection path is skipped, not fatal
+    for path in code_paths(config):
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
-    available_documents(document_paths(config))
     async with AsyncExitStack() as connections:
         sdk_model, model_settings = await connections.enter_async_context(
             agent_model(model, model_api_key, timeout_seconds)
@@ -311,13 +310,6 @@ def code_paths(config: dict[str, Any]) -> list[Path]:
         Path(path)
         for project in access_rules.entries(config['access'], 'code_project')
         for path in project.get('folder_paths', [])
-    ]
-
-
-def document_paths(config: dict[str, Any]) -> list[Path]:
-    """The folders of the collections in the run's access."""
-    return [
-        Path(path) for item in access_rules.entries(config['access'], 'collection') for path in item.get('paths', [])
     ]
 
 

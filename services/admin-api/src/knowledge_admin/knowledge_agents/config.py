@@ -16,7 +16,6 @@ from psycopg.rows import dict_row
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.inventory import short
-from knowledge_admin.data_root import data_path
 
 AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
 AD_HOC_NAME = 'Ad-hoc agent'
@@ -189,9 +188,6 @@ def changed_sections(source: Mapping[str, Any], target: Mapping[str, Any]) -> li
 
 
 # The items an agent's access references, by type: only those that still exist (deleted or archived ones are skipped).
-COLLECTIONS = """SELECT c.id,c.name,c.description,
-    ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
-    FROM ka.rag_collections c WHERE c.project_id=%s AND c.id=ANY(%s::uuid[]) AND c.deleted_at IS NULL ORDER BY c.name"""
 CODE_PROJECTS = """SELECT r.id,r.name,r.description,
     ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
     FROM ka.repositories r WHERE r.project_id=%s AND r.id=ANY(%s::uuid[]) AND r.archived_at IS NULL
@@ -218,18 +214,17 @@ def access_ids(access: Mapping[str, Any], type_: str) -> list[str]:
     return [str(entry['id']) for entry in access.get('resources', []) if entry['type'] == type_]
 
 
-# The referenced code projects, collections, servers and services that still exist.
+# The referenced code projects, servers and services that still exist.
 EXISTING = {
     'code_project': 'SELECT id::text AS id FROM ka.repositories WHERE id=ANY(%s::uuid[]) AND archived_at IS NULL',
-    'collection': 'SELECT id::text AS id FROM ka.rag_collections WHERE id=ANY(%s::uuid[]) AND deleted_at IS NULL',
     'server': 'SELECT id::text AS id FROM ka.servers WHERE id=ANY(%s::uuid[])',
     'service': 'SELECT id::text AS id FROM ka.services WHERE id=ANY(%s::uuid[])',
 }
 
 
 def without_missing(conn, access: Mapping[str, Any]) -> dict[str, Any]:
-    """The access object without the code projects, collections, servers and services it references that no longer
-    exist (the kinds an expert's accepted resources count)."""
+    """The access object without the code projects, servers and services it references that no longer exist (the
+    kinds an expert's accepted resources count)."""
     gone = set()
     for type_, query in EXISTING.items():
         ids = access_ids(access, type_)
@@ -254,9 +249,6 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
         found = ids.get(type_) or []
         return conn.execute(query, (project_id, found)).fetchall() if found and project_id else []
 
-    collections = load(COLLECTIONS, 'collection')
-    for item in collections:
-        item['paths'] = [str(data_path(path)) for path in item.pop('source_paths')]
     code_projects = load(CODE_PROJECTS, 'code_project')
     for project in code_projects:
         project['folder_paths'] = [str(code_root / path) for path in project['folder_paths']]
@@ -279,7 +271,6 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
             server.pop('credential_id'), server.pop('credential_project_id'), server.pop('key_version')
         )
     return {
-        'collection': collections,
         'code_project': code_projects,
         'service': load(SERVICES, 'service'),
         'skill': load(SKILLS, 'skill'),
@@ -289,7 +280,7 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
     }
 
 
-LOADED = ('collection', 'code_project', 'service', 'skill', 'mcp_server', 'server', 'environment')
+LOADED = ('code_project', 'service', 'skill', 'mcp_server', 'server', 'environment')
 # What an entry carries of its item, besides its type, id, name and short description (access.py).
 SERVER_FIELDS = (
     'hostname',
@@ -316,9 +307,9 @@ def entry(type_: str, item: Mapping[str, Any], **extra) -> dict[str, Any]:
 
 
 def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
-    """The access entries of loaded items by type (load_items' shape; 'document': entries already), each once: servers, services, code projects, collections, skills (enabled ones, listed in the instructions),
+    """The access entries of loaded items by type (load_items' shape; 'document': entries already), each once: servers, services, code projects, skills (enabled ones, listed in the instructions),
     MCP servers (enabled ones), documents, environments. A code project carries its folders and its graph (graphs:
-    load_graphs), a collection its paths, a server and an MCP server their connection."""
+    load_graphs), a server and an MCP server their connection."""
     graph_of = {str(graph['id']): graph for graph in graphs}
 
     def code_project(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -329,7 +320,6 @@ def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, An
     found = [entry('server', item, **{k: item[k] for k in SERVER_FIELDS}) for item in items.get('server', [])]
     found += [entry('service', item) for item in items.get('service', [])]
     found += [code_project(item) for item in items.get('code_project', [])]
-    found += [entry('collection', item, paths=list(item.get('paths', []))) for item in items.get('collection', [])]
     found += [
         entry('skill', item, description=item['description']) for item in items.get('skill', []) if item['enabled']
     ]
@@ -362,7 +352,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
 
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
-    CODE_ROOT and DATA_ROOT_DIR (where every collection folder lives) must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
+    CODE_ROOT must match the absolute mount in the agent's container. Paths are joined without resolving them on the loader's host.
 
     This is the application's input to agent(), not native Agents SDK constructor
     keyword arguments. Loading it never starts the SDK or resolves secrets.

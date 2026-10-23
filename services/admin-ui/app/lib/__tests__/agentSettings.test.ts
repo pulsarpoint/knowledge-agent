@@ -20,7 +20,7 @@ test("defaults: the default model, the first tagged prompt, the usable linked re
     modelId: "m2",
     promptKey: "p2",
     systemPrompt: options.prompts[1].content,
-    chosen: { server_ids: ["s1"], service_ids: ["v1"], environment_ids: [], code_project_ids: [], collection_ids: [] },
+    chosen: { server_ids: ["s1"], service_ids: ["v1"], environment_ids: [], code_project_ids: [] },
     experts: [],
   });
 });
@@ -74,7 +74,6 @@ test("restored settings drop what the options no longer have", () => {
         service_ids: [],
         environment_ids: [],
         code_project_ids: ["c1"],
-        collection_ids: [],
       },
       off: ["ssh_run", "gone_tool"],
       experts: ["e1", "e9"],
@@ -84,7 +83,7 @@ test("restored settings drop what the options no longer have", () => {
     modelId: "m2",
     promptKey: "p2",
     systemPrompt: "Mine.",
-    chosen: { server_ids: ["s1"], service_ids: [], environment_ids: [], code_project_ids: ["c1"], collection_ids: [] },
+    chosen: { server_ids: ["s1"], service_ids: [], environment_ids: [], code_project_ids: ["c1"] },
     experts: ["e1"],
   });
   // the document's links changed since: the resources start again from the links
@@ -109,7 +108,7 @@ test("settingsFromSession rebuilds the settings a run started with", () => {
     modelId: "m1",
     promptKey: OWN,
     systemPrompt: "Run prompt.",
-    chosen: { server_ids: ["s1"], service_ids: [], environment_ids: [], code_project_ids: ["c1"], collection_ids: [] },
+    chosen: { server_ids: ["s1"], service_ids: [], environment_ids: [], code_project_ids: ["c1"] },
     experts: ["e1"],
   });
 });
@@ -137,7 +136,6 @@ test("settingsFromSession restores what the run was started for, not what an env
     service_ids: [],
     environment_ids: ["e1"],
     code_project_ids: ["c1"],
-    collection_ids: [],
   });
 });
 
@@ -160,7 +158,7 @@ test("settingsFromSession leaves out what today's options no longer have or cann
     modelId: "m2",
     promptKey: OWN,
     systemPrompt: "Run prompt.",
-    chosen: { server_ids: ["s1"], service_ids: ["v1"], environment_ids: [], code_project_ids: [], collection_ids: [] },
+    chosen: { server_ids: ["s1"], service_ids: ["v1"], environment_ids: [], code_project_ids: [] },
     experts: ["e1"],
   });
 });
@@ -174,7 +172,6 @@ test("the summary names the model and up to three resources", () => {
       service_ids: ["v1"],
       environment_ids: [],
       code_project_ids: ["c1"],
-      collection_ids: [],
     },
   };
   expect(settingsSummary(options, { ...many, chosen: { ...many.chosen, server_ids: ["s1", "s2"] } })).toBe(
@@ -183,7 +180,7 @@ test("the summary names the model and up to three resources", () => {
   expect(
     settingsSummary(options, {
       ...defaultSettings(options),
-      chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] },
+      chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [] },
     }),
   ).toBe("Claude · no resources");
 });
@@ -263,7 +260,6 @@ test("a saved agent starts with its own configuration and only narrows it", () =
       service_ids: [],
       environment_ids: ["env"],
       code_project_ids: [],
-      collection_ids: [],
       documents: [{ id: "d1" }],
     },
   });
@@ -284,7 +280,6 @@ test("a saved agent defaults: its model and prompt, every resource of its access
       service_ids: [],
       environment_ids: ["env"],
       code_project_ids: [],
-      collection_ids: [],
     },
     documents: ["d1", "d2"],
     experts: ["e1"],
@@ -292,7 +287,7 @@ test("a saved agent defaults: its model and prompt, every resource of its access
 });
 
 test("a saved agent with resources needs at least one picked; one without resources does not", () => {
-  const none = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
+  const none = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [] };
   expect(pickReason(fuller, defaultSettings(fuller))).toBeNull();
   expect(pickReason(fuller, { ...defaultSettings(fuller), chosen: none, documents: [] })).toBe(
     "Pick at least one resource",
@@ -335,7 +330,6 @@ test("a new document: the start body names it as started_from and as the one doc
       service_ids: ["v1"],
       environment_ids: [],
       code_project_ids: [],
-      collection_ids: [],
       documents: [{ new: { folder: "payments", name: "Payments API" } }],
     },
     expert_ids: [],

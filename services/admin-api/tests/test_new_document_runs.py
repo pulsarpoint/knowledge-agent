@@ -352,9 +352,8 @@ def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sess
 
 
 def test_a_new_document_is_built_for_what_the_run_was_given():
-    # its picks, or its access entries given: what the person chose (collections and documents are not linked)
+    # its picks, or its access entries given: what the person chose (documents are not linked)
     given = [
-        {'type': 'collection', 'id': 'c'},
         {'type': 'server', 'id': 'h'},
         {'type': 'environment', 'id': 'e'},
         {'type': 'document', 'id': 'd'},

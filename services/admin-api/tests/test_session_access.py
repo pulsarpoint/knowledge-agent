@@ -225,12 +225,11 @@ def test_the_migration_builds_access_for_existing_runs_and_goes_down(world):
     assert access['roles'] == {'content_editor': False} and config['access'] == access
 
 
-def test_code_projects_carry_their_folders_and_graph_and_collections_their_paths():
+def test_code_projects_carry_their_folders_and_graph():
     from knowledge_admin.knowledge_agents.config import resource_entries
 
     items = {
         'code_project': [{'id': 'p1', 'name': 'API', 'description': '', 'folder_paths': ['/code/api']}],
-        'collection': [{'id': 'c1', 'name': 'docs', 'description': '', 'paths': ['/data/docs']}],
     }
     graphs = [{'id': 'p1', 'name': 'API', 'graph_path': '/graphs/p1', 'code_root': '/code/api'}]
     assert resource_entries(items, graphs) == [
@@ -243,7 +242,6 @@ def test_code_projects_carry_their_folders_and_graph_and_collections_their_paths
             'graph_path': '/graphs/p1',
             'code_root': '/code/api',
         },
-        {'type': 'collection', 'id': 'c1', 'name': 'docs', 'description_short': '', 'paths': ['/data/docs']},
     ]
 
 

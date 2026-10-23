@@ -186,7 +186,7 @@ test("the other cannot-start reason: a disabled agent", async () => {
 
 test("a saved agent with resources cannot start with none of them picked", async () => {
   const calls = serve();
-  const none = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
+  const none = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [] };
   localStorage.setItem(
     "agent-settings:agent:ops",
     JSON.stringify({

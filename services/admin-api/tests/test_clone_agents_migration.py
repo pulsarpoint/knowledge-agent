@@ -227,7 +227,6 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     client, server, _, _, mcp, repo, _ = saved_agent
     own_connection(store, server['id'], 'agent-user', 2222)
     with store.connect() as conn:
-        runbooks = str(conn.execute("SELECT id FROM ka.rag_collections WHERE name='runbooks'").fetchone()['id'])
         unselected = str(conn.execute('SELECT id FROM ka.repositories WHERE id<>%s', (repo['id'],)).fetchone()['id'])
     saved = as_saved(get_agent_config('operations', conninfo=store.conninfo))
     saved.update(
@@ -238,7 +237,6 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         resources='fixed',
     )
     saved['system_prompt']['content'] = 'Answer from evidence only.'
-    saved['documents']['collections'].append({'id': runbooks, 'name': 'runbooks'})  # deleted before 0080
     saved['code']['projects'].append({'id': unselected, 'name': 'unselected'})  # archived before 0080
     for entry in saved['tools']['items']:  # tool rows with usage text, a per-run tool and an MCP tool
         if entry['tool'] == 'read_file':
@@ -279,7 +277,6 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         run(conn, DOWN)
         conn.commit()
         agent = activate(conn, 'operations', saved, store.actor(conn, 'migration-admin', 'migration@test'))
-        conn.execute('UPDATE ka.rag_collections SET deleted_at=now() WHERE id=%s', (runbooks,))
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (unselected,))
         conn.commit()
         run(conn, UP)
@@ -292,11 +289,11 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
             """SELECT details FROM ka.audit_events WHERE action='agent.version.materialized'"""
         ).fetchall()
     expected = sections(ran_before(saved, agent))
-    expected['documents']['collections'].remove(runbooks)  # deleted and archived items are dropped
+    # archived items are dropped
     expected['code']['projects'].remove(unselected)
     expected = held(expected)
-    # the working copy differed everywhere
-    assert [key for key in expected if drifted[key] == expected[key]] == []
+    # the working copy differed everywhere but in documents: the collection type is gone, so neither holds any
+    assert [key for key in expected if drifted[key] == expected[key]] == ['documents']
     convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     migrated = held(sections(legacy(after)))
@@ -305,7 +302,6 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         entry['tool']: (entry['mode'], entry['usage'], entry['subagent_allowed']) for entry in saved['tools']['items']
     }
     assert (after['name'], after['description']) == ('Payments operator', 'Investigates payment failures.')
-    assert runbooks not in [item['id'] for item in after['access']['resources']]
     assert unselected not in [item['id'] for item in after['access']['resources']]
     assert [(d['agent_id'], d['label'], d['config']['name']) for d in (row['details'] for row in audit)] == [
         ('operations', 'Active', 'Payments operator')

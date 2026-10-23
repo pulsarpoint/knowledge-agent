@@ -291,7 +291,7 @@ def test_a_deleted_resource_in_the_access_is_skipped(world):
     agent = a_saved_agent(w)
     gone = str(uuid4())
     with w.store.connect() as conn:
-        give(conn, agent, [('service', w.nginx), ('code_project', gone), ('collection', gone), ('server', gone)])
+        give(conn, agent, [('service', w.nginx), ('code_project', gone), ('server', gone)])
         conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Proxies.' WHERE id=%s", (agent,))
         [offered] = [item for item in experts.offered(conn, None) if item['id'] == agent]
     assert offered['accepts'] == ['service_ids']  # a missing reference is not counted
@@ -301,6 +301,34 @@ def test_a_deleted_resource_in_the_access_is_skipped(world):
     assert response.status_code == 201, response.text
     given = [item['id'] for item in stored_access(w, response.json()['id'])['resources'] if item['source'] == 'given']
     assert given == [str(w.nginx)]
+
+
+def test_an_agent_saved_with_a_collection_loads_runs_and_shows_none(world):
+    w = world  # the collection type is gone; 0134 deletes the stored entries, until then reading ignores them
+    agent = a_saved_agent(w)
+    with w.store.connect() as conn:
+        give(conn, agent, [('collection', uuid4()), ('service', w.nginx)])
+        conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Proxies.' WHERE id=%s", (agent,))
+        [offered] = [item for item in experts.offered(conn, None) if item['id'] == agent]
+    assert offered['accepts'] == ['service_ids']
+    config = get_agent_config(agent, conninfo=w.store.conninfo)
+    assert [item['type'] for item in config['access']['resources']] == ['service']
+    profile = w.client.get(f'/api/agents/{agent}', headers=HEADERS).json()
+    assert [item['type'] for item in profile['access']['resources']] == ['service']
+    listed = next(a for a in w.client.get('/api/agents', headers=HEADERS).json()['agents'] if a['id'] == agent)
+    assert 'collection' not in listed['counts']
+    options = w.client.get(f'/api/sessions/options?agent_id={agent}', headers=HEADERS).json()
+    assert 'collections' not in options['resources']
+    response = start(w, agent)
+    assert response.status_code == 201, response.text
+    assert [item['type'] for item in stored_access(w, response.json()['id'])['resources']] == [
+        'service',
+        'code_project',
+        'server',
+    ]
+    keys = ('revision', 'name', 'description', 'when_to_use', 'enabled', 'access', 'instructions')
+    saved = w.client.put(f'/api/agents/{agent}', headers=HEADERS, json={key: profile[key] for key in keys})
+    assert saved.status_code == 200, saved.text  # what GET shows can be saved back
 
 
 def test_an_agent_without_access_runs_with_nothing(world):

@@ -31,7 +31,7 @@ const agent: profiles.AgentProfile = {
     resources: [
       entry("server", "s1", "web-1"),
       entry("document", "d1", "Runbook"),
-      { type: "collection", id: "c-gone", name: "", description_short: "", missing: true },
+      { type: "service", id: "v-gone", name: "", description_short: "", missing: true },
     ],
   },
 };
@@ -40,7 +40,6 @@ const options: profiles.AgentOptions = {
   service: [entry("service", "v1", "Payments")],
   environment: [],
   code_project: [],
-  collection: [entry("collection", "c1", "Jira")],
   document: [entry("document", "d1", "Runbook"), entry("document", "d2", "Guide")],
   skill: [],
   mcp_server: [],
@@ -69,11 +68,12 @@ test("lists the agent's resources by type with names, short descriptions and mis
   expect(within(servers).getByText("web-1")).toBeVisible();
   expect(within(servers).getByText("web-1 description")).toBeVisible();
   expect(within(group("Documents")).queryByRole("switch")).toBeNull(); // no per-document editable pick
-  const collections = group("Collections");
-  expect(within(collections).getByText("missing")).toBeVisible();
-  expect(within(collections).getByText("Missing collection (c-gone)")).toBeVisible();
-  expect(within(collections).getByRole("button", { name: "Remove Missing collection (c-gone)" })).toBeEnabled();
-  expect(within(collections).getByText(/dropped when you save/)).toBeVisible();
+  const services = group("Services");
+  expect(within(services).getByText("missing")).toBeVisible();
+  expect(within(services).getByText("Missing service (v-gone)")).toBeVisible();
+  expect(within(services).getByRole("button", { name: "Remove Missing service (v-gone)" })).toBeEnabled();
+  expect(within(services).getByText(/dropped when you save/)).toBeVisible();
+  expect(screen.queryByRole("group", { name: "Collections" })).toBeNull(); // the collection type is gone
 });
 
 test("add, select all and remove make one PUT with the access object; missing ones are dropped", async () => {
@@ -101,7 +101,7 @@ test("add, select all and remove make one PUT with the access object; missing on
   expect(saved.access).not.toHaveProperty("roles");
   expect(saved.access.resources.map(({ type, id }) => ({ type, id }))).toEqual([
     { type: "document", id: "d1" },
-    { type: "collection", id: "c-gone" }, // dropped by saveAgent
+    { type: "service", id: "v-gone" }, // dropped by saveAgent
     { type: "server", id: "s2" },
     { type: "document", id: "d2" },
   ]);

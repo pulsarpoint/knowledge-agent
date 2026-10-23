@@ -16,7 +16,7 @@ NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
 SessionPurpose = Literal['documents', 'test', 'event', 'resource', 'revision', 'chat']
 
-SELECTION = ('code_project_ids', 'collection_ids', 'environment_ids', 'service_ids', 'server_ids')
+SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
 
 
 class Selection(BaseModel):
@@ -24,7 +24,6 @@ class Selection(BaseModel):
 
     model_config = ConfigDict(extra='forbid')
     code_project_ids: list[UUID] = Field(default_factory=list, max_length=20)
-    collection_ids: list[UUID] = Field(default_factory=list, max_length=50)
     environment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     service_ids: list[UUID] = Field(default_factory=list, max_length=50)
     server_ids: list[UUID] = Field(default_factory=list, max_length=50)

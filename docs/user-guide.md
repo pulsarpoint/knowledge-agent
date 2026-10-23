@@ -610,7 +610,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, instructions and resources (servers, services, environments, code projects,
-  collections, documents, skills and MCP servers).
+  documents, skills and MCP servers).
 - **Start blank** — skip generation (no model needed) and fill in the same review tabs
   yourself.
 
@@ -623,7 +623,7 @@ saved but runs only after you choose one with **Model** on its General tab.
 | Tab | What you do there |
 | --- | --- |
 | **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
-| **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
+| **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
@@ -749,7 +749,7 @@ document takes two thirds and the chat one third.
 If the title and folder match an existing document, the agent's saves become a draft of that document. Nothing goes live until
 you promote the draft. There is one conversation per page visit; **New chat** closes it.
 
-**Settings** in the chat opens what the agent may use: the model, the resources (code projects, document collections,
+**Settings** in the chat opens what the agent may use: the model, the resources (code projects,
 environments, services and servers), the experts, and under **Advanced** the prompt. A server whose SSH
 is not set up or not allowed cannot be chosen. The prompts offered are those tagged `documentation`; the default is **Write a
 document** (Administration → Prompts). It tells the agent to read what it was given, write with `update_document`, change a passage
@@ -1299,8 +1299,8 @@ resources and roles decide).
 
 | Tool | Works when | Safety limits |
 | --- | --- | --- |
-| `list_files`, `read_file`, `search_files` | The run has code projects or collections | Only selected roots plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
-| `shell_run` | The run has code projects or collections | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
+| `list_files`, `read_file`, `search_files` | The run has code projects | Only selected roots plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
+| `shell_run` | The run has code projects | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
 | `code_graph` | The run has the code project and it has a generated graph | Indexed symbol, route and call queries on a disposable snapshot copy |
 | `code_search` | The run has code projects | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | The run has code projects | Structural code queries; 30 s timeout |

@@ -15,9 +15,9 @@ from knowledge_admin.tools.registry import tool
 
 
 def check_shell_run(access: dict, **_) -> str | None:
-    """None when allowed, else the refusal text: the shell reads the run's code projects and collections."""
-    if not access_rules.has_any(access, 'code_project') and not access_rules.has_any(access, 'collection'):
-        return access_rules.refuse_none('code_project', 'collection')
+    """None when allowed, else the refusal text: the shell reads the run's code projects."""
+    if not access_rules.has_any(access, 'code_project'):
+        return access_rules.refuse_none('code_project')
     return None
 
 
@@ -41,7 +41,7 @@ async def shell_run(
     Quote paths and use single quotes around ast-grep patterns containing $.
 
     The working directory is writable scratch space shared across shell calls
-    within this run. Selected code, documents and graph paths retain the absolute
+    within this run. Selected code and graph paths retain the absolute
     paths in the agent resources and are read-only. Other projects, credentials
     and network access are unavailable. Use ssh_run for configured remote servers.
     Shell variables do not persist between calls; save intermediate work to files.

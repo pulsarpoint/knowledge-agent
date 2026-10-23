@@ -47,6 +47,7 @@ def test_the_access_rules_without_a_database():
             {'type': 'server', 'id': 's1'},
             {'type': 'document', 'id': 'd1'},
             {'type': 'server', 'id': 'gone'},
+            {'type': 'collection', 'id': 'c1'},  # a type that is gone (0134 deletes it): not shown
         ],
     }
     assert resolve(stored, FOUND) == {
@@ -90,6 +91,7 @@ def test_get_resolves_each_reference_and_marks_a_missing_one(world):
                 ('environment', w.environment),
                 {'type': 'document', 'id': runbook},
                 ('service', gone),
+                ('collection', uuid4()),  # a type that is gone: not shown
             ],
         )
         conn.execute("UPDATE ka.agents SET instructions='Check twice.' WHERE id=%s", (agent['id'],))
@@ -130,7 +132,6 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
             {'type': 'service', 'id': str(w.nginx)},  # once
             {'type': 'document', 'id': overview},
             {'type': 'code_project', 'id': str(uuid4())},  # no longer exists: dropped
-            {'type': 'collection', 'id': str(w.environment)},  # not a collection: dropped
         ],
     }
     saved = w.client.put(
@@ -154,11 +155,12 @@ def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(wor
     assert w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(again)).status_code == 200
     assert stored(w, agent['id'])['access'] == row['access']
     latest = w.client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
-    unknown = {
-        'resources': [{'type': 'printer', 'id': str(uuid4())}],
-    }
-    refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(latest, access=unknown))
-    assert refused.status_code == 400 and "'server'" in refused.text, refused.text
+    for gone_type in ('printer', 'collection'):
+        unknown = {
+            'resources': [{'type': gone_type, 'id': str(uuid4())}],
+        }
+        refused = w.client.put(f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(latest, access=unknown))
+        assert refused.status_code == 400 and "'server'" in refused.text, refused.text
     old_fields = w.client.put(
         f'/api/agents/{agent["id"]}', headers=HEADERS, json=body(latest, collection_ids=[], ssh_enabled=True)
     )
@@ -176,7 +178,6 @@ def test_options_list_every_project_resource_by_type_and_the_list_counts_access(
         'service',
         'environment',
         'code_project',
-        'collection',
         'document',
         'skill',
         'mcp_server',
@@ -197,7 +198,6 @@ def test_options_list_every_project_resource_by_type_and_the_list_counts_access(
         'service': 1,  # the missing one is not counted
         'environment': 0,
         'code_project': 0,
-        'collection': 0,
         'document': 0,
         'skill': 0,
         'mcp_server': 0,

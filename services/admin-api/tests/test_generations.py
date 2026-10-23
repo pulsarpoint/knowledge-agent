@@ -122,7 +122,7 @@ def live(sessions):
         yield client.app.state.session_hub
 
 
-SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'collection_ids')
+SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
 
 
 def post(sessions, **change):

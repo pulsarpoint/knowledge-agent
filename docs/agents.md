@@ -195,9 +195,9 @@ is not the caller (a run's `expert_ids` may narrow them). The name is `ask_` plu
 every run of characters other than `a-z0-9` replaced by `_`, trimmed of `_`, at most 50 characters (an empty slug gives
 `expert`; a slug taken by an earlier expert, ordered by name and id, gets `_2`, `_3`, ...). The description is `Ask <name>, an
 expert agent. <When to use>` plus ` It uses its own resources; pass some of them to narrow it to those (it accepts:
-code projects, document collections, servers, services).` (the kinds in its access object) or, with none of those,
+code projects, servers, services).` (the kinds in its access object) or, with none of those,
 ` It uses its own resources.` Parameters: `task` (non-empty, at most 20,000 characters) and, for an expert that accepts
-a kind, `resources` (`code_project_ids`, `collection_ids`, `server_ids`, `service_ids`; null: all of its own). The experts a session may call are pinned with its
+a kind, `resources` (`code_project_ids`, `server_ids`, `service_ids`; null: all of its own). The experts a session may call are pinned with its
 configuration (`config['experts']`: id, name, tool, When to use, accepts); later changes to the expert list apply to
 new sessions, and a new-document run pins every offered expert. The expert's own configuration is loaded when it is
 called. Refusals are tool errors: `Expert <name> is not available.` (deleted, no longer an expert, disabled or without

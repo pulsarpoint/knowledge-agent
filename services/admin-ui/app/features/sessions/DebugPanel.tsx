@@ -11,7 +11,6 @@ const TYPE_WORDS: Record<string, string> = {
   service: "Service",
   environment: "Environment",
   code_project: "Code project",
-  collection: "Collection",
   document: "Document",
   skill: "Skill",
   mcp_server: "MCP server",

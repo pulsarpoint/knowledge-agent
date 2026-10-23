@@ -53,7 +53,6 @@ DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
 PICKS = (
     ('code_project', 'code_project_ids'),
-    ('collection', 'collection_ids'),
     ('server', 'server_ids'),
     ('service', 'service_ids'),
     ('environment', 'environment_ids'),
@@ -809,11 +808,6 @@ def options(
             ORDER BY lower(name),id""",
             links('code_project_ids'),
         ),
-        'collections': listed(
-            """SELECT id,name FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL
-            ORDER BY lower(name),id""",
-            [],
-        ),
         'documents': [{'id': document['id'], 'name': document['title'], 'linked': True}] if document else [],
     }
     experts = [
@@ -869,7 +863,6 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
         'services': [{**item, **brings(item['id'])} for item in plain('service')],
         'environments': plain('environment'),
         'code_projects': plain('code_project'),
-        'collections': plain('collection'),
         'documents': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('document')],
     }
     return jsonable_encoder(

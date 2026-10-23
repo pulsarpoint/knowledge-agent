@@ -42,7 +42,6 @@ const NO_COUNTS = {
   service: 0,
   environment: 0,
   code_project: 0,
-  collection: 0,
   document: 0,
   skill: 0,
   mcp_server: 0,
@@ -89,7 +88,6 @@ beforeEach(() => {
     service: [],
     environment: [],
     code_project: [],
-    collection: [],
     document: [],
     skill: [],
     mcp_server: [],
@@ -163,7 +161,7 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   const user = userEvent.setup();
   vi.mocked(profiles.getAgents).mockResolvedValue({
     agents: [
-      { ...writer, id: "search", name: "Search agent", counts: { ...NO_COUNTS, collection: 1 }, model_name: "GPT" },
+      { ...writer, id: "search", name: "Search agent", counts: { ...NO_COUNTS, document: 1 }, model_name: "GPT" },
       { ...writer, counts: NO_COUNTS, model_name: "Claude on Bedrock" },
     ],
   });
@@ -178,7 +176,7 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   expect(screen.queryByRole("columnheader", { name: "Agent type" })).toBeNull();
   expect(within(row).getByText("Claude on Bedrock")).toBeVisible();
   const other = screen.getByRole("link", { name: "Search agent" }).closest("tr")!;
-  expect(within(other).getByText("1 collection")).toBeVisible();
+  expect(within(other).getByText("1 document")).toBeVisible();
   await user.type(screen.getByLabelText("Find agents"), "technical");
   expect(screen.queryByRole("link", { name: "Search agent" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "New agent" }));
@@ -221,7 +219,6 @@ test("General keeps resources saved on the Resources tab meanwhile", async () =>
     service: [],
     environment: [],
     code_project: [],
-    collection: [],
     document: [],
     skill: [],
     mcp_server: [],

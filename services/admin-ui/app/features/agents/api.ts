@@ -5,7 +5,6 @@ export const ACCESS_TYPES = [
   { type: "service", label: "Services", one: "service", many: "services" },
   { type: "environment", label: "Environments", one: "environment", many: "environments" },
   { type: "code_project", label: "Code projects", one: "code project", many: "code projects" },
-  { type: "collection", label: "Collections", one: "collection", many: "collections" },
   { type: "document", label: "Documents", one: "document", many: "documents" },
   { type: "skill", label: "Skills", one: "skill", many: "skills" },
   { type: "mcp_server", label: "MCP servers", one: "MCP server", many: "MCP servers" },

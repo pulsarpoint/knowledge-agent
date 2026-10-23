@@ -23,15 +23,13 @@ AGENT = """SELECT id,name,description,when_to_use,enabled,model_id,system_prompt
 
 INSTRUCTIONS_LIMIT = 40000
 
-# Every resource of the project an agent's access may reference, by type: what still exists (deleted collections and
-# archived code projects are not listed).
+# Every resource of the project an agent's access may reference, by type: what still exists (archived code projects
+# are not listed).
 RESOURCES = {
     'server': 'SELECT id,name,description FROM ka.servers WHERE project_id=%s ORDER BY lower(name),id',
     'service': 'SELECT id,name,description FROM ka.services WHERE project_id=%s ORDER BY lower(name),id',
     'environment': 'SELECT id,name,description FROM ka.environments WHERE project_id=%s ORDER BY lower(name),id',
     'code_project': """SELECT id,name,description FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL
-        ORDER BY lower(name),id""",
-    'collection': """SELECT id,name,description FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL
         ORDER BY lower(name),id""",
     'document': """SELECT id,title AS name,description FROM ka.live_documents WHERE project_id=%s
         ORDER BY lower(title),id""",
@@ -70,10 +68,12 @@ def _index(found: dict[str, list[dict]]) -> dict[tuple[str, str], dict]:
 
 def resolve(access: dict, found: dict[str, list[dict]]) -> dict:
     """The access object as the editor shows it: each reference with its name and short description; a reference to
-    a resource that no longer exists is marked missing."""
+    a resource that no longer exists is marked missing; a reference of a type that is gone is not shown."""
     index = _index(found)
     resources = []
     for ref in access.get('resources', []):
+        if ref['type'] not in TYPES:
+            continue
         key = (ref['type'], str(ref['id']))
         entry = (
             dict(index[key]) if key in index else {'type': key[0], 'id': key[1], 'name': '', 'description_short': ''}

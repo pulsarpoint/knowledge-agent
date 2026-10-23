@@ -334,7 +334,7 @@ test("with unsaved changes, Ask agent opens the pane and keeps the text; only th
     default_model_id: null,
     prompts: [],
     default_prompt_id: null,
-    resources: { servers: [], services: [], environments: [], code_projects: [], collections: [], documents: [] },
+    resources: { servers: [], services: [], environments: [], code_projects: [], documents: [] },
     experts: [],
   };
   const calls = api({ ...base, [OPTIONS]: () => [200, options] });

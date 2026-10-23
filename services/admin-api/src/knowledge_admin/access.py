@@ -3,7 +3,7 @@
 access = {"resources": [{type, id, name, description_short, source, ...}]}  (keys an older stored object may still
           carry, such as roles or a document entry's editable, are ignored)
 An entry also carries what the tools need to reach its resource: a code project its folder_paths (and graph_path,
-code_root), a collection its paths, a skill its description, a new document where it goes; a server its connection
+code_root), a skill its description, a new document where it goes; a server its connection
 (hostname, port, username, allow_sudo, known_hosts, enabled, ssh_allowed, private_key_ref) and an MCP server its (url,
 enabled, bearer_token_ref): references only, never secrets. listing shows only the PUBLIC fields: the model and the
 Debug tab never see a connection. A server entry the run can use over SSH (ssh_reason None) has a pinned connection;
@@ -11,13 +11,12 @@ a server added only as the run's own resource carries none.
 No I/O. Every tool decides access through these functions.
 """
 
-TYPES = ('server', 'service', 'environment', 'code_project', 'collection', 'document', 'skill', 'mcp_server')
+TYPES = ('server', 'service', 'environment', 'code_project', 'document', 'skill', 'mcp_server')
 TYPE_WORDS = {
     'server': 'server',
     'service': 'service',
     'environment': 'environment',
     'code_project': 'code project',
-    'collection': 'collection',
     'document': 'document',
     'skill': 'skill',
     'mcp_server': 'MCP server',
@@ -31,7 +30,6 @@ PUBLIC = (
     'source',
     'description',
     'folder_paths',
-    'paths',
     'graph_path',
     'code_root',
     'new',
@@ -82,7 +80,7 @@ def refuse_use(type: str) -> str:
 
 
 def refuse_none(*types: str) -> str:
-    """NONE_OF for one type, or several joined with 'or' (the file tools: code projects or collections)."""
+    """NONE_OF for one type, or several joined with 'or' (the inventory tools: environments or servers or services)."""
     return NONE_OF.format(type='s or '.join(TYPE_WORDS[type] for type in types))
 
 

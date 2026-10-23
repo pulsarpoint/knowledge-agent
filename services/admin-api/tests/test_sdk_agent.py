@@ -183,8 +183,6 @@ def config(responses_api, tmp_path):
     source = (tmp_path / 'source').resolve()
     source.mkdir()
     (source / 'README.md').write_text('Source fixture.', encoding='utf-8')
-    docs = (tmp_path / 'documents').resolve()
-    docs.mkdir(exist_ok=True)
     value = {
         'id': 'fixture',
         'name': 'Fixture agent',
@@ -202,12 +200,11 @@ def config(responses_api, tmp_path):
             'api_key_ref': {'id': 'model-key'},
         },
     }
-    # its access: a code project, a collection, an enabled skill and a service (no MCP server, no SSH server)
+    # its access: a code project, an enabled skill and a service (no MCP server, no SSH server)
     return with_access(
         value,
         [
             entry('code_project', 'source', 'Source', description_short='Local source', folder_paths=[str(source)]),
-            entry('collection', 'runbooks', 'runbooks', description_short='Operations docs', paths=[str(docs)]),
             entry('skill', 'inspection', 'Inspection', description='Inspect before changing.'),
             entry('service', 'payments', 'Payments'),
         ],
@@ -284,7 +281,7 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
         assert expected in serialized
     assert 'Read before suggesting changes.' not in serialized
     # the run's resources are not in the prompt: get_available_resources lists them, get_resource details them
-    for listed in ('Local source', 'Operations docs', 'Inspect the queue.'):
+    for listed in ('Local source', 'Inspect the queue.'):
         assert listed not in serialized
     for excluded in ('fixture-api-secret', 'MUST_NOT_APPEAR', 'must-not-connect.test', 'must-not-contact.test'):
         assert excluded not in serialized
@@ -321,7 +318,7 @@ def test_disabled_resources_are_not_used_or_validated(config, responses_api):
     )
     assert result.final_output
     serialized = json.dumps(requests[0]['body'])
-    for excluded in ('disabled-source', 'Operations docs', 'Inspection', 'Payments'):
+    for excluded in ('disabled-source', 'Inspection', 'Payments'):
         assert excluded not in serialized
     assert not any(
         tool.get('type') in ('local_shell', 'shell', 'custom') for tool in requests[0]['body'].get('tools', [])
@@ -523,17 +520,6 @@ def test_mcp_tools_with_same_local_name_remain_distinct(config, responses_api):
     request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
     names = [t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]
     assert len(names) == len(set(names)) == 2
-
-
-def test_a_missing_document_collection_path_is_skipped_not_fatal(config, responses_api, caplog):
-    collection = of(config, 'collection')
-    collection['paths'] = [*collection['paths'], '/missing/rag-data/jira']
-    with caplog.at_level('WARNING', logger='knowledge_admin.capabilities.files'):
-        result = asyncio.run(
-            agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45)
-        )
-    assert result.final_output
-    assert 'Skipping unavailable document collection folder: /missing/rag-data/jira' in caplog.text
 
 
 def test_every_tool_of_an_mcp_server_in_access_is_offered(config, responses_api):

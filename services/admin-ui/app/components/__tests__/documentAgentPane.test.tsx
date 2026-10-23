@@ -129,7 +129,7 @@ const base: Record<string, (body: any) => [number, unknown]> = {
       default_model_id: null,
       prompts: [],
       default_prompt_id: null,
-      resources: { servers: [], services: [], environments: [], code_projects: [], collections: [], documents: [] },
+      resources: { servers: [], services: [], environments: [], code_projects: [], documents: [] },
       experts: [],
     },
   ],

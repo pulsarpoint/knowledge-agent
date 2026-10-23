@@ -3,7 +3,6 @@ sections; server and MCP entries carry their connection (references only, never 
 never get_available_resources, the Debug tab or the prompt."""
 
 import asyncio
-from pathlib import Path
 from uuid import UUID
 
 from access_helpers import give
@@ -119,10 +118,8 @@ def test_the_tools_work_from_access_entries_alone(monkeypatch, tmp_path):
         'description_short': '',
         'folder_paths': [str(tmp_path / 'api')],
     }
-    collection = {'type': 'collection', 'id': 'c1', 'name': 'docs', 'description_short': '', 'paths': ['/data/docs']}
-    config = config_of(SERVER, code, collection)
+    config = config_of(SERVER, code)
     assert runner.code_paths(config) == [tmp_path / 'api']
-    assert runner.document_paths(config) == [Path('/data/docs')]
     assert runner.get_ssh(config, {'k1': 'KEY'}) == [config['access']['resources'][0]]
 
     seen = {}

@@ -5,7 +5,6 @@ from knowledge_admin.data_root import (
     FOLDER_RULE,
     data_dir,
     data_folder,
-    data_path,
     documentation_folder,
     generated_docs_folder,
     host_path,
@@ -17,7 +16,6 @@ def test_paths_follow_the_container_data_root(monkeypatch):
     monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
     monkeypatch.setenv('DATA_ROOT', '/opt/knowledge agent/')
     monkeypatch.setenv('JIRA_EXPORT_ROOT', '/work/data/exports/jira')
-    assert str(data_path('exports/tools')) == '/work/data/exports/tools'
     assert host_path('/work/data') == '/opt/knowledge agent'
     assert host_path('/work/data/code') == '/opt/knowledge agent/code'
     assert host_path('/elsewhere/code') is None and host_path(None) is None

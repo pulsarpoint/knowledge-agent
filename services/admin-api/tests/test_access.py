@@ -42,9 +42,18 @@ def test_has_any():
 def test_refusal_texts_are_exact():
     assert access.refuse_use('code_project') == 'This code project is not available in this run.'
     assert access.refuse_use('mcp_server') == 'This MCP server is not available in this run.'
-    assert access.refuse_none('collection') == 'This run has no collections.'
-    assert access.refuse_none('code_project', 'collection') == 'This run has no code projects or collections.'
+    assert access.refuse_none('skill') == 'This run has no skills.'
+    assert access.refuse_none('code_project', 'server') == 'This run has no code projects or servers.'
     assert set(access.TYPES) == set(access.TYPE_WORDS)
+    assert access.TYPES == (
+        'server',
+        'service',
+        'environment',
+        'code_project',
+        'document',
+        'skill',
+        'mcp_server',
+    )  # the collection type is gone
 
 
 def test_narrow_none_keeps_agent_list():

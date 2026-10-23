@@ -22,18 +22,14 @@ list_files, read_file, search_files, ast_grep, code_graph, code_search, shell_ru
 def context(tmp_path):
     workspace = (tmp_path / 'workspace').resolve()
     code = (tmp_path / 'code').resolve()
-    docs = (tmp_path / 'documents').resolve()
-    for directory in (workspace, code, docs):
+    for directory in (workspace, code):
         directory.mkdir()
     return {
         'workspace': workspace,
         'credentials': {'secret': 'test-tool-secret'},
         'config': with_access(
             {'enabled': True},
-            [
-                entry('code_project', 'code', 'Code', folder_paths=[str(code)]),
-                entry('collection', 'docs', 'docs', paths=[str(docs)]),
-            ],
+            [entry('code_project', 'code', 'Code', folder_paths=[str(code)])],
         ),
     }
 
@@ -65,7 +61,6 @@ def test_browse_read_pagination_redaction_and_folder_boundaries(context, tmp_pat
     assert {entry['path'] for entry in roots['entries']} == {
         str(context['workspace']),
         str(code.resolve()),
-        str((tmp_path / 'documents').resolve()),
     }
     page = json.loads(asyncio.run(invoke(list_files, context, path=str(code), limit=1)))
     assert len(page['entries']) == 1 and page['next_offset'] == 1
@@ -81,7 +76,7 @@ def test_browse_read_pagination_redaction_and_folder_boundaries(context, tmp_pat
         assert 'outside' in asyncio.run(invoke(read_file, context, path=str(path)))
     resources = context['config']['access']['resources']
     resources[:] = [item for item in resources if item['type'] != 'code_project']  # its access: no code project now
-    assert 'outside' in asyncio.run(invoke(read_file, context, path=str(code / 'a.txt')))
+    assert asyncio.run(invoke(read_file, context, path=str(code / 'a.txt'))) == 'This run has no code projects.'
 
 
 def test_file_input_limits_binary_files_and_literal_search(context, tmp_path):
@@ -159,17 +154,12 @@ def test_ssh_uses_selected_connection_and_secret_with_real_server(context, ssh_s
     assert 'credential' in asyncio.run(invoke(ssh_run, context, server_id=server['id'], command='id'))
 
 
-def test_missing_document_paths_are_skipped_but_code_folders_stay_required(context, tmp_path, caplog):
-    docs = str((tmp_path / 'documents').resolve())
-    collection, code = of(context['config'], 'collection')[0], of(context['config'], 'code_project')[0]
-    collection['paths'] = [docs, '/missing/rag-data/jira']
-    with caplog.at_level('WARNING', logger='knowledge_admin.capabilities.files'):
-        roots = json.loads(asyncio.run(invoke(list_files, context)))
+def test_the_roots_are_the_workspace_and_the_code_folders_which_must_be_mounted(context, tmp_path):
+    code = of(context['config'], 'code_project')[0]
+    roots = json.loads(asyncio.run(invoke(list_files, context)))
     assert {entry['path'] for entry in roots['entries']} == {
         str(context['workspace']),
         str((tmp_path / 'code').resolve()),
-        docs,
     }
-    assert '/missing/rag-data/jira' in caplog.text
     code['folder_paths'].append('/missing/code')
     assert 'Configured folder is unavailable: /missing/code' in asyncio.run(invoke(list_files, context))

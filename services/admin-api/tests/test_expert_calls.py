@@ -518,7 +518,6 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(nar
     assert config['experts'] == [] and 'record' not in config
     assert config['expert'] is True  # no wake-up tools in an expert's call
     assert [p['name'] for p in of(config, 'code_project')] == ['Payments API']
-    assert of(config, 'collection') == []  # its access object holds only what it was given
     # its access object, built as a run start builds it: what it was given, no roles
     given_access = [(e['type'], e['id'], e['source']) for e in config['access']['resources'] if e['source'] == 'given']
     assert given_access == [('code_project', s.repo, 'given'), ('server', s.host['id'], 'given')]
@@ -530,7 +529,6 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(nar
         ('server', 'given'),
         ('service', 'given'),
         ('code_project', 'given'),
-        ('collection', 'given'),
         ('code_project', 'via'),  # its service brings the code project it is built from
     ]
     for change in ('enabled=false', 'expert=false'):

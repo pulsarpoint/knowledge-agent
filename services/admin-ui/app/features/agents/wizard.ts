@@ -27,7 +27,6 @@ export interface WizardOptions {
   catalog: {
     models: (WizardResource & { provider: string; model: string; api_format: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
-    collections: { id: string; name: string; description: string }[];
     servers: (WizardResource & { hostname: string; tags: string[]; ssh_ready: boolean })[];
     environments: WizardResource[];
     documents: { id: string; title: string; description?: string }[];

@@ -5,7 +5,6 @@ export const RESOURCE_KINDS = [
   { key: "services", field: "service_ids", label: "Service", plural: "Services" },
   { key: "environments", field: "environment_ids", label: "Environment", plural: "Environments" },
   { key: "code_projects", field: "code_project_ids", label: "Code project", plural: "Code projects" },
-  { key: "collections", field: "collection_ids", label: "Collection", plural: "Collections" },
   { key: "deployments", field: "deployment_ids", label: "Deployment", plural: "Specific deployments" },
 ] as const;
 
@@ -42,7 +41,7 @@ export const idsOf = <K extends ResourceKey>(
 
 /** What a document links: environments, code projects, services, servers and specific deployments. */
 export const DOCUMENT_KINDS = kindsOf(["environments", "code_projects", "services", "servers", "deployments"]);
-/** What an agent run may be given: servers, services, environments, code projects and collections. */
-export const AGENT_KINDS = kindsOf(["servers", "services", "environments", "code_projects", "collections"]);
+/** What an agent run may be given: servers, services, environments and code projects. */
+export const AGENT_KINDS = kindsOf(["servers", "services", "environments", "code_projects"]);
 export type DocumentKey = (typeof DOCUMENT_KINDS)[number]["key"];
 export type AgentKey = (typeof AGENT_KINDS)[number]["key"];

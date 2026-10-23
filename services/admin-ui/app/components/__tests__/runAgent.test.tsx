@@ -21,7 +21,6 @@ const counts = {
   service: 0,
   environment: 0,
   code_project: 0,
-  collection: 0,
   document: 0,
   skill: 0,
   mcp_server: 0,

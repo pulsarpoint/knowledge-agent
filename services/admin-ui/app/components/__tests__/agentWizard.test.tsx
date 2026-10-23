@@ -21,7 +21,6 @@ const proposal: api.AgentProposal = {
   enabled: true,
   access: {
     resources: [
-      { type: "collection", id: "jira" },
       { type: "code_project", id: "repo" },
       { type: "skill", id: "skill" },
       { type: "mcp_server", id: "mcp" },
@@ -37,7 +36,6 @@ const options: api.WizardOptions = {
   catalog: {
     models: [{ id: "model", name: "Claude", model: "claude-test", provider: "bedrock", api_format: "native" }],
     code_projects: [{ id: "repo", name: "Payments", folder_paths: ["payments"], remote_url: null }],
-    collections: [{ id: "jira", name: "jira-tickets", description: "Jira tickets" }],
     servers: [{ id: "server", name: "Staging", description: "", hostname: "staging.test", tags: [], ssh_ready: true }],
     environments: [{ id: "env", name: "Production", description: "" }],
     documents: [{ id: "doc", title: "Runbook", description: "On-call runbook" }],
@@ -83,14 +81,13 @@ test("generates a reviewable proposal, edits resources (no role switch, no per-d
   await user.clear(screen.getByLabelText("Agent name"));
   await user.type(screen.getByLabelText("Agent name"), "Reviewed agent");
   expect(screen.getByLabelText("Proposed resources")).toHaveTextContent(
-    "1 server · 1 service · 1 code project · 1 collection · 1 document · 1 skill · 1 MCP server",
+    "1 server · 1 service · 1 code project · 1 document · 1 skill · 1 MCP server",
   );
   expect(screen.queryByRole("switch", { name: /editor/i })).toBeNull();
   await user.click(screen.getByRole("tab", { name: "Resources" }));
   const projects = screen.getByRole("group", { name: "Code projects" });
   expect(within(projects).getByRole("checkbox", { name: "Payments" })).toBeChecked();
   await user.click(within(projects).getByRole("checkbox", { name: "Payments" }));
-  expect(screen.getByRole("checkbox", { name: "jira-tickets" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Staging" })).toBeChecked();
   await user.click(screen.getByRole("checkbox", { name: "Production" }));
   expect(screen.queryByRole("switch", { name: "Editable Runbook" })).toBeNull();
@@ -110,7 +107,6 @@ test("generates a reviewable proposal, edits resources (no role switch, no per-d
   expect(sent).not.toHaveProperty("servers");
   for (const field of ["tools", "subagents", "subagent_blocked"]) expect(sent).not.toHaveProperty(field);
   expect(sent.access.resources).toEqual([
-    { type: "collection", id: "jira" },
     { type: "skill", id: "skill" },
     { type: "mcp_server", id: "mcp" },
     { type: "service", id: "service" },

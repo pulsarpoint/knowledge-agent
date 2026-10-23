@@ -3,7 +3,7 @@ same way (run_access).
 
 What the run holds: a saved agent's run its agent's access entries (get_agent_config), an ad-hoc run what it was
 picked (each checked: check_picks), each loaded with what the tools need (config.resource_entries: a server its
-connection, a code project its folders and graph, a collection its paths). What it was given is narrowed out of that
+connection, a code project its folders and graph). What it was given is narrowed out of that
 with access.narrow; the children of what it was given are loaded when it does not hold them (bring: an environment the
 services and servers deployed in it; a service its code projects (built_from) and the servers it is deployed on; a
 server the services deployed on it) and added by access.expand, each 'via <type> <id>' of its direct parent. Skills and MCP servers are not picked:
@@ -34,14 +34,12 @@ class Kind(NamedTuple):
 
 KINDS = (
     Kind('code_project_ids', 'Code project', 'code projects', 'code_project'),
-    Kind('collection_ids', 'Collection', 'document collections', 'collection'),
     Kind('server_ids', 'Server', 'servers', 'server'),
     Kind('service_ids', 'Service', 'services', 'service'),
 )
 # The id, name and whether it can be given now, of the picked resources of one type in this workspace.
 FOUND = {
     'code_project': 'SELECT id,name,archived_at IS NULL AS usable FROM ka.repositories WHERE project_id=%s AND id=ANY(%s)',
-    'collection': 'SELECT id,name,deleted_at IS NULL AS usable FROM ka.rag_collections WHERE project_id=%s AND id=ANY(%s)',
     'server': 'SELECT id,name,ssh_allowed AS usable FROM ka.servers WHERE project_id=%s AND id=ANY(%s)',
     'service': 'SELECT id,name,true AS usable FROM ka.services WHERE project_id=%s AND id=ANY(%s)',
     'environment': 'SELECT id,name,true AS usable FROM ka.environments WHERE project_id=%s AND id=ANY(%s)',
@@ -64,7 +62,7 @@ BUILT_FOR = ('code_project', 'environment', 'service', 'server')
 
 
 def picks(resources: Mapping[str, list] | None) -> list[dict[str, str]]:
-    """Request resources ({code_project_ids, collection_ids, server_ids, service_ids}) as access picks [{type, id}],
+    """Request resources ({code_project_ids, server_ids, service_ids}) as access picks [{type, id}],
     each once, in KINDS order."""
     return [
         {'type': kind.type, 'id': str(item)}
@@ -110,8 +108,8 @@ def bring(
 
 
 def check_picks(conn, project, picked: Iterable[Mapping[str, Any]]) -> None:
-    """ValueError naming the first picked code project, collection, server, service or environment that is not in this
-    workspace or cannot be given now (archived, deleted, SSH not allowed)."""
+    """ValueError naming the first picked code project, server, service or environment that is not in this workspace
+    or cannot be given now (archived, SSH not allowed)."""
     picked = list(picked)
     for type_, query in FOUND.items():
         ids = [str(item['id']) for item in picked if item['type'] == type_]

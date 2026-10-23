@@ -50,19 +50,11 @@ def test_delete_keeps_every_resource_its_access_referenced(store, tmp_path):
         '/api/mcp/servers', headers=HEADERS, json={'name': 'Shared MCP', 'url': 'http://mcp.test/mcp'}
     ).json()
     with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        conn.execute(
-            "INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}') ON CONFLICT DO NOTHING", (project,)
-        )
-        collection = conn.execute(
-            "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'shared') RETURNING id", (project,)
-        ).fetchone()['id']
         credentials = conn.execute('SELECT id,ciphertext FROM ka.credentials ORDER BY id').fetchall()
     references = [
         ('server', server['id']),
         ('service', service['id']),
         ('code_project', repository['id']),
-        ('collection', str(collection)),
         ('skill', skill['id']),
         ('mcp_server', mcp['id']),
     ]
@@ -85,7 +77,6 @@ def test_delete_keeps_every_resource_its_access_referenced(store, tmp_path):
     )
     with store.connect() as conn:
         for table, resource_id in [
-            ('rag_collections', collection),
             ('repositories', repository['id']),
             ('services', service['id']),
             ('agent_skills', skill['id']),

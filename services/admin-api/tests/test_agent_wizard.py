@@ -41,7 +41,6 @@ def wizard(store, saved_agent):
                 {'type': 'server', 'id': server['id']},
                 {'type': 'service', 'id': catalog['services'][0]['id']},
                 {'type': 'code_project', 'id': repo['id']},
-                {'type': 'collection', 'id': next(c['id'] for c in catalog['collections'] if c['name'] == 'payments')},
                 {'type': 'skill', 'id': skill['id']},
                 {'type': 'mcp_server', 'id': mcp['id']},
             ],
@@ -87,7 +86,6 @@ def test_wizard_roundtrip_every_resource(store, wizard):
     held = {(item['type'], item['id']) for item in config['access']['resources']}
     assert held == {(item['type'], item['id']) for item in proposal['access']['resources']}
     assert 'roles' not in config['access']
-    assert [c['name'] for c in of(config, 'collection')] == ['payments']
     server = of(config, 'server')[0]
     assert server['username'] == 'operator'  # the server's own SSH settings
     assert ssh['private_key'] not in json.dumps(config)
@@ -142,10 +140,14 @@ def test_wizard_invalid_proposal_writes_nothing(store, wizard, change):
     assert client.get('/api/agents', headers=HEADERS).json() == before
 
 
+def repo_id(proposal: dict) -> str:
+    return next(r['id'] for r in proposal['access']['resources'] if r['type'] == 'code_project')
+
+
 def test_wizard_rechecks_disabled_resources_before_saving(store, wizard):
     client, _, proposal, _ = wizard
     with store.connect() as conn:
-        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (UUID(repo_id(proposal)),))
     result = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
     assert result.status_code == 400 and 'unavailable' in result.text
     with store.connect() as conn:

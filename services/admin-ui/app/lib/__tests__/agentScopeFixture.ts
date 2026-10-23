@@ -18,7 +18,6 @@ export const agentOptions: AgentOptions = {
     services: [],
     environments: [],
     code_projects: [],
-    collections: [],
     documents: [],
   },
   experts: [{ id: "e1", name: "Payments expert", when_to_use: "Payments questions" }],

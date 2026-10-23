@@ -23,7 +23,6 @@ export const options: AgentOptions = {
     services: [{ id: "v1", name: "Payments", linked: true, brings_code: false, brings_servers: true }],
     environments: [],
     code_projects: [{ id: "c1", name: "Shop", linked: false }],
-    collections: [],
     documents: [{ id: "doc-1", name: "Runbook", linked: true }],
   },
   experts: [{ id: "e1", name: "Payments expert", when_to_use: "Payments questions" }],

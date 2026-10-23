@@ -74,20 +74,6 @@ def saved_agent(store, tmp_path):
     ).json()
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (project,))
-        for name, path in (
-            ('payments', 'payments'),
-            ('runbooks', 'payments/runbooks'),
-            ('payments-old', 'payments-old'),
-            ('private', 'private'),
-        ):
-            collection = conn.execute(
-                'INSERT INTO ka.rag_collections(project_id,name,description) VALUES (%s,%s,%s) RETURNING id',
-                (project, name, f'Description of {path}'),
-            ).fetchone()['id']
-            conn.execute(
-                'INSERT INTO ka.rag_collection_paths(collection_id,source_path) VALUES (%s,%s)', (collection, path)
-            )
         conn.execute(
             "UPDATE ka.repositories SET checkout_path='managed/payments',current_commit=%s WHERE id=%s",
             ('a' * 40, UUID(repo['id'])),
@@ -99,7 +85,6 @@ def saved_agent(store, tmp_path):
             "INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'managed/payments')",
             (UUID(repo['id']), project),
         )
-        payments = conn.execute("SELECT id FROM ka.rag_collections WHERE name='payments'").fetchone()['id']
         give(
             conn,
             'operations',
@@ -107,7 +92,6 @@ def saved_agent(store, tmp_path):
                 ('server', server['id']),
                 ('service', service['id']),
                 ('code_project', repo['id']),
-                ('collection', payments),
                 ('skill', skill['id']),
                 ('mcp_server', mcp['id']),
             ],
@@ -129,9 +113,6 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert config['instructions'] == 'Verify every change.'
     assert config['model']['provider'] == 'bedrock' and config['model']['aws_region'] == 'eu-west-1'
     assert not {'code', 'documents', 'ssh', 'services', 'skills', 'mcp', 'document_access'} & set(config)
-    assert [(c['name'], c['paths'], c['description_short']) for c in of(config, 'collection')] == [
-        ('payments', ['/work/data/payments'], 'Description of payments')
-    ]
     assert of(config, 'code_project') == [
         {
             'type': 'code_project',
@@ -237,7 +218,7 @@ def test_a_server_uses_its_own_ssh_settings(store, saved_agent):
 
 
 def test_missing_items_are_skipped_and_switched_off_ones_stay_listed(store, saved_agent):
-    """The access object decides: an archived code project and a deleted collection it references are skipped; a
+    """The access object decides: an archived code project it references is skipped; a
     server switched off stays listed as it is; a skill or an MCP server switched off is not held (a run never gets
     it)."""
     _, server, _, skill, mcp, repo, _ = saved_agent
@@ -247,10 +228,9 @@ def test_missing_items_are_skipped_and_switched_off_ones_stay_listed(store, save
         conn.execute('UPDATE ka.agent_skills SET enabled=false WHERE id=%s', (UUID(skill['id']),))
         conn.execute('UPDATE ka.mcp_servers SET enabled=false WHERE id=%s', (UUID(mcp['id']),))
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (UUID(repo['id']),))
-        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert not config['enabled']
-    assert of(config, 'code_project') == of(config, 'collection') == []
+    assert of(config, 'code_project') == []
     assert len(of(config, 'service')) == 1
     assert [item['ssh_allowed'] for item in of(config, 'server')] == [False]
     assert of(config, 'skill') == of(config, 'mcp_server') == []
@@ -267,29 +247,19 @@ def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(
     store, saved_agent, tmp_path, monkeypatch
 ):
     monkeypatch.setenv('CODE_ROOT', '/agent/source')
-    monkeypatch.setenv('DATA_ROOT_DIR', '/agent/documents')
     monkeypatch.setenv('DATA_ROOT', '/host/data')  # the host folder is display-only; agents get container paths
     config = get_agent_config('operations', conninfo=store.conninfo)
     monkeypatch.chdir(tmp_path)
     assert get_agent_config('operations', conninfo=store.conninfo) == config
     assert of(config, 'code_project')[0]['folder_paths'] == ['/agent/source/managed/payments']
-    assert of(config, 'collection')[0]['paths'] == ['/agent/documents/payments']
     with store.connect() as conn:
         assert conn.execute('SELECT path FROM ka.code_project_folders').fetchone()['path'] == 'managed/payments'
-        assert (
-            conn.execute("""SELECT p.source_path FROM ka.rag_collection_paths p JOIN ka.rag_collections c ON c.id=p.collection_id
-            WHERE c.name='runbooks'""").fetchone()['source_path']
-            == 'payments/runbooks'
-        )
 
 
-@pytest.mark.parametrize('variable', ['CODE_ROOT', 'DATA_ROOT_DIR'])
 @pytest.mark.parametrize('value', ['', 'relative/root', '/work/../elsewhere'])
-def test_config_requires_absolute_runtime_mounts(store, saved_agent, monkeypatch, variable, value):
-    if variable == 'DATA_ROOT_DIR' and not value:
-        pytest.skip('an empty DATA_ROOT_DIR takes its default')
-    monkeypatch.setenv(variable, value)
-    with pytest.raises(ValueError, match=variable + ' must be an absolute path'):
+def test_config_requires_an_absolute_code_root(store, saved_agent, monkeypatch, value):
+    monkeypatch.setenv('CODE_ROOT', value)
+    with pytest.raises(ValueError, match='CODE_ROOT must be an absolute path'):
         get_agent_config('operations', conninfo=store.conninfo)
 
 

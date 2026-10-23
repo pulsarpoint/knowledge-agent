@@ -37,10 +37,7 @@ ACCESS = {
             built_for=[['server', 's1']],
         ),
     ),
-    'code_and_collection': run(
-        item('code_project', 'c1', 'payments-api', folder_paths=['/code/payments']),
-        item('collection', 'k1', 'payments', paths=['/data/payments']),
-    ),
+    'code': run(item('code_project', 'c1', 'payments-api', folder_paths=['/code/payments'])),
     # a saved agent's skill (skills are always given)
     'skill': run(item('skill', 'k1', 'inspect')),
     # a run on an environment (its server and service come with it): it may write drafts
@@ -55,7 +52,6 @@ ACCESS = {
         item('service', 'v9', 'other'),
         item('environment', 'e9', 'staging'),
         item('code_project', 'c9', 'other-code'),
-        item('collection', 'k9', 'private'),
         item('document', 'd9', 'Other doc'),
         item('skill', 'k9', 'other-skill'),
     ),
@@ -105,7 +101,6 @@ ARGS = {
     'save_inventory_draft': {'environment': 'prod'},
 }
 
-NO_FILES = 'This run has no code projects or collections.'
 NO_CODE = 'This run has no code projects.'
 NO_SERVERS = 'This run has no servers.'
 NO_DOCUMENTS = 'This run has no documents.'
@@ -132,8 +127,7 @@ def some(names, value) -> dict:
     return dict.fromkeys(names, value)
 
 
-FILES = row(NO_FILES, code_and_collection=None, other=None)
-CODE = row(NO_CODE, code_and_collection=None, other=None)
+CODE = row(NO_CODE, code=None, other=None)  # the file and shell tools too: they read the code projects' folders
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
 # usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
 USE = row(
@@ -146,13 +140,13 @@ USE = row(
 ALWAYS = row(None)
 
 EXPECTED = {
-    'list_files': FILES,
-    'read_file': FILES,
-    'search_files': FILES,
-    'shell_run': FILES,
+    'list_files': CODE,
+    'read_file': CODE,
+    'search_files': CODE,
+    'shell_run': CODE,
     'code_search': CODE,
     'ast_grep': CODE,
-    'code_graph': row(NO_CODE, code_and_collection=None, other=NOT_CODE),
+    'code_graph': row(NO_CODE, code=None, other=NOT_CODE),
     'search_documents': ALWAYS,  # the search keeps to the documents the run may read (test_document_search)
     'ssh_run': SERVER_ROW,
     'get_available_resources': ALWAYS,
@@ -247,5 +241,5 @@ def test_a_subagent_given_all_of_its_parents_resources_is_allowed():
     from knowledge_admin.capabilities.subagents import check_run_subagent
 
     assert check_run_subagent(ACCESS['empty'], resources=None) is None
-    assert check_run_subagent(ACCESS['code_and_collection'], resources={'collection_ids': ['k1']}) is None
-    assert check_run_subagent(ACCESS['code_and_collection'], resources={'code_project_ids': ['c9']}) == NOT_CODE
+    assert check_run_subagent(ACCESS['code'], resources={'code_project_ids': ['c1']}) is None
+    assert check_run_subagent(ACCESS['code'], resources={'code_project_ids': ['c9']}) == NOT_CODE

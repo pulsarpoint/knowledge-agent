@@ -1,9 +1,7 @@
-"""Read and search the agent's selected code/document folders and workspace."""
+"""Read and search the folders of the run's code projects and its workspace."""
 
 import asyncio
 import json
-import logging
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated
 
@@ -14,31 +12,17 @@ from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
-logger = logging.getLogger(__name__)
-
 
 def mounted(path: Path) -> bool:
     """An absolute, canonical path to an existing directory."""
     return path.is_absolute() and path.resolve() == path and path.is_dir()
 
 
-def available_documents(paths: Iterable[Path]) -> list[Path]:
-    """Document collection paths that are mounted. A collection path may be missing (e.g. until its
-    source writes it); it is skipped with a warning instead of disabling the agent."""
-    available = []
-    for path in paths:
-        if mounted(path):
-            available.append(path)
-        else:
-            logger.warning('Skipping unavailable document collection folder: %s', path)
-    return available
-
-
 def _roots(context: RunContext) -> list[Path]:
-    """The workspace and the folders of the run's code projects and collections (their access entries)."""
+    """The workspace and the folders of the run's code projects (their access entries)."""
     config = context['config']
     access = config['access']
-    paths = [context['workspace']]  # the workspace and code folders must be mounted
+    paths = [context['workspace']]  # the workspace and the code folders must be mounted
     paths.extend(
         Path(path)
         for project in access_rules.entries(access, 'code_project')
@@ -47,18 +31,13 @@ def _roots(context: RunContext) -> list[Path]:
     for path in paths:
         if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
-    paths.extend(
-        available_documents(
-            Path(path) for item in access_rules.entries(access, 'collection') for path in item.get('paths', [])
-        )
-    )
     return list(dict.fromkeys(paths))
 
 
 def check_list_files(access: dict, **_) -> str | None:
     """None when allowed, else the refusal text. Which paths: _path, inside the folders of these entries."""
-    if not access_rules.has_any(access, 'code_project') and not access_rules.has_any(access, 'collection'):
-        return access_rules.refuse_none('code_project', 'collection')
+    if not access_rules.has_any(access, 'code_project'):
+        return access_rules.refuse_none('code_project')
     return None
 
 

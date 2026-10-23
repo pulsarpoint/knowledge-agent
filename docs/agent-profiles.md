@@ -10,15 +10,16 @@ inherited from another agent. Agents share these tabs:
 | Tab | Configuration |
 | --- | --- |
 | General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
-| Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
+| Resources | The agent's resources grouped by type (servers, services, environments, code projects, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
 | Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
 Other `?view=` values (including the former `tools`) open General.
 
 **Access.** What an agent may use is one access object, `ka.agents.access`:
 `{"resources": [{"type", "id"}]}`. Types are `server`, `service`,
-`environment`, `code_project`, `collection`, `document`, `skill` and `mcp_server`; only references are stored (names,
-descriptions and paths are loaded at run start). There are no roles and no per-document `editable` flag: every run may
+`environment`, `code_project`, `document`, `skill` and `mcp_server`; only references are stored (names,
+descriptions and paths are loaded at run start). The `collection` type is gone: a stored `collection` reference is
+ignored when the agent is read (not shown, not loaded, not counted) until migration 0134 deletes it. There are no roles and no per-document `editable` flag: every run may
 draft the documents it may read and new documents for its servers, services and environments (see
 [documentation](documentation.md#document-tools)); an older object's `roles` or `editable` keys are ignored. The agent's instructions are
 `ka.agents.instructions`. Every run narrows the access object: it gets all of it, or the resources the request picks
@@ -72,7 +73,7 @@ chat settings (`expert_ids` in the start request). There is no per-agent choice 
 Agents → New agent designs a specialist from a role description. Choose
 an enabled model connection, then generate a proposal with the official Agents SDK.
 The designer receives the agent JSON schema and current resource metadata:
-code projects and their mapped folders, collections, documents, servers,
+code projects and their mapped folders, documents, servers,
 environments, skills, MCP servers, services, model connections, and existing
 agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.

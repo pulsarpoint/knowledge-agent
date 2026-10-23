@@ -43,7 +43,6 @@ test("the calls use /api/sessions", async () => {
       service_ids: [],
       environment_ids: [],
       code_project_ids: [],
-      collection_ids: [],
       documents: [],
     },
     expert_ids: [],

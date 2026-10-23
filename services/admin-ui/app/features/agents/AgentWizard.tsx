@@ -121,8 +121,6 @@ function catalogList(catalog: WizardOptions["catalog"], type: AccessType): Wizar
         ...p,
         description: [p.description, p.folder_paths.join(", "), p.remote_url].filter(Boolean).join(" · "),
       }));
-    case "collection":
-      return catalog.collections;
     case "document":
       return catalog.documents.map((d) => ({ id: d.id, name: d.title, description: d.description }));
     case "skill":
@@ -319,7 +317,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                     {(
                       [
                         ["Code projects", catalog.code_projects.length],
-                        ["Collections", catalog.collections.length],
                         ["Documents", catalog.documents.length],
                         ["Servers", catalog.servers.length],
                         ["Environments", catalog.environments.length],

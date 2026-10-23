@@ -39,7 +39,7 @@ def folders(tmp_path):
     return {name: (tmp_path / name).resolve() for name in ('workspace', 'given', 'other')}
 
 
-def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
+def run_context(folders, *, code=(), servers=()) -> dict:
     """A run's tool context: its access object holds exactly the run's resources."""
     host = entry(
         'server',
@@ -55,7 +55,6 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         private_key_ref={'id': 'key'},
     )
     entries = [entry('code_project', 'given', 'Given', folder_paths=[str(folders['given'])])] if 'given' in code else []
-    entries += [entry('collection', '1', 'payments', paths=[])] if 'payments' in collections else []
     entries += [host] if 'host' in servers else []
     config = {
         'id': 'analyst',
@@ -82,9 +81,9 @@ def test_file_and_code_tools_reach_only_the_given_code_projects(folders):
 def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeypatch):
     monkeypatch.setenv('AGENT_SHELL_URL', 'http://shell.invalid')  # refused before any request
     context = run_context(folders)
-    files, code = access_rules.refuse_none('code_project', 'collection'), access_rules.refuse_none('code_project')
-    assert invoke(list_files, context) == files
-    assert invoke(shell_run, context, command='ls /') == files
+    code = access_rules.refuse_none('code_project')  # the file and shell tools read the code projects' folders
+    assert invoke(list_files, context) == code
+    assert invoke(shell_run, context, command='ls /') == code
     assert invoke(code_search, context, path=str(folders['given']), language='Python', name='given') == code
     assert invoke(ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN) == code
     assert invoke(code_graph, context, project_id='given') == code
