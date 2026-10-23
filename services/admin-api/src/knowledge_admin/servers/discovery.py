@@ -151,7 +151,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             ]
             deployments = conn.execute(
                 """SELECT d.id,d.service_id,s.name AS service_name,e.name AS environment,
-                d.runtime,d.runtime_name,d.port,d.deployed_version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
+                d.runtime,d.runtime_name,d.port,d.deployed_version,d.status,d.revision FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
                 JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
                 ORDER BY lower(s.name),environment,d.runtime_name""",
                 (server_id,),

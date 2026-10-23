@@ -1,6 +1,7 @@
 """Diagrams of a system graph view (inventory_map.build_view): Mermaid and D2 text, and an SVG drawn by the d2 binary.
 Keys are generated (n1, n2, …); names only ever appear as escaped, quoted labels, so a node name cannot add shapes,
-edges, variables or imports. No icons, links or imports are emitted, so d2 never fetches anything."""
+edges, variables or imports. No icons, links or imports are emitted, so d2 never fetches anything. Drafts (`draft: true`
+on a node or edge) are drawn dashed."""
 
 import shutil
 import subprocess
@@ -66,11 +67,14 @@ def d2(view: dict) -> str:
         inner = children.get(node['id'], [])
         if inner:
             lines.append(f'{indent}{key[node["id"]]}: {d2_string(node["name"])} {{')
+            if node.get('draft'):
+                lines.append(f'{indent}  style.stroke-dash: 4')
             for child in inner:
                 place(child, name, indent + '  ')
             lines.append(f'{indent}}}')
         else:
-            lines.append(f'{indent}{key[node["id"]]}: {d2_string(node["name"])} {{shape: {_shape(node)}}}')
+            dash = '; style.stroke-dash: 4' if node.get('draft') else ''
+            lines.append(f'{indent}{key[node["id"]]}: {d2_string(node["name"])} {{shape: {_shape(node)}{dash}}}')
 
     for node in children.get(None, []):
         place(node, '', '')
@@ -82,6 +86,8 @@ def d2(view: dict) -> str:
         lines.append('}')
     for edge in view['edges']:
         style = ' {style.stroke-dash: 3}' if edge['type'] in RELATIONS else ''
+        if edge.get('draft'):
+            style = ' {style.stroke-dash: 4}'
         lines.append(f'{where[edge["from"]]} -> {where[edge["to"]]}: {d2_string(_label(edge))}{style}')
     return ''.join(line + '\n' for line in lines)
 
@@ -108,11 +114,15 @@ def mermaid(view: dict) -> str:
         lines += [f'    {key[node["id"]]}[{mermaid_string(node["name"])}]' for node in view['boundary']]
         lines.append('  end')
     for edge in view['edges']:
-        arrow = '-.->' if edge['type'] in RELATIONS else '-->'
+        arrow = '-.->' if edge['type'] in RELATIONS or edge.get('draft') else '-->'
         lines.append(f'  {key[edge["from"]]} {arrow}|{mermaid_string(_label(edge))}| {key[edge["to"]]}')
     if view['boundary']:
         lines.append('  classDef boundary stroke-dasharray: 4 4')
         lines.append('  class ' + ','.join(key[node['id']] for node in view['boundary']) + ' boundary')
+    drafts = [key[node['id']] for node in [*view['nodes'], *view['boundary']] if node.get('draft')]
+    if drafts:
+        lines.append('  classDef draft stroke-dasharray: 4 4')
+        lines.append('  class ' + ','.join(drafts) + ' draft')
     return ''.join(line + '\n' for line in lines)
 
 

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
-import { createItem, deploymentLabels, isStale, updateItem, type Connection } from "./inventory";
+import { createItem, deploymentLabels, draftsUsed, isStale, updateItem, type Connection } from "./inventory";
+import { DraftsUsed } from "./ConfirmDraftSheet";
 import type { ServiceAsset } from "./services";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -82,9 +83,18 @@ export default function AddConnectionDialog({
     }))
     .sort(byLabel);
 
+  const [kind, id] = [target.slice(0, target.indexOf(":")), target.slice(target.indexOf(":") + 1)];
+  // A person's saved connection is confirmed (an edited draft stays a draft): the drafts it uses are confirmed with it.
+  const uses =
+    connection?.status === "draft"
+      ? []
+      : draftsUsed(services, {
+          deployments: [fromId, kind === "deployment" ? id : null],
+          services: [kind === "service" ? id : null],
+        });
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const [kind, id] = [target.slice(0, target.indexOf(":")), target.slice(target.indexOf(":") + 1)];
     setSaving(true);
     setError(null);
     try {
@@ -279,6 +289,7 @@ export default function AddConnectionDialog({
               </Field>
             </FieldGroup>
           </FieldSet>
+          <DraftsUsed names={uses} />
           <div className="flex gap-2">
             <Button disabled={saving || !fromId || !target}>
               {saving && <Spinner data-icon="inline-start" />}

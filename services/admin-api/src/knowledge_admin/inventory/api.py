@@ -12,7 +12,8 @@ DELETE removes it (204; 400 while the server has deployments there, 404 when it 
 
 Drafts: POST /inventory/{kind}/{id}/confirm confirms a draft with every draft it needs, POST .../discard deletes it with
 every draft that needs it; the body is {revision} (the revision read; a membership, id <environment id>:<server id>, has
-none). One transaction; the response lists the entries reached {confirmed|discarded: [{kind, id, name}]}."""
+none). One transaction; the response lists the entries reached {confirmed|discarded: [{kind, id, name}]}. With
+?dry_run=1 the same list comes back and the transaction is rolled back: nothing changes."""
 
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -54,6 +55,14 @@ LINK_FIELDS = {kind: f'{column[:-3]}_ids' for kind, column in ENTRY_COLUMNS.item
 STALE_REVISION = 'STALE_REVISION'  # the 409 code of a stale revision (store.Stale); other 409s carry no code
 ALREADY_LINKED = 'This document is already linked.'
 NOT_LINKED = 'This document is not linked.'
+
+
+class DryRun(Exception):
+    """Raised inside a confirm or discard transaction to roll it back, carrying the entries it reached."""
+
+    def __init__(self, entries: list[dict]):
+        super().__init__('dry run')
+        self.entries = entries
 
 
 class Revision(BaseModel):
@@ -150,21 +159,37 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
             ),
         )
 
+    def reach(request: Request, action: Callable, dry_run: bool) -> list[dict]:
+        """Confirm or discard; a dry run lists what it would reach and rolls the transaction back."""
+
+        def change(conn, project_id, author):
+            entries = action(conn, project_id, author)
+            if dry_run:
+                raise DryRun(entries)
+            return entries
+
+        try:
+            return write(request, change)
+        except DryRun as exc:
+            return exc.entries
+
     @router.post('/inventory/{kind}/{item_id}/confirm')
-    def confirm(kind: DraftKind, item_id: str, value: Revision, request: Request) -> dict:
+    def confirm(kind: DraftKind, item_id: str, value: Revision, request: Request, dry_run: bool = False) -> dict:
         return {
-            'confirmed': write(
+            'confirmed': reach(
                 request,
                 lambda conn, project_id, author: store.confirm(conn, project_id, kind, item_id, value.revision, author),
+                dry_run,
             )
         }
 
     @router.post('/inventory/{kind}/{item_id}/discard')
-    def discard(kind: DraftKind, item_id: str, value: Revision, request: Request) -> dict:
+    def discard(kind: DraftKind, item_id: str, value: Revision, request: Request, dry_run: bool = False) -> dict:
         return {
-            'discarded': write(
+            'discarded': reach(
                 request,
                 lambda conn, project_id, author: store.discard(conn, project_id, kind, item_id, value.revision, author),
+                dry_run,
             )
         }
 

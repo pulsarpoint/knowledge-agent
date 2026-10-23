@@ -1,6 +1,7 @@
 import { request } from "~/lib/api";
 import type { ServiceType, ServiceRole } from "./serviceClassification";
 import type { ServerAsset } from "./api";
+import type { Status } from "./inventory";
 
 export interface ServiceRepository {
   id: string;
@@ -38,6 +39,7 @@ export interface ServiceDeployment {
   port: number | null;
   log_location: string;
   deployed_version: string;
+  status: Status;
   server: ServerAsset;
 }
 export interface ServiceAsset {
@@ -49,6 +51,7 @@ export interface ServiceAsset {
   description: string;
   owner: string;
   address: string | null;
+  status: Status;
   revision: number;
   created_at: string;
   updated_at: string;

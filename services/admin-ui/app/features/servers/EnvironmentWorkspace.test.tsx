@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import type { EnvironmentModel } from "./environments";
+import type { Status } from "./inventory";
 import { serviceAsset, serviceDeployment } from "~/lib/__tests__/serviceFixture";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
 
@@ -14,6 +15,7 @@ const deployment = (id: string, service_id: string, service_name: string, port: 
   port,
   version: "1.4",
   log_location: "",
+  status: "confirmed" as Status,
   revision: 1,
 });
 const server = (id: string, name: string, deployments: ReturnType<typeof deployment>[]) => ({
@@ -22,12 +24,14 @@ const server = (id: string, name: string, deployments: ReturnType<typeof deploym
   hostname: `${name}.internal`,
   description: "",
   tags: [],
+  status: "confirmed" as Status,
+  membership_status: "confirmed" as Status,
   revision: 1,
   deployments,
 });
 function model(): EnvironmentModel {
   return {
-    environment: { id: "e1", name: "prod", description: "", revision: 1 },
+    environment: { id: "e1", name: "prod", description: "", status: "confirmed", revision: 1 },
     servers: [
       server("s1", "app-1", [deployment("d1", "v1", "payments-api", 8000), deployment("d2", "v2", "nginx", 80)]),
       server("s3", "cache-1", []),
@@ -37,6 +41,7 @@ function model(): EnvironmentModel {
     relations: [],
     external: [],
     external_services: [],
+    drafts: 0,
   };
 }
 
@@ -213,4 +218,94 @@ test("column 3 is the service panel; a change there reloads the workspace", asyn
   expect(service.getByRole("link", { name: "Service page" })).toHaveAttribute("href", "/services/v1");
   await user.click(service.getByRole("button", { name: "Remove the deployment here" }));
   await vi.waitFor(() => expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2));
+});
+
+/** app-1 is confirmed with payments-api confirmed and nginx a draft deployment; cache-1 is a draft server, put in the
+ * environment by a draft membership. */
+function drafted(): EnvironmentModel {
+  const value = model();
+  value.servers[0].deployments[1].status = "draft";
+  value.servers[1] = { ...value.servers[1], status: "draft", membership_status: "draft", revision: 2 };
+  value.drafts = 3;
+  return value;
+}
+
+test("drafts carry a Draft badge with Confirm and Discard; a server row confirms its membership", async () => {
+  const user = userEvent.setup();
+  let current = drafted();
+  const calls = api({
+    "GET /api/environments/e1/model": () => [200, current],
+    "POST /api/inventory/membership/e1%3As3/confirm?dry_run=1": () => [
+      200,
+      {
+        confirmed: [
+          { kind: "membership", id: "e1:s3", name: "cache-1 in prod" },
+          { kind: "server", id: "s3", name: "cache-1" },
+        ],
+      },
+    ],
+    "POST /api/inventory/membership/e1%3As3/confirm": () => {
+      current = model();
+      return [200, { confirmed: [] }];
+    },
+    "POST /api/inventory/server/s3/discard?dry_run=1": () => [200, { discarded: [] }],
+  });
+  const onChanged = vi.fn();
+  show("?server=s1", onChanged);
+  const servers = within(await screen.findByRole("region", { name: "Servers" }));
+  expect(servers.getByRole("button", { name: /^cache-1/ })).toHaveTextContent("Draft");
+  expect(servers.getByRole("button", { name: /^app-1/ })).not.toHaveTextContent("Draft");
+  const services = within(screen.getByRole("region", { name: "Services on app-1" }));
+  expect(services.getByRole("button", { name: /^nginx/ })).toHaveTextContent("Draft");
+  expect(services.getByRole("button", { name: "Confirm nginx" })).toBeInTheDocument();
+  expect(services.queryByRole("button", { name: "Confirm payments-api" })).not.toBeInTheDocument();
+
+  // Discard acts on the draft server itself (taking its membership with it).
+  await user.click(servers.getByRole("button", { name: "Discard cache-1" }));
+  expect(await screen.findByRole("dialog", { name: "Discard cache-1?" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  await user.click(servers.getByRole("button", { name: "Confirm cache-1" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Confirm cache-1?" }));
+  expect(await sheet.findByText("cache-1")).toBeInTheDocument();
+  await user.click(sheet.getByRole("button", { name: "Confirm" }));
+  await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+  await vi.waitFor(() => expect(screen.getByRole("button", { name: /^cache-1/ })).not.toHaveTextContent("Draft"));
+  expect(calls.find((call) => call.key === "POST /api/inventory/membership/e1%3As3/confirm")?.body).toEqual({
+    revision: null,
+  });
+});
+
+test("the filter shows all, only confirmed entries or only drafts; it lives in ?drafts=", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/environments/e1/model": () => [200, drafted()] });
+  show("?server=s1");
+  const servers = within(await screen.findByRole("region", { name: "Servers" }));
+  const filter = screen.getByRole("tablist", { name: "Show" });
+  expect(within(filter).getByRole("tab", { name: "All" })).toHaveAttribute("aria-selected", "true");
+
+  await user.click(within(filter).getByRole("tab", { name: "Drafts" }));
+  expect(where()).toBe("?server=s1&drafts=only");
+  // app-1 stays: it holds a draft deployment.
+  expect(servers.getAllByRole("button", { name: /^(app-1|cache-1)/ }).map((b) => b.textContent)).toHaveLength(2);
+  const services = within(screen.getByRole("region", { name: "Services on app-1" }));
+  expect(services.queryByRole("button", { name: /^payments-api/ })).not.toBeInTheDocument();
+  expect(services.getByRole("button", { name: /^nginx/ })).toBeInTheDocument();
+
+  await user.click(within(filter).getByRole("tab", { name: "Confirmed" }));
+  expect(where()).toBe("?server=s1&drafts=none");
+  expect(servers.queryByRole("button", { name: /^cache-1/ })).not.toBeInTheDocument();
+  expect(services.getByRole("button", { name: /^payments-api/ })).toBeInTheDocument();
+  expect(services.queryByRole("button", { name: /^nginx/ })).not.toBeInTheDocument();
+
+  await user.click(within(filter).getByRole("tab", { name: "All" }));
+  expect(where()).toBe("?server=s1");
+});
+
+test("Add service on a draft server says saving confirms the server and its membership", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/environments/e1/model": () => [200, drafted()], "GET /api/services": () => [200, { services: [] }] });
+  show("?server=s3");
+  await user.click(await screen.findByRole("button", { name: "Add service" }));
+  expect(await screen.findByText("Saving confirms the drafts it uses: cache-1, cache-1 in prod.")).toBeInTheDocument();
 });

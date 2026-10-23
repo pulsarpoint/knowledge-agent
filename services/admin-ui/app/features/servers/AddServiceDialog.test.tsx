@@ -13,6 +13,7 @@ const asset = (id: string, name: string): ServiceAsset => ({
   description: "",
   owner: "",
   address: null,
+  status: "confirmed",
   revision: 1,
   service_type: "custom",
   service_role: "application",
@@ -179,13 +180,26 @@ function Where() {
 test("the workspace's Add service reloads the model and selects the service", async () => {
   const user = userEvent.setup();
   const base: EnvironmentModel = {
-    environment: { id: "e1", name: "prod", description: "", revision: 1 },
-    servers: [{ id: "s1", name: "app-1", hostname: "", description: "", tags: [], revision: 1, deployments: [] }],
+    environment: { id: "e1", name: "prod", description: "", status: "confirmed", revision: 1 },
+    servers: [
+      {
+        id: "s1",
+        name: "app-1",
+        hostname: "",
+        description: "",
+        tags: [],
+        status: "confirmed",
+        membership_status: "confirmed",
+        revision: 1,
+        deployments: [],
+      },
+    ],
     services: [],
     connections: [],
     relations: [],
     external: [],
     external_services: [],
+    drafts: 0,
   };
   let current = base;
   const calls = api({
@@ -207,6 +221,7 @@ test("the workspace's Add service reloads the model and selects the service", as
                 port: null,
                 version: "",
                 log_location: "",
+                status: "confirmed",
                 revision: 1,
               },
             ],
@@ -234,4 +249,22 @@ test("the workspace's Add service reloads the model and selects the service", as
   expect(await screen.findByRole("region", { name: "payments-api" })).toBeInTheDocument();
   expect(screen.getByTestId("where")).toHaveTextContent("?server=s1&service=v1");
   expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2);
+});
+
+test("deploying a draft service on a draft placement says saving confirms them", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/services": () => [200, { services: [services[0], { ...services[1], status: "draft" }] }] });
+  render(
+    <AddServiceDialog
+      environmentId="e1"
+      server={{ id: "s1", name: "app-1" }}
+      uses={["app-1 in prod"]}
+      onAdded={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.getByText("Saving confirms the drafts it uses: app-1 in prod.")).toBeInTheDocument();
+  await user.click(await screen.findByRole("combobox", { name: "Service" }));
+  await user.click(screen.getByRole("option", { name: "payments-api" }));
+  expect(screen.getByText("Saving confirms the drafts it uses: app-1 in prod, payments-api.")).toBeInTheDocument();
 });

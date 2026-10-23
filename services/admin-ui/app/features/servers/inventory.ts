@@ -6,6 +6,8 @@ import type { ServiceAsset } from "./services";
  * 409s, such as a duplicate, have no code and their own message). */
 export type ItemKind = "servers" | "services" | "environments" | "deployments" | "connections" | "relations";
 export type RelationKind = "depends_on" | "part_of" | "built_from";
+/** Every inventory entry is confirmed or a draft (written by an agent; a person confirms or discards it). */
+export type Status = "draft" | "confirmed";
 /** Whether a write was refused because the item changed since it was read. */
 export const isStale = (e: unknown) => e instanceof ApiError && e.status === 409 && e.code === "STALE_REVISION";
 
@@ -19,6 +21,7 @@ export interface Deployment {
   port: number | null;
   log_location: string;
   deployed_version: string;
+  status: Status;
   revision: number;
 }
 /** A network connection from a deployment to another deployment, an external service or an external host. */
@@ -31,6 +34,7 @@ export interface Connection {
   port: number | null;
   protocol: string;
   description: string;
+  status: Status;
   revision: number;
 }
 /** A service relation: depends_on and part_of point at a service, built_from at a code project. */
@@ -41,11 +45,12 @@ export interface Relation {
   to_service_id: string | null;
   to_code_project_id: string | null;
   description: string;
+  status: Status;
   revision: number;
 }
-export type DeploymentValue = Omit<Deployment, "id" | "revision">;
-export type ConnectionValue = Omit<Connection, "id" | "revision">;
-export type RelationValue = Omit<Relation, "id" | "revision">;
+export type DeploymentValue = Omit<Deployment, "id" | "revision" | "status">;
+export type ConnectionValue = Omit<Connection, "id" | "revision" | "status">;
+export type RelationValue = Omit<Relation, "id" | "revision" | "status">;
 
 const send = (method: string, body: unknown): RequestInit => ({
   method,
@@ -68,6 +73,25 @@ export const getServiceRelations = (id: string, signal?: AbortSignal) =>
 /** Outgoing and incoming connections of the service's deployments. */
 export const getServiceConnections = (id: string, signal?: AbortSignal) =>
   request<{ connections: Connection[] }>(`${at("services", id)}/connections`, { signal });
+
+/** What Confirm and Discard act on; a membership's id is `<environment id>:<server id>`. */
+export type DraftKind = "environment" | "server" | "service" | "deployment" | "connection" | "relation" | "membership";
+/** An entry Confirm or Discard reached, named as people read it ("cache on app-1 in prod", "app-1 in prod"). */
+export interface Reached {
+  kind: DraftKind;
+  id: string;
+  name: string;
+}
+export const membershipId = (environmentId: string, serverId: string) => `${environmentId}:${serverId}`;
+const draftUrl = (action: "confirm" | "discard", kind: DraftKind, id: string, dryRun: boolean) =>
+  `/api/inventory/${kind}/${encodeURIComponent(id)}/${action}${dryRun ? "?dry_run=1" : ""}`;
+/** Confirms the draft with every draft it needs; a dry run lists them and changes nothing. A membership has no
+ * revision (null). */
+export const confirmDraft = (kind: DraftKind, id: string, revision: number | null, dryRun = false) =>
+  request<{ confirmed: Reached[] }>(draftUrl("confirm", kind, id, dryRun), send("POST", { revision }));
+/** Deletes the draft with every draft that needs it; a dry run lists them and changes nothing. */
+export const discardDraft = (kind: DraftKind, id: string, revision: number | null, dryRun = false) =>
+  request<{ discarded: Reached[] }>(draftUrl("discard", kind, id, dryRun), send("POST", { revision }));
 
 /** One write to apply: a create (no id), an update (id, revision, changes) or a delete (id, revision). `key` names the
  * form row a created item belongs to. */
@@ -153,6 +177,26 @@ export function relationChanges(saved: Relation[], wanted: RelationValue[]): Cha
       });
   }
   return changes;
+}
+
+/** The names of the drafts a person's save confirms with it (a confirmed entry never needs a draft): each named
+ * deployment that is a draft, with its draft service and server, and each named draft service; once each. */
+export function draftsUsed(
+  services: ServiceAsset[],
+  named: { deployments?: (string | null)[]; services?: (string | null)[] },
+): string[] {
+  const names = new Set<string>();
+  for (const service of services)
+    for (const deployment of service.deployments) {
+      if (!named.deployments?.includes(deployment.id)) continue;
+      if (deployment.status === "draft")
+        names.add(`${service.name} on ${deployment.server.name} (${deployment.environment})`);
+      if (service.status === "draft") names.add(service.name);
+      if (deployment.server.status === "draft") names.add(deployment.server.name);
+    }
+  for (const service of services)
+    if (named.services?.includes(service.id) && service.status === "draft") names.add(service.name);
+  return [...names];
 }
 
 /** A deployment as people read it: "api on web-1 (prod)". */

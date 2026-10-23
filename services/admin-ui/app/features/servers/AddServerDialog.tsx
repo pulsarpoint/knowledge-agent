@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { getServers, saveServer, type ServerAsset } from "./api";
 import { addServerToEnvironment } from "./environments";
+import { DraftsUsed } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
@@ -13,15 +14,18 @@ import { Textarea } from "~/components/ui/textarea";
 
 const NEW = "new";
 
-/** Puts a server in the environment: one that is not in it yet, or a new one (created first). */
+/** Puts a server in the environment: one that is not in it yet, or a new one (created first). `uses`: the names of the
+ * drafts the environment brings (itself when it is a draft); saving confirms them and a chosen draft server. */
 export default function AddServerDialog({
   environmentId,
   memberIds,
+  uses = [],
   onAdded,
   onClose,
 }: {
   environmentId: string;
   memberIds: string[];
+  uses?: string[];
   onAdded: (serverId: string) => void;
   onClose: () => void;
 }) {
@@ -50,6 +54,9 @@ export default function AddServerDialog({
   const candidates = (servers ?? [])
     .filter((server) => !memberIds.includes(server.id))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  const chosen = candidates.find((server) => server.id === choice);
+  const drafts = [...uses, ...(chosen?.status === "draft" ? [chosen.name] : [])];
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -145,6 +152,7 @@ export default function AddServerDialog({
               )}
             </FieldGroup>
           </FieldSet>
+          <DraftsUsed names={drafts} />
           <div className="flex gap-2">
             <Button disabled={saving || !choice}>
               {saving && <Spinner data-icon="inline-start" />}

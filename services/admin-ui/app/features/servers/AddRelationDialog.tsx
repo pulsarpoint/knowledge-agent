@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { getRepositories } from "~/features/codeProjects/api";
-import { createItem, type RelationKind } from "./inventory";
+import { createItem, draftsUsed, type RelationKind } from "./inventory";
+import { DraftsUsed } from "./ConfirmDraftSheet";
 import type { ServiceAsset } from "./services";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -54,6 +55,7 @@ export default function AddRelationDialog({
       : services.filter((service) => service.id !== serviceId).map(({ id, name }) => ({ id, name }))
   ).sort((a, b) => a.name.localeCompare(b.name));
   const service = services.find((item) => item.id === serviceId)?.name ?? "this service";
+  const uses = draftsUsed(services, { services: [serviceId, codeProject ? null : target] });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -147,6 +149,7 @@ export default function AddRelationDialog({
               </Field>
             </FieldGroup>
           </FieldSet>
+          <DraftsUsed names={uses} />
           <div className="flex gap-2">
             <Button disabled={saving || !target}>
               {saving && <Spinner data-icon="inline-start" />}

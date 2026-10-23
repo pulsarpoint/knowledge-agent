@@ -217,3 +217,28 @@ def test_connection_edges_draw_their_label_in_d2_and_mermaid():
     assert 'outside.n4 -> n3: "depends on" {' in render.d2(view)
     assert 'n2 -->|"connects to postgres:5432"| n3' in render.mermaid(view)
     assert 'n4 -->|"connects to a, #34;b#34; +2 ×2"| n1' in render.mermaid(view)
+
+
+def test_drafts_are_drawn_dashed():
+    view = {
+        **VIEW,
+        'nodes': [{**VIEW['nodes'][0], 'draft': True}, *VIEW['nodes'][1:], {**node('cache', 'cache'), 'draft': True}],
+        'boundary': [],
+        'edges': [
+            {'from': 'match', 'to': 'store', 'type': 'connects_to', 'count': 1, 'ids': ['a'], 'draft': True},
+            {'from': 'cache', 'to': 'store', 'type': 'connects_to', 'count': 1, 'ids': ['b']},
+        ],
+    }
+    assert render.d2(view).splitlines() == [
+        'n1: "Event processor" {',
+        '  style.stroke-dash: 4',
+        '  n2: "matching" {shape: rectangle}',
+        '}',
+        'n3: "events table" {shape: cylinder}',
+        'n4: "cache" {shape: rectangle; style.stroke-dash: 4}',
+        'n1.n2 -> n3: "connects to" {style.stroke-dash: 4}',
+        'n4 -> n3: "connects to"',
+    ]
+    lines = render.mermaid(view).splitlines()
+    assert '  n2 -.->|"connects to"| n3' in lines and '  n4 -->|"connects to"| n3' in lines
+    assert lines[-2:] == ['  classDef draft stroke-dasharray: 4 4', '  class n1,n4 draft']

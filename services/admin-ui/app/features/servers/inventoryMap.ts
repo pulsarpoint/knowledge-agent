@@ -50,6 +50,8 @@ export interface ViewNode {
   expandable: boolean;
   internal_edges: number;
   documents: GraphDocument[];
+  /** Present (true) when its entry is a draft; drawn dashed. */
+  draft?: true;
 }
 /** A node outside the view: an entry, an external service a connection reaches (kind "external_service", opened as
  * the service it is: entry_kind "service"), or an external host (not an entry: nothing to open). */
@@ -59,6 +61,7 @@ export interface BoundaryNode {
   kind: EntryKind | "external_service" | "external_host";
   entry_kind: EntryKind | "external_host";
   entry_id: string;
+  draft?: true;
 }
 /** An edge: connections ("connects_to") or service relations, with the ids of the connections or relations drawn. */
 export interface ViewEdge {
@@ -69,6 +72,8 @@ export interface ViewEdge {
   ids: string[];
   /** A connection's `protocol:port`; a rolled-up line lists the distinct ones (at most 3, then `+N`). */
   label?: string;
+  /** Present (true) when every connection or relation drawn is a draft. */
+  draft?: true;
 }
 export interface Crumb {
   id: string;
@@ -116,6 +121,8 @@ export interface MapState {
   depth: number;
   view: MapView;
   layout: Layout;
+  /** Show drafts (dashed); off is `drafts=0`. */
+  drafts: boolean;
 }
 
 function pick<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
@@ -130,11 +137,12 @@ export function readMapState(params: URLSearchParams): MapState {
     depth: Number.isInteger(depth) && depth >= 1 && depth <= MAX_DEPTH ? depth : 1,
     view: pick(params.get("view"), VIEWS, "diagram"),
     layout: pick(params.get("layout"), LAYOUTS, "tala"),
+    drafts: params.get("drafts") !== "0",
   };
 }
 /** The System map rooted at an environment, showing its servers and the services deployed on them. */
 export const environmentMapPath = (environmentId: string) =>
-  `/system-map?${mapQuery({ map: "infrastructure", root: `environment:${environmentId}`, depth: 2, view: "diagram", layout: "tala" })}`;
+  `/system-map?${mapQuery({ map: "infrastructure", root: `environment:${environmentId}`, depth: 2, view: "diagram", layout: "tala", drafts: true })}`;
 /** The page URL for a state: the map always, everything else only when it is not the default. */
 export function mapQuery(state: MapState): URLSearchParams {
   const query = new URLSearchParams({ map: state.map });
@@ -142,6 +150,7 @@ export function mapQuery(state: MapState): URLSearchParams {
   if (state.depth !== 1) query.set("depth", String(state.depth));
   if (state.view !== "diagram") query.set("view", state.view);
   if (state.layout !== "tala") query.set("layout", state.layout);
+  if (!state.drafts) query.set("drafts", "0");
   return query;
 }
 export function viewUrl(
@@ -150,12 +159,14 @@ export function viewUrl(
   depth: number,
   format: "json" | "mermaid" | "d2" | "svg",
   layout: Layout = "tala",
+  drafts = true,
 ) {
   const query = new URLSearchParams();
   if (root) query.set("root", root);
   query.set("depth", String(depth));
   query.set("format", format);
   if (format === "svg") query.set("layout", layout);
+  if (!drafts) query.set("drafts", "0");
   return `/api/map/view/${map}?${query}`;
 }
 const send = (method: string, body: unknown): RequestInit => ({
@@ -164,16 +175,17 @@ const send = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export const getView = (map: MapName, root: string | null, depth: number, signal?: AbortSignal) =>
-  request<MapGraph>(viewUrl(map, root, depth, "json"), { signal });
+export const getView = (map: MapName, root: string | null, depth: number, drafts: boolean, signal?: AbortSignal) =>
+  request<MapGraph>(viewUrl(map, root, depth, "json", "tala", drafts), { signal });
 export const getViewText = (
   map: MapName,
   root: string | null,
   depth: number,
   format: "mermaid" | "d2" | "svg",
   layout: Layout,
+  drafts: boolean,
   signal?: AbortSignal,
-) => request<string>(viewUrl(map, root, depth, format, layout), { signal }, "text");
+) => request<string>(viewUrl(map, root, depth, format, layout, drafts), { signal }, "text");
 const documentsUrl = (entry: EntryRef) => `/api/inventory/${entry.kind}/${encodeURIComponent(entry.id)}/documents`;
 export const getEntryDocuments = (entry: EntryRef, signal?: AbortSignal) =>
   request<EntryDocuments>(documentsUrl(entry), { signal });

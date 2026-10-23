@@ -21,6 +21,7 @@ const deployment: Deployment = {
   port: 8080,
   log_location: "",
   deployed_version: "v1",
+  status: "confirmed",
   revision: 2,
 };
 const row = ({ id, revision, service_id, ...fields }: Deployment) => ({ ...fields, id, key: id });
@@ -64,6 +65,7 @@ const relation: Relation = {
   to_service_id: "pg",
   to_code_project_id: null,
   description: "orders",
+  status: "confirmed",
   revision: 3,
 };
 
@@ -121,6 +123,7 @@ test("connections and relations read in words", () => {
     port: 5432,
     protocol: "postgres",
     description: "",
+    status: "confirmed",
     revision: 1,
   };
   expect(connectionText(connection, labels)).toBe("api on web-1 (prod) → pg on db-1 (prod) :5432 postgres");

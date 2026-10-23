@@ -1,4 +1,5 @@
 import { request } from "~/lib/api";
+import type { Status } from "./inventory";
 
 export interface ServerAsset {
   id: string;
@@ -8,6 +9,7 @@ export interface ServerAsset {
   ssh_username: string | null;
   description: string;
   tags: string[];
+  status: Status;
   revision: number;
   created_at: string;
   updated_at: string;

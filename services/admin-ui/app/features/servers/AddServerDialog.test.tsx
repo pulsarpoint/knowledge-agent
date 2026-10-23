@@ -12,6 +12,7 @@ const asset = (id: string, name: string): ServerAsset => ({
   hostname: `${name}.internal`,
   description: "",
   tags: [],
+  status: "confirmed",
   revision: 1,
   ssh_port: 22,
   ssh_username: null,
@@ -118,13 +119,14 @@ function Where() {
 test("the workspace's Add server reloads the model and selects the server", async () => {
   const user = userEvent.setup();
   const empty: EnvironmentModel = {
-    environment: { id: "e1", name: "prod", description: "", revision: 1 },
+    environment: { id: "e1", name: "prod", description: "", status: "confirmed", revision: 1 },
     servers: [],
     services: [],
     connections: [],
     relations: [],
     external: [],
     external_services: [],
+    drafts: 0,
   };
   let current = empty;
   const calls = api({
@@ -133,7 +135,19 @@ test("the workspace's Add server reloads the model and selects the server", asyn
     "PUT /api/environments/e1/servers/s2": () => {
       current = {
         ...empty,
-        servers: [{ id: "s2", name: "db-1", hostname: "", description: "", tags: [], revision: 1, deployments: [] }],
+        servers: [
+          {
+            id: "s2",
+            name: "db-1",
+            hostname: "",
+            description: "",
+            tags: [],
+            status: "confirmed",
+            membership_status: "confirmed",
+            revision: 1,
+            deployments: [],
+          },
+        ],
       };
       return [204, null];
     },
@@ -152,4 +166,13 @@ test("the workspace's Add server reloads the model and selects the server", asyn
   expect(await screen.findByRole("region", { name: "Services on db-1" })).toBeInTheDocument();
   expect(screen.getByTestId("where")).toHaveTextContent("?server=s2");
   expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2);
+});
+
+test("adding a draft server to a draft environment says saving confirms both", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/servers": () => [200, { servers: [servers[0], { ...servers[1], status: "draft" }, servers[2]] }] });
+  render(<AddServerDialog environmentId="e1" memberIds={["s1"]} uses={["prod"]} onAdded={vi.fn()} onClose={vi.fn()} />);
+  await user.click(await screen.findByRole("combobox", { name: "Server" }));
+  await user.click(screen.getByRole("option", { name: "db-1 · db-1.internal" }));
+  expect(screen.getByText("Saving confirms the drafts it uses: prod, db-1.")).toBeInTheDocument();
 });

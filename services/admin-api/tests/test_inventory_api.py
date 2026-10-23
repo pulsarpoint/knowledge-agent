@@ -397,3 +397,27 @@ def test_the_draft_kinds_of_the_api_are_the_rules_kinds():
     from knowledge_admin.inventory import api, rules
 
     assert get_args(api.DraftKind) == rules.DRAFT_KINDS
+
+
+@pytest.mark.parametrize('action', ['confirm', 'discard'])
+def test_a_dry_run_lists_the_entries_and_changes_nothing(client, store, world, action):
+    cache = draft(store, 'service', {'name': 'cache'})
+    deployment = draft(
+        store,
+        'deployment',
+        {'service_id': cache['id'], 'server_id': world['b']['id'], 'environment_id': world['prod']['id']},
+    )
+    kind, item = ('deployment', deployment) if action == 'confirm' else ('service', cache)
+    url = f'/api/inventory/{kind}/{item["id"]}/{action}'
+    before = audit_actions(store, cache['id'])
+    dry = client.post(f'{url}?dry_run=1', headers=HEADERS, json={'revision': 1})
+    assert dry.status_code == 200, dry.text
+    key = 'confirmed' if action == 'confirm' else 'discarded'
+    assert {e['name'] for e in dry.json()[key]} == {'cache', 'cache on b in prod'}
+    assert audit_actions(store, cache['id']) == before
+    context = client.get(f'/api/services/{cache["id"]}/context', headers=HEADERS).json()
+    assert context['service']['status'] == 'draft'
+    stale = client.post(f'{url}?dry_run=1', headers=HEADERS, json={'revision': 5})
+    assert stale.status_code == 409
+    real = client.post(url, headers=HEADERS, json={'revision': 1})
+    assert real.json() == dry.json()

@@ -26,7 +26,9 @@ import EntrySheet from "./EntrySheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Label } from "~/components/ui/label";
 import { Spinner } from "~/components/ui/spinner";
+import { Switch } from "~/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 const say = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
@@ -54,7 +56,7 @@ function SourceText({ text }: { text: string }) {
 export default function SystemMapView() {
   const [params, setParams] = useSearchParams();
   const state = readMapState(params);
-  const { map, root, depth, view: mode, layout } = state;
+  const { map, root, depth, view: mode, layout, drafts } = state;
   const [graph, setGraph] = useState<MapGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<Source>(null);
@@ -65,26 +67,26 @@ export default function SystemMapView() {
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
-    getView(map, root, depth, controller.signal).then(setGraph, (reason) => {
+    getView(map, root, depth, drafts, controller.signal).then(setGraph, (reason) => {
       if (controller.signal.aborted) return;
       setGraph(null);
       setError(say(reason, "Could not load the map."));
     });
     return () => controller.abort();
-  }, [map, root, depth, version]);
+  }, [map, root, depth, drafts, version]);
 
   useEffect(() => {
     if (mode === "json") return;
     const controller = new AbortController();
     setSource(null);
-    getViewText(map, root, depth, mode === "diagram" ? "svg" : mode, layout, controller.signal).then(
+    getViewText(map, root, depth, mode === "diagram" ? "svg" : mode, layout, drafts, controller.signal).then(
       (text) => setSource({ text }),
       (reason) => {
         if (!controller.signal.aborted) setSource({ error: say(reason, "Could not draw the map.") });
       },
     );
     return () => controller.abort();
-  }, [map, root, depth, mode, layout, version]);
+  }, [map, root, depth, mode, layout, drafts, version]);
 
   const inside = graph?.nodes.filter((node) => node.parent_id === null) ?? [];
   const edgeCount = (id: string) =>
@@ -172,6 +174,10 @@ export default function SystemMapView() {
             ))}
           </TabsList>
         </Tabs>
+        <div className="flex items-center gap-2">
+          <Switch id="map-drafts" checked={drafts} onCheckedChange={(checked) => go({ drafts: checked })} />
+          <Label htmlFor="map-drafts">Show drafts</Label>
+        </div>
         {mode === "diagram" && (
           <Select value={layout} onValueChange={(value) => go({ layout: value as Layout })}>
             <SelectTrigger aria-label="Layout" className="w-32">
@@ -215,7 +221,7 @@ export default function SystemMapView() {
                       >
                         {node.name}
                       </button>
-                      <span className="text-muted-foreground text-xs">{`${ENTRY_LABELS[node.entry_kind]}${node.child_count > 0 ? ` · +${node.child_count} inside` : ""}`}</span>
+                      <span className="text-muted-foreground text-xs">{`${ENTRY_LABELS[node.entry_kind]}${node.draft ? " · draft" : ""}${node.child_count > 0 ? ` · +${node.child_count} inside` : ""}`}</span>
                     </div>
                     <Button
                       size="icon"

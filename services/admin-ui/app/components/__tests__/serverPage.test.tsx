@@ -324,3 +324,34 @@ test("empty services and documents are explained", async () => {
   expect(await screen.findByText("No inventory document yet.")).toBeInTheDocument();
   expect(screen.getByText("No documents yet.")).toBeInTheDocument();
 });
+
+test("a draft server and a draft deployment show Draft; the services table confirms the deployment", async () => {
+  const user = userEvent.setup();
+  const drafted = page(true);
+  let current = {
+    ...drafted,
+    server: { ...server, status: "draft" },
+    deployments: [{ ...drafted.deployments[0], status: "draft", revision: 2 }],
+  };
+  const calls = api({
+    ...base(),
+    "GET /api/servers/s1": () => [200, current],
+    "POST /api/inventory/deployment/d1/confirm?dry_run=1": () => [
+      200,
+      { confirmed: [{ kind: "deployment", id: "d1", name: "nginx on web-1 in Production" }] },
+    ],
+    "POST /api/inventory/deployment/d1/confirm": () => {
+      current = { ...current, deployments: [{ ...current.deployments[0], status: "confirmed" }] };
+      return [200, { confirmed: [] }];
+    },
+  });
+  show();
+  const table = within(await screen.findByRole("region", { name: "Services" }));
+  const row = table.getByRole("link", { name: "nginx" }).closest("tr")!;
+  expect(within(row).getByText("Draft")).toBeInTheDocument();
+  expect(screen.getAllByText("Draft")).toHaveLength(2); // the server's own badge in the header
+  await user.click(within(row).getByRole("button", { name: "Confirm nginx" }));
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+  await waitFor(() => expect(within(row).queryByText("Draft")).not.toBeInTheDocument());
+  expect(calls.find((call) => call.key === "POST /api/inventory/deployment/d1/confirm")!.body).toEqual({ revision: 2 });
+});

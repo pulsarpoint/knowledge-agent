@@ -191,6 +191,7 @@ const saved: Connection = {
   port: 5432,
   protocol: "tcp",
   description: "",
+  status: "confirmed",
   revision: 3,
 };
 
@@ -235,4 +236,30 @@ test("a duplicate on save shows the API's message, not a conflict", async () => 
   await user.click(screen.getByRole("button", { name: "Save connection" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("This connection already exists");
   expect(onConflict).not.toHaveBeenCalled();
+});
+
+test("a connection to a draft deployment says saving confirms the drafts it uses", async () => {
+  const user = userEvent.setup();
+  const drafted = [
+    services[0],
+    asset("v2", "postgres", [{ ...deployment("d2", "prod", "db-1"), status: "draft" }], { status: "draft" }),
+    ...services.slice(2),
+  ];
+  dialog({ services: drafted });
+  expect(screen.queryByText(/Saving confirms/)).not.toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "Target" }));
+  await user.click(screen.getByRole("option", { name: "postgres" }));
+  expect(
+    screen.getByText("Saving confirms the drafts it uses: postgres on db-1 (prod), postgres."),
+  ).toBeInTheDocument();
+});
+
+test("editing a draft connection keeps it a draft: no notice", () => {
+  const drafted = [
+    services[0],
+    asset("v2", "postgres", [{ ...deployment("d2", "prod", "db-1"), status: "draft" }]),
+    ...services.slice(2),
+  ];
+  dialog({ services: drafted, connection: { ...saved, status: "draft" } });
+  expect(screen.queryByText(/Saving confirms/)).not.toBeInTheDocument();
 });

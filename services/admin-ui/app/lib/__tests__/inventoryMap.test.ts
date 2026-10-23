@@ -7,6 +7,7 @@ test("reads and writes the page state with defaults", () => {
     depth: 1,
     view: "diagram",
     layout: "tala",
+    drafts: true,
   });
   expect(readMapState(new URLSearchParams("map=services&depth=9&view=bogus"))).toEqual({
     map: "services",
@@ -14,10 +15,11 @@ test("reads and writes the page state with defaults", () => {
     depth: 1,
     view: "diagram",
     layout: "tala",
+    drafts: true,
   });
-  expect(mapQuery({ map: "services", root: "service:1", depth: 2, view: "d2", layout: "elk" }).toString()).toBe(
-    "map=services&root=service%3A1&depth=2&view=d2&layout=elk",
-  );
+  expect(
+    mapQuery({ map: "services", root: "service:1", depth: 2, view: "d2", layout: "elk", drafts: true }).toString(),
+  ).toBe("map=services&root=service%3A1&depth=2&view=d2&layout=elk");
   expect(viewUrl("infrastructure", "server:top:1", 1, "svg", "dagre")).toBe(
     "/api/map/view/infrastructure?root=server%3Atop%3A1&depth=1&format=svg&layout=dagre",
   );
@@ -25,4 +27,13 @@ test("reads and writes the page state with defaults", () => {
 
 test("an environment's map is the infrastructure map rooted at it, two levels deep", () => {
   expect(environmentMapPath("e1")).toBe("/system-map?map=infrastructure&root=environment%3Ae1&depth=2");
+});
+
+test("Show drafts off is drafts=0 in the page URL and in the view requests", () => {
+  expect(readMapState(new URLSearchParams("drafts=0")).drafts).toBe(false);
+  const state = readMapState(new URLSearchParams(""));
+  expect(mapQuery({ ...state, drafts: false }).toString()).toBe("map=infrastructure&drafts=0");
+  expect(viewUrl("services", null, 2, "json", "tala", false)).toBe(
+    "/api/map/view/services?depth=2&format=json&drafts=0",
+  );
 });

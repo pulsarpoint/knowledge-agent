@@ -204,11 +204,18 @@ def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
     return {'environment': get(conn, project_id, 'environment', environment_id), **_project_rows(conn, project_id)}
 
 
-def load_project_models(conn, project_id: UUID) -> dict:
+def load_project_models(conn, project_id: UUID, drafts: bool = True) -> dict:
     """model.build_project over the project's rows ({models, unplaced}), plus its code projects that are not archived
     {id, name, description} and the live documents linked to each entry: {(entry kind, entry id): [{id, slug, title}]}
-    (links to a deployment left out). One consistent read when the caller's transaction is REPEATABLE READ."""
+    (links to a deployment left out). drafts=False leaves every draft out (a confirmed entry never needs a draft, so
+    what is left is whole). One consistent read when the caller's transaction is REPEATABLE READ."""
     rows = _project_rows(conn, project_id)
+    environments = list_environments(conn, project_id)
+    if not drafts:
+        environments = [row for row in environments if row['status'] == 'confirmed']
+        rows = {
+            key: [row for row in items if row.get('status', 'confirmed') == 'confirmed'] for key, items in rows.items()
+        }
     documents: dict[tuple, list[dict]] = {}
     for row in conn.execute(
         """SELECT r.resource_type AS entry_kind,COALESCE(r.server_id,r.service_id,r.environment_id,r.code_project_id)
@@ -221,7 +228,7 @@ def load_project_models(conn, project_id: UUID) -> dict:
             {'id': row['id'], 'slug': row['slug'], 'title': row['title']}
         )
     return {
-        **model.build_project(list_environments(conn, project_id), **rows),
+        **model.build_project(environments, **rows),
         'code_projects': [
             {'id': c['id'], 'name': c['name'], 'description': c['description']}
             for c in rows['code_projects']

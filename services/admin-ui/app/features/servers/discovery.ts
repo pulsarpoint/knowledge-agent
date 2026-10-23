@@ -1,5 +1,6 @@
 import { request } from "~/lib/api";
 import { type ServerAsset } from "./api";
+import type { Status } from "./inventory";
 
 export interface ServerDeployment {
   id: string;
@@ -10,6 +11,8 @@ export interface ServerDeployment {
   runtime_name: string;
   port: number | null;
   deployed_version: string;
+  status: Status;
+  revision: number;
 }
 export interface ServerPageData {
   server: ServerAsset;

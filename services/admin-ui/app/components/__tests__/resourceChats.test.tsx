@@ -504,6 +504,40 @@ test("the environment page shows its workspace of servers and services, and its 
   expect(screen.queryByRole("region", { name: "Servers" })).not.toBeInTheDocument();
 });
 
+test("the environment header links its drafts to the workspace's Drafts filter", async () => {
+  const environment = { id: "e1", name: "Production", description: "", status: "confirmed", revision: 1 };
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      { ...environment, created_at: at, updated_at: at, services: [], servers: [] },
+    ],
+    "GET /api/environments/e1/model": () => [
+      200,
+      {
+        environment,
+        servers: [],
+        services: [],
+        connections: [],
+        relations: [],
+        external: [],
+        external_services: [],
+        drafts: 2,
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+  });
+  render(
+    <MemoryRouter initialEntries={["/environments/e1?view=documents"]}>
+      <EnvironmentPage environmentId="e1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "2 drafts to review" })).toHaveAttribute(
+    "href",
+    "/environments/e1?drafts=only",
+  );
+});
+
 test("the environment's Documents tab lists only the environment's own documents and is kept in the URL", async () => {
   const doc = (id: string, title: string, resource: { id: string; name: string }) => ({
     id,

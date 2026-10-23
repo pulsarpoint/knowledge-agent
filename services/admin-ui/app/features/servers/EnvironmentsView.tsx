@@ -6,6 +6,7 @@ import { deleteEnvironment, getEnvironments, type EnvironmentAsset } from "./env
 import { environmentMapPath } from "./inventoryMap";
 import { RowAction, RowActions } from "./RowAction";
 import EnvironmentForm from "./EnvironmentForm";
+import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -26,7 +27,8 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
-/** The environments with what is deployed in them; each one's map is the System map rooted at it. */
+/** The environments with what is deployed in them; each one's map is the System map rooted at it. A draft environment
+ * shows a Draft badge with Confirm and Discard. */
 export default function EnvironmentsView() {
   const [data, setData] = useState<{ environments: EnvironmentAsset[] } | null>(null);
   const [refresh, setRefresh] = useState(0);
@@ -198,6 +200,11 @@ export default function EnvironmentsView() {
                           >
                             {environment.name}
                           </Link>
+                          {environment.status === "draft" && (
+                            <span className="ml-2 inline-flex align-middle">
+                              <DraftBadge />
+                            </span>
+                          )}
                           <p className="mt-1 text-sm text-muted-foreground">
                             {environment.description || "No description"}
                           </p>
@@ -206,6 +213,13 @@ export default function EnvironmentsView() {
                         <TableCell className="align-top">{environment.servers.length}</TableCell>
                         <TableCell className="align-top">
                           <RowActions>
+                            {environment.status === "draft" && (
+                              <DraftActions
+                                name={environment.name}
+                                confirm={{ kind: "environment", id: environment.id, revision: environment.revision }}
+                                onDone={() => setRefresh((value) => value + 1)}
+                              />
+                            )}
                             <RowAction
                               label="Details"
                               name={environment.name}

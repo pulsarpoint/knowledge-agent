@@ -10,6 +10,7 @@ const server: ServerAsset = {
   hostname: "app.internal",
   description: "Hosts payment workers",
   tags: ["production", "eu-west"],
+  status: "confirmed",
   revision: 3,
   created_at: "2026-09-08T10:00:00Z",
   updated_at: "2026-09-08T10:00:00Z",

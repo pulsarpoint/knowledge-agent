@@ -78,6 +78,7 @@ def test_the_server_page_shows_environments_deployments_and_readiness(world):
     assert (
         deployment['service_name'] == 'nginx' and deployment['environment'] == 'Production' and deployment['port'] == 80
     )
+    assert (deployment['status'], deployment['revision']) == ('confirmed', 1)
     assert body['discovery'] == {'ready': False, 'reason': NOT_CONFIGURED}
     assert body['ssh_ready'] is False
     ssh_ready(world)

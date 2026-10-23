@@ -28,6 +28,7 @@ const server: ServerAsset = {
   hostname: "app.internal",
   description: "Application host",
   tags: ["production"],
+  status: "confirmed",
   revision: 1,
   created_at: "2026-09-08T10:00:00Z",
   updated_at: "2026-09-08T10:00:00Z",
@@ -46,6 +47,7 @@ const service: ServiceAsset = {
   description: "Handles payments",
   owner: "Backend",
   address: null,
+  status: "confirmed",
   revision: 3,
   created_at: "2026-09-08T10:00:00Z",
   updated_at: "2026-09-08T10:00:00Z",
@@ -64,6 +66,7 @@ const service: ServiceAsset = {
       port: 8080,
       log_location: "container stdout",
       deployed_version: "v1.2",
+      status: "confirmed",
       server,
     },
   ],
@@ -74,6 +77,7 @@ const environments: EnvironmentAsset[] = ["production", "staging"].map((name, in
   name,
   description: "",
   project_id: "project-1",
+  status: "confirmed",
   revision: 1,
   created_at: "",
   updated_at: "",
@@ -91,6 +95,7 @@ const savedDeployment: Deployment = {
   port: 8080,
   log_location: "container stdout",
   deployed_version: "v1.2",
+  status: "confirmed",
   revision: 2,
 };
 const builtFrom = (repo: string, id: string): Relation => ({
@@ -100,6 +105,7 @@ const builtFrom = (repo: string, id: string): Relation => ({
   to_service_id: null,
   to_code_project_id: repo,
   description: "",
+  status: "confirmed",
   revision: 1,
 });
 
@@ -320,6 +326,7 @@ test("removing a saved deployment asks first, naming it and its connections, the
     port: 5432,
     protocol: "tcp",
     description: "",
+    status: "confirmed",
     revision: 1,
   });
   const fetch = setup([service], {
@@ -578,6 +585,7 @@ const relation = (
   to_service_id: to,
   to_code_project_id: null,
   description,
+  status: "confirmed",
   revision: 1,
 });
 
@@ -606,14 +614,16 @@ test("create relates the new service in each direction and retains selections wh
   const {
     id: _1,
     revision: _2,
+    status: _s1,
     ...dependsOn
   } = relation("", "depends_on", "service-1", "postgres", "Stores payment history");
   const {
     id: _3,
     revision: _4,
+    status: _s2,
     ...usedBy
   } = relation("", "depends_on", "reporting", "service-1", "Reads payments via API");
-  const { id: _5, revision: _6, ...part } = relation("", "part_of", "reporting", "service-1", "");
+  const { id: _5, revision: _6, status: _s3, ...part } = relation("", "part_of", "reporting", "service-1", "");
   expect(writes(fetch).slice(1)).toEqual([
     ["POST", "/api/relations", dependsOn],
     ["POST", "/api/relations", usedBy],

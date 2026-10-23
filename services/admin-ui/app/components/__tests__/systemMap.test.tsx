@@ -171,3 +171,23 @@ test("a root that no longer exists shows the error and the breadcrumb still lead
     within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Infrastructure" }),
   ).toBeInTheDocument();
 });
+
+test("draft nodes are marked; the Show drafts switch, on by default, hides them with drafts=0", async () => {
+  const user = userEvent.setup();
+  const drafted = { ...top, nodes: [top.nodes[0], { ...top.nodes[1], draft: true }] };
+  const fetch = api({
+    [TOP]: { json: drafted },
+    [TOP_SVG]: { text: "<svg/>" },
+    [`${TOP}&drafts=0`]: { json: { ...top, nodes: [top.nodes[0]] } },
+    [`${TOP_SVG}&drafts=0`]: { text: "<svg/>" },
+  });
+  view();
+  const list = within(screen.getByRole("region", { name: "Inside" }));
+  expect(await list.findByText("server · draft")).toBeInTheDocument();
+  const toggle = screen.getByRole("switch", { name: "Show drafts" });
+  expect(toggle).toBeChecked();
+  await user.click(toggle);
+  expect(where()).toBe("?map=infrastructure&drafts=0");
+  await waitFor(() => expect(list.queryByRole("button", { name: "spare" })).not.toBeInTheDocument());
+  expect(fetch).toHaveBeenCalledWith(`${TOP_SVG}&drafts=0`, expect.anything());
+});

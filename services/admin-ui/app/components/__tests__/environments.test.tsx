@@ -13,6 +13,7 @@ const services: ServiceAsset[] = ["API", "Database"].map((name, index) => ({
   description: "",
   owner: "",
   address: null,
+  status: "confirmed",
   revision: 1,
   service_type: index ? "builtin" : "custom",
   service_role: index ? "database" : "application",
@@ -30,6 +31,7 @@ const servers: ServerAsset[] = ["App host", "Data host"].map((name, index) => ({
   hostname: `host${index}.internal`,
   description: "",
   tags: [],
+  status: "confirmed",
   revision: 1,
   ssh_port: 22,
   ssh_username: null,
@@ -44,11 +46,12 @@ const development: EnvironmentAsset = {
   project_id: "project",
   name: "Development",
   description: "Daily testing",
+  status: "confirmed",
   revision: 3,
   created_at: "2026-09-13T00:00:00Z",
   updated_at: "2026-09-13T00:00:00Z",
-  services: services.map(({ id, name }) => ({ id, name })),
-  servers: servers.map(({ id, name, hostname }) => ({ id, name, hostname })),
+  services: services.map(({ id, name, status }) => ({ id, name, status })),
+  servers: servers.map(({ id, name, hostname, status }) => ({ id, name, hostname, status })),
 };
 
 function setup(
@@ -218,4 +221,39 @@ test("each environment row has icon buttons and a Documents link", async () => {
     "href",
     `/documents?environment_id=${development.id}`,
   );
+});
+
+test("a draft environment shows a Draft badge with Confirm and Discard; Confirm reloads the list", async () => {
+  const user = userEvent.setup();
+  let current: EnvironmentAsset[] = [{ ...development, status: "draft" }];
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const key = `${init?.method ?? "GET"} ${url}`;
+      calls.push(key);
+      if (key === "GET /api/environments") return new Response(JSON.stringify({ environments: current }));
+      if (key === "POST /api/inventory/environment/development/confirm?dry_run=1")
+        return new Response(
+          JSON.stringify({ confirmed: [{ kind: "environment", id: "development", name: "Development" }] }),
+        );
+      if (key === "POST /api/inventory/environment/development/confirm") {
+        current = [{ ...development, status: "confirmed" }];
+        return new Response(JSON.stringify({ confirmed: [] }));
+      }
+      throw new Error(`unexpected ${key}`);
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <EnvironmentsView />
+    </MemoryRouter>,
+  );
+  const row = (await screen.findByRole("link", { name: "Development" })).closest("tr")!;
+  expect(within(row).getByText("Draft")).toBeInTheDocument();
+  expect(within(row).getByRole("button", { name: "Discard Development" })).toBeInTheDocument();
+  await user.click(within(row).getByRole("button", { name: "Confirm Development" }));
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+  await waitFor(() => expect(screen.queryByText("Draft")).not.toBeInTheDocument());
+  expect(calls.filter((key) => key === "GET /api/environments")).toHaveLength(2);
 });

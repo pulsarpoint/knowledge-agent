@@ -27,6 +27,7 @@ import {
   type DeploymentLabel,
   type Relation,
   type RelationKind,
+  type RelationValue,
 } from "./inventory";
 import { getServices } from "./services";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -222,7 +223,7 @@ function RelationForm({
   serviceId: string;
   services: { id: string; name: string }[];
   codeProjects: { id: string; name: string }[];
-  onSubmit: (value: Omit<Relation, "id" | "revision">) => Promise<boolean>;
+  onSubmit: (value: RelationValue) => Promise<boolean>;
 }) {
   const [kind, setKind] = useState<RelationKind>("depends_on");
   const [target, setTarget] = useState("");

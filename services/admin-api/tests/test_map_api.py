@@ -73,3 +73,30 @@ def test_relations(client):
         (f'service:{api}', f'service:{worker}', 'depends_on')
     ]
     assert client.get('/api/map/search', headers=HEADERS, params={'q': 'wor'}).status_code == 404
+
+
+def test_drafts_are_drawn_marked_and_hidden_with_drafts_0(client, store):
+    from knowledge_admin.inventory import store as inventory
+
+    server, production, api = setup(client)
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        cache = inventory.create_service(conn, project, {'name': 'cache'}, {'actor_id': None}, status='draft')
+        inventory.create_deployment(
+            conn,
+            project,
+            {'service_id': cache['id'], 'server_id': server, 'environment_id': production},
+            {'actor_id': None},
+            status='draft',
+        )
+    shown = client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 3}).json()
+    assert [(n['name'], n.get('draft')) for n in shown['nodes']] == [
+        ('production', None),
+        ('prod-1', None),
+        ('api', None),
+        ('cache', True),
+    ]
+    hidden = client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 3, 'drafts': 0}).json()
+    assert [n['name'] for n in hidden['nodes']] == ['production', 'prod-1', 'api']
+    d2 = client.get('/api/map/view/infrastructure', headers=HEADERS, params={'depth': 3, 'format': 'd2'}).text
+    assert '"cache" {shape: rectangle; style.stroke-dash: 4}' in d2

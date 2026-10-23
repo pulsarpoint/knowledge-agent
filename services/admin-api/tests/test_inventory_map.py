@@ -24,9 +24,12 @@ DEPLOYMENTS = {
 }
 
 
-def inventory(deployments=None, connections=(), relations=(), documents=None, members=(), external=()) -> dict:
+def inventory(
+    deployments=None, connections=(), relations=(), documents=None, members=(), external=(), drafts=()
+) -> dict:
     """What load_project_models returns for these rows: production and staging, servers prod-1 and spare, services
-    api, worker and db, code projects api-code and old-code (archived)."""
+    api, worker and db, code projects api-code and old-code (archived). `drafts`: the ids (and (environment, server)
+    memberships) that are drafts; everything else is confirmed."""
     deployments = DEPLOYMENTS if deployments is None else deployments
 
     def item(name: str, **fields) -> dict:
@@ -95,6 +98,10 @@ def inventory(deployments=None, connections=(), relations=(), documents=None, me
             for environment, server in members
         ],
     }
+    for row in [*environments, *(row for key, items in rows.items() if key != 'code_projects' for row in items)]:
+        key = (row['environment_id'], row['server_id']) if 'id' not in row else row['id']
+        if key in drafts:
+            row['status'] = 'draft'
     return {
         **build_project(environments, **rows),
         'code_projects': [{'id': E['code'], 'name': 'api-code', 'description': ''}],  # old-code is archived
@@ -305,3 +312,44 @@ def test_services_view_draws_the_edge_to_the_external_service_node():
     assert view['boundary'] == []
     assert [(e['from'], e['to']) for e in view['edges']] == [(f'service:{E["api"]}', f'service:{E["stripe"]}')]
     assert names(view)['stripe']['kind'] == 'service'
+
+
+def test_draft_nodes_and_edges_carry_draft_and_confirmed_ones_do_not():
+    worker_api = connection('worker-staging', 'api-staging')
+    api_db = connection('api-prod', 'db-prod')
+    found = inventory(
+        connections=[worker_api, api_db],
+        drafts={E['staging'], D['worker-staging'], worker_api['id'], E['db'], (E['production'], E['spare'])},
+    )
+    view = build_view(found, 'infrastructure', None, 3)
+    drafts = {name for name, node in names(view).items() if node.get('draft')}
+    assert drafts == {'staging', 'prod-1 › worker', 'production › spare', 'spare › db'}
+    assert all('draft' not in node or node['draft'] is True for node in view['nodes'])
+    edges = {(e['from'], e.get('draft')) for e in view['edges']}
+    worker = f'service:{E["staging"]}:{E["prod-1"]}:{E["worker"]}'
+    api = f'service:{E["production"]}:{E["prod-1"]}:{E["api"]}'
+    assert edges == {(worker, True), (api, None)}
+
+    services = build_view(found, 'services', None, 1)
+    assert {n['name'] for n in services['nodes'] if n.get('draft')} == {'db'}
+
+
+def test_a_rolled_up_edge_is_a_draft_only_when_every_connection_in_it_is():
+    one, two = connection('worker-staging', 'db-prod'), connection('api-staging', 'db-prod')
+    rolled = build_view(inventory(connections=[one, two], drafts={one['id']}), 'infrastructure', None, 1)
+    assert [e.get('draft') for e in rolled['edges']] == [None]
+    rolled = build_view(inventory(connections=[one, two], drafts={one['id'], two['id']}), 'infrastructure', None, 1)
+    assert [e.get('draft') for e in rolled['edges']] == [True]
+
+
+def test_a_service_node_is_confirmed_when_one_of_its_deployments_is():
+    second = uuid4()
+    deployments = {**DEPLOYMENTS, second: (E['api'], E['prod-1'], E['production'])}
+    api = f'service:{E["production"]}:{E["prod-1"]}:{E["api"]}'
+
+    def drafts(*ids) -> set[str]:
+        view = build_view(inventory(deployments, drafts=set(ids)), 'infrastructure', None, 3)
+        return {node['id'] for node in view['nodes'] if node.get('draft')}
+
+    assert drafts(D['api-prod']) == set()
+    assert drafts(second, D['api-prod']) == {api}

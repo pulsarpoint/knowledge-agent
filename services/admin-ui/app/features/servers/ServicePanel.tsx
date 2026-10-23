@@ -20,6 +20,7 @@ import { getServices, type ServiceAsset } from "./services";
 import { serviceRoles, serviceTypes, type ServiceRole, type ServiceType } from "./serviceClassification";
 import AddConnectionDialog from "./AddConnectionDialog";
 import AddRelationDialog from "./AddRelationDialog";
+import { DraftActions, DraftBadge, type DraftTarget } from "./ConfirmDraftSheet";
 import EntryDocuments from "./EntryDocuments";
 import { RowAction, RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -202,6 +203,11 @@ export default function ServicePanel({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col gap-1">
           {workspace && <h2 className="break-words text-lg font-semibold">{service.name}</h2>}
+          {service.status === "draft" && (
+            <span>
+              <DraftBadge />
+            </span>
+          )}
           <p className="text-sm text-muted-foreground">
             {[serviceTypes[service.service_type], serviceRoles[service.service_role]?.label, service.owner]
               .filter(Boolean)
@@ -216,6 +222,13 @@ export default function ServicePanel({
           )}
         </div>
         <RowActions>
+          {service.status === "draft" && (
+            <DraftActions
+              name={service.name}
+              confirm={{ kind: "service", id: service.id, revision: service.revision }}
+              onDone={changed}
+            />
+          )}
           <RowAction label="Edit" name={service.name} onClick={() => setOpen({ kind: "fields" })}>
             <Pencil />
           </RowAction>
@@ -234,6 +247,8 @@ export default function ServicePanel({
                   key={item.id}
                   text={workspace ? deploymentText(item) : `${place(item.id)} · ${deploymentText(item)}`}
                   name={name}
+                  draft={draftOf("deployment", item)}
+                  onDone={changed}
                   onEdit={() => setOpen({ kind: "deployment", deployment: item })}
                   onRemove={() => void remove("deployments", item)}
                 />
@@ -274,6 +289,8 @@ export default function ServicePanel({
                 text={text}
                 href={to ? `/services/${encodeURIComponent(to)}` : undefined}
                 name={text}
+                draft={draftOf("connection", item)}
+                onDone={changed}
                 onEdit={() => setOpen({ kind: "connection", connection: item })}
                 onRemove={() => void remove("connections", item)}
               />
@@ -288,7 +305,14 @@ export default function ServicePanel({
         ) : (
           <List>
             {relations.map(({ item, text }) => (
-              <Row key={item.id} text={text} name={text} onRemove={() => void remove("relations", item)} />
+              <Row
+                key={item.id}
+                text={text}
+                name={text}
+                draft={draftOf("relation", item)}
+                onDone={changed}
+                onRemove={() => void remove("relations", item)}
+              />
             ))}
           </List>
         )}
@@ -304,7 +328,14 @@ export default function ServicePanel({
         ) : (
           <List>
             {codeProjects.map(({ item, text }) => (
-              <Row key={item.id} text={text} name={text} onRemove={() => void remove("relations", item)} />
+              <Row
+                key={item.id}
+                text={text}
+                name={text}
+                draft={draftOf("relation", item)}
+                onDone={changed}
+                onRemove={() => void remove("relations", item)}
+              />
             ))}
           </List>
         )}
@@ -396,32 +427,47 @@ function Part({
   );
 }
 
+/** The Confirm / Discard target of a draft item; undefined when it is confirmed. */
+const draftOf = (
+  kind: "deployment" | "connection" | "relation",
+  item: { id: string; revision: number; status: string },
+): DraftTarget | undefined => (item.status === "draft" ? { kind, id: item.id, revision: item.revision } : undefined);
+
 const List = ({ children }: { children: ReactNode }) => <ul className="flex flex-col gap-1">{children}</ul>;
 
-/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service). */
+/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service). A draft
+ * shows its badge and Confirm / Discard (then `onDone`). */
 function Row({
   text,
   href,
   name,
+  draft,
+  onDone,
   onEdit,
   onRemove,
 }: {
   text: string;
   href?: string;
   name: string;
+  draft?: DraftTarget;
+  onDone?: () => void;
   onEdit?: () => void;
   onRemove: () => void;
 }) {
   return (
     <li className="flex items-center justify-between gap-2 text-sm">
-      {href ? (
-        <Link className="min-w-0 underline-offset-4 [overflow-wrap:anywhere] hover:underline" to={href}>
-          {text}
-        </Link>
-      ) : (
-        <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
-      )}
+      <span className="flex min-w-0 items-center gap-2">
+        {href ? (
+          <Link className="min-w-0 underline-offset-4 [overflow-wrap:anywhere] hover:underline" to={href}>
+            {text}
+          </Link>
+        ) : (
+          <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
+        )}
+        {draft && <DraftBadge />}
+      </span>
       <RowActions>
+        {draft && <DraftActions name={name} confirm={draft} onDone={() => onDone?.()} />}
         {onEdit && (
           <RowAction label="Edit" name={name} onClick={onEdit}>
             <Pencil />

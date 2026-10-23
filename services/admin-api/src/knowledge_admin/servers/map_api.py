@@ -1,4 +1,5 @@
-"""Environments → System map: views of the inventory (inventory_map.py) as JSON, Mermaid, D2 or SVG."""
+"""Environments → System map: views of the inventory (inventory_map.py) as JSON, Mermaid, D2 or SVG; drafts are
+drawn (dashed) unless ?drafts=0."""
 
 from typing import Literal
 
@@ -18,12 +19,12 @@ SVG_HEADERS = {
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def inventory():
+    def inventory(drafts: bool):
         if store is None:
             raise HTTPException(503, 'Inventory storage is not configured')
         with store.connect() as conn:
             conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')  # one snapshot of the rows
-            return inventory_store.load_project_models(conn, store.project(conn, app))
+            return inventory_store.load_project_models(conn, store.project(conn, app), drafts)
 
     @router.get('/map/view/{view}', response_model=None)
     def view(
@@ -32,9 +33,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         depth: int = Query(1, ge=1, le=inventory_map.MAX_DEPTH),
         format: Literal['json', 'mermaid', 'd2', 'svg'] = 'json',
         layout: Literal['tala', 'elk', 'dagre'] = 'tala',
+        drafts: bool = True,
     ):
         try:
-            graph = inventory_map.build_view(inventory(), view, root, depth)
+            graph = inventory_map.build_view(inventory(drafts), view, root, depth)
         except inventory_map.ViewError as exc:
             raise HTTPException(exc.status, str(exc)) from None
         if format == 'json':

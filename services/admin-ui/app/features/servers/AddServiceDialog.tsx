@@ -3,6 +3,7 @@ import { ApiError } from "~/lib/api";
 import { createItem, type Deployment } from "./inventory";
 import { getServices, type ServiceAsset, type ServiceInput } from "./services";
 import { serviceRoles, serviceTypes, type ServiceRole, type ServiceType } from "./serviceClassification";
+import { DraftsUsed } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
@@ -15,15 +16,18 @@ import { Textarea } from "~/components/ui/textarea";
 const NEW = "new";
 
 /** Adds a service to the server in the environment: a recorded service or a new one (created first), and its
- * deployment there. */
+ * deployment there. `uses`: the names of the drafts the placement brings (the environment, the server, its
+ * membership); saving confirms them and a chosen draft service. */
 export default function AddServiceDialog({
   environmentId,
   server,
+  uses = [],
   onAdded,
   onClose,
 }: {
   environmentId: string;
   server: { id: string; name: string };
+  uses?: string[];
   onAdded: (serviceId: string) => void;
   onClose: () => void;
 }) {
@@ -59,6 +63,8 @@ export default function AddServiceDialog({
   }, []);
 
   const recorded = [...(services ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const chosen = recorded.find((item) => item.id === choice);
+  const drafts = [...uses, ...(chosen?.status === "draft" ? [chosen.name] : [])];
   const change = (field: keyof ServiceInput) => (value: string) => setService((old) => ({ ...old, [field]: value }));
 
   async function submit(event: FormEvent) {
@@ -266,6 +272,7 @@ export default function AddServiceDialog({
               </Field>
             </FieldGroup>
           </FieldSet>
+          <DraftsUsed names={drafts} />
           <div className="flex gap-2">
             <Button disabled={saving || !choice}>
               {saving && <Spinner data-icon="inline-start" />}

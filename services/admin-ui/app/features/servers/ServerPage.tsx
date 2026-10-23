@@ -5,13 +5,15 @@ import { getServerPage, type ServerPageData } from "./discovery";
 import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
+import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
+import { RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 /** One server: a header (details, SSH state, Proposals; Chat and Propose on the right) and tabs Overview (the services
- * deployed on it), Documents and Chats (ResourceChats: the chat opens beside the page on wide screens). */
+ * deployed on it; a draft deployment with its badge and Confirm / Discard), Documents and Chats (ResourceChats: the chat opens beside the page on wide screens). */
 export default function ServerPage({ serverId }: { serverId: string }) {
   const [data, setData] = useState<ServerPageData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +59,10 @@ export default function ServerPage({ serverId }: { serverId: string }) {
         <Link className="self-start text-sm underline" to="/servers">
           Servers
         </Link>
-        <h1 className="break-words text-2xl font-semibold">{server.name}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="break-words text-2xl font-semibold">{server.name}</h1>
+          {server.status === "draft" && <DraftBadge />}
+        </div>
         <p className="font-mono text-sm">{server.hostname}</p>
         {server.description && <p className="text-sm text-muted-foreground">{server.description}</p>}
         <div className="flex flex-wrap gap-1">
@@ -96,6 +101,9 @@ export default function ServerPage({ serverId }: { serverId: string }) {
                   <TableHead>Runtime</TableHead>
                   <TableHead>Port</TableHead>
                   <TableHead>Version</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -105,11 +113,27 @@ export default function ServerPage({ serverId }: { serverId: string }) {
                       <Link className="underline" to={`/services/${encodeURIComponent(item.service_id)}`}>
                         {item.service_name}
                       </Link>
+                      {item.status === "draft" && (
+                        <span className="ml-2 inline-flex align-middle">
+                          <DraftBadge />
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>{item.environment}</TableCell>
                     <TableCell>{[item.runtime, item.runtime_name].filter(Boolean).join(" · ") || "—"}</TableCell>
                     <TableCell>{item.port ?? "—"}</TableCell>
                     <TableCell>{item.deployed_version || "—"}</TableCell>
+                    <TableCell>
+                      {item.status === "draft" && (
+                        <RowActions>
+                          <DraftActions
+                            name={item.service_name}
+                            confirm={{ kind: "deployment", id: item.id, revision: item.revision }}
+                            onDone={() => setVersion((value) => value + 1)}
+                          />
+                        </RowActions>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

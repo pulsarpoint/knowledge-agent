@@ -86,3 +86,20 @@ test("a refusal stays in the dialog", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("This relation already exists");
   expect(onSaved).not.toHaveBeenCalled();
 });
+
+test("a relation to a draft service says saving confirms it", async () => {
+  const user = userEvent.setup();
+  api(routes);
+  render(
+    <AddRelationDialog
+      serviceId="v1"
+      services={[services[0], services[1], { ...services[2], status: "draft" }]}
+      kind="depends_on"
+      onSaved={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("combobox", { name: "Service" }));
+  await user.click(screen.getByRole("option", { name: "postgres" }));
+  expect(screen.getByText("Saving confirms the drafts it uses: postgres.")).toBeInTheDocument();
+});

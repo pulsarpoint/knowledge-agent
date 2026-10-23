@@ -46,6 +46,7 @@ const deployments: Deployment[] = [
     port: 8000,
     log_location: "",
     deployed_version: "1.4",
+    status: "confirmed",
     revision: 2,
   },
   {
@@ -58,6 +59,7 @@ const deployments: Deployment[] = [
     port: null,
     log_location: "",
     deployed_version: "",
+    status: "confirmed",
     revision: 1,
   },
 ];
@@ -70,6 +72,7 @@ const connection = (id: string, from: string, to: Partial<Connection>, port: num
   port,
   protocol,
   description: "",
+  status: "confirmed",
   revision: 3,
   ...to,
 });
@@ -87,6 +90,7 @@ const relation = (id: string, from: string, kind: Relation["kind"], to: Partial<
   to_service_id: null,
   to_code_project_id: null,
   description: "",
+  status: "confirmed",
   revision: 5,
   ...to,
 });
@@ -362,4 +366,77 @@ test("a long description shows its first lines, with Show more and Show less", a
   await userEvent.click(column.getByRole("button", { name: "Show more" }));
   expect(column.getByText(long.trim())).not.toHaveClass("line-clamp-4");
   expect(column.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+});
+
+test("drafts in the panel carry a Draft badge with Confirm and Discard: the service, deployments, connections, relations", async () => {
+  const user = userEvent.setup();
+  api(
+    routes({
+      "GET /api/services": () => [200, { services: [{ ...services[0], status: "draft" }, ...services.slice(1)] }],
+      "GET /api/services/v1/deployments": () => [
+        200,
+        { deployments: [{ ...deployments[0], status: "draft" }, deployments[1]] },
+      ],
+      "GET /api/services/v1/connections": () => [
+        200,
+        { connections: [{ ...connections[0], status: "draft" }, ...connections.slice(1)] },
+      ],
+      "GET /api/services/v1/relations": () => [
+        200,
+        { relations: [{ ...relations[0], status: "draft" }, ...relations.slice(1)] },
+      ],
+      "POST /api/inventory/relation/rel1/discard?dry_run=1": () => [
+        200,
+        { discarded: [{ kind: "relation", id: "rel1", name: "payments-api part_of billing" }] },
+      ],
+    }),
+  );
+  panel();
+  const column = within(await screen.findByRole("region", { name: "payments-api" }));
+  expect(column.getAllByText("Draft")).toHaveLength(4);
+  expect(column.getByRole("button", { name: "Confirm payments-api" })).toBeInTheDocument();
+  expect(column.getByRole("button", { name: "Confirm the deployment here" })).toBeInTheDocument();
+  const connectionsPart = within(column.getByRole("region", { name: "Connections" }));
+  expect(connectionsPart.getAllByRole("button", { name: /^Confirm/ })).toHaveLength(1);
+  const relationsPart = within(column.getByRole("region", { name: "Relations" }));
+  await user.click(relationsPart.getByRole("button", { name: "Discard Part of billing" }));
+  expect(await screen.findByRole("dialog", { name: "Discard Part of billing?" })).toBeInTheDocument();
+});
+
+test("a person's edit of a draft keeps it a draft; Confirm then confirms it with the new revision", async () => {
+  const user = userEvent.setup();
+  let current: Deployment = { ...deployments[0], status: "draft" };
+  const calls = api(
+    routes({
+      "GET /api/services/v1/deployments": () => [200, { deployments: [current] }],
+      "PUT /api/deployments/d1": (body) => {
+        current = { ...current, deployed_version: body.deployed_version, revision: 3 }; // still a draft
+        return [200, current];
+      },
+      "POST /api/inventory/deployment/d1/confirm?dry_run=1": () => [
+        200,
+        { confirmed: [{ kind: "deployment", id: "d1", name: "payments-api on app-1 in prod" }] },
+      ],
+      "POST /api/inventory/deployment/d1/confirm": () => {
+        current = { ...current, status: "confirmed", revision: 4 };
+        return [200, { confirmed: [{ kind: "deployment", id: "d1", name: "payments-api on app-1 in prod" }] }];
+      },
+    }),
+  );
+  const onChanged = panel();
+  await user.click(await screen.findByRole("button", { name: "Edit the deployment here" }));
+  await user.clear(screen.getByLabelText("Version"));
+  await user.type(screen.getByLabelText("Version"), "1.5");
+  await user.click(screen.getByRole("button", { name: "Save deployment" }));
+  await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  const here = within(await screen.findByRole("region", { name: "Deployment here" }));
+  expect(await here.findByText(/1\.5/)).toBeInTheDocument();
+  expect(here.getByText("Draft")).toBeInTheDocument();
+  await user.click(here.getByRole("button", { name: "Confirm the deployment here" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Confirm the deployment here?" }));
+  expect(await sheet.findByText("Nothing else is confirmed with it.")).toBeInTheDocument();
+  await user.click(sheet.getByRole("button", { name: "Confirm" }));
+  await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
+  expect(calls.find((call) => call.key === "POST /api/inventory/deployment/d1/confirm")!.body).toEqual({ revision: 3 });
+  await vi.waitFor(() => expect(here.queryByText("Draft")).not.toBeInTheDocument());
 });

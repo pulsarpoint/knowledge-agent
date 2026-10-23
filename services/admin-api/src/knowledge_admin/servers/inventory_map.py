@@ -8,7 +8,9 @@ relations and the connections rolled up to the services. A connection to an exte
 that host, one to an external service on a boundary node named for the service (the services view draws the service's
 own node). Each node lists the live documents linked to its entry (ka.document_resources). A view shows one node's
 inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every edge up to the
-nodes shown (graph in graph)."""
+nodes shown (graph in graph). A node or edge whose entry is a draft carries `draft: true` (a service placement when
+its service or every deployment it stands for is a draft, a server placement when the server or its membership is;
+a rolled-up edge when every connection or relation in it is); confirmed ones carry no `draft` key."""
 
 from uuid import UUID
 
@@ -68,16 +70,20 @@ def deployment_places(inventory: dict) -> dict[UUID, tuple[UUID, UUID, UUID]]:
 
 
 def placements(inventory: dict, view: str) -> nx.DiGraph:
-    """The view's containment tree: edges parent → child; node attributes entry, environment, name, description."""
+    """The view's containment tree: edges parent → child; node attributes entry, environment, name, description,
+    draft."""
     tree = nx.DiGraph()
 
-    def add(node: str, kind: str, item: dict, parent: str | None, environment: UUID | None) -> None:
+    def add(
+        node: str, kind: str, item: dict, parent: str | None, environment: UUID | None, draft: bool = False
+    ) -> None:
         tree.add_node(
             node,
             entry=(kind, item['id']),
             environment=environment,
             name=item['name'],
             description=item['description'],
+            draft=draft or item.get('status') == 'draft',
         )
         if parent is not None:
             tree.add_edge(parent, node)
@@ -99,18 +105,23 @@ def placements(inventory: dict, view: str) -> nx.DiGraph:
         services = {service['id']: service for service in model['services']}
         for server in model['servers']:
             server_node = node_id('server', server['id'], environment['id'])
-            add(server_node, 'server', server, node_id('environment', environment['id']), environment['id'])
+            member = server['membership_status'] == 'draft'
+            add(server_node, 'server', server, node_id('environment', environment['id']), environment['id'], member)
             for deployment in server['deployments']:
                 node = node_id('service', deployment['service_id'], environment['id'], server['id'])
+                service = services[deployment['service_id']]
+                draft = deployment['status'] == 'draft'
                 if node not in tree:  # several runtimes of one service on one server are one node
-                    add(node, 'service', services[deployment['service_id']], server_node, environment['id'])
+                    add(node, 'service', service, server_node, environment['id'], draft)
+                elif not draft and service['status'] != 'draft':
+                    tree.nodes[node]['draft'] = False
     for server in unplaced['servers']:  # a server with no deployment sits at the top level
         add(node_id('server', server['id'], None), 'server', server, None, None)
     return tree
 
 
 def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
-    """The view's edges {id, from_id, to_id, type}: infrastructure, each connection between the nodes of its
+    """The view's edges {id, from_id, to_id, type, draft}: infrastructure, each connection between the nodes of its
     deployments; services, each relation and each connection between the services of its deployments. A connection
     to an external host ends on that host's node, one to an external service on the service's node (infrastructure
     view; not in the tree)."""
@@ -142,6 +153,7 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
                     'to_id': end,
                     'type': 'connects_to',
                     'label': connection_label(connection),
+                    'draft': connection['status'] == 'draft',
                 }
             )
     if view == 'services':
@@ -153,7 +165,15 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
             else:
                 end = node_id('code_project', relation['to_code_project_id'])
             if start in tree and end in tree:
-                edges.append({'id': relation['id'], 'from_id': start, 'to_id': end, 'type': relation['kind']})
+                edges.append(
+                    {
+                        'id': relation['id'],
+                        'from_id': start,
+                        'to_id': end,
+                        'type': relation['kind'],
+                        'draft': relation['status'] == 'draft',
+                    }
+                )
     return edges
 
 
@@ -185,7 +205,7 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
     def about(node: str) -> dict:
         if node.startswith(EXTERNAL_SERVICE_PREFIX):
             service = external_services[UUID(node.removeprefix(EXTERNAL_SERVICE_PREFIX))]
-            return {
+            found = {
                 'id': node,
                 'name': service['name'],
                 'kind': EXTERNAL_SERVICE,
@@ -193,12 +213,14 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
                 'entry_id': service['id'],
                 'address': service['address'],
             }
+            return found | ({'draft': True} if service['status'] == 'draft' else {})
         if node not in tree:  # an external host
             host = node.removeprefix(f'{EXTERNAL_HOST}:')
             return {'id': node, 'name': host, 'kind': EXTERNAL_HOST, 'entry_kind': EXTERNAL_HOST, 'entry_id': host}
         data = tree.nodes[node]
         kind, entry = data['entry']
-        return {'id': node, 'name': data['name'], 'kind': kind, 'entry_kind': kind, 'entry_id': entry}
+        found = {'id': node, 'name': data['name'], 'kind': kind, 'entry_kind': kind, 'entry_id': entry}
+        return found | ({'draft': True} if data['draft'] else {})
 
     if root is not None and root not in tree:
         raise ViewError(404, NOT_FOUND)
@@ -266,16 +288,19 @@ def build_view(inventory: dict, view: str, root: str | None, depth: int) -> dict
             if end_id not in rows and end_id not in boundary:
                 boundary[end_id] = about(end_id)
         # an edge drawn between several placements rolls up once: count distinct connections and relations
-        ids, labels = grouped.setdefault((a, b, edge['type']), (set(), set()))
+        ids, labels, drafts = grouped.setdefault((a, b, edge['type']), (set(), set(), set()))
         ids.add(edge['id'])
         labels.add(edge.get('label', ''))
+        drafts.add(edge['draft'])
     if len(rows) + len(boundary) > MAX_VISIBLE:
         raise ViewError(422, TOO_MANY)
     rolled = []
-    for (a, b, kind), (ids, labels) in grouped.items():
+    for (a, b, kind), (ids, labels, drafts) in grouped.items():
         edge = {'from': a, 'to': b, 'type': kind, 'count': len(ids), 'ids': sorted(ids, key=str)[:MAX_EDGE_IDS]}
         if rolled_label(labels):
             edge['label'] = rolled_label(labels)
+        if drafts == {True}:
+            edge['draft'] = True
         rolled.append(edge)
     nodes = []
 

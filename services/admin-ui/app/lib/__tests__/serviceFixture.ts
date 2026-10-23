@@ -12,6 +12,7 @@ export const serviceDeployment = (id: string, environment: string, server: strin
     port: null,
     log_location: "",
     deployed_version: "",
+    status: "confirmed",
     server: { id: `s-${server}`, name: server },
   }) as ServiceDeployment;
 
@@ -27,6 +28,7 @@ export const serviceAsset = (
   description: "",
   owner: "",
   address: null,
+  status: "confirmed",
   revision: 1,
   service_type: "custom",
   service_role: "application",

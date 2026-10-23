@@ -481,6 +481,37 @@ environment when one of its deployments is; a service deployed in two environmen
   the previous one. The workspace reloads after every change.
 - An environment with deployments cannot be deleted: remove or move its deployments first.
 
+#### Drafts
+
+Everything an agent writes to the inventory — environments, servers, services, deployments, server memberships,
+connections and relations — is a **draft**: it is in the inventory with a **Draft** badge, but only a person makes it a
+real entry (**Confirm**) or drops it (**Discard**). Agents never change a confirmed entry.
+
+- **Where drafts appear.** In the workspace on the server rows (a draft server, or a server put in the environment by
+  a draft membership) and the service rows, and in the service panel on the service itself, its deployments,
+  connections, relations and code projects; on the server page's services table and the service page's panel; and on
+  the Environments list (a draft environment). Each draft has **Confirm** (✓) and **Discard** (✕).
+- **Confirm** first lists what it also confirms, then confirms them together: a draft is confirmed with every draft it
+  needs — a deployment with its server, service and the server's membership of the environment, a connection with its
+  deployments (and what they need) and its external service, a relation with both services, a membership with its
+  server, and anything in a draft environment with the environment. On a server row, Confirm confirms its membership
+  (and the server with it).
+- **Discard** first lists what it also deletes, then deletes the draft and the drafts that depend on it: a draft
+  deployment takes its draft connections, a draft service its draft deployments, connections and relations, a draft
+  server its draft memberships and deployments. It never deletes a confirmed entry. On a server row, Discard deletes a
+  draft server (with its membership), or only the draft membership of a confirmed server.
+- **Your own changes.** What you add or change is confirmed — except that editing a draft keeps it a draft (confirm it
+  when it is right). A confirmed entry never uses a draft, so when what you save uses drafts (a connection to a draft
+  deployment, a service added on a draft server, a relation to a draft service), the form says "Saving confirms the
+  drafts it uses: …" and saving confirms them with it.
+- **Filter.** Above the workspace columns, **All**, **Confirmed** or **Drafts** (`?drafts=none` or `?drafts=only` in
+  the page address; Drafts also keeps a server that holds a draft deployment). The environment's header says
+  "N drafts to review" while it has drafts; the link opens the workspace with the Drafts filter.
+- **Map.** On the System map, draft boxes and lines are dashed (a line that adds up several connections is dashed only
+  when all of them are drafts), and **Show drafts** (on by default; `drafts=0` in the address when off) hides them.
+- Someone who changed a draft meanwhile makes Confirm and Discard say "This was changed meanwhile. Reload to see the
+  latest." and nothing changes.
+
 ### 4.7 Services
 
 `/services` — the application inventory that ties code, environments and servers together.
@@ -1093,6 +1124,10 @@ their own pages, and connect them here.
   entries fold into their box and lines add up (`connects to ×3`). A connection line carries its label, `protocol:port`
   (`connects to postgres:5432`; just the protocol or just `:port` when the other is missing); a line that adds up
   several connections lists their distinct labels, sorted, at most 3 and then `+N` (`connects to tcp:25, tcp:587`). When both ends of a connection are in one environment, the line stays inside it: it never joins one environment's copy of a server to another's. Everything you choose is in the page address.
+- **Drafts.** Entries an agent drafted and nobody confirmed yet are drawn dashed (a line that adds up several
+  connections is dashed when all of them are drafts); the Inside list says "draft". **Show drafts** (on by default)
+  hides them: the map is then drawn from the confirmed inventory only (`drafts=0` in the page address and in the view's
+  API address). See [Drafts](#drafts).
 - **Views.** **Diagram** is drawn by D2 with the layout you pick (tala, elk or dagre); **Mermaid** draws the same view
   with Mermaid; **D2** and **JSON** show the source, with **Copy**.
 - **Connections and relations.** Click an entry's name: the panel links to its page and shows its documents; for a
