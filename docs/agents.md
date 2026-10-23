@@ -182,12 +182,14 @@ cannot call it (and the adapter's backstop refuses a forged call: `Tool <name> i
   settings** keeps it. A saved agent's start options carry its own (`agent.disabled_tools`), shown locked.
 - **Subagents and experts** inherit the calling run's off tools; an expert adds its own agent's. They may withhold
   more (as today), never fewer.
+- `GET /api/tools` lists the catalog tools for the Tools list: `{tools: [{name, group, description}]}`, ordered by group
+  then name (admin only). The UI drops saved off names that are not in it before starting a run.
 - Names are checked against the catalog: an unknown name in a request is refused, `Unknown tool: <name>.` (400). A
   stored name of a tool later removed from the catalog is dropped wherever the list is read (the profile, a run's
   start, an expert's load, clone and Apply), so it never refuses the next settings save.
 - `agents/runner.instructions_and_tools` is the one place that withholds them, so the offered tools, the backstop
   (`context['tools']`), the Debug tab and the start preview all follow it. The rules are pure functions in
-  `tools/selection.py` (`disabled_for`, `validate`).
+  `tools/selection.py` (`disabled_for`, `validate`, `known`).
 - Scope: the catalog tools. MCP servers and experts keep their own per-run selection.
 `code_graph` answers for a code project of the run that has a current generated graph (`code_graph` results carry its `generated_at`; if
 the project was synced after the graph was generated, the answer carries a note to regenerate it or confirm with

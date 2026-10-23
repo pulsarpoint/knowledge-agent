@@ -193,8 +193,8 @@ environments, services, servers), the experts, and the prompts tagged
 0101; 0131 gave it a new version): read what you were given, write the document with `update_document`, change a
 passage with `edit_document`, and never say it is published. Custom prompts tagged `documentation` should tell the agent
 to write with `update_document`. No
-resource is chosen until it is ticked; experts are offered only when ticked (`expert_ids`). The run gets every tool,
-including `run_subagent`; the run's access (what was chosen, and the new document) decides what each may do.
+resource is chosen until it is ticked; experts are offered only when ticked (`expert_ids`). The run gets every tool
+that is not switched off (Advanced → Tools), including `run_subagent`; the run's access (what was chosen, and the new document) decides what each may do.
 
 The agent writes the document with `update_document(document_id, content, title?, description?, resource?)` and
 `edit_document(document_id, old_text, new_text)`, using the new document's id from its context. Both write the run's draft. The agent's final answer is not turned into a

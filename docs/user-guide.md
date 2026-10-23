@@ -578,7 +578,7 @@ it.”) and **Apply to a new clone** clones the agent first and writes them ther
 only notes ticked, **Save memory notes**. When notes were sent, the sheet lists the saved notes (each opens its Memory
 entry) and any refused names with the reason; **Done** closes it.
 
-**Tools.** Every run gets every tool; there is nothing to choose. What a tool may do follows the run's resources (there are
+**Tools.** Every run gets every tool it has not switched off: under **Advanced** (collapsed below the General fields) in an agent's settings, **Tools** lists the built-in tools by group; an off tool is never offered to that agent, and tools added later are on. In a chat's **Agent settings** (Advanced → Tools) a conversation can switch more tools off, never back on one its agent has off: those show as *Off for this agent* and are locked. What a tool may do follows the run's resources (there are
 no roles): a tool without what it needs refuses (for example `This run has no servers.`). Every agent can read the inventory of its resources
 (`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`), and every agent in a conversation
 can add to it as **drafts** (`save_environment`, `save_server`, `save_service`, `save_deployment`, `save_connection`,

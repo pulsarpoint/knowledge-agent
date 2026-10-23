@@ -568,3 +568,10 @@ After upgrading, the `rag` and `rag-worker` containers of an earlier `make up` a
 `docker compose --env-file .env -f deploy/compose.yaml down --remove-orphans` (or `make down` before pulling). The
 `.env` keys `RAG_BACKOFFICE_KEY`, `GENERATED_DOCS_FOLDER` and `JIRA_FOLDER` are no longer read and can be removed, and
 the `DATA_ROOT/generated-documents` and `DATA_ROOT/jira` folders are no longer used.
+
+## 0135_agent_disabled_tools
+
+Tool selection: `ka.agents.disabled_tools` (`text[]`, not null, default empty) holds the catalog tools never offered in a
+run of the agent. Off tools are stored, not on tools, so a tool added to the catalog later is on for every agent. A run
+may switch more off (the start request's `disabled_tools`, recorded in the pinned configuration); it cannot switch one
+back on. The down migration drops the column: every agent is offered every tool again.

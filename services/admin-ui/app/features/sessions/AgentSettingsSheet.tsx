@@ -263,8 +263,8 @@ export default function AgentSettingsSheet({
               <Field>
                 <FieldLabel>Tools</FieldLabel>
                 <ToolsList
-                  off={settings.disabledTools}
-                  locked={agent?.disabled_tools}
+                  off={locked ? (session!.disabled_tools ?? []) : settings.disabledTools}
+                  locked={locked ? [] : agent?.disabled_tools}
                   disabled={locked}
                   onChange={(disabledTools) => onChange({ disabledTools })}
                 />

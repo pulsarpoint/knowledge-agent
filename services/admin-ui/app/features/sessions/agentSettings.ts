@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getTools } from "~/features/agents/api";
 import { AGENT_KINDS, emptyIds } from "~/lib/resources";
 import {
   getSessionOptions,
@@ -75,9 +76,9 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
   };
 }
 
-/** Saved settings checked against today's options: ids that no longer exist are dropped; resources start again from the
+/** Saved settings checked against today's options: ids that no longer exist (and tools no longer in the catalog, `toolNames`) are dropped; resources start again from the
  * document's links when those changed since the save. Anything unreadable gives the defaults. */
-export function restoreSettings(options: AgentOptions, saved: unknown): AgentSettings {
+export function restoreSettings(options: AgentOptions, saved: unknown, toolNames?: string[]): AgentSettings {
   const base = defaultSettings(options);
   if (!saved || typeof saved !== "object") return base;
   const { v, revision, linked, settings } = saved as {
@@ -118,7 +119,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
     chosen,
     ...(options.agent ? { documents: strings(settings.documents).filter((id) => documents.has(id)) } : {}),
     experts: strings(settings.experts).filter((id) => experts.has(id)),
-    disabledTools: strings(settings.disabledTools),
+    disabledTools: strings(settings.disabledTools).filter((name) => !toolNames || toolNames.includes(name)),
   };
 }
 
@@ -308,8 +309,12 @@ export function useAgentSettings(scope: ChatScope | null, revision?: number) {
               : kind === "environment"
                 ? { environmentId: id! }
                 : { agentId: id! };
-    getSessionOptions(which, controller.signal)
-      .then((value) => {
+    // a catalog that cannot be read leaves the saved tool names as they are
+    const catalog = getTools()
+      .then((value) => value.tools.map((tool) => tool.name))
+      .catch(() => undefined);
+    Promise.all([getSessionOptions(which, controller.signal), catalog])
+      .then(([value, toolNames]) => {
         if (controller.signal.aborted) return;
         let saved: unknown = null;
         try {
@@ -318,7 +323,7 @@ export function useAgentSettings(scope: ChatScope | null, revision?: number) {
           saved = null;
         }
         setFailed(null);
-        setLoaded({ key, storage, options: value, settings: restoreSettings(value, saved) });
+        setLoaded({ key, storage, options: value, settings: restoreSettings(value, saved, toolNames) });
       })
       .catch((e) => {
         if (!controller.signal.aborted)

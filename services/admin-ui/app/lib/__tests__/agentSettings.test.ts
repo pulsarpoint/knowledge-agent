@@ -404,3 +404,13 @@ test("off tools go into every kind of start request, and come back with Start ne
   const withOff = { ...agentOptions, agent: { ...agentOptions.agent!, disabled_tools: ["get_document"] } };
   expect(settingsFromSession(withOff, session).disabledTools).toEqual(["ssh_run"]);
 });
+
+test("saved off tools that are no longer in the catalog are dropped (they would be refused with a 400)", () => {
+  const saved = {
+    v: 2,
+    linked: ["s1", "v1"],
+    settings: { ...defaultSettings(options), disabledTools: ["ssh_run", "gone_tool"] },
+  };
+  expect(restoreSettings(options, saved, ["ssh_run", "get_document"]).disabledTools).toEqual(["ssh_run"]);
+  expect(restoreSettings(options, saved).disabledTools).toEqual(["ssh_run", "gone_tool"]); // catalog unknown: kept
+});

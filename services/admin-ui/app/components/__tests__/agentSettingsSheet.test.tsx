@@ -214,9 +214,10 @@ test("a saved agent's off tools are locked as Off for this agent; the rest can b
 
 test("an open conversation shows its tools read-only", async () => {
   stubCatalog();
-  const session = { id: "r1", status: "waiting", config: {} } as unknown as SessionDetail;
+  const session = { id: "r1", status: "waiting", config: {}, disabled_tools: ["ssh_run"] } as unknown as SessionDetail;
   render(<Harness session={session} />);
   fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
-  await screen.findByText("2 of 2 tools on");
+  await screen.findByText("1 of 2 tools on");
   expect(screen.getByRole("checkbox", { name: "ssh_run" })).toBeDisabled();
+  expect(screen.getByRole("checkbox", { name: "ssh_run" })).not.toBeChecked();
 });

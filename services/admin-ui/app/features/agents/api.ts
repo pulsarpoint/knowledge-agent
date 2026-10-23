@@ -63,7 +63,6 @@ export const getAgents = () => request<{ agents: AgentSummary[] }>("/api/agents"
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string) => request<Record<string, unknown>>(path(id) + "/config");
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + "/options");
-/** Saves the agent: its details and its access object as references (missing ones are dropped). */
 export interface CatalogTool {
   name: string;
   group: string;
@@ -71,6 +70,7 @@ export interface CatalogTool {
 }
 /** Every catalog tool, by group then name. */
 export const getTools = () => request<{ tools: CatalogTool[] }>("/api/tools");
+/** Saves the agent: its details and its access object as references (missing ones are dropped). */
 export const saveAgent = (value: AgentProfile) => {
   const { revision, name, description, when_to_use, enabled, instructions, access, expert, model_id, disabled_tools } =
     value;
