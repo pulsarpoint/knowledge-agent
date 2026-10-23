@@ -17,7 +17,9 @@ docstring is the usage text the model reads. `usage=` and `arguments=` override 
 joins the file with the registered functions (`load_catalog`) and raises on a tool missing from either side, a
 duplicate, or an unknown group. `CATALOG` is the result, a `ToolSpec` per tool (name,
 group, label, summary, usage text, argument model, run). Every run gets every catalog tool with its built-in usage
-text: no per-agent choice, needs or usage overrides (migration 0115 dropped `ka.agent_tools` and `ka.tools.needs`).
+text but the ones it switched off (`config['disabled_tools']`: a saved agent's `ka.agents.disabled_tools` and the
+start request's, `tools/selection.py`); no needs or usage overrides (migration 0115 dropped `ka.agent_tools` and
+`ka.tools.needs`).
 What a tool may do is decided by its `check_<tool>` against the run's access object (`knowledge_admin/access.py`).
 
 `ka.tools` is the table copy of `tools.json` (migration 0108): `tools/fixture.py` `sync_tools` replaces it with the file
@@ -28,7 +30,8 @@ is the only writer; edit the file, not the table, and a start after the edit mak
 and argument schema are the same in every run (what a run may use is in its prompt and checked by the tool), and the
 adapter refuses a tool missing from `context['tools']` (`Tool <name> is not available in this run.`) as a backstop.
 
-`create_agent` (`knowledge_admin/agents/runner.py`, `instructions_and_tools`) builds every catalog tool; the MCP
+`create_agent` (`knowledge_admin/agents/runner.py`, `instructions_and_tools`) builds every catalog tool not switched
+off; the MCP
 servers in the run's access offer every one of their tools (no filter, no notes in the prompt).
 
 `run_subagent` (`capabilities/subagents.py`; group `agents`) is offered in every run that has the turn's `Subagents`

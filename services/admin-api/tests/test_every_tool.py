@@ -1,6 +1,7 @@
-"""Every run gets every tool: the whole catalog (run_subagent except in a subagent, the wake-up and inventory write tools only in a session
-turn), every expert (narrowed by the request's expert_ids), every tool of the MCP servers in its access; the access
-object alone decides what a tool may do. A request carries no tool switches and there are no roles."""
+"""Every run gets every tool it has not switched off (test_tool_selection.py): the whole catalog (run_subagent except
+in a subagent, the wake-up and inventory write tools only in a session turn), every expert (narrowed by the request's
+expert_ids), every tool of the MCP servers in its access; the access object alone decides what a tool may do. A
+request carries no tools or subagents switches and there are no roles."""
 
 from knowledge_admin.agents.runner import instructions_and_tools
 from knowledge_admin.knowledge_agents.subagents import subagent_config

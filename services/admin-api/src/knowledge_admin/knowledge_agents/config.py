@@ -71,6 +71,7 @@ class AgentConfig(TypedDict):
     instructions: str
     settings_revision: int | None
     access: dict[str, Any]  # what the agent holds: its stored access with each entry loaded; a run pins its own
+    disabled_tools: list[str]  # the catalog tools never offered in a run of it (tools/selection.py)
 
 
 def model_fits(model: Mapping[str, Any]) -> bool:
@@ -130,6 +131,7 @@ SECTIONS: dict[str, str] = {
     'instructions': 'General',
     'when_to_use': 'General',
     'model': 'General',
+    'disabled_tools': 'General',
     'resources': 'Resources',
 }
 
@@ -150,11 +152,12 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'instructions': config['instructions'],
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
+        'disabled_tools': sorted(config.get('disabled_tools', [])),
         'resources': _access(config['access']),
     }
 
 
-SAVED = """SELECT revision,when_to_use,model_id,system_prompt,access,instructions
+SAVED = """SELECT revision,when_to_use,model_id,system_prompt,access,instructions,disabled_tools
     FROM ka.agents WHERE id=%s"""
 
 
@@ -172,6 +175,7 @@ def saved_config(conn, agent_id: str) -> dict[str, Any]:
         'when_to_use': row['when_to_use'],
         'model': {'id': row['model_id']} if row['model_id'] else None,
         'access': row['access'],
+        'disabled_tools': row['disabled_tools'],
     }
 
 
@@ -361,7 +365,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
         agent = conn.execute(
             """SELECT id,name,description,when_to_use,enabled,revision,model_id,system_prompt,
-            access,instructions FROM ka.agents WHERE id=%s""",
+            access,instructions,disabled_tools FROM ka.agents WHERE id=%s""",
             (agent_id,),
         ).fetchone()
         if agent is None:
@@ -393,5 +397,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'instructions': agent['instructions'],
                 'settings_revision': None,
                 'access': {'resources': resources},
+                'disabled_tools': sorted(agent['disabled_tools']),
             }
         )

@@ -82,7 +82,8 @@ async def agent(
 
     workspace: a scratch workspace to share (a subagent uses its parent's); None: a new one for this run, removed
     afterwards. subagents: the session turn's Subagents, which run_subagent finds in the run context. tools False: an
-    internal LLM call (the agent designer, the tuning reviewer) that gets no tools; agent runs get every tool.
+    internal LLM call (the agent designer, the tuning reviewer) that gets no tools; agent runs get every tool they
+    have not switched off.
     """
     if (
         not task.strip()
@@ -281,8 +282,9 @@ def instructions_and_tools(
     create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
     what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. Every catalog tool with
     its built-in usage text (run_subagent only with subagents, as in create_agent; the wake-up, inventory write and
-    document write tools only with subagents and not in an expert's call, config['expert']); what a tool may do is decided by its
-    check against the run's access object. tools False: none at all (an internal LLM call, not an agent run)."""
+    document write tools only with subagents and not in an expert's call, config['expert']), but the tools the run
+    switched off (config['disabled_tools']: tools/selection.py); what a tool may do is decided by its check against the
+    run's access object. tools False: none at all (an internal LLM call, not an agent run)."""
     prompt = get_prompt(config)
     selected_mcp = mcp.selected_servers(config)
     if not tools:
@@ -290,6 +292,7 @@ def instructions_and_tools(
     withheld = set() if subagents else {SUBAGENT}
     if not subagents or config.get('expert'):  # only the session turn's own run (not a subagent or an expert)
         withheld |= WAKEUPS | INVENTORY_WRITES | DOCUMENT_WRITES
+    withheld |= set(config.get('disabled_tools', ()))
     offered = [function_tool(spec, spec.usage) for spec in CATALOG.values() if spec.name not in withheld]
     # only in a session turn, never inside an expert or a subagent
     experts = [expert_tool(entry) for entry in config.get('experts', [])] if subagents else []

@@ -13,10 +13,11 @@ limit, no per-turn time limit, no 300-second limit).
 - **A run can only narrow the saved agent.** A saved agent stores what it may use as one access object
   (`ka.agents.access`: resource references; there are no roles, and keys an older stored object still carries are
   ignored) and its instructions (`ka.agents.instructions`). A run gets the whole access object, or the resources the
-  request picks out of it (`resources`, environments and documents included). Every run gets every tool, `run_subagent`
-  and every offered expert;
-  the access object decides what a tool may do. The request may choose some of the experts (`expert_ids`). Nothing can
-  be added; `tools` and `subagents` are not request fields (sending them is a 400). The model and prompt are the
+  request picks out of it (`resources`, environments and documents included). Every run gets every catalog tool but
+  the ones switched off ([Tool selection](#tool-selection)), `run_subagent` and every offered expert;
+  the access object decides what a tool may do. The request may choose some of the experts (`expert_ids`) and switch
+  more catalog tools off (`disabled_tools`). Nothing can be added; `tools` and `subagents` are not request fields
+  (sending them is a 400). The model and prompt are the
   agent's own: change them in General, or clone the agent to try another prompt. Refused: "A saved agent uses its own
   model and prompt." and a pick outside the agent's access ("<type> <id> is not in the agent's access"). A reference to a deleted or archived resource is skipped; a server without usable SSH stays in the run.
   Event handlers can send to any enabled agent; its run gets the whole access object. An expert narrows its own
@@ -161,10 +162,31 @@ See [agent configuration](agent-profiles.md), [SSH settings](server-operations.m
 
 ## Tools
 
-Every run gets every tool: the whole catalog with its built-in usage text, every tool of the MCP servers in its access
-and its experts (see [agent configuration](agent-profiles.md#tools) and `knowledge_admin/tools/README.md`). Built-in
-tools are `@tool` functions whose attributes are in `tools/tools.json`, copied into `ka.tools` at start. There is no
-per-agent choice and no "needs" rule; each tool's `check_<tool>` refuses what the run's access object does not allow.
+Every run gets every tool it has not switched off: the catalog with its built-in usage text, every tool of the MCP
+servers in its access and its experts (see [agent configuration](agent-profiles.md#tools) and
+`knowledge_admin/tools/README.md`). Built-in tools are `@tool` functions whose attributes are in `tools/tools.json`,
+copied into `ka.tools` at start. There is no "needs" rule; each tool's `check_<tool>` refuses what the run's access
+object does not allow.
+
+### Tool selection
+
+Catalog tools can be switched off for a saved agent and, further, for a run; an off tool is never offered, so the model
+cannot call it (and the adapter's backstop refuses a forged call: `Tool <name> is not available in this run.`).
+
+- **A saved agent:** `ka.agents.disabled_tools` (migration 0135), read and written by the agent profile API
+  (`GET`/`PUT /api/agents/{id}`, `disabled_tools`; left out of a `PUT`, the list is kept). The off tools are stored,
+  so a tool added to the catalog later is on for every agent. A clone copies the list.
+- **A run:** the start request's `disabled_tools`. A saved agent's run switches off its agent's tools and the request's
+  (a request cannot switch one back on); an ad-hoc run the request's. The pinned configuration records the set
+  (`config['disabled_tools']`), and the session detail returns it (`disabled_tools`), so **Start new chat with these
+  settings** keeps it. A saved agent's start options carry its own (`agent.disabled_tools`), shown locked.
+- **Subagents and experts** inherit the calling run's off tools; an expert adds its own agent's. They may withhold
+  more (as today), never fewer.
+- Names are checked against the catalog: an unknown name is refused, `Unknown tool: <name>.` (400).
+- `agents/runner.instructions_and_tools` is the one place that withholds them, so the offered tools, the backstop
+  (`context['tools']`), the Debug tab and the start preview all follow it. The rules are pure functions in
+  `tools/selection.py` (`disabled_for`, `validate`).
+- Scope: the catalog tools. MCP servers and experts keep their own per-run selection.
 `code_graph` answers for a code project of the run that has a current generated graph (`code_graph` results carry its `generated_at`; if
 the project was synced after the graph was generated, the answer carries a note to regenerate it or confirm with
 `read_file`).

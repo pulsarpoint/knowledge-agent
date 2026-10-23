@@ -8,6 +8,7 @@ from typing import Any
 
 from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
 from knowledge_admin.sessions.run_access import KINDS, agent_access, picks
+from knowledge_admin.tools.selection import disabled_for
 
 UNAVAILABLE = 'Expert {name} is not available.'
 FAILED = 'Expert {name} failed: {message}'
@@ -101,3 +102,10 @@ def load(
     config['experts'] = []  # an expert never calls experts
     config['expert'] = True  # an expert's call: no session tools (wake-ups; agents/runner.instructions_and_tools)
     return config, load_credentials(store, config)
+
+
+def inherit(config: Mapping[str, Any], caller: Mapping[str, Any]) -> dict[str, Any]:
+    """The expert's configuration for a call from a run of `caller`: its own off tools and the caller's (a tool off in
+    the calling run is never offered to the expert it asks)."""
+    off = disabled_for(config.get('disabled_tools', ()), caller.get('disabled_tools', ()))
+    return {**config, 'disabled_tools': sorted(off)}

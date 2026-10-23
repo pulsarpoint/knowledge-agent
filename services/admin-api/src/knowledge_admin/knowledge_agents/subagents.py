@@ -240,6 +240,7 @@ class Subagents:
         load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources))
         try:
             config, credentials = await asyncio.shield(load)
+            config = experts.inherit(config, context['config'])
         except asyncio.CancelledError:
             self.root.started -= 1  # a refused call does not count
             load.add_done_callback(_discard_loaded)  # Stop: a load still running empties what it returns

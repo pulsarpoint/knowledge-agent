@@ -14,11 +14,12 @@ from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits
+from knowledge_admin.tools import selection
 
 
 EXPERT_NEEDS_WHEN = 'Experts need When to use.'
 AGENT = """SELECT id,name,description,when_to_use,enabled,model_id,system_prompt,expert,cloned_from,
-    revision,access,instructions,created_by,updated_by,created_at,updated_at FROM ka.agents WHERE id=%s"""
+    revision,access,instructions,disabled_tools,created_by,updated_by,created_at,updated_at FROM ka.agents WHERE id=%s"""
 
 
 INSTRUCTIONS_LIMIT = 40000
@@ -120,6 +121,7 @@ class ProfileInput(BaseModel):
     instructions: str = Field(max_length=INSTRUCTIONS_LIMIT)
     expert: bool | None = Field(default=None, strict=True)  # Offer as an expert; None keeps the switch
     model_id: UUID | None = None  # Left out keeps the model; null clears it
+    disabled_tools: list[str] | None = Field(default=None, max_length=200)  # catalog tools off; None keeps them
 
     @field_validator('instructions')
     @classmethod
@@ -289,6 +291,14 @@ def build_api(app_name, store):
                 if new_model and model_id is not None:
                     check_model(conn, model_id)
                 access = references(value.access, project_resources(conn, store.project(conn, app_name)))
+                try:
+                    disabled = (
+                        old['disabled_tools']
+                        if value.disabled_tools is None
+                        else selection.validate(value.disabled_tools)
+                    )
+                except ValueError as exc:
+                    raise HTTPException(400, str(exc)) from None
                 switch = {
                     **(
                         {'model_id': {'from': old['model_id'] and str(old['model_id']), 'to': model_id}}
@@ -296,11 +306,13 @@ def build_api(app_name, store):
                         else {}
                     ),
                     **({'expert': expert} if expert != old['expert'] else {}),
+                    **({'disabled_tools': disabled} if disabled != old['disabled_tools'] else {}),
                 }
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 conn.execute(
                     """UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,
-                    access=%s,instructions=%s,model_id=%s,expert=%s,revision=revision+1,updated_by=%s WHERE id=%s""",
+                    access=%s,instructions=%s,model_id=%s,expert=%s,disabled_tools=%s,revision=revision+1,updated_by=%s
+                    WHERE id=%s""",
                     (
                         value.name,
                         value.description,
@@ -310,6 +322,7 @@ def build_api(app_name, store):
                         value.instructions,
                         model_id,
                         expert,
+                        disabled,
                         actor,
                         agent_id,
                     ),

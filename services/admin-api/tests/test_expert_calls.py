@@ -51,8 +51,15 @@ EXPERT_SECRET = 'expert-ssh-secret'
 
 
 def expert_config(name: str = 'Payments') -> dict:
-    """What experts.load returns: the expert's own saved configuration, without experts or a record."""
-    config = parent(id=name.lower(), name=name, system_prompt={'content': f'Know {name}.'}, instructions='', experts=[])
+    """What experts.load returns: the expert's own saved configuration (no tools off), without experts or a record."""
+    config = parent(
+        id=name.lower(),
+        name=name,
+        system_prompt={'content': f'Know {name}.'},
+        instructions='',
+        experts=[],
+        disabled_tools=[],
+    )
     del config['record']
     return config
 

@@ -49,10 +49,11 @@ Every agent has its own configuration; no parent agent is introduced.
 
 ## Tools
 
-Every run gets every tool: the whole tool catalog with its built-in usage text, every tool of the MCP servers in its
-access, `load_skill`, `run_subagent` (except in a subagent's own run) and one tool per offered expert. There is no
-Tools tab, no per-agent tool choice, no edited usage text and no "Needs …" rule (migration 0115 dropped
-`ka.agent_tools` and `ka.tools.needs`). The access object decides what a tool may do: each tool checks its arguments
+Every run gets every tool it has not switched off: the tool catalog with its built-in usage text, every tool of the
+MCP servers in its access, `load_skill`, `run_subagent` (except in a subagent's own run) and one tool per offered
+expert. An agent's settings can switch catalog tools off (`disabled_tools`: off in every run of it), and a run can
+switch more off, never one back on (see [Tool selection](agents.md#tool-selection)). There is no edited usage text
+and no "Needs …" rule (migration 0115 dropped `ka.agent_tools` and `ka.tools.needs`). The access object decides what a tool may do: each tool checks its arguments
 against the run's resources and roles and refuses the rest (for example "This document is not available in this
 run."; `search_documents` returns only documents the run may read). Agent
 runs, run records, session pages and Test chats still show how often each tool was used. See

@@ -39,6 +39,7 @@ from knowledge_admin.sessions.run_access import (
 )
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
+from knowledge_admin.tools.selection import disabled_for, validate as valid_tools
 
 REVISION_TAG = 'document-revision'
 WRITE_TAG = 'documentation'
@@ -167,9 +168,9 @@ def resource_tag(kind: str, resource_id) -> str:
 
 class StartInput(BaseModel):
     """What a start panel sends: the first message, the model and prompt, facts from where it starts (context), what
-    the run may use (resources, experts; every run gets every tool; every run may draft documents and inventory within
-    its access) and where it was started from (a label for lists). A saved agent's run is a Test session unless purpose is chat
-    (Run agent on the Agents page)."""
+    the run may use (resources, experts; every catalog tool but those it switches off, disabled_tools; every run may
+    draft documents and inventory within its access) and where it was started from (a label for lists). A saved agent's
+    run is a Test session unless purpose is chat (Run agent on the Agents page)."""
 
     model_config = ConfigDict(extra='forbid')
     agent_id: str | None = None
@@ -182,6 +183,7 @@ class StartInput(BaseModel):
     context: str = Field(default='', max_length=20000)
     resources: Resources = Field(default_factory=Resources)
     expert_ids: list[UUID] | None = Field(default=None, max_length=50)  # None: every expert offered
+    disabled_tools: list[str] = Field(default_factory=list, max_length=200)  # catalog tools switched off (more only)
     tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
 
     @model_validator(mode='after')
@@ -338,8 +340,9 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
 
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
     """A saved agent's configuration for one run, narrowed by the request and never widened: its access object or the
-    resources the request picked out of it (access.narrow: a pick outside it is refused), a subset of its experts. Its
-    model and system prompt are its own; its access object is the run's (agent_access)."""
+    resources the request picked out of it (access.narrow: a pick outside it is refused), a subset of its experts, its
+    off tools and the request's (never one back on: disabled_for). Its model and system prompt are its own;
+    its access object is the run's (agent_access)."""
     try:
         config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError as exc:
@@ -376,7 +379,16 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
     pinned['project_id'] = str(project)
     pinned['access'] = access
+    pinned['disabled_tools'] = sorted(disabled_for(config['disabled_tools'], off_tools(value)))
     return jsonable_encoder(pinned), model
+
+
+def off_tools(value: StartInput) -> list[str]:
+    """The catalog tools the request switches off (400: a name that is not a catalog tool)."""
+    try:
+        return valid_tools(value.disabled_tools)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 def chosen_experts(offered: list[dict], expert_ids: list[UUID] | None) -> list[dict]:
@@ -493,6 +505,7 @@ def build(
         pinned['start_notes'] = notes
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     pinned['project_id'] = str(project)
+    pinned['disabled_tools'] = sorted(disabled_for((), off_tools(value)))
     # what the run holds: what it was picked, loaded, and its documents
     ids = {type_: [pick['id'] for pick in picked if pick['type'] == type_] for type_, _ in PICKS}
     holds = load_entries(conn, project, ids, documents)
@@ -873,6 +886,9 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
                 'revision': config['revision'],
                 'model': {'id': model['id'], 'name': model['name']} if model else None,
                 'system_prompt': config['system_prompt']['content'],
+                'disabled_tools': config[
+                    'disabled_tools'
+                ],  # off in every run of it (a run's settings show them locked)
             },
             'models': [{'id': model['id'], 'name': model['name']}] if fits else [],
             'default_model_id': model['id'] if fits else None,

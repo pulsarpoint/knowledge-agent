@@ -72,6 +72,8 @@ DETAIL = _select(
     # the same entries as sessions/run_access.given
     ",(SELECT coalesce(jsonb_agg(jsonb_build_object('type',r->>'type','id',r->>'id')),'[]') FROM"
     " jsonb_array_elements(s.access->'resources') r WHERE r->>'source'='given') AS given_resources"
+    # the catalog tools the run switched off (its agent's and its request's): Start new with these settings keeps them
+    ",coalesce(s.agent_config->'disabled_tools','[]'::jsonb) AS disabled_tools"
 )
 
 

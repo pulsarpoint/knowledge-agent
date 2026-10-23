@@ -185,6 +185,7 @@ def held(found: dict) -> dict:
     "all", no per-server overrides or per-agent connections."""
     found = copy.deepcopy(found)
     found.pop('resources')  # the access object itself: compared through the sections it fills
+    found.pop('disabled_tools', None)  # 0135: no section before it
     for key, items in (('skills', 'items'), ('mcp', 'servers'), ('services', 'items'), ('ssh', 'servers')):
         if not found[key]['enabled']:
             found[key][items] = []

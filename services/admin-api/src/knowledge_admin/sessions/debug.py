@@ -14,7 +14,7 @@ from knowledge_admin.sessions.activity import redact
 
 def instructions_and_tool_list(config: dict[str, Any], secrets: list[str]) -> dict[str, Any]:
     """{instructions, tools: [{name, description}]} as a session turn gives them to the model (a session turn offers
-    subagents and experts), redacted with `secrets` (known_secrets). MCP tools are listed by their servers once a run
+    subagents and experts; never the run's off tools), redacted with `secrets` (known_secrets). MCP tools are listed by their servers once a run
     connects; the servers are in the access object."""
     prompt, tools, experts, _ = instructions_and_tools(config, subagents=True)
     return {
