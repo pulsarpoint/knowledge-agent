@@ -1,6 +1,6 @@
 import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
+import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router";
 import ServerPage from "~/features/servers/ServerPage";
 import { WidePageContext } from "~/lib/widePage";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
@@ -354,4 +354,21 @@ test("a draft server and a draft deployment show Draft; the services table confi
   await user.click(await screen.findByRole("button", { name: "Confirm" }));
   await waitFor(() => expect(within(row).queryByText("Draft")).not.toBeInTheDocument());
   expect(calls.find((call) => call.key === "POST /api/inventory/deployment/d1/confirm")!.body).toEqual({ revision: 2 });
+});
+
+test("a turn of the page chat reloads the server page (its agent may have written drafts)", async () => {
+  live.sessions.r1 = detail("r1", "waiting");
+  const calls = api({ ...base(), [RUNS]: () => [200, { sessions: [run("r1", "waiting")] }] });
+  const view = () => (
+    <MemoryRouter initialEntries={["/servers/s1?chat=r1"]}>
+      <ServerPage serverId="s1" />
+    </MemoryRouter>
+  );
+  const { rerender } = render(view());
+  expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
+  const loads = () => calls.filter((call) => call.key === "GET /api/servers/s1").length;
+  const before = loads();
+  live.sessions.r1 = { ...detail("r1", "waiting"), turns: 2 };
+  rerender(view());
+  await waitFor(() => expect(loads()).toBe(before + 1));
 });

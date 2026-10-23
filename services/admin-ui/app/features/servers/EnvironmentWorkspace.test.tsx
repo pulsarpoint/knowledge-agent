@@ -309,3 +309,107 @@ test("Add service on a draft server says saving confirms the server and its memb
   await user.click(await screen.findByRole("button", { name: "Add service" }));
   expect(await screen.findByText("Saving confirms the drafts it uses: cache-1, cache-1 in prod.")).toBeInTheDocument();
 });
+
+/** Every entry is confirmed except a draft connection payments-api → postgres, a draft relation nginx depends on
+ * payments-api, and a draft external service (stripe) no connection uses. */
+function linked(): EnvironmentModel {
+  const value = model();
+  value.servers = [
+    server("s1", "app-1", [deployment("d1", "v1", "payments-api", 8000), deployment("d6", "v6", "worker", null)]),
+    server("s2", "db-1", [deployment("d3", "v3", "postgres", 5432)]),
+    server("s3", "cache-1", [deployment("d4", "v4", "redis", 6379)]),
+    server("s4", "web-1", [deployment("d5", "v5", "nginx", 80)]),
+  ];
+  const connection = { port: 5432, protocol: "postgres", description: "", revision: 1 };
+  value.connections = [
+    {
+      ...connection,
+      id: "c1",
+      from_deployment_id: "d1",
+      to_deployment_id: "d3",
+      to_host: null,
+      to_service_id: null,
+      to_service_name: null,
+      status: "draft",
+    },
+  ];
+  value.relations = [
+    {
+      id: "r1",
+      kind: "depends_on",
+      from_service_id: "v5",
+      from_service: "nginx",
+      to_service_id: "v1",
+      to_service: "payments-api",
+      to_code_project_id: null,
+      to_code_project: null,
+      description: "",
+      status: "draft",
+      revision: 1,
+    },
+  ];
+  value.external_services = [
+    { id: "x1", name: "stripe", address: "api.stripe.com", description: "", status: "draft", revision: 1, ports: [] },
+  ];
+  value.drafts = 3;
+  return value;
+}
+
+test("Drafts keeps the servers and services a draft connection, relation or external service is about", async () => {
+  api({ "GET /api/environments/e1/model": () => [200, linked()] });
+  show("?drafts=only&server=s1");
+  const servers = within(await screen.findByRole("region", { name: "Servers" }));
+  // db-1 (the connection's target) and web-1 (the relation's source) stay; cache-1 has no draft.
+  expect(servers.getAllByRole("button", { name: /^(app-1|db-1|cache-1|web-1)/ }).map((b) => b.textContent)).toEqual([
+    expect.stringContaining("app-1"),
+    expect.stringContaining("db-1"),
+    expect.stringContaining("web-1"),
+  ]);
+  const services = within(screen.getByRole("region", { name: "Services on app-1" }));
+  expect(services.getByRole("button", { name: /^payments-api/ })).toBeInTheDocument();
+  expect(services.queryByRole("button", { name: /^worker/ })).not.toBeInTheDocument();
+  // The draft external service has no server: it is listed on its own, with Confirm and Discard.
+  const other = within(screen.getByRole("region", { name: "Other drafts" }));
+  expect(other.getByText("stripe")).toBeInTheDocument();
+  expect(other.getByRole("button", { name: "Confirm stripe" })).toBeInTheDocument();
+});
+
+test("Confirmed leaves Other drafts out; a filter leaving no services says so", async () => {
+  api({ "GET /api/environments/e1/model": () => [200, linked()] });
+  show("?drafts=none&server=s1");
+  const services = within(await screen.findByRole("region", { name: "Services on app-1" }));
+  expect(services.getByRole("button", { name: /^worker/ })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Other drafts" })).not.toBeInTheDocument();
+});
+
+test("the services column says when the filter leaves none", async () => {
+  api({ "GET /api/environments/e1/model": () => [200, model()] });
+  show("?drafts=only&server=s1");
+  const services = within(await screen.findByRole("region", { name: "Services on app-1" }));
+  expect(services.getByText("No services match this filter.")).toBeInTheDocument();
+});
+
+test("a draft environment is listed under Other drafts, so the Drafts filter is never empty", async () => {
+  const value = model();
+  value.servers = [];
+  value.environment.status = "draft";
+  value.drafts = 1;
+  api({ "GET /api/environments/e1/model": () => [200, value] });
+  show("?drafts=only");
+  const other = within(await screen.findByRole("region", { name: "Other drafts" }));
+  expect(other.getByText("prod")).toBeInTheDocument();
+  expect(other.getByRole("button", { name: "Confirm prod" })).toBeInTheDocument();
+});
+
+test("a new refresh number reloads the model (the page chat's agent may have written drafts)", async () => {
+  const calls = api({ "GET /api/environments/e1/model": () => [200, model()] });
+  const view = (refresh: number) => (
+    <MemoryRouter initialEntries={["/environments/e1"]}>
+      <EnvironmentWorkspace environmentId="e1" refresh={refresh} />
+    </MemoryRouter>
+  );
+  const { rerender } = render(view(0));
+  await screen.findByRole("region", { name: "Servers" });
+  rerender(view(1));
+  await vi.waitFor(() => expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2));
+});

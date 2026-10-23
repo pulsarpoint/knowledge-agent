@@ -254,6 +254,22 @@ test("a connection to a draft deployment says saving confirms the drafts it uses
   ).toBeInTheDocument();
 });
 
+test("the notice names a draft deployment's draft membership and draft environment", async () => {
+  const user = userEvent.setup();
+  const inDraft = { ...deployment("d2", "prod", "db-1"), status: "draft" as const };
+  const drafted = [
+    services[0],
+    asset("v2", "postgres", [{ ...inDraft, environment_status: "draft", membership_status: "draft" }]),
+    ...services.slice(2),
+  ];
+  dialog({ services: drafted });
+  await user.click(screen.getByRole("combobox", { name: "Target" }));
+  await user.click(screen.getByRole("option", { name: "postgres" }));
+  expect(
+    screen.getByText("Saving confirms the drafts it uses: postgres on db-1 (prod), db-1 in prod, prod."),
+  ).toBeInTheDocument();
+});
+
 test("editing a draft connection keeps it a draft: no notice", () => {
   const drafted = [
     services[0],

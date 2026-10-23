@@ -189,6 +189,19 @@ test("documents only: the prompt and message ask for documents, the run may stil
   expect(started.message).toBe("Propose documents for this server.");
 });
 
+test("services only: the Options step says what happens to the services, with no document options", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/sessions/options?server_id=s1": () => [200, options] });
+  show("server", "s1");
+  await user.click(screen.getByRole("button", { name: "Propose…" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("checkbox", { name: "Documents" }));
+  await user.click(within(dialog).getByRole("button", { name: "Next" }));
+  const services = within(within(dialog).getByRole("group", { name: "Services" }));
+  expect(services.getByText(/saved as drafts in one go/)).toBeInTheDocument();
+  expect(within(dialog).queryByRole("checkbox", { name: "An overview document of the server" })).toBeNull();
+});
+
 test("Next needs something chosen", async () => {
   const user = userEvent.setup();
   api({ "GET /api/sessions/options?server_id=s1": () => [200, options] });

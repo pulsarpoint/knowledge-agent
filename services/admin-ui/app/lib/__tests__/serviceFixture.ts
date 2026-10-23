@@ -13,6 +13,8 @@ export const serviceDeployment = (id: string, environment: string, server: strin
     log_location: "",
     deployed_version: "",
     status: "confirmed",
+    environment_status: "confirmed",
+    membership_status: "confirmed",
     server: { id: `s-${server}`, name: server },
   }) as ServiceDeployment;
 

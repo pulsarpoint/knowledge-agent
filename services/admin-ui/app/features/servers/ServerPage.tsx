@@ -145,6 +145,7 @@ export default function ServerPage({ serverId }: { serverId: string }) {
   );
   return (
     <ResourceChats
+      onSessionChange={() => setVersion((value) => value + 1)}
       resource={{ type: "server", id: serverId, name: server.name }}
       info={info}
       blockedReason={blocked}

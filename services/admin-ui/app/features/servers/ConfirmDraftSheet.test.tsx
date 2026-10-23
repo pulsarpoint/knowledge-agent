@@ -86,6 +86,30 @@ test("a stale revision says it changed and does not confirm", async () => {
   expect(sheet.getByRole("button", { name: "Confirm" })).toBeDisabled();
 });
 
+test("a draft changed between the dry run and Confirm says so and stays open", async () => {
+  const user = userEvent.setup();
+  stubApi({
+    "POST /api/inventory/service/v1/confirm?dry_run=1": () => [200, { confirmed: [] }],
+    "POST /api/inventory/service/v1/confirm": () => [409, { error: { message: "stale", code: "STALE_REVISION" } }],
+  });
+  const onDone = vi.fn();
+  render(
+    <ConfirmDraftSheet
+      action="confirm"
+      target={{ kind: "service", id: "v1", revision: 1 }}
+      name="cache"
+      onDone={onDone}
+      onClose={() => {}}
+    />,
+  );
+  const sheet = within(await screen.findByRole("dialog"));
+  await sheet.findByText("Nothing else is confirmed with it.");
+  await user.click(sheet.getByRole("button", { name: "Confirm" }));
+  expect(await sheet.findByText("This was changed meanwhile. Reload to see the latest.")).toBeInTheDocument();
+  expect(sheet.getByRole("button", { name: "Confirm" })).toBeDisabled();
+  expect(onDone).not.toHaveBeenCalled();
+});
+
 test("the row buttons open the sheet for their own target", async () => {
   const user = userEvent.setup();
   stubApi({

@@ -490,7 +490,9 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
 - **Where drafts appear.** In the workspace on the server rows (a draft server, or a server put in the environment by
   a draft membership) and the service rows, and in the service panel on the service itself, its deployments,
   connections, relations and code projects; on the server page's services table and the service page's panel; and on
-  the Environments list (a draft environment). Each draft has **Confirm** (✓) and **Discard** (✕).
+  the Environments list (a draft environment). A draft environment and draft external services are listed under
+  **Other drafts** above the workspace columns. Each draft has **Confirm** (✓) and **Discard** (✕). The server page's
+  header shows a draft server's badge only: confirm or discard it in the environment workspace.
 - **Confirm** first lists what it also confirms, then confirms them together: a draft is confirmed with every draft it
   needs — a deployment with its server, service and the server's membership of the environment, a connection with its
   deployments (and what they need) and its external service, a relation with both services, a membership with its
@@ -502,11 +504,18 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
   draft server (with its membership), or only the draft membership of a confirmed server.
 - **Your own changes.** What you add or change is confirmed — except that editing a draft keeps it a draft (confirm it
   when it is right). A confirmed entry never uses a draft, so when what you save uses drafts (a connection to a draft
-  deployment, a service added on a draft server, a relation to a draft service), the form says "Saving confirms the
-  drafts it uses: …" and saving confirms them with it.
+  deployment, a service added on a draft server, a relation to a draft service — in the workspace, on the System map
+  and in the Services form), the form says "Saving confirms the drafts it uses: …", naming the draft deployment, its
+  service and server, the server's draft membership ("db-1 in prod") and a draft environment, and saving confirms them
+  with it.
 - **Filter.** Above the workspace columns, **All**, **Confirmed** or **Drafts** (`?drafts=none` or `?drafts=only` in
-  the page address; Drafts also keeps a server that holds a draft deployment). The environment's header says
-  "N drafts to review" while it has drafts; the link opens the workspace with the Drafts filter.
+  the page address). Drafts keeps every server and service a draft is about: a draft server or membership, a draft
+  deployment, and a service with a draft connection (from or to it) or a draft relation, which its service panel
+  shows. The filter covers the servers and services columns; the service panel always lists all its connections and
+  relations. The environment's header says "N drafts to review" while it has drafts; the link opens the workspace with
+  the Drafts filter (an open chat stays open).
+- **After the agent's turn.** The workspace, the header's count, the server page and the service panel reload after
+  each turn of the page's chat, so what the agent drafted appears without a reload.
 - **Map.** On the System map, draft boxes and lines are dashed (a line that adds up several connections is dashed only
   when all of them are drafts), and **Show drafts** (on by default; `drafts=0` in the address when off) hides them.
 - Someone who changed a draft meanwhile makes Confirm and Discard say "This was changed meanwhile. Reload to see the

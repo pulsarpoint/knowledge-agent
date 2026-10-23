@@ -67,6 +67,8 @@ const service: ServiceAsset = {
       log_location: "container stdout",
       deployed_version: "v1.2",
       status: "confirmed",
+      environment_status: "confirmed",
+      membership_status: "confirmed",
       server,
     },
   ],
@@ -629,6 +631,27 @@ test("create relates the new service in each direction and retains selections wh
     ["POST", "/api/relations", usedBy],
     ["POST", "/api/relations", part],
   ]);
+});
+
+test("saving says which drafts it confirms: a related draft service, a new deployment's draft membership", async () => {
+  const user = userEvent.setup();
+  const onHost = { ...service.deployments[0], membership_status: "draft" as const };
+  setup([{ ...postgres, status: "draft", deployments: [onHost] }, reporting]);
+  fireEvent.click(await screen.findByRole("button", { name: "Add service" }));
+  fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "Payments" } });
+  expect(screen.queryByText(/Saving confirms/)).toBeNull();
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "Depends on" })).getByRole("checkbox", { name: "PostgreSQL" }),
+  );
+  expect(screen.getByText("Saving confirms the drafts it uses: PostgreSQL.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add deployment" }));
+  await user.click(screen.getByRole("combobox", { name: "Server" }));
+  await user.click(screen.getByRole("option", { name: /App host/ }));
+  await user.click(screen.getByRole("combobox", { name: "Environment" }));
+  await user.click(screen.getByRole("option", { name: "production" }));
+  expect(
+    screen.getByText("Saving confirms the drafts it uses: PostgreSQL, App host in production."),
+  ).toBeInTheDocument();
 });
 
 test("edit loads both directions, excludes self and supports removal and reverse description changes", async () => {

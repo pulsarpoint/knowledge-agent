@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getEnvironment, getEnvironmentModel, type EnvironmentAsset } from "./environments";
 import { DraftBadge } from "./ConfirmDraftSheet";
@@ -19,6 +19,9 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [drafts, setDrafts] = useState(0);
+  // Bumped after each turn of the page chat: its agent may have written drafts.
+  const [chatTurns, setChatTurns] = useState(0);
+  const [params] = useSearchParams();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,7 +40,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
       () => {},
     );
     return () => controller.abort();
-  }, [environmentId, version]);
+  }, [environmentId, version, chatTurns]);
 
   const back = (
     <Link className="self-start text-sm underline" to="/environments">
@@ -57,9 +60,14 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
     );
   const id = encodeURIComponent(environmentId);
   const entry = { kind: "environment" as const, id: environmentId, name: environment.name };
+  // The workspace's Drafts filter, keeping the open chat.
+  const draftsLink = new URLSearchParams(params);
+  draftsLink.delete("view");
+  draftsLink.set("drafts", "only");
   return (
     <ResourceChats
       wide
+      onSessionChange={() => setChatTurns((value) => value + 1)}
       resource={{ type: "environment", id: environmentId, name: environment.name }}
       info={
         <div className="flex flex-col gap-1">
@@ -79,7 +87,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
               Proposals
             </Link>
             {drafts > 0 && (
-              <Link className="font-medium underline" to={`/environments/${id}?drafts=only`}>
+              <Link className="font-medium underline" to={`/environments/${id}?${draftsLink}`}>
                 {drafts === 1 ? "1 draft to review" : `${drafts} drafts to review`}
               </Link>
             )}
@@ -91,7 +99,11 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
           value: "workspace",
           label: "Workspace",
           content: (
-            <EnvironmentWorkspace environmentId={environmentId} onChanged={() => setVersion((value) => value + 1)} />
+            <EnvironmentWorkspace
+              environmentId={environmentId}
+              refresh={chatTurns}
+              onChanged={() => setVersion((value) => value + 1)}
+            />
           ),
         },
         {

@@ -434,6 +434,20 @@ def statuses(conn, d) -> dict:
     return found
 
 
+def test_a_service_asset_deployment_names_its_environment_and_membership_status(store, world, drafts):
+    """The forms say which drafts a save confirms; a deployment's draft environment and membership are among them."""
+    from knowledge_admin.inventory.assets import service_assets
+
+    with store.connect() as conn:
+        (cache,) = service_assets(conn, world['project'], drafts['cache']['id'])
+        (api,) = service_assets(conn, world['project'], world['api']['id'])
+    (cache_c,) = cache['deployments']
+    assert (cache_c['environment_status'], cache_c['membership_status']) == ('draft', 'draft')
+    assert {(d['environment_status'], d['membership_status']) for d in api['deployments']} == {
+        ('confirmed', 'confirmed')
+    }
+
+
 def test_drafts_are_created_and_stay_drafts_when_a_person_updates_them(store, world, drafts):
     p, author = world['project'], world['author']
     with store.connect() as conn:

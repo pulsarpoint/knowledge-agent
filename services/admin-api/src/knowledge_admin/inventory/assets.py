@@ -16,8 +16,9 @@ def _by_name(items) -> list[dict]:
 
 
 def service_asset(service: dict, rows: dict) -> dict:
-    """One service's record out of the project's rows: {servers, environments, services, repositories} by id and the
-    lists deployments and relations."""
+    """One service's record out of the project's rows: {servers, environments, services, repositories} by id, the
+    memberships' statuses by (environment id, server id) and the lists deployments and relations. Each deployment has
+    its environment's and its server's membership's status (a person's save that uses it confirms them)."""
     deployments = sorted(
         (
             {
@@ -31,6 +32,8 @@ def service_asset(service: dict, rows: dict) -> dict:
                 'log_location': d['log_location'],
                 'deployed_version': d['deployed_version'],
                 'status': d['status'],
+                'environment_status': rows['environments'][d['environment_id']]['status'],
+                'membership_status': rows['memberships'].get((d['environment_id'], d['server_id']), 'confirmed'),
                 'server': {k: v for k, v in rows['servers'][d['server_id']].items() if k != 'project_id'},
             }
             for d in rows['deployments']
@@ -74,6 +77,12 @@ def _rows(conn, project_id: UUID) -> dict:
         'services': {s['id']: s for s in store.list_services(conn, project_id)},
         'environments': {e['id']: e for e in store.list_environments(conn, project_id)},
         'repositories': {r['id']: r for r in conn.execute(REPOSITORIES, (project_id,))},
+        'memberships': {
+            (m['environment_id'], m['server_id']): m['status']
+            for m in conn.execute(
+                'SELECT environment_id,server_id,status FROM ka.environment_servers WHERE project_id=%s', (project_id,)
+            )
+        },
     }
     rows['deployments'] = [
         d

@@ -324,6 +324,45 @@ test("adds a built_from relation to a code project and removes a relation", asyn
   await waitFor(() => expect(fetch.mock.calls.some((call) => call[0] === "/api/relations/r1?revision=2")).toBe(true));
 });
 
+test("a new connection or relation says saving confirms the drafts it uses", async () => {
+  const user = userEvent.setup();
+  const drafted = {
+    services: [
+      SERVICES.services[0],
+      {
+        id: "pg",
+        name: "pg",
+        status: "draft",
+        deployments: [
+          {
+            ...deployment("d-pg", "db-1", 5432),
+            status: "draft",
+            environment_status: "draft",
+            membership_status: "draft",
+          },
+        ],
+      },
+      { ...SERVICES.services[2], status: "draft" },
+      SERVICES.services[3],
+    ],
+  };
+  server({ ...reads(), ["GET /api/services"]: () => ({ json: drafted }), [`GET ${DOCS}`]: () => ({ json: none }) });
+  sheet();
+  const form = within(await screen.findByRole("region", { name: "New connection" }));
+  await form.findByRole("combobox", { name: "From" });
+  expect(form.queryByText(/Saving confirms/)).toBeNull();
+  await user.click(form.getByRole("combobox", { name: "To" }));
+  await user.click(screen.getByRole("option", { name: "pg on db-1 (prod)" }));
+  expect(
+    form.getByText("Saving confirms the drafts it uses: pg on db-1 (prod), pg, db-1 in prod, prod."),
+  ).toBeInTheDocument();
+
+  const relations = within(screen.getByRole("region", { name: "New relation" }));
+  await user.click(relations.getByRole("combobox", { name: "Target" }));
+  await user.click(screen.getByRole("option", { name: "worker" }));
+  expect(relations.getByText("Saving confirms the drafts it uses: worker.")).toBeInTheDocument();
+});
+
 test("a server entry explains that connections belong to services", async () => {
   const fetch = server({ ["GET /api/inventory/server/s1/documents"]: () => ({ json: none }) });
   render(

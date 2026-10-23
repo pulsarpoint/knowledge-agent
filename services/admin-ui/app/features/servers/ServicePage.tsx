@@ -19,6 +19,8 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
   const [service, setService] = useState<ServiceAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  // Bumped after each turn of the page chat: its agent may have written drafts.
+  const [chatTurns, setChatTurns] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -53,6 +55,7 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
   const id = encodeURIComponent(serviceId);
   return (
     <ResourceChats
+      onSessionChange={() => setChatTurns((value) => value + 1)}
       resource={{ type: "service", id: serviceId, name: service.name }}
       info={
         <div className="flex flex-col gap-1">
@@ -72,6 +75,7 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
               <ServicePanel
                 serviceId={serviceId}
                 documents={false}
+                refresh={chatTurns}
                 onChanged={() => setVersion((value) => value + 1)}
               />
               <AccessAndCode service={service} />

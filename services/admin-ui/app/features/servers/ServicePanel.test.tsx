@@ -440,3 +440,17 @@ test("a person's edit of a draft keeps it a draft; Confirm then confirms it with
   expect(calls.find((call) => call.key === "POST /api/inventory/deployment/d1/confirm")!.body).toEqual({ revision: 3 });
   await vi.waitFor(() => expect(here.queryByText("Draft")).not.toBeInTheDocument());
 });
+
+test("a new refresh number reloads the panel (the page chat's agent may have written drafts)", async () => {
+  const calls = api(routes());
+  const view = (refresh: number) => (
+    <MemoryRouter>
+      <ServicePanel serviceId="v1" refresh={refresh} />
+    </MemoryRouter>
+  );
+  const { rerender } = render(view(0));
+  await screen.findByRole("region", { name: "payments-api" });
+  expect(loads(calls)).toBe(1);
+  rerender(view(1));
+  await vi.waitFor(() => expect(loads(calls)).toBe(2));
+});

@@ -180,7 +180,8 @@ export function relationChanges(saved: Relation[], wanted: RelationValue[]): Cha
 }
 
 /** The names of the drafts a person's save confirms with it (a confirmed entry never needs a draft): each named
- * deployment that is a draft, with its draft service and server, and each named draft service; once each. */
+ * deployment that is a draft, with its draft service, server, membership ("db-1 in prod") and environment, and each
+ * named draft service; once each. */
 export function draftsUsed(
   services: ServiceAsset[],
   named: { deployments?: (string | null)[]; services?: (string | null)[] },
@@ -193,6 +194,8 @@ export function draftsUsed(
         names.add(`${service.name} on ${deployment.server.name} (${deployment.environment})`);
       if (service.status === "draft") names.add(service.name);
       if (deployment.server.status === "draft") names.add(deployment.server.name);
+      if (deployment.membership_status === "draft") names.add(`${deployment.server.name} in ${deployment.environment}`);
+      if (deployment.environment_status === "draft") names.add(deployment.environment);
     }
   for (const service of services)
     if (named.services?.includes(service.id) && service.status === "draft") names.add(service.name);

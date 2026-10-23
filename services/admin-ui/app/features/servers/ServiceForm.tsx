@@ -11,6 +11,7 @@ import {
   applyChange,
   createItem,
   deploymentChanges,
+  draftsUsed,
   getServiceConnections,
   getServiceDeployments,
   getServiceRelations,
@@ -23,6 +24,7 @@ import {
   type RelationKind,
   type RelationValue,
 } from "./inventory";
+import { DraftsUsed } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -133,6 +135,27 @@ const deploymentRow = ({
   log_location,
   deployed_version,
 });
+
+/** The drafts a new deployment row confirms: its server, its environment and the server's membership of it ("app-1 in
+ * prod", known from another deployment there). */
+function placeDrafts(
+  row: DeploymentRow,
+  servers: ServerAsset[],
+  environments: EnvironmentAsset[],
+  services: ServiceAsset[],
+): string[] {
+  const server = servers.find((item) => item.id === row.server_id);
+  const environment = environments.find((item) => item.id === row.environment_id);
+  if (!server || !environment) return [];
+  const membership = services
+    .flatMap((service) => service.deployments)
+    .find((item) => item.server_id === server.id && item.environment_id === environment.id)?.membership_status;
+  return [
+    ...(server.status === "draft" ? [server.name] : []),
+    ...(membership === "draft" ? [`${server.name} in ${environment.name}`] : []),
+    ...(environment.status === "draft" ? [environment.name] : []),
+  ];
+}
 
 /** A service's details, deployments and relations. Saving writes the service, then each changed deployment and
  * relation through the inventory API; if a write fails the form stays open with what was saved so far, so saving again
@@ -298,6 +321,27 @@ export default function ServiceForm({
   }
   const others = services.filter((other) => other.id !== saved?.id);
   const current = name.trim() || "this service";
+  // A person's new deployments and relations are confirmed: the drafts they use are confirmed with them.
+  const created = savedRelations
+    ? relationChanges(savedRelations, wantedRelations(saved?.id ?? "", lists, repositoryIds, savedRelations)).filter(
+        (change) => change.method === "POST",
+      )
+    : [];
+  const newRows = deployments.filter((row) => !row.id);
+  const uses = [
+    ...new Set([
+      ...draftsUsed(services, {
+        services: [
+          ...(created.length || newRows.length ? [saved?.id ?? null] : []),
+          ...created.flatMap((change) => {
+            const value = change.value as RelationValue;
+            return [value.from_service_id, value.to_service_id];
+          }),
+        ],
+      }),
+      ...newRows.flatMap((row) => placeDrafts(row, servers, environments, services)),
+    ]),
+  ];
   const relationFields: { list: RelationList; title: string; help: string; relationship: (other: string) => string }[] =
     [
       {
@@ -696,6 +740,7 @@ export default function ServiceForm({
             </FieldSet>
           ))}
         </FieldSet>
+        <DraftsUsed names={uses} />
         <div className="flex gap-2">
           <Button type="submit" disabled={saving}>
             {saving && <Spinner data-icon="inline-start" />}

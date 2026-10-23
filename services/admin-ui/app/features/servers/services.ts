@@ -40,6 +40,9 @@ export interface ServiceDeployment {
   log_location: string;
   deployed_version: string;
   status: Status;
+  /** Its environment's status, and its server's membership's of that environment. */
+  environment_status: Status;
+  membership_status: Status;
   server: ServerAsset;
 }
 export interface ServiceAsset {

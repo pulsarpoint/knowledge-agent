@@ -65,13 +65,15 @@ type Open =
  * `environmentId`, and where else it runs), connections out and in, relations both ways, code projects and documents.
  * Every change sends the revision it read; a stale one shows the conflict text and reloads. `onChanged` follows each
  * change. Used by the environment workspace (column 3, with tabs Details / Documents) and the service page (whose
- * Documents tab holds the documents). */
+ * Documents tab holds the documents). A new `refresh` number reloads it (after a turn of the page chat, whose agent may
+ * have written drafts). */
 export default function ServicePanel({
   serviceId,
   environmentId,
   serverId,
   onChanged,
   documents = true,
+  refresh = 0,
 }: {
   serviceId: string;
   environmentId?: string;
@@ -79,6 +81,7 @@ export default function ServicePanel({
   onChanged?: () => void;
   /** Show the service's documents, in a Documents tab beside Details (false: the page shows them in its own tab). */
   documents?: boolean;
+  refresh?: number;
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -104,7 +107,7 @@ export default function ServicePanel({
         if (!signal.aborted) setLoadError(message(e, "Could not load the service."));
       });
     return () => controller.abort();
-  }, [serviceId, version]);
+  }, [serviceId, version, refresh]);
 
   const changed = () => {
     setOpen(null);

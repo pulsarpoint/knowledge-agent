@@ -18,6 +18,7 @@ import {
   createItem,
   deleteItem,
   deploymentLabels,
+  draftsUsed,
   getServiceConnections,
   getServiceRelations,
   relationText,
@@ -29,7 +30,8 @@ import {
   type RelationKind,
   type RelationValue,
 } from "./inventory";
-import { getServices } from "./services";
+import { getServices, type ServiceAsset } from "./services";
+import { DraftsUsed } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -52,6 +54,7 @@ function ConnectionForm({
   from,
   deployments,
   externals,
+  assets,
   initial,
   submitLabel,
   onSubmit,
@@ -62,6 +65,8 @@ function ConnectionForm({
   from: DeploymentLabel[];
   deployments: DeploymentLabel[];
   externals: { id: string; label: string }[];
+  /** Every service, for the drafts a save confirms. */
+  assets: ServiceAsset[];
   initial?: Connection;
   submitLabel: string;
   onSubmit: (value: ConnectionValue) => Promise<boolean>;
@@ -79,6 +84,15 @@ function ConnectionForm({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [busy, setBusy] = useState(false);
   const targets = deployments.filter((deployment) => deployment.id !== source);
+  const targetService = target.startsWith(SERVICE) ? target.slice(SERVICE.length) : null;
+  // A person's saved connection is confirmed (an edited draft stays a draft): the drafts it uses are confirmed with it.
+  const uses =
+    initial?.status === "draft"
+      ? []
+      : draftsUsed(assets, {
+          deployments: [source, target === EXTERNAL || targetService ? null : target],
+          services: [targetService],
+        });
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -198,6 +212,7 @@ function ConnectionForm({
           />
         </Field>
       </FieldGroup>
+      <DraftsUsed names={uses} />
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={busy || !source || !target}>
           {submitLabel}
@@ -217,11 +232,14 @@ function ConnectionForm({
 function RelationForm({
   serviceId,
   services,
+  assets,
   codeProjects,
   onSubmit,
 }: {
   serviceId: string;
   services: { id: string; name: string }[];
+  /** Every service, for the drafts a save confirms. */
+  assets: ServiceAsset[];
   codeProjects: { id: string; name: string }[];
   onSubmit: (value: RelationValue) => Promise<boolean>;
 }) {
@@ -231,6 +249,7 @@ function RelationForm({
   const [busy, setBusy] = useState(false);
   const built = kind === "built_from";
   const targets = built ? codeProjects : services.filter((service) => service.id !== serviceId);
+  const uses = draftsUsed(assets, { services: [serviceId, built ? null : target] });
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -303,6 +322,7 @@ function RelationForm({
           />
         </Field>
       </FieldGroup>
+      <DraftsUsed names={uses} />
       <Button type="submit" size="sm" className="self-start" disabled={busy || !target}>
         Add relation
       </Button>
@@ -315,6 +335,8 @@ interface ServiceLinks {
   deployments: Map<string, DeploymentLabel>;
   names: Map<string, string>;
   services: { id: string; name: string }[];
+  /** Every service as read, for the drafts a save confirms. */
+  assets: ServiceAsset[];
   /** External services, the connection targets beside deployments: "stripe · api.stripe.com". */
   externals: { id: string; label: string }[];
   codeProjects: { id: string; name: string }[];
@@ -333,6 +355,7 @@ async function loadServiceLinks(serviceId: string): Promise<ServiceLinks> {
     deployments: deploymentLabels(services),
     names: new Map([...services, ...repositories].map((item) => [item.id, item.name])),
     services: services.map(({ id, name }) => ({ id, name })),
+    assets: services,
     externals: services
       .filter((service) => service.service_type === "external")
       .map(({ id, name, address }) => ({ id, label: address ? `${name} · ${address}` : name })),
@@ -533,6 +556,7 @@ export default function EntrySheet({
                               from={mine}
                               deployments={deployments}
                               externals={links.externals}
+                              assets={links.assets}
                               initial={connection}
                               submitLabel="Save connection"
                               onCancel={() => setEditing(null)}
@@ -563,6 +587,7 @@ export default function EntrySheet({
                     from={mine}
                     deployments={deployments}
                     externals={links.externals}
+                    assets={links.assets}
                     submitLabel="Add connection"
                     onSubmit={(value) => act(() => createItem("connections", value), "Could not add the connection.")}
                   />
@@ -609,6 +634,7 @@ export default function EntrySheet({
                 <RelationForm
                   serviceId={entry.id}
                   services={links.services}
+                  assets={links.assets}
                   codeProjects={links.codeProjects}
                   onSubmit={(value) => act(() => createItem("relations", value), "Could not add the relation.")}
                 />

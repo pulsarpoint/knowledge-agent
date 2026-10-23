@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { ChevronLeft, Pencil, Plus, Unlink } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { cn } from "~/lib/utils";
@@ -55,27 +55,44 @@ function placeDrafts(model: EnvironmentModel, server?: ModelServer): string[] {
     ...(server?.membership_status === "draft" ? [`${server.name} in ${environment.name}`] : []),
   ];
 }
-/** Which rows the filter shows: drafts only (a server also when it holds a draft deployment), confirmed only, or all.
- * A confirmed deployment never needs a draft, so a deployment of a draft service is a draft itself. */
-function filterRows(filter: DraftFilter) {
+/** Which rows the filter shows: drafts only, confirmed only, or all. Under Drafts a deployment stays when it is a draft
+ * or a draft connection (from or to it) or draft relation (from or to its service) is about it, so the service panel
+ * shows them; a server stays when it, its membership or one of those deployments is a draft. Whatever the header counts
+ * is reachable from the list (the rest is under Other drafts). A confirmed deployment never needs a draft, so a
+ * deployment of a draft service is a draft itself. */
+function filterRows(filter: DraftFilter, model: EnvironmentModel) {
   const deploymentDraft = (item: ModelDeployment) => item.status === "draft";
-  const keepDeployment = (item: ModelDeployment) => filter === "all" || deploymentDraft(item) === (filter === "only");
+  const drafted = new Set<string>();
+  for (const item of model.connections)
+    if (item.status === "draft")
+      for (const id of [item.from_deployment_id, item.to_deployment_id]) id && drafted.add(id);
+  const draftedServices = new Set<string>();
+  for (const item of model.relations)
+    if (item.status === "draft")
+      for (const id of [item.from_service_id, item.to_service_id]) id && draftedServices.add(id);
+  const hasDrafts = (item: ModelDeployment) =>
+    deploymentDraft(item) || drafted.has(item.id) || draftedServices.has(item.service_id);
+  const keepDeployment = (item: ModelDeployment) =>
+    filter === "all" || (filter === "only" ? hasDrafts(item) : !deploymentDraft(item));
   const keepServer = (item: ModelServer) =>
     filter === "all" ||
-    (filter === "none" ? !serverDraft(item) : serverDraft(item) || item.deployments.some(deploymentDraft));
+    (filter === "none" ? !serverDraft(item) : serverDraft(item) || item.deployments.some(hasDrafts));
   return { deploymentDraft, keepDeployment, keepServer };
 }
 
 /** The environment's workspace: its servers, the services on the selected server, and the selected service. The
  * selection lives in the URL (`?server=&service=`); an id that is no longer in the environment selects nothing. Narrow
  * screens show the deepest selected column, with a back link. Every change reloads the model, then calls `onChanged`
- * (the page reloads its documents list, which has its servers' documents). */
+ * (the page reloads its documents list, which has its servers' documents). A new `refresh` number reloads the model too
+ * (the page bumps it after a chat turn, whose agent may have written drafts). */
 export default function EnvironmentWorkspace({
   environmentId,
   onChanged,
+  refresh = 0,
 }: {
   environmentId: string;
   onChanged?: () => void;
+  refresh?: number;
 }) {
   const [model, setModel] = useState<EnvironmentModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -84,6 +101,7 @@ export default function EnvironmentWorkspace({
   const [adding, setAdding] = useState<"server" | "service" | null>(null);
   const [editing, setEditing] = useState<ServerAsset | null>(null);
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -98,7 +116,7 @@ export default function EnvironmentWorkspace({
           setLoadError(e instanceof ApiError ? e.message : "Could not load the environment's servers and services.");
       });
     return () => controller.abort();
-  }, [environmentId, version]);
+  }, [environmentId, version, refresh]);
   const reload = () => {
     setVersion((value) => value + 1);
     onChanged?.();
@@ -125,9 +143,22 @@ export default function EnvironmentWorkspace({
     );
 
   const filter = readFilter(params.get("drafts"));
-  const { deploymentDraft, keepDeployment, keepServer } = filterRows(filter);
+  const { deploymentDraft, keepDeployment, keepServer } = filterRows(filter, model);
   const servers = model.servers.filter(keepServer);
   const server = model.servers.find((item) => item.id === params.get("server")) ?? null;
+  const shownDeployments = server?.deployments.filter(keepDeployment) ?? [];
+  // Drafts with no row in the columns: a draft environment and draft external services.
+  const otherDrafts =
+    filter === "none"
+      ? []
+      : [
+          ...(model.environment.status === "draft"
+            ? [{ ...model.environment, kind: "environment" as const, label: "Environment" }]
+            : []),
+          ...model.external_services
+            .filter((item) => item.status === "draft")
+            .map((item) => ({ ...item, kind: "service" as const, label: item.address || "External service" })),
+        ];
   const deployment = server?.deployments.find((item) => item.service_id === params.get("service")) ?? null;
   const column = deployment ? 3 : server ? 2 : 1;
   // Wide screens show every column; narrow ones only the deepest selected one.
@@ -179,6 +210,33 @@ export default function EnvironmentWorkspace({
           ))}
         </TabsList>
       </Tabs>
+      {otherDrafts.length > 0 && (
+        <section aria-label="Other drafts" className="flex flex-col gap-2 rounded-lg border p-3">
+          <h2 className="text-lg font-semibold">Other drafts</h2>
+          <ul className="flex flex-col gap-1">
+            {otherDrafts.map((item) => (
+              <li key={`${item.kind}:${item.id}`} className="flex items-center gap-1">
+                <span className="flex min-w-0 flex-1 flex-col px-2 py-1.5 text-sm">
+                  <span className="flex max-w-full items-center gap-2">
+                    <span className="font-medium [overflow-wrap:anywhere]">{item.name}</span>
+                    <DraftBadge />
+                  </span>
+                  <span className="text-xs text-muted-foreground">{item.label}</span>
+                </span>
+                <RowActions>
+                  <DraftActions
+                    name={item.name}
+                    confirm={{ kind: item.kind, id: item.id, revision: item.revision }}
+                    onDone={(action) =>
+                      action === "discard" && item.kind === "environment" ? navigate("/environments") : reload()
+                    }
+                  />
+                </RowActions>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(12rem,1fr)_minmax(14rem,1fr)_minmax(0,2fr)] md:items-start">
         <section aria-label="Servers" className={cn("min-w-0 flex-col gap-2 rounded-lg border p-3", shown(1))}>
           <h2 className="text-lg font-semibold">Servers</h2>
@@ -243,9 +301,11 @@ export default function EnvironmentWorkspace({
             </Link>
             {server.deployments.length === 0 ? (
               <p className="text-sm text-muted-foreground">No services on this server in this environment.</p>
+            ) : shownDeployments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No services match this filter.</p>
             ) : (
               <ul className="flex flex-col gap-1">
-                {server.deployments.filter(keepDeployment).map((item) => (
+                {shownDeployments.map((item) => (
                   <li key={item.id} className="flex items-center gap-1">
                     <button
                       type="button"
@@ -307,6 +367,7 @@ export default function EnvironmentWorkspace({
               serviceId={deployment.service_id}
               environmentId={environmentId}
               serverId={server.id}
+              refresh={refresh}
               onChanged={reload}
             />
           </div>

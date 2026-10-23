@@ -43,7 +43,8 @@ export function DraftActions({
   name: string;
   confirm: DraftTarget;
   discard?: DraftTarget;
-  onDone: () => void;
+  /** Called with what was done once the sheet finishes. */
+  onDone: (action: Action) => void;
 }) {
   const [open, setOpen] = useState<Action | null>(null);
   return (
@@ -62,7 +63,7 @@ export function DraftActions({
           onClose={() => setOpen(null)}
           onDone={() => {
             setOpen(null);
-            onDone();
+            onDone(open);
           }}
         />
       )}
@@ -158,7 +159,7 @@ export default function ConfirmDraftSheet({
           <div className="flex gap-2">
             <Button
               variant={confirming ? "default" : "destructive"}
-              disabled={busy || reached === null}
+              disabled={busy || reached === null || error === CONFLICT}
               onClick={() => void go()}
             >
               {busy && <Spinner data-icon="inline-start" />}

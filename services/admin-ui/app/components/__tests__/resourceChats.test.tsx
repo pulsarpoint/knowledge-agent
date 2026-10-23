@@ -538,6 +538,93 @@ test("the environment header links its drafts to the workspace's Drafts filter",
   );
 });
 
+test("the header link to the drafts keeps the open chat and goes to the workspace", async () => {
+  const environment = { id: "e1", name: "Production", description: "", status: "confirmed", revision: 1 };
+  live.sessions.r1 = detail("r1", "waiting", ["environments/e1"]);
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      { ...environment, created_at: at, updated_at: at, services: [], servers: [] },
+    ],
+    "GET /api/environments/e1/model": () => [
+      200,
+      {
+        environment,
+        servers: [],
+        services: [],
+        connections: [],
+        relations: [],
+        external: [],
+        external_services: [],
+        drafts: 1,
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1": () => [
+      200,
+      { sessions: [run("r1", "waiting", "Chat r1", ["environments/e1"])] },
+    ],
+    "GET /api/sessions/options?environment_id=e1": () => [200, options],
+  });
+  render(
+    <MemoryRouter initialEntries={["/environments/e1?view=documents&chat=r1"]}>
+      <EnvironmentPage environmentId="e1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "1 draft to review" })).toHaveAttribute(
+    "href",
+    "/environments/e1?chat=r1&drafts=only",
+  );
+});
+
+test("a turn of the page chat reloads the workspace and the drafts count (its agent may have written drafts)", async () => {
+  const environment = { id: "e1", name: "Production", description: "", status: "confirmed", revision: 1 };
+  live.sessions.r1 = detail("r1", "waiting", ["environments/e1"]);
+  let drafts = 0;
+  const calls = api({
+    "GET /api/environments/e1": () => [
+      200,
+      { ...environment, created_at: at, updated_at: at, services: [], servers: [] },
+    ],
+    "GET /api/environments/e1/model": () => [
+      200,
+      {
+        environment,
+        servers: [],
+        services: [],
+        connections: [],
+        relations: [],
+        external: [],
+        external_services: [],
+        drafts,
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1": () => [
+      200,
+      { sessions: [run("r1", "waiting", "Chat r1", ["environments/e1"])] },
+    ],
+    "GET /api/sessions/options?environment_id=e1": () => [200, options],
+  });
+  const page = () => (
+    <MemoryRouter initialEntries={["/environments/e1?chat=r1"]}>
+      <EnvironmentPage environmentId="e1" />
+    </MemoryRouter>
+  );
+  const { rerender } = render(page());
+  expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
+  await screen.findByRole("region", { name: "Servers" });
+  const models = () => calls.filter((call) => call.key === "GET /api/environments/e1/model").length;
+  const before = models();
+  // The agent saves drafts during its turn; the turn ends.
+  drafts = 4;
+  live.sessions.r1 = { ...detail("r1", "waiting", ["environments/e1"]), turns: 2 };
+  rerender(page());
+  expect(await screen.findByRole("link", { name: "4 drafts to review" })).toBeInTheDocument();
+  // The header and the workspace both read the model again.
+  await waitFor(() => expect(models()).toBeGreaterThanOrEqual(before + 2));
+});
+
 test("the environment's Documents tab lists only the environment's own documents and is kept in the URL", async () => {
   const doc = (id: string, title: string, resource: { id: string; name: string }) => ({
     id,

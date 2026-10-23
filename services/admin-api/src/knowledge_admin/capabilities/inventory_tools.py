@@ -10,7 +10,7 @@ created it (store.created_in_session); a deployment when its server, service or 
 all three, as for a new one); a connection when its from-deployment is; a relation when its from-service is. Reads need
 the item usable. Writes need a session (its person, agent and session are the author) and every item they name usable
 (a save_server environment_id and a save_connection to_service_id included); a new environment, server or service
-needs only an environment in the access. save_inventory_draft names entries instead of ids: resolve_draft (pure) turns
+needs only some inventory resource (an environment, a server or a service) in the access. save_inventory_draft names entries instead of ids: resolve_draft (pure) turns
 its payload into a plan over the rows the run may name (_recorded), and apply_draft writes the plan in one transaction.
 The write tools are offered only in a session turn (tools/catalog.INVENTORY_WRITES): never to a subagent or an
 expert."""
@@ -183,7 +183,8 @@ def check_remove_inventory_item(access: dict, kind: str, id=None, created=frozen
 
 def check_save_inventory_draft(access: dict, **_) -> str | None:
     """Always allowed here: the entries are named, not given by id, so resolve_draft decides over the rows the run may
-    name (in its access or created by this session); a new entry needs an environment in the access."""
+    name (in its access or created by this session); a new entry needs an environment, a server or a service in the
+    access."""
     return None
 
 

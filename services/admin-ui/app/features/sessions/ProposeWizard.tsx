@@ -167,8 +167,8 @@ function Choice({
   );
 }
 
-/** Propose…: a three-step wizard (What, Options, Review) whose result is a run on the resource that saves services as drafts (servers only) and proposes
- * documents. Start starts it and opens it as the page's chat (`?chat=<id>`). */
+/** Propose…: a three-step wizard (What, Options, Review) whose result is a run on the resource that saves services as
+ * drafts (servers only) and proposes documents. Start starts it and opens it as the page's chat (`?chat=<id>`). */
 export default function ProposeWizard({
   resource,
   blockedReason = null,
@@ -289,6 +289,15 @@ export default function ProposeWizard({
             )}
             {step === "options" && (
               <>
+                {shown.services && (
+                  <FieldSet>
+                    <FieldLegend>Services</FieldLegend>
+                    <FieldDescription>
+                      Every new service it finds on this server, with its deployment, connections and relations, is
+                      saved as drafts in one go. You confirm or discard them in the environment workspace.
+                    </FieldDescription>
+                  </FieldSet>
+                )}
                 {shown.documents && (
                   <FieldSet>
                     <FieldLegend>Documents</FieldLegend>
