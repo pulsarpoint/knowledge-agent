@@ -7,7 +7,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
 ## Service boundaries
 
 - Administration enters through `admin-oauth2-proxy` on port 8183. The admin web
-  server and API, `rag` and `litellm` have no published host ports.
+  server and API and `litellm` have no published host ports.
 - The gateway uses the `knowledge-agent-v3-admin` Keycloak client, its own client
   secret and cookie name. It also requires the `docs-admins` group, which the admin API checks independently.
   Browser login uses the public URL, while token/userinfo/JWKS calls use Docker
@@ -33,7 +33,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   `jira-mock-data` volume. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
 - `agent-session-worker` runs native agents' **Test**, **Ask agent**, new-document and event-handler sessions with the native runtime. It is on `default`
-  (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
+  (PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
   and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.
   Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds. A turn runs at most `AGENT_MAX_SUBAGENTS` (default 4) subagents or expert calls at once, and at most 16 in all; an expert's own subagents run in slots of their own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once.
 - Phoenix has its own authenticated UI and volume. The admin API exports
@@ -62,64 +62,43 @@ each folder is writable only in the services listed.
 | `CODE_FOLDER` | `code` | `/work/data/code` | Code projects, Git clones and caches | `admin-api`, `repository-worker` |
 | `CODE_INDEX_FOLDER` | `code-index` | `/work/data/code-index` | Code graph snapshots | `admin-api`, `repository-worker` |
 | `DOCS_FOLDER` | `docs` | `/work/data/docs` | Bootstrap docs seeded from `examples/docs` | nothing |
-| `GENERATED_DOCS_FOLDER` | `generated-documents` | `/work/data/generated-documents` | Current Markdown/D2 export of each document: `<slug>/`, `<folder>/<slug>/` or `services/<svc>/<phase>/`; indexed by the `documents` collection (old `v<n>/` folders are excluded) | `admin-api` |
-| `JIRA_FOLDER` | `jira` | `/work/data/jira` | Jira exports, one `<KEY>.md` per ticket | `rag` |
 
 Each `*_FOLDER` value is a path relative to `DATA_ROOT`: no leading `/`, no `..`, no
 hidden or empty segments, and no folder inside another one. `make setup` stops and
 names the variable when a value breaks these rules.
 
-RAG sees all of `DATA_ROOT`, so it should hold only the configured folders and folders
-you add for RAG on purpose; `make setup` warns about any other entry (hidden
-`.DS_Store` files are ignored). Keep backups and logs in a sibling folder such as
-`DATA_ARCHIVE`, not inside `DATA_ROOT`. Admin -> Storage shows the host and container
-path of each folder.
+Every service sees all of `DATA_ROOT`, so it should hold only the configured folders;
+`make setup` warns about any other entry (hidden `.DS_Store` files are ignored). Keep
+backups and logs in a sibling folder such as `DATA_ARCHIVE`, not inside `DATA_ROOT`.
+Admin -> Storage shows the host and container path of each folder.
 
-**Upgrading from per-folder overrides:** `CODE_PATH`, `CODE_INDEX_PATH`, `RG_DATA`,
-`GENERATED_DOCS_PATH`, `DOCS_PATH` and `RAG_SOURCE_ROOT` are refused by `make setup`,
-which names the replacement variable. An override inside `DATA_ROOT` translates to the
-relative value (`CODE_PATH=$DATA_ROOT/sources/code` becomes `CODE_FOLDER=sources/code`);
-one outside must be moved into `DATA_ROOT` first. `make setup` moves
-`DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once (an empty `JIRA_FOLDER` is replaced; when
-both hold files, setup stops and asks you to merge them by hand), and migration `0067` rewrites the RAG
-paths (it assumes the default `JIRA_FOLDER`; with another value the collection shows
-**Folder missing** until its folder is replaced). Other `rag-data/...` folders are not
-configured folders: move them out of `DATA_ROOT`, and a collection that used them shows
-**Folder missing**. Migration `0067` also rewrites the container paths in saved agent
-versions for the default folder names; with custom `*_FOLDER` values, publish each agent
-version again.
+**Upgrading from per-folder overrides:** `CODE_PATH`, `CODE_INDEX_PATH` and `DOCS_PATH`
+are refused by `make setup`, which names the replacement variable. An override inside
+`DATA_ROOT` translates to the relative value (`CODE_PATH=$DATA_ROOT/sources/code` becomes
+`CODE_FOLDER=sources/code`); one outside must be moved into `DATA_ROOT` first.
 
-**Upgrading to RAG collections (migration `0063`):** after `make up`, admin-api
-re-exports every document whose current export is missing into `generated-documents`
-(background, idempotent, failures only logged). Every collection then shows **Needs
-refresh** in Admin → RAG → Collections; **Refresh** each one (or **Refresh all stale**).
-Expect a full re-parse and, with embeddings on, a full re-embed (for example about 975
-chunks for `jira`). Until a collection is refreshed its previous index keeps serving search.
-
-**Moving the data:** `make down`, then copy only the five configured folders into the new
-`DATA_ROOT`, not everything around them (backups, logs and user state stay outside). With
-the default names and an old `.local` layout:
+**Moving the data:** `make down`, then copy only the configured folders into the new
+`DATA_ROOT`, not everything around them (backups, logs and user state stay outside):
 
 ```bash
-mkdir -p /opt/knowledge-agent
-for folder in code code-index docs generated-documents; do
-  rsync -a ".local/$folder/" "/opt/knowledge-agent/$folder/"
+mkdir -p /new/knowledge-agent
+for folder in code code-index docs; do
+  rsync -a "/opt/knowledge-agent/$folder/" "/new/knowledge-agent/$folder/"
 done
-rsync -a .local/rag-data/jira/ /opt/knowledge-agent/jira/   # rag-data/jira becomes jira
 ```
 
-Set `DATA_ROOT` in `.env` (`make setup DATA_ROOT=/opt/knowledge-agent`), then `make up`.
+Set `DATA_ROOT` in `.env` (`make setup DATA_ROOT=/new/knowledge-agent`), then `make up`.
 
 ## Data and lifecycle
 
 | Location | Contents |
 | --- | --- |
-| `DATA_ROOT` host folder | Code, code graphs, Jira exports, document exports and bootstrap docs (see above) |
-| `knowledge-agent-v3_postgres-data` | V3 application metadata, processing jobs, searchable text and vectors |
+| `DATA_ROOT` host folder | Code, code graphs and bootstrap docs (see above) |
+| `knowledge-agent-v3_postgres-data` | V3 application data: documents, Jira tickets, memory (with vectors), agents, sessions and jobs |
 | `knowledge-agent-v3_keycloak-data` | Independent realm, users and login configuration |
 | `knowledge-agent-v3_phoenix-data` | Independent Phoenix traces and accounts |
 
-**Administration → Storage** shows configured host/container paths for `DATA_ROOT` and its five folders, their availability and a read-only directory/file browser. Relative host paths are displayed as relative to the Compose file directory; the container does not guess their absolute host location. Managed document versions and RAG indexes remain in PostgreSQL. Generated exports are indexed through the `documents` collection (path `generated-documents` by default, which skips `v<n>/` folders): **Refresh** it in Admin → RAG → Collections after exports change.
+**Administration → Storage** shows configured host/container paths for `DATA_ROOT` and its folders, their availability and a read-only directory/file browser. Documents and their versions live in PostgreSQL, not in a folder.
 
 `make down` retains volumes. Back up these volumes and the configured content
 folders before migrating real data. Credentials in root `.env` are required to
@@ -218,8 +197,8 @@ existing users and application data. Admin group claims come from the dedicated 
 the gateway explicitly requests `openid email profile` to avoid requesting a
 nonexistent `groups` scope.
 
-The admin API owns its configuration (`knowledge_admin/config.py`) and uses the
-RAG service. New PostgreSQL management workflows belong in `services/admin-api`.
+The admin API owns its configuration (`knowledge_admin/config.py`). New PostgreSQL
+management workflows belong in `services/admin-api`.
 
 ## Upgrading after the Reader removal
 

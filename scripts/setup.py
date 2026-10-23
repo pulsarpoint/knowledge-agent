@@ -14,20 +14,14 @@ FOLDERS = {
     "CODE_FOLDER": "code",
     "CODE_INDEX_FOLDER": "code-index",
     "DOCS_FOLDER": "docs",
-    "GENERATED_DOCS_FOLDER": "generated-documents",
-    "JIRA_FOLDER": "jira",
 }
 # Absolute overrides from before the one data folder, and the variable that replaces each.
 REMOVED = {
     "CODE_PATH": "CODE_FOLDER",
     "CODE_INDEX_PATH": "CODE_INDEX_FOLDER",
-    "RG_DATA": "JIRA_FOLDER",
-    "GENERATED_DOCS_PATH": "GENERATED_DOCS_FOLDER",
     "DOCS_PATH": "DOCS_FOLDER",
-    "RAG_SOURCE_ROOT": None,
 }
-SEGMENT = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")  # the same rule as a RAG source_path segment
-OLD_JIRA = Path("rag-data") / "jira"
+SEGMENT = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")  # the same rule as admin-api's DATA_SEGMENT
 USAGE = "make setup DATA_ROOT=/opt/knowledge-agent"
 
 
@@ -56,11 +50,6 @@ def _refuse_removed(data: Path, current: dict[str, str]) -> None:
         value = _unquote(current.get(key, ""))
         if not value:
             continue
-        if replacement is None:
-            raise SystemExit(f"{key} is no longer used; remove it from .env.")
-        if key == "RG_DATA":
-            raise SystemExit("RG_DATA is no longer used; remove it from .env. Jira exports now go to JIRA_FOLDER inside "
-                             f"DATA_ROOT (default jira); make setup moves {data / OLD_JIRA} there.")
         path = Path(value).expanduser()
         if path.is_absolute() and path != data and path.is_relative_to(data):
             raise SystemExit(f"{key} is no longer used. Replace it in .env with {replacement}={path.relative_to(data).as_posix()}.")
@@ -69,7 +58,7 @@ def _refuse_removed(data: Path, current: dict[str, str]) -> None:
 
 
 def _folders(current: dict[str, str], defaults: dict[str, str]) -> dict[str, str]:
-    """The five folder variables as validated relative paths; overlap is refused."""
+    """The folder variables as validated relative paths; overlap is refused."""
     folders = {}
     for key, default in FOLDERS.items():
         value = _unquote(current.get(key, "")) or _unquote(defaults.get(key, "")) or default
@@ -97,38 +86,13 @@ def _create(data: Path, folders: list[Path]) -> None:
             ) from None
 
 
-def _move_jira(data: Path, jira: str) -> None:
-    """Move DATA_ROOT/rag-data/jira to the Jira folder once.
-
-    An empty Jira folder is replaced; anything else there stops setup, because migration 0067 points
-    the Jira collection at the Jira folder and the next sync would drop what stayed in rag-data/jira.
-    Files are never merged or deleted.
-    """
-    old, new = data / OLD_JIRA, data / jira
-    if not old.is_dir() or old.is_symlink():
-        return
-    if new.exists() or new.is_symlink():
-        if new.is_symlink() or not new.is_dir() or any(new.iterdir()):
-            raise SystemExit(f"Both {old} and {new} exist. Merge them by hand: move the files from {old} "
-                             f"into {new} and remove {old}, then run make setup again. Nothing was moved.")
-        new.rmdir()
-    new.parent.mkdir(parents=True, exist_ok=True)
-    old.rename(new)
-    print(f"Moved {old} to {new}.")
-    try:
-        old.parent.rmdir()  # only succeeds when the move left rag-data empty
-    except OSError:
-        return
-    print(f"Removed the empty folder {old.parent}.")
-
-
 def _warn_other_entries(data: Path, folders: dict[str, str]) -> None:
     """Name every top-level entry that is not a configured folder; nothing is moved."""
     configured = {folder.split("/")[0] for folder in folders.values()}
     others = sorted(entry.name for entry in data.iterdir() if entry.name not in configured and entry.name != ".DS_Store")
     if others:
         print(f"Warning: {data} holds entries that are not configured folders: {', '.join(others)}. "
-              "RAG can see every folder in DATA_ROOT; move them out, for example to a sibling DATA_ARCHIVE folder. "
+              "Every service sees all of DATA_ROOT; move them out, for example to a sibling DATA_ARCHIVE folder. "
               "Nothing was moved.")
 
 
@@ -145,14 +109,13 @@ def initialize(root: Path, data_root: str | None = None) -> None:
     _refuse_removed(data, current)
     folders = _folders(current, defaults)
     _create(data, [data])
-    _move_jira(data, folders["JIRA_FOLDER"])
     _create(data, [data / folder for folder in folders.values()])
     defaults["DATA_ROOT"] = _quote(data)
     secret_keys = {
         "POSTGRES_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD", "APP_ADMIN_PASSWORD", "PHOENIX_SECRET",
         "ADMIN_OAUTH2_PROXY_CLIENT_SECRET", "ADMIN_OAUTH2_PROXY_COOKIE_SECRET",
         "PHOENIX_ADMIN_PASSWORD", "PHOENIX_ADMIN_SECRET", "LITELLM_MASTER_KEY",
-        "CREDENTIAL_ENCRYPTION_KEY", "RAG_BACKOFFICE_KEY",
+        "CREDENTIAL_ENCRYPTION_KEY",
     }
     for key, default in defaults.items():
         existing = current.get(key, "").strip().strip("\"'")
@@ -186,7 +149,7 @@ def initialize(root: Path, data_root: str | None = None) -> None:
         shutil.copytree(root / "examples" / "docs", docs_path, dirs_exist_ok=True)
     _warn_other_entries(data, folders)
     print(f"Local configuration ready. Credentials are in .env (mode 0600). Files are kept in {data}.")
-    print("Run make up, then make smoke to verify login and services. Load and process content through RAG → Collections.")
+    print("Run make up, then make smoke to verify login and services.")
 
 
 if __name__ == "__main__":

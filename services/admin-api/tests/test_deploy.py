@@ -19,14 +19,10 @@ FOLDERS = {
     'CODE_FOLDER': 'code',
     'CODE_INDEX_FOLDER': 'code-index',
     'DOCS_FOLDER': 'docs',
-    'GENERATED_DOCS_FOLDER': 'generated-documents',
-    'JIRA_FOLDER': 'jira',
 }
 WRITERS = {
-    'rag': ['JIRA_FOLDER'],
-    'rag-worker': [],
     'shell-worker': [],
-    'admin-api': ['CODE_FOLDER', 'CODE_INDEX_FOLDER', 'GENERATED_DOCS_FOLDER'],
+    'admin-api': ['CODE_FOLDER', 'CODE_INDEX_FOLDER'],
     'repository-worker': ['CODE_FOLDER', 'CODE_INDEX_FOLDER'],
     'agent-session-worker': [],
 }
@@ -52,7 +48,6 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
     assert set(services) == {
         'postgres',
         'migrate',
-        'rag',
         'keycloak',
         'phoenix',
         'litellm',
@@ -62,7 +57,6 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
         'keycloak-configure',
         'repository-worker',
         'jira-mock',
-        'rag-worker',
         'shell-worker',
         'agent-session-worker',
     }
@@ -77,7 +71,7 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
 
 def test_private_services_and_separate_persistent_state():
     compose = yaml.safe_load((DEPLOY / 'compose.yaml').read_text(encoding='utf-8'))
-    for name in ('rag', 'litellm', 'migrate', 'admin-api', 'admin-web', 'keycloak-configure', 'repository-worker'):
+    for name in ('litellm', 'migrate', 'admin-api', 'admin-web', 'keycloak-configure', 'repository-worker'):
         assert not compose['services'][name].get('ports')
     for name in ('postgres', 'admin-oauth2-proxy', 'keycloak', 'phoenix', 'jira-mock'):
         assert all(port.startswith('127.0.0.1:') for port in compose['services'][name]['ports'])
@@ -129,11 +123,9 @@ def test_oidc_keeps_issuer_validation_with_internal_token_urls():
 
 
 def test_images_use_local_source_and_frozen_dependencies():
-    text = (DEPLOY / 'Dockerfile.rag').read_text(encoding='utf-8')
-    assert 'uv sync --frozen --no-dev' in text and 'COPY services/rag/src' in text
-    assert 'knowledge-agent-v2' not in text
-    assert 'uv sync --frozen --no-dev' in (DEPLOY / 'Dockerfile.admin-api').read_text(encoding='utf-8')
-    for retired in ('code-agent', 'docs-wiki', 'web'):
+    text = (DEPLOY / 'Dockerfile.admin-api').read_text(encoding='utf-8')
+    assert 'uv sync --frozen --no-dev' in text and 'knowledge-agent-v2' not in text
+    for retired in ('code-agent', 'docs-wiki', 'web', 'rag'):
         assert not (DEPLOY / f'Dockerfile.{retired}').exists()
 
 
@@ -187,11 +179,20 @@ def test_services_compute_their_roots_from_the_folder_variables():
         'CODE_ROOT': '/work/data/' + folder('CODE_FOLDER'),
         'CODE_INDEX_ROOT': '/work/data/' + folder('CODE_INDEX_FOLDER'),
         'BOOTSTRAP_DOCS_ROOT': '/work/data/' + folder('DOCS_FOLDER'),
-        'DOCUMENT_OUTPUT_ROOT': '/work/data/' + folder('GENERATED_DOCS_FOLDER'),
-        'JIRA_EXPORT_ROOT': '/work/data/' + folder('JIRA_FOLDER'),
     }
-    removed = {'RAG_SOURCE_ROOT', 'RG_DATA', 'CODE_PATH', 'CODE_INDEX_PATH', 'GENERATED_DOCS_PATH', 'DOCS_PATH'}
-    for name in ('rag', 'rag-worker', 'admin-api', 'repository-worker'):
+    removed = {
+        'RAG_SOURCE_ROOT',
+        'RG_DATA',
+        'CODE_PATH',
+        'CODE_INDEX_PATH',
+        'GENERATED_DOCS_PATH',
+        'DOCS_PATH',
+        'DOCUMENT_OUTPUT_ROOT',
+        'JIRA_EXPORT_ROOT',
+        'DOCS_WIKI_RAG_URL',
+        'RAG_BACKOFFICE_KEY',
+    }
+    for name in ('admin-api', 'repository-worker', 'agent-session-worker'):
         env = services[name]['environment']
         assert {key: env[key] for key in expected} == expected, name
         assert not removed & set(env), name

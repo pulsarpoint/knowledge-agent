@@ -12,8 +12,8 @@ from pathlib import Path
 from scripts.setup import initialize
 
 
-SUBFOLDERS = ("code", "code-index", "docs", "generated-documents", "jira")
-OLD_OVERRIDES = ("CODE_PATH", "CODE_INDEX_PATH", "RG_DATA", "GENERATED_DOCS_PATH", "DOCS_PATH", "RAG_SOURCE_ROOT")
+SUBFOLDERS = ("code", "code-index", "docs")
+OLD_OVERRIDES = ("CODE_PATH", "CODE_INDEX_PATH", "DOCS_PATH")
 
 
 def run_setup(root: Path, data_root: str | None = None) -> str:
@@ -58,10 +58,10 @@ class SetupTests(unittest.TestCase):
             output = run_setup(root, str(data))
             values = env_values(root)
             self.assertEqual(values["DATA_ROOT"], f"'{data}'")
-            self.assertEqual({key: values[key] for key in ("CODE_FOLDER", "CODE_INDEX_FOLDER", "DOCS_FOLDER",
-                                                           "GENERATED_DOCS_FOLDER", "JIRA_FOLDER")},
-                             {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDER": "docs",
-                              "GENERATED_DOCS_FOLDER": "generated-documents", "JIRA_FOLDER": "jira"})
+            self.assertEqual({key: values[key] for key in ("CODE_FOLDER", "CODE_INDEX_FOLDER", "DOCS_FOLDER")},
+                             {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDER": "docs"})
+            for key in ("GENERATED_DOCS_FOLDER", "JIRA_FOLDER", "RAG_BACKOFFICE_KEY"):
+                self.assertNotIn(key, values)
             self.assertEqual(sorted(entry.name for entry in data.iterdir()), sorted(SUBFOLDERS))
             self.assertTrue(any((data / "docs").iterdir()))
             self.assertFalse((root / ".local").exists())
@@ -76,18 +76,18 @@ class SetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = project(directory)
             data = Path(directory) / "data"
-            (root / ".env").write_text("CODE_FOLDER=sources/code\nJIRA_FOLDER='exports/jira'\n", encoding="utf-8")
+            (root / ".env").write_text("CODE_FOLDER=sources/code\nCODE_INDEX_FOLDER='indexes/code'\n", encoding="utf-8")
             run_setup(root, str(data))
             self.assertTrue((data / "sources" / "code").is_dir())
-            self.assertTrue((data / "exports" / "jira").is_dir())
-            self.assertFalse((data / "code").exists() or (data / "jira").exists())
+            self.assertTrue((data / "indexes" / "code").is_dir())
+            self.assertFalse((data / "code").exists() or (data / "code-index").exists())
             values = env_values(root)
-            self.assertEqual((values["CODE_FOLDER"], values["JIRA_FOLDER"]), ("sources/code", "'exports/jira'"))
+            self.assertEqual((values["CODE_FOLDER"], values["CODE_INDEX_FOLDER"]), ("sources/code", "'indexes/code'"))
             self.assertEqual(values["DOCS_FOLDER"], "docs")
 
     def test_setup_refuses_invalid_and_overlapping_folders(self) -> None:
         cases = {
-            "JIRA_FOLDER=/srv/jira": "JIRA_FOLDER must be a folder inside DATA_ROOT such as jira",
+            "CODE_INDEX_FOLDER=/srv/index": "CODE_INDEX_FOLDER must be a folder inside DATA_ROOT such as code-index",
             "CODE_FOLDER=../code": "CODE_FOLDER must be a folder inside DATA_ROOT such as code",
             "CODE_FOLDER=a/../b": "CODE_FOLDER must be a folder",
             "CODE_FOLDER=code/": "CODE_FOLDER must be a folder",
@@ -97,7 +97,7 @@ class SetupTests(unittest.TestCase):
             "DOCS_FOLDER=a//b": "DOCS_FOLDER must be a folder",
             "DOCS_FOLDER=my docs": "DOCS_FOLDER must be a folder",
             "CODE_INDEX_FOLDER=code/index": "CODE_FOLDER (code) and CODE_INDEX_FOLDER (code/index) overlap",
-            "DOCS_FOLDER=jira": "DOCS_FOLDER (jira) and JIRA_FOLDER (jira) overlap",
+            "DOCS_FOLDER=code": "CODE_FOLDER (code) and DOCS_FOLDER (code) overlap",
         }
         for line, message in cases.items():
             with self.subTest(line), tempfile.TemporaryDirectory() as directory:
@@ -116,8 +116,6 @@ class SetupTests(unittest.TestCase):
             cases = {
                 f"CODE_PATH='{data}/sources/code'": "CODE_PATH is no longer used. Replace it in .env with CODE_FOLDER=sources/code.",
                 "DOCS_PATH=/srv/docs": f"DOCS_PATH is no longer used. Move /srv/docs into {data}, then replace DOCS_PATH in .env with DOCS_FOLDER=<folder inside DATA_ROOT>.",
-                "RG_DATA=/srv/rag": f"RG_DATA is no longer used; remove it from .env. Jira exports now go to JIRA_FOLDER inside DATA_ROOT (default jira); make setup moves {data}/rag-data/jira there.",
-                "RAG_SOURCE_ROOT=/work/rag-data": "RAG_SOURCE_ROOT is no longer used; remove it from .env.",
             }
             for line, message in cases.items():
                 with self.subTest(line):
@@ -131,73 +129,6 @@ class SetupTests(unittest.TestCase):
                     self.assertEqual((root / ".env").read_text(encoding="utf-8"), line + "\n")
                     self.assertFalse(data.exists())
 
-    def test_setup_moves_rag_data_jira_once_and_stops_before_merging_into_a_filled_folder(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = project(directory)
-            data = Path(directory) / "data"
-            (data / "rag-data" / "jira").mkdir(parents=True)
-            (data / "rag-data" / "jira" / "DEMO-1.md").write_text("# DEMO-1", encoding="utf-8")
-            (data / "rag-data" / "demo").mkdir()
-            output = run_setup(root, str(data))
-            self.assertIn(f"Moved {data / 'rag-data' / 'jira'} to {data / 'jira'}.", output)
-            self.assertEqual((data / "jira" / "DEMO-1.md").read_text(encoding="utf-8"), "# DEMO-1")
-            self.assertFalse((data / "rag-data" / "jira").exists())
-            self.assertTrue((data / "rag-data" / "demo").is_dir())  # other rag-data folders are never touched
-            self.assertIn("not configured folders: rag-data.", output)
-            again = run_setup(root)
-            self.assertNotIn("Moved", again)
-            self.assertEqual((data / "jira" / "DEMO-1.md").read_text(encoding="utf-8"), "# DEMO-1")
-        with tempfile.TemporaryDirectory() as directory:
-            root = project(directory)
-            data = Path(directory) / "data"
-            (data / "rag-data" / "jira").mkdir(parents=True)
-            (data / "rag-data" / "jira" / "OLD-1.md").write_text("old", encoding="utf-8")
-            (data / "jira").mkdir()
-            (data / "jira" / "NEW-1.md").write_text("new", encoding="utf-8")
-            with self.assertRaises(SystemExit) as stopped:
-                run_setup(root, str(data))
-            self.assertIn(str(data / "rag-data" / "jira"), str(stopped.exception))
-            self.assertIn(str(data / "jira"), str(stopped.exception))
-            self.assertIn("Merge them by hand", str(stopped.exception))
-            self.assertEqual((data / "rag-data" / "jira" / "OLD-1.md").read_text(encoding="utf-8"), "old")
-            self.assertEqual(sorted(p.name for p in (data / "jira").iterdir()), ["NEW-1.md"])
-            self.assertFalse((root / ".env").exists())
-        with tempfile.TemporaryDirectory() as directory:
-            root = project(directory)
-            data = Path(directory) / "data"
-            (data / "rag-data" / "jira").mkdir(parents=True)
-            (data / "rag-data" / "jira" / "OLD-1.md").write_text("old", encoding="utf-8")
-            (data / "jira").mkdir()  # an empty Jira folder, for example from an earlier setup run
-            output = run_setup(root, str(data))
-            self.assertIn(f"Moved {data / 'rag-data' / 'jira'} to {data / 'jira'}.", output)
-            self.assertEqual((data / "jira" / "OLD-1.md").read_text(encoding="utf-8"), "old")
-            self.assertFalse((data / "rag-data").exists())
-        with tempfile.TemporaryDirectory() as directory:
-            root = project(directory)
-            data = Path(directory) / "data"
-            data.mkdir()
-            (data / "jira").write_text("not a folder", encoding="utf-8")
-            (data / "rag-data" / "jira").mkdir(parents=True)
-            with self.assertRaises(SystemExit) as stopped:
-                run_setup(root, str(data))
-            self.assertIn("Merge them by hand", str(stopped.exception))
-            self.assertTrue((data / "rag-data" / "jira").is_dir())
-            self.assertEqual((data / "jira").read_text(encoding="utf-8"), "not a folder")
-        with tempfile.TemporaryDirectory() as directory:
-            root = project(directory)
-            data = Path(directory) / "data"
-            output = run_setup(root, str(data))  # no rag-data/jira: nothing to move
-            self.assertNotIn("Moved", output)
-            self.assertTrue((data / "jira").is_dir())
-        with tempfile.TemporaryDirectory() as directory:
-            root = project(directory)
-            data = Path(directory) / "data"
-            (data / "rag-data" / "jira").mkdir(parents=True)
-            output = run_setup(root, str(data))
-            self.assertIn(f"Removed the empty folder {data / 'rag-data'}.", output)
-            self.assertFalse((data / "rag-data").exists())
-            self.assertNotIn("Warning", output)
-
     def test_setup_warns_about_other_top_level_entries_and_moves_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = project(directory)
@@ -207,7 +138,7 @@ class SetupTests(unittest.TestCase):
             (data / "startup.log").write_text("log", encoding="utf-8")
             output = run_setup(root, str(data))
             self.assertIn(f"Warning: {data} holds entries that are not configured folders: backups, startup.log, users. "
-                          "RAG can see every folder in DATA_ROOT; move them out, for example to a sibling DATA_ARCHIVE "
+                          "Every service sees all of DATA_ROOT; move them out, for example to a sibling DATA_ARCHIVE "
                           "folder. Nothing was moved.", output)
             self.assertTrue((data / "backups").is_dir() and (data / "users").is_dir())
             self.assertEqual((data / "startup.log").read_text(encoding="utf-8"), "log")
@@ -290,7 +221,7 @@ class SetupTests(unittest.TestCase):
             root.mkdir()
             shutil.copy(source / ".env.example", root / ".env.example")
             shutil.copytree(source / "examples", root / "examples")
-            (root / ".env").write_text("CODE_FOLDER=src/code\nJIRA_FOLDER=exports/jira\n", encoding="utf-8")
+            (root / ".env").write_text("CODE_FOLDER=src/code\n", encoding="utf-8")
             run_setup(root, str(root / "data"))
             result = subprocess.run(
                 ["docker", "compose", "--env-file", str(root / ".env"), "-f", str(source / "deploy/compose.yaml"), "config", "--format", "json"],
@@ -299,9 +230,8 @@ class SetupTests(unittest.TestCase):
             services = json.loads(result.stdout)["services"]
             # Compose escapes dollars when serializing config for safe reloading.
             data = str(root / "data").replace("$", "$$")
-            folders = {"code": "src/code", "index": "code-index", "documents": "generated-documents", "jira": "exports/jira"}
-            writers = {"rag": ["jira"], "rag-worker": [], "shell-worker": [],
-                       "admin-api": ["code", "index", "documents"], "repository-worker": ["code", "index"],
+            folders = {"code": "src/code", "index": "code-index"}
+            writers = {"shell-worker": [], "admin-api": ["code", "index"], "repository-worker": ["code", "index"],
                        "agent-session-worker": []}
             for name, writable in writers.items():
                 mounts = sorted((v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]
@@ -309,15 +239,14 @@ class SetupTests(unittest.TestCase):
                 expected = sorted([(data, "/work/data", True)] + [
                     (f"{data}/{folders[key]}", f"/work/data/{folders[key]}", False) for key in writable])
                 self.assertEqual(mounts, expected, name)
-            for retired in ("docs-wiki", "web", "oauth2-proxy", "documentation-worker"):
+            for retired in ("docs-wiki", "web", "oauth2-proxy", "documentation-worker", "rag", "rag-worker"):
                 self.assertNotIn(retired, services)
-            for name in ("rag", "admin-api"):
-                env = services[name]["environment"]
-                self.assertEqual(env["DATA_ROOT_DIR"], "/work/data")
-                self.assertEqual(env["DATA_ROOT"], data)
-                self.assertEqual(env["CODE_ROOT"], "/work/data/src/code")
-                self.assertEqual(env["JIRA_EXPORT_ROOT"], "/work/data/exports/jira")
-                self.assertEqual(env["DOCUMENT_OUTPUT_ROOT"], "/work/data/generated-documents")
+            env = services["admin-api"]["environment"]
+            self.assertEqual(env["DATA_ROOT_DIR"], "/work/data")
+            self.assertEqual(env["DATA_ROOT"], data)
+            self.assertEqual(env["CODE_ROOT"], "/work/data/src/code")
+            for gone in ("JIRA_EXPORT_ROOT", "DOCUMENT_OUTPUT_ROOT"):
+                self.assertNotIn(gone, env)
             for service in services.values():
                 for volume in service.get("volumes", []):
                     self.assertNotIn(".local", volume.get("source", ""))
@@ -340,16 +269,38 @@ class SetupTests(unittest.TestCase):
                              [("bind", data, "/work/data", True), ("volume", "agent-workspaces", "/work/agent-workspaces", False)])
             self.assertEqual(worker["entrypoint"], ["/services/admin-api/.venv/bin/knowledge-agent-session-worker"])
             self.assertNotIn("ports", worker)
-            # Like admin-api: RAG, PostgreSQL, MCP servers and model providers on default; shell-worker on agent-shell.
+            # Like admin-api: PostgreSQL, MCP servers and model providers on default; shell-worker on agent-shell.
             self.assertEqual(set(worker["networks"]), {"default", "agent-shell"})
             env = worker["environment"]
             self.assertEqual((env["AGENT_SHELL_URL"], env["AGENT_WORKSPACE_ROOT"], env["CODE_ROOT"], env["DATA_ROOT_DIR"],
-                              env["DOCS_WIKI_RAG_URL"], env["DOCS_WIKI_PHOENIX_ENDPOINT"], env["AGENT_SESSION_MAX_SESSIONS"],
+                              env["DOCS_WIKI_PHOENIX_ENDPOINT"], env["AGENT_SESSION_MAX_SESSIONS"],
                               env["AGENT_MAX_SUBAGENTS"]),
                              ("http://shell-worker:8796", "/work/agent-workspaces", "/work/data/code", "/work/data",
-                              "http://rag:8790", "http://phoenix:6006/v1/traces", "4", "4"))
-            for name in ("PGHOST", "PGPASSWORD", "CREDENTIAL_ENCRYPTION_KEY", "AUTH_ISSUER_URL", "RAG_BACKOFFICE_KEY",
+                              "http://phoenix:6006/v1/traces", "4", "4"))
+            for name in ("PGHOST", "PGPASSWORD", "CREDENTIAL_ENCRYPTION_KEY", "AUTH_ISSUER_URL",
                          "DOCS_WIKI_PHOENIX_API_KEY"):
                 self.assertIn(name, env)
-            self.assertEqual(set(worker["depends_on"]), {"migrate", "rag", "shell-worker"})
+            self.assertEqual(set(worker["depends_on"]), {"migrate", "shell-worker"})
+
+    def test_no_service_is_rag_or_depends_on_it(self) -> None:
+        source = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copy(source / ".env.example", root / ".env.example")
+            shutil.copytree(source / "examples", root / "examples")
+            run_setup(root, str(root / "data"))
+            result = subprocess.run(
+                ["docker", "compose", "--env-file", str(root / ".env"), "-f", str(source / "deploy/compose.yaml"),
+                 "--profile", "jira-mock", "config", "--format", "json"],
+                capture_output=True, text=True, check=True,
+            )
+            services = json.loads(result.stdout)["services"]
+            self.assertFalse({"rag", "rag-worker"} & set(services))
+            for name, service in services.items():
+                self.assertNotIn("rag", service.get("depends_on", {}), name)
+                self.assertNotIn("rag-worker", service.get("depends_on", {}), name)
+                for key, value in (service.get("environment") or {}).items():
+                    self.assertNotIn("RAG", key, name)
+                    self.assertNotIn("rag:", str(value), name)
+            self.assertNotIn("RAG_BACKOFFICE_KEY", env_values(root))
 

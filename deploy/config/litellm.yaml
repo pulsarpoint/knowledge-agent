@@ -1,13 +1,10 @@
 # litellm proxy config — one OpenAI-compatible endpoint
 # (http://litellm:4400/v1 inside compose) fronting AWS Bedrock for both
-# chat (docs-wiki's Ask) and embeddings (rag's hybrid retrieval), so
-# neither service needs its own AWS SDK/credentials wiring.
+# chat (agents) and embeddings (memory search), so no service needs its
+# own AWS SDK/credentials wiring.
 #
-# model_name is the public alias every OTHER service in this bundle
-# calls by (docs-wiki's DOCS_WIKI_CHAT_MODEL, rag's RAG_EMBED_MODEL —
-# see deploy/.env.example); `model:` is the real litellm/Bedrock model
-# id it maps to. Keep the two aliases below in sync with
-# deploy/.env.example's DOCS_WIKI_CHAT_MODEL/RAG_EMBED_MODEL defaults.
+# model_name is the public alias a model connection in LLM Settings
+# calls by; `model:` is the real litellm/Bedrock model id it maps to.
 #
 # `os.environ/<VAR>` is litellm's own interpolation syntax (confirmed
 # supported for any config.yaml value, litellm docs "Load API Keys /

@@ -1,4 +1,4 @@
-"""Verify local SSO, the current RAG workspace, and services without processing data."""
+"""Verify local SSO, the admin API, migrations and services without processing data."""
 
 import argparse
 import http.cookiejar
@@ -107,21 +107,6 @@ def main() -> None:
     if args.auth_only:
         return
 
-    for resource, expected in (("settings", "settings"), ("collections", "collections"), ("jobs", "jobs")):
-        with admin.open(admin_origin + "/api/rag/" + resource, timeout=10) as response:
-            payload = json.load(response)
-        if expected not in payload:
-            raise RuntimeError(f"RAG {resource} returned an unexpected response")
-    # Full-text mode verifies retrieval without calling an embedding model.
-    payload = json.dumps({"query": "documentation", "top": 1}).encode()
-    request = urllib.request.Request(admin_origin + "/api/rag/search", data=payload,
-                                     headers={"Content-Type": "application/json"})
-    with admin.open(request, timeout=10) as response:
-        hits = json.load(response)
-    if not isinstance(hits.get("results"), list) or "collections" not in hits or "fallback" not in hits:
-        raise RuntimeError("RAG full-text search returned an unexpected response")
-    print("PASS: RAG settings, collections, processing history, and full-text search")
-
     migration_state = subprocess.run(
         [*compose, "exec", "-T", "postgres", "psql", "-U", "knowledge_agent", "-d", "knowledge_agent",
          "-Atc", "SELECT version,dirty FROM public.golang_schema_migrations"],
@@ -135,7 +120,7 @@ def main() -> None:
     with urllib.request.urlopen(f"http://127.0.0.1:{phoenix_port}/", timeout=10):
         pass
     print("PASS: independent Phoenix instance responds")
-    print("No model calls were made. Agent execution returns TODO; RAG embeddings use configured models.")
+    print("No model calls were made.")
 
 
 if __name__ == "__main__":

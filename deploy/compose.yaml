@@ -17,22 +17,12 @@ x-code-index-rw: &code-index-rw
   type: bind
   source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${CODE_INDEX_FOLDER:-code-index}
   target: /work/data/${CODE_INDEX_FOLDER:-code-index}
-x-generated-docs-rw: &generated-docs-rw
-  type: bind
-  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${GENERATED_DOCS_FOLDER:-generated-documents}
-  target: /work/data/${GENERATED_DOCS_FOLDER:-generated-documents}
-x-jira-rw: &jira-rw
-  type: bind
-  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${JIRA_FOLDER:-jira}
-  target: /work/data/${JIRA_FOLDER:-jira}
 x-data-env: &data-env
   DATA_ROOT_DIR: /work/data
   DATA_ROOT: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}
   CODE_ROOT: /work/data/${CODE_FOLDER:-code}
   CODE_INDEX_ROOT: /work/data/${CODE_INDEX_FOLDER:-code-index}
   BOOTSTRAP_DOCS_ROOT: /work/data/${DOCS_FOLDER:-docs}
-  DOCUMENT_OUTPUT_ROOT: /work/data/${GENERATED_DOCS_FOLDER:-generated-documents}
-  JIRA_EXPORT_ROOT: /work/data/${JIRA_FOLDER:-jira}
 services:
   postgres:
     image: knowledge-agent-v3-postgres:17.10-vector0.8.6
@@ -66,46 +56,6 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
 
-  rag:
-    build: {context: .., dockerfile: deploy/Dockerfile.rag}
-    restart: unless-stopped
-    volumes:
-      - *data-root
-      - *jira-rw
-    environment:
-      <<: *data-env
-      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
-      PGHOST: postgres
-      PGDATABASE: knowledge_agent
-      PGUSER: knowledge_agent
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-    healthcheck:
-      test: [CMD, /services/rag/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=3)"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-
-  rag-worker:
-    build: {context: .., dockerfile: deploy/Dockerfile.rag}
-    restart: unless-stopped
-    entrypoint: [uv, run, --frozen, --no-dev, rag-workspace-worker]
-    command: []
-    volumes:
-      - *data-root
-    environment:
-      <<: *data-env
-      PGHOST: postgres
-      PGDATABASE: knowledge_agent
-      PGUSER: knowledge_agent
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-
   admin-api:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
@@ -117,18 +67,15 @@ services:
       - *data-root
       - *code-rw
       - *code-index-rw
-      - *generated-docs-rw
       - agent-workspaces:/work/agent-workspaces
     environment:
       <<: *data-env
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
       LLM_SETTINGS_SOURCE: database
-      DOCS_WIKI_RAG_URL: http://rag:8790
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
       DOCS_WIKI_ADMIN_GROUP: docs-admins
-      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
@@ -137,7 +84,6 @@ services:
       AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
     depends_on:
       migrate: {condition: service_completed_successfully}
-      rag: {condition: service_healthy}
       shell-worker: {condition: service_healthy}
     healthcheck:
       test: [CMD, /services/admin-api/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/health', timeout=3)"]
@@ -190,7 +136,7 @@ services:
   agent-session-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
-    # new-document, Ask agent and Test sessions. Like admin-api it reaches RAG, PostgreSQL, MCP servers, model
+    # new-document, Ask agent and Test sessions. Like admin-api it reaches PostgreSQL, MCP servers, model
     # providers and SSH hosts on default and shell-worker on agent-shell; it has no host port.
     networks: [default, agent-shell]
     dns_search: ${DOCKER_DNS_SEARCH:-.}
@@ -205,8 +151,6 @@ services:
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
       AGENT_SESSION_MAX_SESSIONS: ${AGENT_SESSION_MAX_SESSIONS:-4}
       AGENT_MAX_SUBAGENTS: ${AGENT_MAX_SUBAGENTS:-4}
-      DOCS_WIKI_RAG_URL: http://rag:8790
-      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
       PGHOST: postgres
@@ -217,7 +161,6 @@ services:
       AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
     depends_on:
       migrate: {condition: service_completed_successfully}
-      rag: {condition: service_healthy}
       shell-worker: {condition: service_healthy}
 
   shell-worker:
