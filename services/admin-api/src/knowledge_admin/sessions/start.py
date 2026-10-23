@@ -47,6 +47,7 @@ ONE_START = 'Choose one starting point: a document, a new document, a server, a 
 ID_OR_NEW = 'Give a document id or a new document.'
 ONE_NEW = 'One new document per run.'
 INVENTORY_FOR = 'An inventory document is written for one server, service or environment.'
+RESOURCE_FOR = 'A new document is built for one server, service or environment.'
 NOT_THE_START = 'The new document must be the one the run starts from.'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
@@ -82,9 +83,9 @@ TITLE_LENGTH = 120
 
 
 class NewDocument(BaseModel):
-    """A document the run writes: its name (a slug comes from it), its documentation folder and its tags; tagged
-    inventory with one server_id, service_id or environment_id: the inventory document of that resource (the New
-    inventory document page's Write with an agent), built for it alone."""
+    """A document the run writes: its name (a slug comes from it), its documentation folder and its tags; with one
+    server_id, service_id or environment_id it is built for that resource alone (a resource's New document page's
+    Write with an agent); tagged inventory it must name one: the inventory document of that resource."""
 
     model_config = ConfigDict(extra='forbid')
     folder: str = Field(max_length=200)
@@ -102,14 +103,17 @@ class NewDocument(BaseModel):
         if not document_slug(self.name):
             raise ValueError('Use letters or digits in the document name')
         self.folder = documentation_folder(self.folder)
-        if (INVENTORY_TAG in self.tags) != (self.inventory_for() is not None):
+        given = [kind for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
+        if INVENTORY_TAG in self.tags and len(given) != 1:
             raise ValueError(INVENTORY_FOR)
+        if len(given) > 1:
+            raise ValueError(RESOURCE_FOR)
         return self
 
-    def inventory_for(self) -> tuple[str, UUID] | None:
-        """(type, id) of the resource whose inventory document this is; None when it is not one (or names several)."""
+    def resource_for(self) -> tuple[str, UUID] | None:
+        """(type, id) of the one resource the document is built for; None when it names none."""
         given = [(kind, getattr(self, f'{kind}_id')) for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
-        return given[0] if len(given) == 1 else None
+        return given[0] if given else None
 
 
 class DocumentAccess(BaseModel):
@@ -269,8 +273,8 @@ def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
     return row
 
 
-def inventory_owner(conn, project: UUID, kind: str, resource_id: UUID) -> None:
-    """The resource whose inventory document a new-document run writes: it exists in this workspace (404)."""
+def resource_owner(conn, project: UUID, kind: str, resource_id: UUID) -> None:
+    """The resource a new-document run's document is built for: it exists in this workspace (404)."""
     if not conn.execute(
         f'SELECT 1 FROM ka.{RESOURCE_TYPES[kind]} WHERE id=%s AND project_id=%s', (resource_id, project)
     ).fetchone():
@@ -303,13 +307,12 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
     for entry in entries:
         if entry.new is not None:
             slug = document_slug(entry.new.name)
-            owner = entry.new.inventory_for()
             # an inventory document never drafts the live document of that name: it is refused like a brand-new draft
             if conn.execute(
                 """SELECT 1 FROM ka.documents WHERE project_id=%s
                 AND (draft_of IS NULL AND is_draft OR %s AND NOT is_draft)
                 AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
-                (project, owner is not None, entry.new.folder, slug),
+                (project, INVENTORY_TAG in entry.new.tags, entry.new.folder, slug),
             ).fetchone():
                 raise HTTPException(409, NAME_IN_USE.format(slug=slug))
             access.append(
@@ -426,10 +429,10 @@ def build(
         raise HTTPException(400, NOT_THE_START)
     if started is not None and new is None:  # the new document it starts from is a resource it may write
         entries.append(DocumentAccess(new=started))
-    owner = started.inventory_for() if started is not None else None
+    owner = started.resource_for() if started is not None else None
     notes = []
     if owner is not None:  # the resource it writes about is read as a chat on it reads it
-        inventory_owner(conn, project, *owner)
+        resource_owner(conn, project, *owner)
         kind, resource_id = owner
         found = server_row(conn, project, resource_id, lock=True) if kind == 'server' else None
         reason = readiness(found) if found is not None else None
@@ -459,7 +462,7 @@ def build(
         check_picks(conn, project, picked)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    # a new document is built for what the person chose; an inventory document for its resource alone
+    # a new document is built for what the person chose; one naming a resource (an inventory document) for it alone
     documents = document_access(
         conn, project, entries, [[owner[0], str(owner[1])]] if owner is not None else built_for(picked)
     )

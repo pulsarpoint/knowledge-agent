@@ -1053,6 +1053,12 @@ export default function DocumentEditorView() {
   const { documentId, runId } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  // A resource's New document (?resource=server&resource_id=…): Write with an agent writes a document built for it.
+  const [resourceFor] = useState(() => {
+    const type = params.get("resource") as InventoryType | null;
+    const id = params.get("resource_id");
+    return documentId === undefined && type && INVENTORY_TYPES.includes(type) && id ? { type, id } : null;
+  });
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -1071,7 +1077,7 @@ export default function DocumentEditorView() {
       ? null
       : documentId
         ? { kind: "document", id: documentId, title: "" }
-        : { kind: "new-document", ...fields },
+        : { kind: "new-document", ...fields, ...(resourceFor ? { resourceFor } : {}) },
   );
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
   const location = useLocation();
@@ -1239,7 +1245,7 @@ export default function DocumentEditorView() {
           <div className="min-w-0 lg:sticky lg:top-4">
             <AgentChat
               key="new"
-              scope={{ kind: "new-document", ...fields }}
+              scope={{ kind: "new-document", ...fields, ...(resourceFor ? { resourceFor } : {}) }}
               settings={settings}
               initialRunId={null}
               onDraftChange={(draft, version) => {

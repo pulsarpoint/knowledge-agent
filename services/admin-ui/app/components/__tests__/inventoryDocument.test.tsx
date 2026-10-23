@@ -351,6 +351,8 @@ describe("a resource page's document actions", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Delete Backup plan" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Discard draft Backup plan?")).toBeInTheDocument();
+    expect(within(dialog).getByText("The draft is discarded; nothing was published.")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/deleted everywhere/)).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Delete document" })).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Discard draft" }));
     await waitFor(() =>

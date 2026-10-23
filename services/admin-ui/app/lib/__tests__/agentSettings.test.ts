@@ -357,3 +357,24 @@ test("the start body for a server: the server is chosen even when not linked", (
     expert_ids: [],
   });
 });
+
+test("the start body for a resource's new document: its resource is chosen, a server only when the run can use it", () => {
+  const base = defaultSettings(options);
+  const settings = { ...base, chosen: { ...base.chosen, server_ids: [], service_ids: [] } };
+  const scope = (type: "server" | "service", id: string) => ({
+    kind: "new-document" as const,
+    folder: "payments",
+    title: "Payments API",
+    resourceFor: { type, id },
+  });
+  const server = startInput(scope("server", "s1"), options, settings, "Write it.");
+  expect(server.resources.server_ids).toEqual(["s1"]);
+  const written = { folder: "payments", name: "Payments API", server_id: "s1" };
+  expect(server.started_from).toEqual({ new_document: written });
+  expect(server.resources.documents).toEqual([{ new: written }]);
+  // prod-1 has no usable SSH: the run starts without it (the start says so)
+  const unusable = startInput(scope("server", "s2"), options, settings, "Write it.");
+  expect(unusable.resources.server_ids).toEqual([]);
+  const service = startInput(scope("service", "v1"), options, settings, "Write it.");
+  expect(service.resources.service_ids).toEqual(["v1"]);
+});

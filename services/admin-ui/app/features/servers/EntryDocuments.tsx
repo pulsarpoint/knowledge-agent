@@ -151,10 +151,12 @@ export default function EntryDocuments({
               {deleting?.is_draft ? `Discard draft ${deleting.title}?` : `Delete ${deleting?.title}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              It is deleted everywhere, with its history.
-              {deleting &&
-                deleting.linked_elsewhere.length > 0 &&
-                ` It is also linked to: ${deleting.linked_elsewhere.map((link) => link.name).join(", ")}.`}
+              {deleting?.is_draft
+                ? "The draft is discarded; nothing was published."
+                : "It is deleted everywhere, with its history." +
+                  (deleting && deleting.linked_elsewhere.length > 0
+                    ? ` It is also linked to: ${deleting.linked_elsewhere.map((link) => link.name).join(", ")}.`
+                    : "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

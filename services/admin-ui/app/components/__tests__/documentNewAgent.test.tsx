@@ -218,6 +218,31 @@ test("the first message starts the run with the title and folder as the new docu
   expect(within(pane).queryByText("Writing: payments/Payments API")).toBeNull();
 });
 
+test("on a resource's New document page the run writes a document built for the resource", async () => {
+  const calls = api({
+    ...base,
+    "POST /api/sessions": () => {
+      live.sessions.r1 = detail();
+      return [201, detail()];
+    },
+  });
+  show("/documents/new?resource=server&resource_id=s1");
+  const pane = await openPane();
+  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
+  fireEvent.change(screen.getByLabelText("Folder"), { target: { value: "payments" } });
+  await waitFor(() => expect(within(pane).queryByText("Give the document a title and folder first.")).toBeNull());
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
+  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
+  const written = { folder: "payments", name: "Payments API", server_id: "s1" };
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
+      started_from: { new_document: written },
+      resources: { documents: [{ new: written }] },
+    }),
+  );
+  expect(calls.find((c) => c.key === "POST /api/sessions")?.body.started_from.new_document.tags).toBeUndefined();
+});
+
 test("the agent draft shows above the editor; Promote opens the new document", async () => {
   const calls = api({
     ...base,

@@ -596,7 +596,14 @@ def test_an_inventory_run_writes_another_document_tagged_inventory_when_its_reso
     'new,message',
     [
         ({'tags': ['inventory']}, 'An inventory document is written for one server, service or environment.'),
-        ({'service_id': str(uuid4())}, 'An inventory document is written for one server, service or environment.'),
+        (
+            {'tags': ['inventory'], 'service_id': str(uuid4()), 'server_id': str(uuid4())},
+            'An inventory document is written for one server, service or environment.',
+        ),
+        (
+            {'service_id': str(uuid4()), 'server_id': str(uuid4())},
+            'A new document is built for one server, service or environment.',
+        ),
     ],
 )
 def test_bad_inventory_starts_are_refused(sessions, new, message):
@@ -612,6 +619,69 @@ def test_an_inventory_run_for_a_missing_resource_is_refused(sessions):
     change = {'started_from': {'new_document': document}, 'resources': {'documents': [{'new': document}]}}
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
     assert (response.status_code, response.json()['error']['message']) == (404, 'Service not found.')
+
+
+# A resource's New document page's Write with an agent: one server_id, service_id or environment_id without the
+# inventory tag: the new document is built for that resource alone, untagged.
+
+
+def resource_body(s, **change):
+    new = {**NEW, 'service_id': s.service}
+    resources = {'code_project_ids': [s.repo], 'environment_ids': [s.environment], 'documents': [{'new': new}]}
+    return body(s, started_from={'new_document': new}, resources=resources, **change)
+
+
+def test_a_resource_run_saves_an_untagged_draft_built_for_exactly_its_resource(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    response = s.client.post('/api/sessions', headers=HEADERS, json=resource_body(s))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert built(session) == [['service', s.service]]  # its resource alone, not the environment it was given
+    assert s.service in ids(session['config'], 'service')
+    config = {**session['config'], 'session_id': session['id']}
+    new_id = of(session['config'], 'document')[0]['id']
+    assert (
+        call(config, 'update_document', document_id=new_id, content='# Payments')
+        == f'Saved draft (1 lines). {DRAFT_NOTE}'
+    )
+    [draft] = draft_ids(s, session['id'])
+    assert resource_ids(s, draft) == {
+        'code_project_ids': [],
+        'environment_ids': [],
+        'service_ids': [s.service],
+        'server_ids': [],
+        'deployment_ids': [],
+    }
+    with s.store.connect() as conn:
+        assert conn.execute('SELECT tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()['tags'] == []
+    found = s.client.get(f'/api/inventory/service/{s.service}/documents', headers=HEADERS).json()
+    assert found['inventory_document'] is None
+    [row] = [item for item in found['documents'] if item['id'] == str(draft)]
+    assert row['is_draft'] is True and row['connection'] == 'built_for'
+    promote(s, draft)
+    found = s.client.get(f'/api/inventory/service/{s.service}/documents', headers=HEADERS).json()
+    [row] = [item for item in found['documents'] if item['id'] == str(draft)]
+    assert row['is_draft'] is False and row['connection'] == 'built_for'
+
+
+def test_a_resource_run_for_a_missing_resource_is_refused(sessions):
+    s = sessions
+    document = {**NEW, 'service_id': str(uuid4())}
+    change = {'started_from': {'new_document': document}, 'resources': {'documents': [{'new': document}]}}
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
+    assert (response.status_code, response.json()['error']['message']) == (404, 'Service not found.')
+
+
+def test_a_resource_run_may_draft_the_live_document_of_its_name(sessions):
+    """Only an inventory document's run is refused for a live document's name; any other run drafts that document."""
+    s = sessions
+    with s.store.connect() as conn:
+        project = s.store.project(conn, 'shop')
+        live_document(conn, project, 'payments-api-reference', 'Payments', '# Old', folder='payments-api-docs')
+        conn.commit()
+    response = s.client.post('/api/sessions', headers=HEADERS, json=resource_body(s))
+    assert response.status_code == 201, response.text
 
 
 def test_an_inventory_run_is_refused_when_a_live_document_has_its_name(sessions):

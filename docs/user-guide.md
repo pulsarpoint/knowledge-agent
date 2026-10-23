@@ -362,7 +362,8 @@ most recently updated one when several; the others are in its Documents list): t
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"); without one
 there is no box. **New document** in the tab's header opens the New document page built for the resource
 (`/documents/new?resource=server&resource_id=…`: "New document for server web-1.", the resource locked in Linked
-resources, no tags), and **Save** creates its draft. Below it, the **Documents** list shows every
+resources, no tags), and **Save** creates its draft; **Write with an agent** there writes a document built for that
+resource alone (untagged; it is listed on the resource's Documents tab as a draft and linked to it when published). Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
 the title (opens the document), its tags (each opens the Documents list filtered by it), the first line of its
@@ -371,8 +372,8 @@ documents, then the children's, grouped by child; a document linked to several o
 "No documents yet.". Each row has two icon buttons: **Edit** opens the document's page (a new document's draft opens
 at `/documents/<id>` too), and **Delete** asks first — "Delete <title>?", "It is deleted everywhere, with its
 history." and, when the document is linked to other resources, "It is also linked to: <names>." — with **Cancel** and
-**Delete document**. For a new document's draft it asks "Discard draft <title>?" and **Discard draft** discards the
-draft. When the document changed meanwhile, the server's message is shown above the list and the list reloads.
+**Delete document**. For a new document's draft it asks "Discard draft <title>?" ("The draft is discarded; nothing
+was published.") and **Discard draft** discards the draft. When the document changed meanwhile, the server's message is shown above the list and the list reloads.
 
 #### Chats and Discover
 
