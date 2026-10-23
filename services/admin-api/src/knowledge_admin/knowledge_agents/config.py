@@ -157,6 +157,14 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def known_tools(names: Iterable[str]) -> list[str]:
+    """tools.selection.known: the stored off tools still in the catalog (imported here: the catalog imports the
+    capabilities, which import this module)."""
+    from knowledge_admin.tools.selection import known
+
+    return known(names)
+
+
 SAVED = """SELECT revision,when_to_use,model_id,system_prompt,access,instructions,disabled_tools
     FROM ka.agents WHERE id=%s"""
 
@@ -175,7 +183,7 @@ def saved_config(conn, agent_id: str) -> dict[str, Any]:
         'when_to_use': row['when_to_use'],
         'model': {'id': row['model_id']} if row['model_id'] else None,
         'access': row['access'],
-        'disabled_tools': row['disabled_tools'],
+        'disabled_tools': known_tools(row['disabled_tools']),
     }
 
 
@@ -397,6 +405,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'instructions': agent['instructions'],
                 'settings_revision': None,
                 'access': {'resources': resources},
-                'disabled_tools': sorted(agent['disabled_tools']),
+                'disabled_tools': known_tools(agent['disabled_tools']),
             }
         )

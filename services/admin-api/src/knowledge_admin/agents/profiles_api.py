@@ -217,6 +217,7 @@ def build_api(app_name, store):
         if row is None:
             raise HTTPException(404, 'Agent not found')
         row['access'] = resolve(row['access'], project_resources(conn, store.project(conn, app_name)))
+        row['disabled_tools'] = selection.known(row['disabled_tools'])
         row['original'] = (
             conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone()
             if row['cloned_from']
@@ -242,6 +243,7 @@ def build_api(app_name, store):
             for row in rows:
                 row.pop('system_prompt')  # read with the agent, not in the list
                 row['counts'] = counts(row['access'], found)
+                row['disabled_tools'] = selection.known(row['disabled_tools'])
             return {'agents': rows}
 
     @router.get('/{agent_id}')
@@ -293,7 +295,7 @@ def build_api(app_name, store):
                 access = references(value.access, project_resources(conn, store.project(conn, app_name)))
                 try:
                     disabled = (
-                        old['disabled_tools']
+                        selection.known(old['disabled_tools'])
                         if value.disabled_tools is None
                         else selection.validate(value.disabled_tools)
                     )

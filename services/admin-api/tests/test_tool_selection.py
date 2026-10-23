@@ -63,6 +63,10 @@ def test_a_saved_agent_disables_the_union_and_an_ad_hoc_run_the_request():
     assert selection.disabled_for((), ['read_file']) == frozenset({'read_file'})
 
 
+def test_a_stored_list_keeps_only_catalog_tools():
+    assert selection.known(['ssh_run', 'gone_tool', 'read_file', 'ssh_run']) == ['read_file', 'ssh_run']
+
+
 def test_names_are_checked_against_the_catalog():
     assert selection.validate(['ssh_run', 'read_file', 'ssh_run']) == ['read_file', 'ssh_run']
     assert selection.validate([]) == []
@@ -176,6 +180,46 @@ def test_the_profile_reads_and_writes_the_off_tools(agent):
     assert listed[agent.id]['disabled_tools'] == ['read_file', 'ssh_run']
     config = agent.client.get(f'/api/agents/{agent.id}/config', headers=HEADERS).json()
     assert config['disabled_tools'] == ['read_file', 'ssh_run']
+
+
+def stale(ask, agent_id):
+    """The agent's stored list names ssh_run and a tool since removed from the catalog."""
+    with ask.s.store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET disabled_tools='{gone_tool,ssh_run}' WHERE id=%s", (agent_id,))
+
+
+def test_a_removed_tool_in_the_stored_list_is_dropped_and_never_refuses_a_save(agent, ask):
+    stale(ask, agent.id)
+    profile = agent.client.get(f'/api/agents/{agent.id}', headers=HEADERS).json()
+    assert profile['disabled_tools'] == ['ssh_run']
+    listed = {row['id']: row for row in agent.client.get('/api/agents', headers=HEADERS).json()['agents']}
+    assert listed[agent.id]['disabled_tools'] == ['ssh_run']
+    saved = update(agent.client, profile)  # sends back the list it read
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['disabled_tools'] == ['ssh_run']
+    stale(ask, agent.id)
+    kept = {field: saved.json()[field] for field in ('name', 'description', 'when_to_use', 'enabled', 'instructions')}
+    response = agent.client.put(
+        f'/api/agents/{agent.id}',
+        headers=HEADERS,
+        json={**kept, 'revision': saved.json()['revision'], 'access': {'resources': []}},
+    )  # the list left out: kept, without the removed tool
+    assert response.status_code == 200 and response.json()['disabled_tools'] == ['ssh_run']
+
+
+def test_a_run_of_an_agent_with_a_removed_tool_stored_starts(agent, ask):
+    stale(ask, agent.id)
+    preview = start(agent.client, '/preview', agent_id=agent.id, disabled_tools=['read_file'])
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['config']['disabled_tools'] == ['read_file', 'ssh_run']
+    created = start(agent.client, agent_id=agent.id, purpose='chat')
+    assert created.status_code == 201, created.text
+    detail = agent.client.get(f'/api/sessions/{created.json()["id"]}', headers=HEADERS).json()
+    assert detail['disabled_tools'] == ['ssh_run']
+    refused = start(agent.client, '/preview', agent_id=agent.id, disabled_tools=['gone_tool'])
+    assert refused.status_code == 400 and refused.json()['error']['message'] == 'Unknown tool: gone_tool.'
+    clone = agent.client.post(f'/api/agents/{agent.id}/clone', headers=HEADERS).json()
+    assert agent.client.get(f'/api/agents/{clone["id"]}', headers=HEADERS).json()['disabled_tools'] == ['ssh_run']
 
 
 def test_a_clone_copies_the_off_tools(agent):

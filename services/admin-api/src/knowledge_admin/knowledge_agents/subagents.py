@@ -240,7 +240,6 @@ class Subagents:
         load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), resources))
         try:
             config, credentials = await asyncio.shield(load)
-            config = experts.inherit(config, context['config'])
         except asyncio.CancelledError:
             self.root.started -= 1  # a refused call does not count
             load.add_done_callback(_discard_loaded)  # Stop: a load still running empties what it returns
@@ -251,6 +250,7 @@ class Subagents:
         except Exception as exc:  # the database or a key: the call fails like a failed run
             return experts.FAILED.format(name=entry['name'], message=failure(exc, self.secrets))
         self.issued.append(credentials)
+        config = experts.inherit(config, context['config'])
         nested: Subagents | None = None
         try:
             if self.closed or self.parent.closed:  # the turn ended while the expert loaded

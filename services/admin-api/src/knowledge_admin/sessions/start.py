@@ -886,9 +886,8 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
                 'revision': config['revision'],
                 'model': {'id': model['id'], 'name': model['name']} if model else None,
                 'system_prompt': config['system_prompt']['content'],
-                'disabled_tools': config[
-                    'disabled_tools'
-                ],  # off in every run of it (a run's settings show them locked)
+                # off in every run of it (a run's settings show them locked)
+                'disabled_tools': config['disabled_tools'],
             },
             'models': [{'id': model['id'], 'name': model['name']}] if fits else [],
             'default_model_id': model['id'] if fits else None,

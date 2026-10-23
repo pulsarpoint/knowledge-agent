@@ -182,7 +182,9 @@ cannot call it (and the adapter's backstop refuses a forged call: `Tool <name> i
   settings** keeps it. A saved agent's start options carry its own (`agent.disabled_tools`), shown locked.
 - **Subagents and experts** inherit the calling run's off tools; an expert adds its own agent's. They may withhold
   more (as today), never fewer.
-- Names are checked against the catalog: an unknown name is refused, `Unknown tool: <name>.` (400).
+- Names are checked against the catalog: an unknown name in a request is refused, `Unknown tool: <name>.` (400). A
+  stored name of a tool later removed from the catalog is dropped wherever the list is read (the profile, a run's
+  start, an expert's load, clone and Apply), so it never refuses the next settings save.
 - `agents/runner.instructions_and_tools` is the one place that withholds them, so the offered tools, the backstop
   (`context['tools']`), the Debug tab and the start preview all follow it. The rules are pure functions in
   `tools/selection.py` (`disabled_for`, `validate`).

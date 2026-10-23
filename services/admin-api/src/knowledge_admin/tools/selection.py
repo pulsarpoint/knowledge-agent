@@ -18,6 +18,12 @@ def validate(names: Iterable[str]) -> list[str]:
     return sorted(set(names))
 
 
+def known(names: Iterable[str]) -> list[str]:
+    """Stored off tools as they are read: the catalog tools among them, each once, sorted (a name of a tool removed
+    from the catalog is dropped, so it never refuses the next settings save)."""
+    return sorted({name for name in names if name in CATALOG})
+
+
 def disabled_for(agent_disabled: Iterable[str], requested: Iterable[str]) -> frozenset[str]:
     """The tools a run switches off: its agent's and the request's (an ad-hoc run has no agent's: ()). Subagents and
     experts get their caller's set this way too (an expert with its own), so never fewer are off."""
