@@ -131,9 +131,8 @@ export default function EntryDocuments({
                     <Pencil />
                   </RowAction>
                   <RowAction
-                    label="Delete"
+                    label={item.is_draft ? "Discard draft" : "Delete"}
                     name={item.title}
-                    tip={item.is_draft ? "Discard draft" : "Delete"}
                     destructive
                     onClick={() => setDeleting(item)}
                   >

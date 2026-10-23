@@ -224,8 +224,8 @@ never return `agent_config` or `history`. These sessions have `agent_id` NULL (m
 the agent `ad-hoc`. `context_snapshot` holds where the run started (`new_document`, `document_id`, or the resource's id;
 `{}` for a saved agent's run). The session detail returns `given_resources`, the access entries the run was given
 (`[{type, id}]`: what the person chose, an environment rather than what it brings); Start new chat with these settings
-restores them. A new document is built for the same choice, an inventory document for its resource alone (its entry's
-`built_for`). Credentials are never included. Migration 0116 dropped the ids-only `run_resources` column.
+restores them. A new document is built for the same choice; one that names a single server, service or environment (an inventory
+document always does) is built for that resource alone (its entry's `built_for`). Credentials are never included. Migration 0116 dropped the ids-only `run_resources` column.
 The agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft).
 
 **Turns.** `agent-session-worker` claims sessions (`session_worker.claim`), decrypts the pinned

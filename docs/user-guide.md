@@ -363,7 +363,8 @@ edit it (through drafts, like any document; one that is only a draft is marked "
 there is no box. **New document** in the tab's header opens the New document page built for the resource
 (`/documents/new?resource=server&resource_id=…`: "New document for server web-1.", the resource locked in Linked
 resources, no tags), and **Save** creates its draft; **Write with an agent** there writes a document built for that
-resource alone (untagged; it is listed on the resource's Documents tab as a draft and linked to it when published). Below it, the **Documents** list shows every
+resource alone (untagged; it is listed on the resource's Documents tab as a draft and linked to it when published —
+unless its name matches a published document, whose new version it then drafts instead). Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
 the title (opens the document), its tags (each opens the Documents list filtered by it), the first line of its

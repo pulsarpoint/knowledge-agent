@@ -348,7 +348,7 @@ describe("a resource page's document actions", () => {
       "POST /api/documentation/drafts/d2/discard": () => [200, {}],
     });
     show("/servers/s1");
-    fireEvent.click(await screen.findByRole("button", { name: "Delete Backup plan" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard draft Backup plan" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Discard draft Backup plan?")).toBeInTheDocument();
     expect(within(dialog).getByText("The draft is discarded; nothing was published.")).toBeInTheDocument();
