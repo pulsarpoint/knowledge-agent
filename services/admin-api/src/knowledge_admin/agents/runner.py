@@ -14,6 +14,7 @@ from agents import (
     Agent,
     FunctionTool,
     AgentOutputSchema,
+    AgentOutputSchemaBase,
     ModelSettings,
     RunConfig,
     RunContextWrapper,
@@ -31,6 +32,7 @@ from pydantic import BaseModel
 from knowledge_admin.sessions.activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.sessions.tracing import trace_secrets
 from knowledge_admin.llm.model_adapter import agent_model
+from knowledge_admin.output_schemas.runs import fallback_instructions, supports_structured_output
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp, skills
@@ -41,6 +43,36 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references
 
 logger = logging.getLogger(__name__)
+
+
+class JsonSchemaOutput(AgentOutputSchemaBase):
+    """A run's output type from a pinned output schema ({id, name, version, schema}): the SDK sends the JSON Schema with
+    every model call (strict when the model supports structured output). validate_json returns the answer unchanged:
+    the session worker validates it (output_schemas.runs.verdict), so a mismatch is retried instead of ending the run
+    with an SDK error."""
+
+    def __init__(self, pinned: dict[str, Any], strict: bool):
+        self.pinned, self.strict = pinned, strict
+
+    def is_plain_text(self) -> bool:
+        return False
+
+    def name(self) -> str:
+        return self.pinned['name']
+
+    def json_schema(self) -> dict[str, Any]:
+        return self.pinned['schema']
+
+    def is_strict_json_schema(self) -> bool:
+        return self.strict
+
+    def validate_json(self, json_str: str) -> Any:
+        return json_str
+
+
+def schema_output(model: dict[str, Any], pinned: dict[str, Any] | None) -> JsonSchemaOutput | None:
+    """The output type of a run started with an output schema (None: a normal run)."""
+    return None if pinned is None else JsonSchemaOutput(pinned, supports_structured_output(model))
 
 
 async def agent(
@@ -63,6 +95,7 @@ async def agent(
     workspace: Path | None = None,
     subagents: Any = None,
     tools: bool = True,
+    output_schema: dict[str, Any] | None = None,
 ) -> RunResult | RunResultStreaming:
     """Run a saved configuration without reading the database; return the native SDK result.
 
@@ -83,7 +116,8 @@ async def agent(
     workspace: a scratch workspace to share (a subagent uses its parent's); None: a new one for this run, removed
     afterwards. subagents: the session turn's Subagents, which run_subagent finds in the run context. tools False: an
     internal LLM call (the agent designer, the tuning reviewer) that gets no tools; agent runs get every tool they
-    have not switched off.
+    have not switched off. output_schema: the run's pinned output schema ({id, name, version, schema}); the final
+    output is then the answer text, which the caller validates.
     """
     if (
         not task.strip()
@@ -145,6 +179,7 @@ async def agent(
                         output_type=output_type,
                         subagents=subagents is not None,
                         tools=tools,
+                        output_schema=output_schema,
                     ) as assistant,
                 ):
                     # The adapter's backstop follows exactly the tools the model was given.
@@ -216,6 +251,7 @@ async def create_agent(
     output_type: type[BaseModel] | None = None,
     subagents: bool = False,
     tools: bool = True,
+    output_schema: dict[str, Any] | None = None,
 ) -> AsyncIterator[Agent]:
     """Instantiate a native Agent and keep its model/MCP connections open for the caller.
 
@@ -223,7 +259,8 @@ async def create_agent(
     not run the agent or read the database; credentials stay in backend objects.
     subagents: whether the run can start subagents and call experts (a native session turn, an expert's call); without
     (a subagent's own run, the tuning reviewer, the agent designer), run_subagent and the pinned experts are not
-    offered, since they could only fail.
+    offered, since they could only fail. output_schema: the pinned schema the final answer is asked in
+    (JsonSchemaOutput), in place of output_type.
     """
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
@@ -233,7 +270,9 @@ async def create_agent(
         raise ValueError('The selected model API key was not supplied.')
     model_api_key = credentials[reference['id']] if reference is not None else None
     get_ssh(config, credentials)  # a check: raises when a usable server's SSH key was not supplied
-    prompt, function_tools, experts, selected_mcp = instructions_and_tools(config, subagents=subagents, tools=tools)
+    prompt, function_tools, experts, selected_mcp = instructions_and_tools(
+        config, subagents=subagents, tools=tools, output_schema=output_schema
+    )
     for path in code_paths(config):
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
@@ -261,7 +300,9 @@ async def create_agent(
             tools=function_tools,
             mcp_servers=mcp_servers,
             mcp_config={'include_server_in_tool_names': True},
-            output_type=AgentOutputSchema(output_type, strict_json_schema=False) if output_type is not None else None,
+            output_type=AgentOutputSchema(output_type, strict_json_schema=False)
+            if output_type is not None
+            else schema_output(model, output_schema),
         )
         if experts:  # an expert named like another tool of the run (an MCP tool as the model sees it) is not offered
             taken = {tool.name for tool in function_tools} | {
@@ -276,7 +317,7 @@ async def create_agent(
 
 
 def instructions_and_tools(
-    config: dict[str, Any], *, subagents: bool, tools: bool = True
+    config: dict[str, Any], *, subagents: bool, tools: bool = True, output_schema: dict[str, Any] | None = None
 ) -> tuple[str, list[FunctionTool], list[FunctionTool], list[dict[str, Any]]]:
     """(instructions, catalog tools, expert tools, selected MCP servers) of a run of this configuration: what
     create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
@@ -284,8 +325,11 @@ def instructions_and_tools(
     its built-in usage text (run_subagent only with subagents, as in create_agent; the wake-up, inventory write and
     document write tools only with subagents and not in an expert's call, config['expert']), but the tools the run
     switched off (config['disabled_tools']: tools/selection.py); what a tool may do is decided by its check against the
-    run's access object. tools False: none at all (an internal LLM call, not an agent run)."""
+    run's access object. tools False: none at all (an internal LLM call, not an agent run). output_schema (the run's
+    pinned schema) on a model without structured output adds the schema to the instructions (fallback_instructions)."""
     prompt = get_prompt(config)
+    if output_schema is not None and not supports_structured_output(config['model']):
+        prompt += '\n\n' + fallback_instructions(output_schema['schema'])
     selected_mcp = mcp.selected_servers(config)
     if not tools:
         return prompt, [], [], []

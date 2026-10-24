@@ -101,11 +101,13 @@ class FakeAgent:
         call_model_input_filter,
         stream,
         subagents=None,
+        output_schema=None,
     ):
         index = len(self.calls)
         record = {
             'config': config,
             'task': task,
+            'output_schema': output_schema,
             'credentials': dict(credentials),
             'history': await session.get_items(),
             'max_turns': max_turns,

@@ -17,6 +17,7 @@ from knowledge_admin.events import matching as event_matching
 from knowledge_admin.events import targets
 from knowledge_admin.events import templates as event_templates
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.sessions import start
 
 NOT_FOUND = 'Handler not found.'
 STALE = 'This handler was changed by someone else. Reload and try again.'
@@ -29,8 +30,9 @@ GIVE_BACK_NOT_ASSIGNEE = "Only handlers that send to the assignee's agent can gi
 NOT_AGENT_ASSIGNEE = 'Only Send to agent handlers can target the assignee.'
 ASSIGNEE_WITH_AGENT = 'Leave the agent empty when the handler targets the assignee.'
 NOT_JIRA_ASSIGNEE = 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'
+NOT_AGENT_SCHEMA = 'Only Send to agent handlers take an output schema.'
 SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_from,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,h.give_back,
-    h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
+    h.output_schema_id,h.output_schema_version,h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
         FROM ka.event_handler_runs r WHERE r.handler_id=h.id ORDER BY r.id DESC LIMIT 1) AS last_run
     FROM ka.event_handlers h LEFT JOIN ka.agents a ON a.id=h.agent_id"""
 
@@ -63,6 +65,8 @@ class HandlerDraft(BaseModel):
     prompt: str | None = Field(default=None, max_length=20000)
     reply_to_jira: bool = False
     give_back: bool = False
+    output_schema_id: UUID | None = None  # the run finishes with JSON in this schema
+    output_schema_version: int | None = Field(default=None, ge=1)  # None: the current version when the run starts
 
 
 class HandlerInput(HandlerDraft):
@@ -140,7 +144,13 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         'prompt': None,
         'reply_to_jira': draft.reply_to_jira,
         'give_back': draft.give_back,
+        'output_schema_id': draft.output_schema_id,
+        'output_schema_version': draft.output_schema_version,
     }
+    if (draft.output_schema_id is not None or draft.output_schema_version is not None) and draft.action != 'agent':
+        raise bad(NOT_AGENT_SCHEMA)
+    if draft.output_schema_version is not None and draft.output_schema_id is None:
+        raise bad(start.VERSION_WITHOUT_SCHEMA)
     try:
         if draft.action == 'emit':
             emit = (draft.emit or EmitTemplates()).model_dump()
@@ -156,12 +166,22 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
     return values
 
 
+def schema_usable(conn, project: UUID, values: dict) -> None:
+    """The handler's output schema and its version, when it names them, are in this workspace (400)."""
+    if values['output_schema_id'] is None:
+        return
+    try:
+        start.pinned_schema(conn, project, values['output_schema_id'], values['output_schema_version'])
+    except HTTPException as exc:
+        raise bad(exc.detail) from None
+
+
 def insert(conn, project: UUID, values: dict, actor: UUID) -> UUID:
     """Insert a handler from `stored` values; UniqueViolation when the project has a handler with that name."""
     return conn.execute(
         """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
-        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,created_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,output_schema_id,output_schema_version,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (
             project,
             values['name'],
@@ -175,6 +195,8 @@ def insert(conn, project: UUID, values: dict, actor: UUID) -> UUID:
             values['prompt'],
             values['reply_to_jira'],
             values['give_back'],
+            values['output_schema_id'],
+            values['output_schema_version'],
             actor,
         ),
     ).fetchone()['id']
@@ -260,6 +282,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             values = stored(conn, value)
             if values['agent_id']:
                 agent_usable(conn, values['agent_id'])
+            schema_usable(conn, project, values)
             actor = db.actor(conn, *request_actor(request))
             try:
                 with conn.transaction():
@@ -288,11 +311,13 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 values['agent_id'] != current['agent_id'] or (values['enabled'] and not current['enabled'])
             ):
                 agent_usable(conn, values['agent_id'])
+            schema_usable(conn, project, values)
             try:
                 with conn.transaction():
                     conn.execute(
                         """UPDATE ka.event_handlers SET name=%s,enabled=%s,type_pattern=%s,conditions=%s,action=%s,
-                        emit=%s,agent_from=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,give_back=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
+                        emit=%s,agent_from=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,give_back=%s,output_schema_id=%s,
+                        output_schema_version=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
                         (
                             values['name'],
                             values['enabled'],
@@ -305,6 +330,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             values['prompt'],
                             values['reply_to_jira'],
                             values['give_back'],
+                            values['output_schema_id'],
+                            values['output_schema_version'],
                             handler_id,
                         ),
                     )

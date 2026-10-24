@@ -387,6 +387,25 @@ supported`):
 - `POST /api/output-schemas/check` takes `{schema, sample?}` and returns `{problems, sample_errors}`; `sample_errors`
   is `null` without a sample (or when the schema has problems) and `[]` when the sample matches.
 
+### Runs with an output schema
+
+- A saved agent's run takes `output_schema_id` (and `output_schema_version`; none: the current one) on
+  `POST /api/sessions`: the Test tab (`test`), Run agent (`chat`) and event handlers (`event`, from
+  `event_handlers.output_schema_id` / `output_schema_version`; a handler without a version follows the current one). The
+  ad-hoc runs are chats on a resource or a document (`resource`, `documents`, `revision`): 400 `Chats do not take an
+  output schema.` The run pins `config.output_schema = {id, name, version, schema}` (and `agent_sessions.output_schema_id`
+  / `output_schema_version`), so later edits do not change it; the Debug tab shows it.
+- The runner gives the model `JsonSchemaOutput` (`agents/runner.py`) as the output type: strict when the model's
+  `capabilities.supports_structured_output` is on (LLM settings; on for OpenAI-style models by default); otherwise
+  non-strict, and the instructions end with `Finish with JSON only, matching this JSON Schema: <schema>`.
+- The session worker validates every final answer against the pinned version (`output_schemas/runs.verdict`). A mismatch
+  is answered once more in the same turn (`Your final answer does not match the output schema: <errors>. Answer again
+  with JSON only.`); still invalid, the turn fails with `Output did not match the schema` and an `error` run event
+  `{type: OutputInvalid, message, errors, raw}`. An answer over 256 KB fails at once (`Output is larger than 256 KB.`).
+- A valid answer is stored in `agent_sessions.output` and emits the event `run.output` (source `run`, source id the
+  run) with `{run_id, agent_id, agent_name, schema_id, schema_name, schema_version, output, started_from, handler_id,
+  event_id}`.
+
 ## Clones
 
 An agent has **one configuration**: what its tabs show is what runs. There are no configuration versions, drafts or

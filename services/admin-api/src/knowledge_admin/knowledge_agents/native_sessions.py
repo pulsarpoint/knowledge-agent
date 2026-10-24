@@ -38,6 +38,7 @@ from knowledge_admin.knowledge_agents.session_worker import (
     clean_text,
     run_key,
 )
+from knowledge_admin.output_schemas import runs as output_runs
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import RunRecorder
 
@@ -380,7 +381,7 @@ class NativeRunner(shared.SessionRunner):
         history: HistorySession | None = None
         comments: Comments | None = None
         subagents = None
-        status, message, result = 'failed', '', None
+        status, message, result, output = 'failed', '', None, None
         try:
             try:
                 # Imported here: the subagent runtime builds on this module's SessionEvents.
@@ -403,7 +404,12 @@ class NativeRunner(shared.SessionRunner):
                 secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
                 comments = Comments(self, number, recorder, history)
                 status, result = await self.drive(config, text, credentials, history, events, comments, subagents)
-                message = STOPPED if status == 'stopped' else ''
+                if status == 'waiting' and config.get('output_schema') is not None:
+                    status, message, result, output = await self.checked(
+                        config, result, recorder, secrets, credentials, history, events, comments, subagents
+                    )
+                if status == 'stopped':
+                    message = STOPPED
             except Exception as exc:
                 status, message = 'failed', failure(exc, secrets)
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
@@ -433,6 +439,12 @@ class NativeRunner(shared.SessionRunner):
             # the comments delivered inside the turn stay delivered and its history is not saved. A session closed
             # during the turn is committed (harmless: a closed session takes no more turns).
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
+            if commit is not None and output is not None:  # a valid output: stored with the turn, run.output emitted
+
+                def commit(conn):
+                    history.commit(conn, secrets)
+                    output_runs.record(conn, self.session, config, output, number)
+
             # usage=None: every model call already added its tokens (add_usage)
             await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit, answer=answer)
         finally:
@@ -442,6 +454,45 @@ class NativeRunner(shared.SessionRunner):
                 subagents.forget()
             credentials.clear()
             self.secrets = []  # the worker forgets them; the turn's own list stays with what may still use it
+
+    async def checked(
+        self,
+        config: dict,
+        result: Any,
+        recorder: RunRecorder,
+        secrets: list[str],
+        credentials: dict[str, str],
+        history: HistorySession,
+        events: SessionEvents,
+        comments: Comments,
+        subagents: Any,
+    ) -> tuple[str, str, Any, Any]:
+        """(status, message, result, output) of a completed turn of a run with an output schema: its final answer
+        validated against the pinned version (output_runs.verdict); a mismatch is answered once more with the errors
+        in the same turn, then the turn fails with the errors and the raw answer recorded."""
+        schema = config['output_schema']['schema']
+        retried = False
+        while True:
+            raw = clean_text('' if result.final_output is None else str(result.final_output), secrets)
+            found = output_runs.verdict(schema, raw, retried=retried)
+            if found.kind == 'valid':
+                return 'waiting', '', result, found.output
+            if found.kind == 'failed':
+                recorder.add(
+                    'error',
+                    {
+                        'type': 'OutputInvalid',
+                        'message': found.message,
+                        'errors': found.errors,
+                        'raw': capped(raw, output_runs.MAX_OUTPUT_BYTES),
+                    },
+                )
+                return 'failed', found.message, result, None
+            retried = True
+            recorder.add('input', {'task': found.message, 'retry': True})
+            status, result = await self.drive(config, found.message, credentials, history, events, comments, subagents)
+            if status != 'waiting':
+                return status, '', result, None
 
     async def drive(
         self,
@@ -468,6 +519,7 @@ class NativeRunner(shared.SessionRunner):
                 call_model_input_filter=comments,
                 stream=False,
                 subagents=subagents,
+                output_schema=config.get('output_schema'),
             )
         )
         cancelled = False  # set once _cancel has returned: the turn ended, or it is tracked until it ends

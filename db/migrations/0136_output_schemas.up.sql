@@ -42,4 +42,14 @@ ALTER TABLE agent_sessions
 COMMENT ON COLUMN agent_sessions.output_schema_id IS 'The schema the run was started with (no foreign key: a run outlives its schema).';
 COMMENT ON COLUMN agent_sessions.output IS 'The JSON the run finished with, validated against its output schema version.';
 
+-- A run that finished with a valid output emits run.output (source 'run', source_id: the run).
+ALTER TABLE events
+    DROP CONSTRAINT events_source_check,
+    ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler', 'manual', 'memory', 'schedule', 'run'));
+
+-- Model capabilities (LLM settings): supports_structured_output (strict JSON Schema output); on for OpenAI-style models.
+ALTER TABLE llm_models
+    ADD COLUMN capabilities jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(capabilities) = 'object');
+UPDATE llm_models SET capabilities = jsonb_build_object('supports_structured_output', provider = 'openai');
+
 COMMIT;

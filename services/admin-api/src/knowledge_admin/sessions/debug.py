@@ -16,7 +16,9 @@ def instructions_and_tool_list(config: dict[str, Any], secrets: list[str]) -> di
     """{instructions, tools: [{name, description}]} as a session turn gives them to the model (a session turn offers
     subagents and experts; never the run's off tools), redacted with `secrets` (known_secrets). MCP tools are listed by their servers once a run
     connects; the servers are in the access object."""
-    prompt, tools, experts, _ = instructions_and_tools(config, subagents=True)
+    prompt, tools, experts, _ = instructions_and_tools(
+        config, subagents=True, output_schema=config.get('output_schema')
+    )
     return {
         'instructions': redact(prompt, secrets),
         'tools': [{'name': tool.name, 'description': redact(tool.description, secrets)} for tool in [*tools, *experts]],
@@ -62,4 +64,5 @@ def view(
         'access': {'resources': access_rules.listing(config['access'])},
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,
         'notes': config.get('start_notes', []),  # what the start left out, and why
+        'output_schema': config.get('output_schema'),  # the pinned {id, name, version, schema}; None: a normal run
     }

@@ -81,6 +81,12 @@ def _object(node: dict, at: str) -> list[str]:
         problems.append(f'{at}: an object needs required')
         required = []
     problems += [
+        f'{at}: required lists {json.dumps(name)}, which is not a property name'
+        for name in required
+        if not isinstance(name, str)
+    ]
+    required = [name for name in required if isinstance(name, str)]
+    problems += [
         f"{at}: required lists '{name}', which is not a property" for name in required if name not in properties
     ]
     missing = sorted(name for name in properties if name not in required)

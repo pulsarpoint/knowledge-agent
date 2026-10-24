@@ -78,7 +78,7 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
     """Start an ordinary run of the handler's agent (purpose event) through the sessions start: the saved agent with
     everything it has (every tool, every expert), the rendered prompt as its first message, the handler's
-    creator as actor, titled by the event. The agent is the handler's own or the one mapped to the ticket's assignee
+    creator as actor, titled by the event, with the handler's output schema (its pinned version or the current one). The agent is the handler's own or the one mapped to the ticket's assignee
     (events/targets.py). One run per event and handler: processing the event again links the run it started before,
     looked up first, so a changed agent or mapping cannot refuse it or start a second agent."""
     row = conn.execute(
@@ -101,7 +101,12 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     prompt = event_templates.render_prompt(handler['prompt'], event)
     started = f'Started a run of {agent["name"]}.'
     try:
-        value = start.StartInput(agent_id=agent_id, message=prompt)
+        value = start.StartInput(
+            agent_id=agent_id,
+            message=prompt,
+            output_schema_id=handler['output_schema_id'],
+            output_schema_version=handler['output_schema_version'],  # None: the current version
+        )
         session_id = start.start_run(
             conn,
             event['project_id'],

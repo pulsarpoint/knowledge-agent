@@ -2,6 +2,11 @@ BEGIN;
 SET search_path = ka, public;
 
 -- Back to 0135: no output schemas.
+ALTER TABLE llm_models DROP COLUMN capabilities;
+DELETE FROM events WHERE source = 'run';
+ALTER TABLE events
+    DROP CONSTRAINT events_source_check,
+    ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler', 'manual', 'memory', 'schedule'));
 ALTER TABLE agent_sessions
     DROP CONSTRAINT agent_sessions_output_schema_pinned,
     DROP COLUMN output,

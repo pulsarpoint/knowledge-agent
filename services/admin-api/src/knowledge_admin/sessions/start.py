@@ -29,6 +29,7 @@ from knowledge_admin.knowledge_agents.config import (
     model_fits,
 )
 from knowledge_admin.knowledge_agents.experts import offered, pin
+from knowledge_admin.output_schemas import store as output_schemas
 from knowledge_admin.sessions.run_access import (
     agent_access,
     bring,
@@ -80,6 +81,10 @@ NO_SSH = (
 AGENT_DISABLED = 'Agent is disabled.'
 AGENT_NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 TITLE_LENGTH = 120
+NO_SCHEMA_FOR_CHATS = 'Chats do not take an output schema.'
+SCHEMA_NOT_FOUND = 'Output schema not found.'
+SCHEMA_VERSION_NOT_FOUND = 'Output schema version not found.'
+VERSION_WITHOUT_SCHEMA = 'Choose the output schema of this version.'
 
 
 class NewDocument(BaseModel):
@@ -170,7 +175,9 @@ class StartInput(BaseModel):
     """What a start panel sends: the first message, the model and prompt, facts from where it starts (context), what
     the run may use (resources, experts; every catalog tool but those it switches off, disabled_tools; every run may
     draft documents and inventory within its access) and where it was started from (a label for lists). A saved agent's
-    run is a Test session unless purpose is chat (Run agent on the Agents page)."""
+    run is a Test session unless purpose is chat (Run agent on the Agents page). output_schema_id (and a version; none:
+    the current one): the run finishes with JSON in that schema; only a saved agent's run takes one (Test, Run agent,
+    an event handler, the API): the ad-hoc runs are chats on a resource or a document."""
 
     model_config = ConfigDict(extra='forbid')
     agent_id: str | None = None
@@ -185,6 +192,8 @@ class StartInput(BaseModel):
     expert_ids: list[UUID] | None = Field(default=None, max_length=50)  # None: every expert offered
     disabled_tools: list[str] = Field(default_factory=list, max_length=200)  # catalog tools switched off (more only)
     tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
+    output_schema_id: UUID | None = None
+    output_schema_version: int | None = Field(default=None, ge=1)
 
     @model_validator(mode='after')
     def valid(self):
@@ -197,6 +206,10 @@ class StartInput(BaseModel):
             raise ValueError('Enter a message')
         if self.purpose is not None and (self.agent_id is None or self.started_from is not None):
             raise ValueError(CHAT_PURPOSE)
+        if self.output_schema_version is not None and self.output_schema_id is None:
+            raise ValueError(VERSION_WITHOUT_SCHEMA)
+        if self.output_schema_id is not None and self.agent_id is None:
+            raise ValueError(NO_SCHEMA_FOR_CHATS)
         if self.agent_id is None:
             if self.started_from is None:
                 raise ValueError('Choose what the agent starts from.')
@@ -338,6 +351,20 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
     return access
 
 
+def pinned_schema(conn, project: UUID, schema_id: UUID, number: int | None) -> dict:
+    """The output schema version a run pins: {id, name, version, schema}; the current version unless one is named
+    (404 when the schema or the version is not in this workspace)."""
+    row = conn.execute(
+        'SELECT id,name,current_version FROM ka.output_schemas WHERE id=%s AND project_id=%s', (schema_id, project)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, SCHEMA_NOT_FOUND)
+    found = output_schemas.version(conn, project, schema_id, number or row['current_version'])
+    if found is None:
+        raise HTTPException(404, SCHEMA_VERSION_NOT_FOUND)
+    return {'id': str(row['id']), 'name': row['name'], 'version': found['version'], 'schema': found['schema']}
+
+
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
     """A saved agent's configuration for one run, narrowed by the request and never widened: its access object or the
     resources the request picked out of it (access.narrow: a pick outside it is refused), a subset of its experts, its
@@ -380,6 +407,8 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
     pinned['project_id'] = str(project)
     pinned['access'] = access
     pinned['disabled_tools'] = sorted(disabled_for(config['disabled_tools'], off_tools(value)))
+    if value.output_schema_id is not None:
+        pinned['output_schema'] = pinned_schema(conn, project, value.output_schema_id, value.output_schema_version)
     return jsonable_encoder(pinned), model
 
 
@@ -551,10 +580,11 @@ def start_run(
     tags = value.run_tags()
     if value.agent_id is not None:
         snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
+        schema = pinned.get('output_schema') or {}
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            target_document_id,prompt_snapshot,context_snapshot,agent_config,event_id,handler_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,'{}',%s,%s,%s)""",
+            target_document_id,prompt_snapshot,context_snapshot,agent_config,event_id,handler_id,output_schema_id,
+            output_schema_version) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,'{}',%s,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -568,6 +598,8 @@ def start_run(
                 Jsonb(pinned),
                 event_id,
                 handler_id,
+                schema.get('id'),
+                schema.get('version'),
             ),
         )
         details = {
@@ -576,6 +608,7 @@ def start_run(
             'expert_ids': [entry['id'] for entry in pinned['experts']],
             'resources': [{'type': item['type'], 'id': item['id']} for item in given(pinned['access'])],
             'tags': tags,
+            **({'output_schema': {key: schema[key] for key in ('id', 'version')}} if schema else {}),
         }
     elif resource is not None:
         kind, resource_id = resource

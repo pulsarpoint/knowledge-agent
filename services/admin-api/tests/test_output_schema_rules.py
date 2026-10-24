@@ -147,3 +147,10 @@ def test_validate_accepts_matching_json():
 def test_validate_lists_errors_with_their_location(value, problem):
     errors = validate(GOOD, value)
     assert errors and any(e.startswith(f'{problem}: ') for e in errors), errors
+
+
+def test_required_holding_something_other_than_names_is_a_problem():
+    assert check_schema(changed(['required'], [[1], 'severity'])) == [
+        '$: required lists [1], which is not a property name',
+        '$: required must list every property (missing: count, done, owner, score, steps, tags)',
+    ]

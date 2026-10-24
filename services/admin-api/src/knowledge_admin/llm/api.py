@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import psycopg
+from psycopg.types.json import Jsonb
 from fastapi import APIRouter, HTTPException, Request
 from knowledge_llm import code_compatible, completion_model, credential_aad, decode_model
 from knowledge_llm.bedrock_embeddings import embed_bedrock
@@ -19,7 +20,21 @@ from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.repositories import RepositoryStore
 
-PUBLIC = 'id,name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,enabled,revision,created_at,updated_at,(api_key_ciphertext IS NOT NULL) AS has_api_key'
+PUBLIC = 'id,name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,capabilities,enabled,revision,created_at,updated_at,(api_key_ciphertext IS NOT NULL) AS has_api_key'
+
+
+class Capabilities(BaseModel):
+    """What the model supports. supports_structured_output: strict JSON Schema output (runs with an output schema);
+    unset: on for OpenAI-style models (output_schemas.runs.supports_structured_output)."""
+
+    model_config = ConfigDict(extra='forbid')
+    supports_structured_output: bool | None = Field(default=None, strict=True)
+
+
+def capabilities(value: Capabilities, provider: str) -> dict:
+    """The capabilities a model connection stores, the defaults filled in."""
+    chosen = value.supports_structured_output
+    return {'supports_structured_output': provider == 'openai' if chosen is None else chosen}
 
 
 class ModelInput(BaseModel):
@@ -34,6 +49,7 @@ class ModelInput(BaseModel):
     aws_region: str | None = Field(default=None, pattern=r'^[a-z]{2}(?:-[a-z]+)+-\d+$', max_length=60)
     api_key: SecretStr | None = None
     enabled: bool = Field(default=True, strict=True)
+    capabilities: Capabilities = Field(default_factory=Capabilities)
     revision: int | None = Field(default=None, ge=1, strict=True)
 
     @field_validator('name', 'model', 'base_url', 'embedding_version')
@@ -252,6 +268,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     model_id,
                     {'name': value.name, 'provider': value.provider, 'enabled': value.enabled},
                 )
+                # an edit without capabilities keeps the saved ones
+                kept = old is not None and 'capabilities' not in value.model_fields_set
                 values = (
                     value.name,
                     value.provider,
@@ -262,18 +280,19 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     value.embedding_dimensions,
                     value.embedding_version,
                     encrypted,
+                    Jsonb(old['capabilities'] if kept else capabilities(value.capabilities, value.provider)),
                     value.enabled,
                     actor,
                 )
                 if creating:
                     row = conn.execute(
-                        f"""INSERT INTO ka.llm_models(name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,api_key_ciphertext,enabled,updated_by,created_by,id)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING {PUBLIC}""",
+                        f"""INSERT INTO ka.llm_models(name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,api_key_ciphertext,capabilities,enabled,updated_by,created_by,id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING {PUBLIC}""",
                         (*values, actor, model_id),
                     ).fetchone()
                 else:
                     row = conn.execute(
-                        f"""UPDATE ka.llm_models SET name=%s,provider=%s,model=%s,api_format=%s,base_url=%s,aws_region=%s,embedding_dimensions=%s,embedding_version=%s,api_key_ciphertext=%s,enabled=%s,updated_by=%s,revision=revision+1
+                        f"""UPDATE ka.llm_models SET name=%s,provider=%s,model=%s,api_format=%s,base_url=%s,aws_region=%s,embedding_dimensions=%s,embedding_version=%s,api_key_ciphertext=%s,capabilities=%s,enabled=%s,updated_by=%s,revision=revision+1
                         WHERE id=%s RETURNING {PUBLIC}""",
                         (*values, model_id),
                     ).fetchone()

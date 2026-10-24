@@ -20,7 +20,7 @@ PAGE, MAX_PAGE, MAX_OFFSET, MAX_CHAIN = 50, 200, 100000, 200
 NOT_FOUND = 'Event not found.'
 SORTS = {'time': 'occurred_at', 'source': 'source', 'type': 'type', 'subject': 'subject', 'status': 'status'}
 TYPE_PATTERN = re.compile(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$')
-# Types the system itself records (jira/events.py, schedule_event.py, memory/store.py): offered to handlers before they have happened.
+# Types the system itself records (jira/events.py, schedule_event.py, memory/store.py, output_schemas/runs.py): offered to handlers before they have happened.
 RECORDED_TYPES = (
     'jira.ticket.created',
     'jira.ticket.updated',
@@ -29,6 +29,7 @@ RECORDED_TYPES = (
     'memory.updated',
     'memory.restored',
     'memory.deleted',
+    'run.output',
 )
 MAX_TEXT, MAX_PAYLOAD = 500, 100 * 1024
 MADE_BY_HAND = "dedupe_key LIKE 'manual:%%'"
