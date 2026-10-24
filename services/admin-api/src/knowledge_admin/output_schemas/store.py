@@ -29,7 +29,6 @@ class Stale(Exception):
 class InUse(Exception):
     def __init__(self, names: list[str]):
         super().__init__(', '.join(names))
-        self.names = names
 
 
 def list_all(conn, project: UUID) -> list[dict]:

@@ -363,8 +363,8 @@ ignored).
 
 ## Output schemas
 
-An **output schema** is a named JSON Schema a run can be asked to answer with. Schemas live in a library (Administration
--> Output schemas); an agent carries none: the schema is chosen per run. Every save of a changed schema adds a version
+An **output schema** is a named JSON Schema a run can be asked to answer with. Schemas live in a library (**Agents** ->
+**Output schemas** in the sidebar); an agent carries none: the schema is chosen per run. Every save of a changed schema adds a version
 (`current_version`); old versions are kept, because runs and consumers depend on the exact shape. Saving only a new name or
 description changes the revision, not the version.
 
@@ -375,8 +375,8 @@ supported`):
 - the root is an object; every object lists all its properties in `required` and sets `additionalProperties: false`;
 - keywords: `type` (`object`, `array`, `string`, `number`, `integer`, `boolean`, `null`, or a list of them for a
   nullable value), `enum`, `description`, `properties`, `required`, `additionalProperties`, `items` (arrays need `items`);
-- anything else is refused, including `$ref` and `$defs`: a schema is one self-contained tree. A schema over 64 KB is
-  refused.
+- anything else is refused, including `$ref` and `$defs`: a schema is one self-contained tree. A schema over 64 KB (bytes of
+  its UTF-8 JSON) is refused.
 
 `validate(schema, value)` returns the ways a value does not match (`$.steps[0].title: 1 is not of type 'string'`).
 
@@ -406,12 +406,16 @@ supported`):
   An answer wrapped in one code fence (```` ```json ````) is read as the JSON inside it.
 - A valid answer is stored in `agent_sessions.output` and emits the event `run.output` (source `run`, source id the
   run) with `{run_id, agent_id, agent_name, schema_id, schema_name, schema_version, output, started_from, handler_id,
-  event_id, chain}` (`started_from` is null for the saved-agent runs that take a schema; `handler_id`/`event_id` say
+  event_id}` (`started_from` is null for the saved-agent runs that take a schema; `handler_id`/`event_id` say
   where the run came from). A valid output clears `output_error`.
-- Loop guard: a run a handler starts from a `run.output` event pins `output_chain` = that event's `chain` + 1 (other
-  events start at 0), and its own `run.output` carries it. A handler does not start an agent from a `run.output` whose
-  `chain` is 3 or more: its handler run is recorded `skipped` with `Stopped: run.output chain is 3 runs deep.` (the
-  event is still processed, not failed).
+- Loop guard: one counter, the event chain's `depth` (at most 5, `MAX_DEPTH`). A run a handler starts from an event
+  pins it (`config.event = {id, root_id, depth}`), and its `run.output` joins that chain one level deeper
+  (`parent_id` the event, its `root_id`, `depth + 1`); a run started any other way records `run.output` as a root
+  (depth 0). Emitted events and handler-started runs climb the same depth, so every loop stops: an Emit handler on an
+  event at depth 5 fails with `Chain too deep (5 levels).`, and a Send to agent handler with an output schema on an event
+  at depth 5 is recorded `skipped` with `Stopped: the event chain is 5 levels deep; its run.output would be deeper.` (the
+  event is still processed, not failed). A handler without a schema still starts its agent: that run emits no
+  `run.output`.
 
 ### Reading the output
 
@@ -422,12 +426,17 @@ supported`):
 - `GET /api/sessions/{id}/status` returns `{id, status, started_at, last_activity_at, progress: {turns, tool_calls,
   step}, output_ready, error?}`. `status` maps the session's: starting is `queued`, working is `running`, waiting is
   `finished` for a run with an output schema (otherwise `waiting`), failed and stopped are `failed` (stopped: `Stopped.`),
-  closed is `finished` (`failed` for a run with a schema that closed without an output). `step` is the tool running now
-  (the current turn's last tool call without a result) or `thinking` while a turn runs, else null.
-- `GET /api/sessions/{id}/output` returns `{schema: {id, name, version}, output, valid, errors?, raw?}` (a failed run:
-  `output` null, `valid` false, with `errors` and `raw`). 404 `This run has no output schema.` without a schema; 409 `The
+  closed is `finished` (`failed` for a run with a schema that closed without an output). A run with a schema whose turn
+  is done reports `finished` even when a wake-up or a queued message may later add a turn and replace its output.
+  `step` is the tool running now (the current turn's last tool call without a result) or `thinking` while a turn runs,
+  else null. `tool_calls` also counts the expert (subagent) calls made inside the run's turns. `output_ready` is true
+  only when the status is `finished`, or `failed` with an output kept from an earlier turn (so `/output` answers 200).
+- `GET /api/sessions/{id}/output` returns `{schema: {id, name, version}, output, valid, error?, errors?, raw?}` (a
+  failed run: `output` null, `valid` false, `error` the failure reason as in `/status`, and `errors` and `raw` when its
+  answer did not match). 404 `This run has no output schema.` without a schema; 409 `The
   run has not finished.` while it runs.
-- `GET /api/agent-runs?has_output=true|false` lists only runs that have (or lack) an output.
+- `GET /api/agent-runs?has_output=true|false` lists only runs that have (or lack) an output; `false` also lists runs
+  that are not sessions (expert calls aside), which never have one.
 
 ## Clones
 

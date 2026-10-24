@@ -128,6 +128,12 @@ def test_a_schema_over_64_kb_is_refused():
     assert check_schema(big) == ['$: the schema is larger than 64 KB']
 
 
+def test_the_size_is_measured_in_bytes_of_utf8_json():
+    accented = 'é' * (MAX_SCHEMA_BYTES // 2 - 1000)  # 2 bytes each, but 6 characters as a \\u escape
+    assert check_schema(changed(['description'], accented)) == []
+    assert check_schema(changed(['description'], accented + 'é' * 1000)) == ['$: the schema is larger than 64 KB']
+
+
 def test_validate_accepts_matching_json():
     assert validate(GOOD, VALUE) == []
 

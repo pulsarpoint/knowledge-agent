@@ -222,6 +222,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             'output': row['output'],
             'valid': row['output'] is not None,
         }
+        error = run_status.failure(row)
+        if error is not None:
+            answer['error'] = error  # why it failed, also when it left no answer (a crash, Stop)
         return {**answer, **(row['output_error'] or {})}
 
     @router.post('/{session_id}/review')

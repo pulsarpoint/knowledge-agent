@@ -16,7 +16,7 @@ def check_schema(schema: Any) -> list[str]:
     """The problems that keep `schema` from being an output schema, each with its location ("$.properties.tags: ...")."""
     if not isinstance(schema, dict):
         return ['$: a schema must be a JSON object']
-    if len(json.dumps(schema)) > MAX_SCHEMA_BYTES:
+    if len(json.dumps(schema, ensure_ascii=False).encode()) > MAX_SCHEMA_BYTES:  # bytes of its UTF-8 JSON
         return ['$: the schema is larger than 64 KB']
     problems = _node(schema, '$')
     if schema.get('type') != 'object':

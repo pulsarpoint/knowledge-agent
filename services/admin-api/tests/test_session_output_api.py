@@ -6,7 +6,7 @@ import time
 
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.sessions import run_status
+from knowledge_admin.sessions import run_status, start as start_module
 from run_helpers import session_row
 from test_output_schemas_api import SCHEMA, created
 from test_repositories import HEADERS
@@ -88,6 +88,26 @@ def test_output_of_a_failed_run_has_its_errors_and_raw_answer(tester):
         ERRORS['errors'],
         ERRORS['raw'],
     )
+
+
+def test_output_of_a_run_that_failed_without_an_answer_says_why(tester):
+    session_id = start(tester)
+    update(tester, session_id, status='failed', status_message='The model is not reachable.')
+    body = get(tester, session_id, 'output').json()
+    assert (body['output'], body['valid'], body['error']) == (None, False, 'The model is not reachable.')
+    update(tester, session_id, status='stopped', status_message='')
+    assert get(tester, session_id, 'output').json()['error'] == 'Stopped.'
+
+
+def test_the_output_is_ready_only_while_the_run_is_finished_or_failed(tester):
+    session_id = start(tester)
+    update(tester, session_id, status='working', turns=2, output={'severity': 'high'})  # a follow-up turn runs
+    assert get(tester, session_id, 'status').json()['output_ready'] is False
+    update(tester, session_id, status='failed', status_message='Crashed.')  # the follow-up failed, the output stays
+    failed = get(tester, session_id, 'status').json()
+    assert (failed['status'], failed['output_ready']) == ('failed', True)
+    update(tester, session_id, status='failed', output=None)
+    assert get(tester, session_id, 'status').json()['output_ready'] is False
 
 
 def test_output_of_a_run_without_a_schema_is_not_found(tester):
@@ -188,6 +208,44 @@ def test_a_start_that_waits_too_long_answers_202_and_status_follows(tester):
     ready = get(tester, body['id'], 'status').json()
     assert (ready['status'], ready['output_ready']) == ('finished', True)
     assert get(tester, body['id'], 'output').json()['output'] == {'severity': 'low'}
+
+
+def ended_at_start(monkeypatch, **columns):
+    """Make the start's own transaction end the run, so the wait's first look sees it closed."""
+    original = start_module.start_run
+
+    def start_run(conn, *args, **kwargs):
+        session_id = original(conn, *args, **kwargs)
+        sets = ','.join(f'{name}=%s' for name in columns)
+        values = [Jsonb(v) if isinstance(v, (dict, list)) else v for v in columns.values()]
+        conn.execute(f'UPDATE ka.agent_sessions SET {sets} WHERE id=%s', (*values, session_id))
+        return session_id
+
+    monkeypatch.setattr(start_module, 'start_run', start_run)
+
+
+def test_a_wait_on_a_run_finished_at_start_answers_at_once(tester, monkeypatch):
+    ended_at_start(monkeypatch, status='waiting', output={'severity': 'high'})
+    began = time.monotonic()
+    response = tester.client.post('/api/sessions?wait=10', headers=HEADERS, json=body_for(tester))
+    assert time.monotonic() - began < 5
+    assert response.status_code == 200, response.text
+    assert (response.json()['status'], response.json()['output']) == ('finished', {'severity': 'high'})
+
+
+def test_a_wait_on_a_run_failed_at_start_answers_with_the_failure(tester, monkeypatch):
+    ended_at_start(monkeypatch, status='failed', status_message='No model.')
+    response = tester.client.post('/api/sessions?wait=10', headers=HEADERS, json=body_for(tester))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body['status'], body['output'], body['error']) == ('failed', None, 'No model.')
+
+
+def test_a_wait_on_a_vanished_run_answers_202_when_the_time_is_up(tester, monkeypatch):
+    monkeypatch.setattr(run_status, 'run_row', lambda *args: None)
+    response = tester.client.post('/api/sessions?wait=1', headers=HEADERS, json=body_for(tester))
+    assert response.status_code == 202, response.text
+    assert response.json()['status'] == 'running'
 
 
 def test_a_start_without_wait_answers_at_once_as_before(tester):

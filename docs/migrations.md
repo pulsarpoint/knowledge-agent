@@ -575,3 +575,14 @@ Tool selection: `ka.agents.disabled_tools` (`text[]`, not null, default empty) h
 run of the agent. Off tools are stored, not on tools, so a tool added to the catalog later is on for every agent. A run
 may switch more off (the start request's `disabled_tools`, recorded in the pinned configuration); it cannot switch one
 back on. The down migration drops the column: every agent is offered every tool again.
+
+## 0136_output_schemas
+
+The output schema library: `ka.output_schemas` (name, description, `current_version`, `revision`) and
+`ka.output_schema_versions` (every saved version's JSON, kept). `ka.event_handlers` gains `output_schema_id` /
+`output_schema_version` (no version: the current one; `RESTRICT`, so a used schema cannot be deleted), and
+`ka.agent_sessions` gains `output`, `output_error`, `output_schema_id` and `output_schema_version`. Events take source
+`run` (`run.output`); a run a handler started records its `run.output` in that event's chain (`parent_id`, `root_id`,
+`depth`), so `events_source_made` allows a chain position for source `run` as well as `handler`. `ka.llm_models` gains
+`capabilities` (`supports_structured_output`, on for OpenAI models), and handler runs may be `skipped`. The down
+migration deletes `run` events and skipped handler runs, then drops the tables and columns and restores the checks.

@@ -937,7 +937,9 @@ A handler does one thing:
   deleted or disabled can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
   the same handler. **Output schema** (none, or a schema with **Current** or a fixed version) makes the run finish with
-  JSON in that schema (4.22).
+  JSON in that schema (4.22). Its `run.output` event joins the chain of the event that started the run, one level
+  deeper, so a loop through runs stops at 5 levels like any chain: on an event 5 levels deep a handler with a schema is
+  **Skipped** ("Stopped: the event chain is 5 levels deep; its run.output would be deeper.").
 
   Instead of one agent, **Agent** can be **Agent mapped to the assignee** (Jira event types only): each matching
   event runs the agent mapped to the ticket's assignee under Jira → Settings → **Users and agents** (4.7). An
@@ -1082,7 +1084,7 @@ editor.
   `additionalProperties: false`; types `object`, `array`, `string`, `number`, `integer`, `boolean`, `null` (nullable
   via a type list), `enum` and `description`. **Check** shows each problem with its path (for example
   `$.properties.tags: 'minItems' is not supported`), or "The schema is accepted."; **Save** refuses a schema with
-  problems. Up to 64 KB.
+  problems. Up to 64 KB (of UTF-8 JSON).
 - **Validate sample.** Paste an answer a run could give into **Sample (JSON)**: it is checked against the schema in the
   editor and either matches or lists why not.
 - **Versions.** Every save of a changed schema adds a version; old versions are kept. **Versions (n)** opens a side
@@ -1101,11 +1103,12 @@ schema ("Chats do not take an output schema.").
 **What happens.** The schema goes to the model as the answer format (a model without **Supports structured output**
 gets it in its instructions). The final answer is checked; if it does not match, the model is asked once more with the
 errors. Still invalid, the run fails with "Output did not match the schema", keeping the errors and the raw answer. A
-valid answer is stored on the run (up to 256 KB) and recorded as a `run.output` event that handlers can react to.
+valid answer is stored on the run (up to 256 KB) and recorded as a `run.output` event that handlers can react to (a
+run a handler started records it in that event's chain, so handler loops stop at 5 levels; 4.17).
 
 **Reading the output.** The run page (and the Test tab) shows **Output** beside the transcript: the formatted JSON with
 **Copy**, or the errors and raw answer of a failed run. Over the API, `GET /api/sessions/<id>/output` returns
-`{schema, output, valid, errors?, raw?}`, `GET /api/sessions/<id>/status` a light status for polling, and
+`{schema, output, valid, error?, errors?, raw?}`, `GET /api/sessions/<id>/status` a light status for polling, and
 `POST /api/sessions?wait=<1–120>` starts a run and waits for its result.
 
 ---

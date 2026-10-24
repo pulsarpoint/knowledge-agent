@@ -3,7 +3,10 @@
 The session statuses map to the client statuses as follows (`client_status`):
 starting -> queued, working -> running, waiting -> finished for a run with an output schema (its turn is done) and
 waiting for any other run, stopped -> failed ("Stopped."), failed -> failed, closed -> finished, except a run with a
-schema that closed without an output (failed)."""
+schema that closed without an output (failed). A run with a schema whose turn is done reports finished even when a
+wake-up or a queued message may later add a turn (and replace its output).
+
+Counted tool calls include the expert (subagent) calls made inside the run's turns."""
 
 from uuid import UUID
 
@@ -57,6 +60,12 @@ def status_of(row: dict) -> str:
     )
 
 
+def output_ready(row: dict) -> bool:
+    """/output answers with the output: the run is finished, or failed after a turn that left one (a follow-up turn
+    that crashed); not while a follow-up turn runs."""
+    return row['output'] is not None and status_of(row) in ('finished', 'failed')
+
+
 def view(conn, row: dict) -> dict:
     """The /status answer."""
     keys = [f'cc:{row["id"]}:{turn}' for turn in range(1, row['turns'] + 1)]
@@ -74,7 +83,7 @@ def view(conn, row: dict) -> dict:
             'tool_calls': conn.execute(TOOL_CALLS, (keys,)).fetchone()['n'] if keys else 0,
             'step': step,
         },
-        'output_ready': row['output'] is not None,
+        'output_ready': output_ready(row),
     }
     error = failure(row)
     if error is not None:
