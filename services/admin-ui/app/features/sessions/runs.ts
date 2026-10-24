@@ -65,6 +65,7 @@ export const RUN_PARAMS = [
   "agent_id",
   "status",
   "has_output",
+  "schedule_id",
   "user",
   "key_prefix",
   "sort",

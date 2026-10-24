@@ -31,6 +31,8 @@ export interface HandlerDraft {
   output_schema_id: string | null;
   /** null: the schema's current version when the run starts. */
   output_schema_version: number | null;
+  /** Send to agent only: add the last valid output of this handler (for the same schedule) to each run's task. */
+  include_previous_output: boolean;
 }
 export interface EventHandler extends HandlerDraft {
   id: string;
@@ -145,4 +147,5 @@ export const toDraft = (handler: EventHandler): HandlerDraft => ({
   give_back: handler.give_back,
   output_schema_id: handler.output_schema_id ?? null,
   output_schema_version: handler.output_schema_version ?? null,
+  include_previous_output: handler.include_previous_output ?? false,
 });

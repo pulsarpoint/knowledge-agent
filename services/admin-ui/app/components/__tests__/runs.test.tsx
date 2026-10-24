@@ -445,3 +445,33 @@ test("the Output filter lists runs that finished with an output schema's JSON, o
   fireEvent.change(screen.getByLabelText("Output"), { target: { value: "false" } });
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?has_output=false"));
 });
+
+test("the Schedule filter lists the schedules and asks for the runs one started", async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === "/api/schedules"
+      ? json({ schedules: [{ id: "c1", name: "Nightly check" }] })
+      : url === "/api/agents"
+        ? json({ agents: [] })
+        : json(runs),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  renderRuns();
+  await screen.findByText("How many retries?");
+  await screen.findByRole("option", { name: "Nightly check" });
+  fireEvent.change(screen.getByLabelText("Schedule"), { target: { value: "c1" } });
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?schedule_id=c1"));
+  expect(where()).toBe("?schedule_id=c1");
+});
+
+test("a schedule in the URL that is no longer listed reads (deleted)", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/schedules" ? json({ schedules: [] }) : url === "/api/agents" ? json({ agents: [] }) : json(runs),
+    ),
+  );
+  renderRuns("?schedule_id=gone");
+  await screen.findByText("How many retries?");
+  expect(screen.getByLabelText("Schedule")).toHaveValue("gone");
+  expect(screen.getByRole("option", { name: "(deleted)" })).toBeInTheDocument();
+});

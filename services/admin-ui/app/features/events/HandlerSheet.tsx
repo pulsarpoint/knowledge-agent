@@ -49,6 +49,7 @@ interface Form {
   reply_to_jira: boolean;
   give_back: boolean;
   output_schema: OutputSchemaChoice | null;
+  include_previous_output: boolean;
 }
 
 const ASSIGNEE = "@assignee";
@@ -67,6 +68,7 @@ const BLANK: Form = {
   reply_to_jira: false,
   give_back: false,
   output_schema: null,
+  include_previous_output: false,
 };
 /** Send to agent on a pattern like * or jira.ticket.* can run the agent many times at once (the first Jira pull records every ticket). */
 const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
@@ -114,6 +116,7 @@ function fromHandler(handler: EventHandler): Form {
     output_schema: handler.output_schema_id
       ? { id: handler.output_schema_id, name: "", version: handler.output_schema_version ?? null }
       : null,
+    include_previous_output: handler.include_previous_output,
   };
 }
 function toDraft(form: Form): HandlerDraft {
@@ -143,6 +146,7 @@ function toDraft(form: Form): HandlerDraft {
     give_back: offersGiveBack(form) && form.give_back,
     output_schema_id: form.action === "agent" ? (form.output_schema?.id ?? null) : null,
     output_schema_version: form.action === "agent" ? (form.output_schema?.version ?? null) : null,
+    include_previous_output: form.action === "agent" && form.include_previous_output,
   };
 }
 
@@ -521,6 +525,20 @@ function HandlerForm({
               value={form.output_schema}
               onChange={(output_schema) => update({ output_schema })}
             />
+            <Field orientation="horizontal">
+              <Switch
+                id="handler-previous-output"
+                checked={form.include_previous_output}
+                onCheckedChange={(include_previous_output) => update({ include_previous_output })}
+              />
+              <div>
+                <FieldLabel htmlFor="handler-previous-output">Include the previous output</FieldLabel>
+                <FieldDescription>
+                  Adds the last valid output of this handler (for the same schedule) to each run&apos;s task, so the
+                  agent can compare.
+                </FieldDescription>
+              </div>
+            </Field>
             {jira && (
               <Field orientation="horizontal">
                 <Checkbox

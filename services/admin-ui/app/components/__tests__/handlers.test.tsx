@@ -19,6 +19,7 @@ const handler = (extra = {}) => ({
   give_back: false,
   output_schema_id: null,
   output_schema_version: null,
+  include_previous_output: false,
   revision: 1,
   created_at: "2026-10-09T10:00:00Z",
   updated_at: "2026-10-09T10:00:00Z",
@@ -170,6 +171,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
       give_back: false,
       output_schema_id: null,
       output_schema_version: null,
+      include_previous_output: false,
     }),
   );
   expect(await screen.findByText("Emit triage.requested")).toBeInTheDocument();
@@ -759,4 +761,43 @@ test("a saved handler opens with its schema following the current version; the s
     expect(within(sheet).getByRole("combobox", { name: "Output schema" })).toHaveTextContent("Verdict"),
   );
   expect(within(sheet).getByRole("combobox", { name: "Schema version" })).toHaveTextContent("Current (v2)");
+});
+
+test("Include the previous output is a Send to agent switch; it saves and the enabled switch keeps it", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  const saved = handler({ action: "agent", emit: null, agent_id: "tester", agent_name: "Tester", prompt: "Check" });
+  api({
+    "GET /api/event-handlers": { handlers: [saved] },
+    ...SHEET_DATA,
+    "PUT /api/event-handlers/h-1": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { body: { handler: { ...saved, ...sent, revision: 2 } } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  const sheet = await screen.findByRole("dialog");
+  const toggle = within(sheet).getByRole("switch", { name: "Include the previous output" });
+  expect(toggle).not.toBeChecked();
+  expect(
+    within(sheet).getByText(
+      "Adds the last valid output of this handler (for the same schedule) to each run's task, so the agent can compare.",
+    ),
+  ).toBeInTheDocument();
+  await user.click(toggle);
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent).toMatchObject({ include_previous_output: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await user.click(await screen.findByRole("switch", { name: "Enabled: Triage" }));
+  await waitFor(() => expect(sent).toMatchObject({ enabled: false, include_previous_output: true }));
+});
+
+test("an emit handler has no Include the previous output switch", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).queryByRole("switch", { name: "Include the previous output" })).toBeNull();
 });

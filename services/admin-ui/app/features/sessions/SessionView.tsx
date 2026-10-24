@@ -9,6 +9,7 @@ import {
   sendMessage,
   statusLabels,
   stopSession,
+  type SessionDetail,
 } from "./api";
 import { runPath } from "./runs";
 import { useFillViewport } from "~/lib/useFillViewport";
@@ -20,6 +21,18 @@ import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
+
+/** Which schedule and handler started a handler run; "(deleted)" for one that is gone. */
+function StartedBy({ by }: { by: NonNullable<SessionDetail["started_by"]> }) {
+  const handler = by.handler_name ?? "(deleted)";
+  return (
+    <p className="text-sm text-muted-foreground">
+      {by.schedule_id
+        ? `Started by schedule ${by.schedule_name ?? "(deleted)"} through handler ${handler}`
+        : `Started by handler ${handler}`}
+    </p>
+  );
+}
 
 /** Any run on the run workspace: its turns, messages, Stop and Close; where it was started; and, for a run that writes a
  * document draft, the draft. The page fits the screen; the main pane scrolls on its own. */
@@ -115,6 +128,16 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
               {statusLabels[session.status]} · {session.model_name}
               {startedFrom && <> · Started from {startedFrom}</>}
             </p>
+            {session.started_by && <StartedBy by={session.started_by} />}
+            {session.previous_output && (
+              <p className="text-sm text-muted-foreground">
+                Previous output from run{" "}
+                <Link className="underline" to={`/sessions/${encodeURIComponent(session.previous_output.session_id)}`}>
+                  {session.previous_output.session_id.slice(0, 8)}
+                </Link>{" "}
+                ({new Date(session.previous_output.finished_at).toLocaleString()})
+              </p>
+            )}
           </>
         }
         headerActions={

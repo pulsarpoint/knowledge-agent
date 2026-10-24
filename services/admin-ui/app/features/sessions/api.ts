@@ -113,6 +113,15 @@ export interface SessionDetail extends SessionSummary {
   /** Runs started by a Jira event: the ticket and the other runs on it, newest first. */
   ticket_key?: string;
   related_runs?: RelatedRun[];
+  /** A handler run: the schedule at its event chain's root (null: none) and the handler; a name is null when deleted. */
+  started_by?: {
+    schedule_id: string | null;
+    schedule_name: string | null;
+    handler_id: string;
+    handler_name: string | null;
+  } | null;
+  /** The run whose output this run's task included (the handler's Include the previous output). */
+  previous_output?: { session_id: string; finished_at: string } | null;
   /** Ask agent runs: the document they revise. */
   target_document_id?: string | null;
   tool_counts?: ToolCount[];

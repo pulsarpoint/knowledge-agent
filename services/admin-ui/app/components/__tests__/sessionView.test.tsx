@@ -754,3 +754,47 @@ test("a run started with an output schema shows its Output beside the transcript
   await screen.findByRole("link", { name: "the agent" });
   expect(screen.queryByRole("region", { name: "Output" })).toBeNull();
 });
+
+const startedBy = (values: Record<string, unknown>) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url.includes("/events/history") ? page([]) : Response.json({ ...detail, purpose: "event", ...values }),
+    ),
+  );
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+};
+
+test("a handler run names its schedule and handler and links the run whose output its task included", async () => {
+  startedBy({
+    started_by: { schedule_id: "c1", schedule_name: "Nightly check", handler_id: "h1", handler_name: "Checker" },
+    previous_output: { session_id: "12345678-aaaa-bbbb-cccc-000000000000", finished_at: "2026-10-23T06:05:00Z" },
+  });
+  expect(await screen.findByText("Started by schedule Nightly check through handler Checker")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "12345678" });
+  expect(link).toHaveAttribute("href", "/sessions/12345678-aaaa-bbbb-cccc-000000000000");
+  expect(link.parentElement).toHaveTextContent(
+    `Previous output from run 12345678 (${new Date("2026-10-23T06:05:00Z").toLocaleString()})`,
+  );
+});
+
+test("a deleted schedule or handler reads (deleted); a run outside a schedule names only its handler", async () => {
+  startedBy({
+    started_by: { schedule_id: "c1", schedule_name: null, handler_id: "h1", handler_name: null },
+    previous_output: null,
+  });
+  expect(await screen.findByText("Started by schedule (deleted) through handler (deleted)")).toBeInTheDocument();
+  expect(screen.queryByText(/Previous output from run/)).toBeNull();
+});
+
+test("a Jira-started handler run says which handler started it", async () => {
+  startedBy({
+    started_by: { schedule_id: null, schedule_name: null, handler_id: "h1", handler_name: "Triage" },
+    previous_output: null,
+  });
+  expect(await screen.findByText("Started by handler Triage")).toBeInTheDocument();
+});

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { getRuns, RUN_DEFAULTS, runPath, topTools, toolUsageLine, type RunPage } from "./runs";
 import { getAgents, type AgentSummary } from "~/features/agents/api";
+import { getSchedules } from "~/features/events/schedules";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -35,9 +36,12 @@ export default function RunsView() {
   const [sort, order, user, keyPrefix] = [value("sort"), value("order"), value("user"), value("key_prefix")];
   const page = Math.max(1, Number(value("page")) || 1);
   const pageSize = Number(value("page_size")) || 50;
-  const filtered = ["kind", "agent_id", "status", "has_output", "user", "key_prefix"].some((key) => params.get(key));
+  const filtered = ["kind", "agent_id", "status", "has_output", "schedule_id", "user", "key_prefix"].some((key) =>
+    params.get(key),
+  );
   const [data, setData] = useState<RunPage | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [schedules, setSchedules] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState("");
   const query = params.toString();
   useEffect(() => {
@@ -56,6 +60,9 @@ export default function RunsView() {
     getAgents()
       .then((data) => setAgents(data.agents ?? []))
       .catch(() => setAgents([]));
+    getSchedules()
+      .then((data) => setSchedules(data.schedules ?? []))
+      .catch(() => setSchedules([]));
   }, []);
   /** Set search params (defaults and empty values leave the URL); anything but a page change goes back to page 1. */
   const update = (changes: Record<string, string>) =>
@@ -145,6 +152,25 @@ export default function RunsView() {
             <option value="">All</option>
             <option value="true">Has output</option>
             <option value="false">No output</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Schedule
+          <select
+            aria-label="Schedule"
+            className={SELECT}
+            value={value("schedule_id")}
+            onChange={(e) => update({ schedule_id: e.target.value })}
+          >
+            <option value="">All</option>
+            {value("schedule_id") && !schedules.some((schedule) => schedule.id === value("schedule_id")) && (
+              <option value={value("schedule_id")}>(deleted)</option>
+            )}
+            {schedules.map((schedule) => (
+              <option key={schedule.id} value={schedule.id}>
+                {schedule.name}
+              </option>
+            ))}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
