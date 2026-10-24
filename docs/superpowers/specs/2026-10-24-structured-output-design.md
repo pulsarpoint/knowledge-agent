@@ -9,8 +9,8 @@ and external applications reading a run's output over REST (e.g. as a judge).
 1. **Output schemas are a shared library:** named JSON Schemas on their own page.
 4. **The schema belongs to the invocation, not the agent:** the same agent runs with a schema or without one, depending
    on what the caller needs (a handler, an API start, a Test run). Agents have no default schema.
-2. **Non-chat runs only:** event/handler runs, schedules (through handlers), API starts and the agent Test tab. Chats
-   stay conversational.
+2. **Non-chat runs only:** event/handler runs, schedules (through handlers), API starts, the agent Test tab and Run
+   agent. Chats stay conversational.
 3. **Invalid output fails the run:** after one corrective retry, a run whose final answer does not match its schema ends
    as failed (output invalid), with the errors and the raw answer kept; nothing downstream receives it.
 
@@ -33,20 +33,25 @@ and external applications reading a run's output over REST (e.g. as a judge).
 
 ## 2. Choosing a schema for a run
 
-- The caller chooses, per invocation; agents carry no schema.
-- `ka.event_handlers.output_schema_id` (nullable, → output_schemas, migration 0136): a handler that starts an agent runs
-  it with that schema, or without one (handler editor: **Output schema**: none / a schema).
-- API start (`POST /api/sessions` with a saved agent, non-chat purposes): optional `output_schema_id`.
-- The agent's **Test** tab: an **Output schema** picker (none / a schema) for the next test run, so the same agent can
-  be tried both ways.
-- Chats (resource, document, ad-hoc chat purposes) never get an output schema; a request that names one for a chat →
-  400 "Chats do not take an output schema."
+- One start parameter, **`output_schema_id`** (null: a normal run). The agent is created for that run with the schema as
+  its output type (§3); the same agent, saved or defined at runtime, runs with a schema or without one depending on the
+  caller. Agents carry no schema and the prompt is not changed.
+- Where it can be given:
+  - the agent's **Test** tab (saved agents): an **Output schema** picker (none / a schema) for the next test run;
+  - **Run agent** (an agent defined at runtime: the person's model and prompt): the same picker;
+  - the API, `POST /api/sessions` (saved or runtime agent, non-chat purposes): `output_schema_id`, so an external
+    application can call any agent with its schema;
+  - event handlers that start an agent: `ka.event_handlers.output_schema_id` (nullable, → output_schemas, migration
+    0136; handler editor **Output schema**: none / a schema).
+- Chats (resource, document and other chat purposes) leave it null; a request that names a schema for a chat → 400
+  "Chats do not take an output schema."
 - The run pins the schema (`pinned config.output_schema = {id, name, schema}`), so later edits of the schema do not
   change a running or finished run.
 
 ## 3. Running with a schema
 
-- The runner gives the model the schema as the run's final output type: an `AgentOutputSchemaBase` implementation over
+- The schema reaches the model as the agent's output type, not as prompt text: the SDK sends it with every model call of
+  the run as the structured-output format. The runner gives the model the schema as the run's final output type: an `AgentOutputSchemaBase` implementation over
   the JSON Schema (name, `json_schema()`, strict, `validate_json()`), in place of a pydantic type. Tools work as usual;
   the final answer must be the JSON.
 - Validation: the final answer is parsed and validated with `jsonschema` (Draft 2020-12) against the pinned schema. On
@@ -76,7 +81,8 @@ and external applications reading a run's output over REST (e.g. as a judge).
 
 - `check_schema`: accepted subset, refused keywords with paths; sample validation.
 - Library API: CRUD, revision, delete refused while used, auth like other agent settings.
-- Selection: handler schema, API start, Test tab, the same agent with and without a schema, chats refused, pinning.
+- Selection: handler schema, API start (saved and runtime agents), Test tab, Run agent, the same agent with and without
+  a schema, chats refused, pinning.
 - Runner: valid output stored and `run.output` emitted; invalid → one retry with errors → valid; still invalid → failed
   with errors and raw kept, no event.
 - Output endpoint states; run page Output panel; Output schemas page (editor, check, sample, delete confirmation).
