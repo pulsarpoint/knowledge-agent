@@ -586,3 +586,13 @@ The output schema library: `ka.output_schemas` (name, description, `current_vers
 `depth`), so `events_source_made` allows a chain position for source `run` as well as `handler`. `ka.llm_models` gains
 `capabilities` (`supports_structured_output`, on for OpenAI models), and handler runs may be `skipped`. The down
 migration deletes `run` events and skipped handler runs, then drops the tables and columns and restores the checks.
+
+## 0137_server_health_schema
+
+A built-in output schema, **Server health check**, in every workspace that has no schema of that name: the server
+checked, `overall_status` (`normal` / `worth_checking` / `issue`), a `summary`, and `findings` (one per problem:
+`severity`, `category`, `service` or null, a stable `title`, `details`, `evidence`, `recommendation`; empty when
+normal), for an agent that checks a server and a handler that turns each issue into a ticket. A workspace that already
+has a schema of that name keeps its own. Workspaces created later do not get it (create it on the Output schemas page).
+The down migration removes the seeded schema only where it is untouched (one version, the seeded JSON) and no handler
+names it.
