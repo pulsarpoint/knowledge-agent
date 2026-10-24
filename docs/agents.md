@@ -400,11 +400,18 @@ supported`):
   non-strict, and the instructions end with `Finish with JSON only, matching this JSON Schema: <schema>`.
 - The session worker validates every final answer against the pinned version (`output_schemas/runs.verdict`). A mismatch
   is answered once more in the same turn (`Your final answer does not match the output schema: <errors>. Answer again
-  with JSON only.`); still invalid, the turn fails with `Output did not match the schema` and an `error` run event
+  with JSON only.`, each error capped at 300 characters); still invalid, the turn fails with `Output did not match the
+  schema`, `agent_sessions.output_error = {errors, raw}` (and `output` cleared) and an `error` run event
   `{type: OutputInvalid, message, errors, raw}`. An answer over 256 KB fails at once (`Output is larger than 256 KB.`).
+  An answer wrapped in one code fence (```` ```json ````) is read as the JSON inside it.
 - A valid answer is stored in `agent_sessions.output` and emits the event `run.output` (source `run`, source id the
   run) with `{run_id, agent_id, agent_name, schema_id, schema_name, schema_version, output, started_from, handler_id,
-  event_id}`.
+  event_id, chain}` (`started_from` is null for the saved-agent runs that take a schema; `handler_id`/`event_id` say
+  where the run came from). A valid output clears `output_error`.
+- Loop guard: a run a handler starts from a `run.output` event pins `output_chain` = that event's `chain` + 1 (other
+  events start at 0), and its own `run.output` carries it. A handler does not start an agent from a `run.output` whose
+  `chain` is 3 or more: its handler run is recorded `skipped` with `Stopped: run.output chain is 3 runs deep.` (the
+  event is still processed, not failed).
 
 ## Clones
 

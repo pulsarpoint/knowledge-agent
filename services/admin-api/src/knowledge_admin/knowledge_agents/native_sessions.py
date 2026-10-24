@@ -455,6 +455,14 @@ class NativeRunner(shared.SessionRunner):
             credentials.clear()
             self.secrets = []  # the worker forgets them; the turn's own list stays with what may still use it
 
+    def output_error(self, errors: list[str], raw: str) -> None:
+        """A turn's answer that did not match its schema, on the run while this worker holds it."""
+        with self.store.connect() as conn:
+            if conn.execute(
+                'SELECT 1 FROM ka.agent_sessions WHERE id=%s AND worker_id=%s', (self.id, self.worker_id)
+            ).fetchone():
+                output_runs.record_error(conn, self.id, errors, raw)
+
     async def checked(
         self,
         config: dict,
@@ -478,15 +486,11 @@ class NativeRunner(shared.SessionRunner):
             if found.kind == 'valid':
                 return 'waiting', '', result, found.output
             if found.kind == 'failed':
+                kept = capped(raw, output_runs.MAX_OUTPUT_BYTES)
                 recorder.add(
-                    'error',
-                    {
-                        'type': 'OutputInvalid',
-                        'message': found.message,
-                        'errors': found.errors,
-                        'raw': capped(raw, output_runs.MAX_OUTPUT_BYTES),
-                    },
+                    'error', {'type': 'OutputInvalid', 'message': found.message, 'errors': found.errors, 'raw': kept}
                 )
+                await asyncio.to_thread(self.output_error, found.errors, kept)
                 return 'failed', found.message, result, None
             retried = True
             recorder.add('input', {'task': found.message, 'retry': True})

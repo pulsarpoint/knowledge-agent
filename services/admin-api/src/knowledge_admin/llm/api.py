@@ -268,8 +268,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     model_id,
                     {'name': value.name, 'provider': value.provider, 'enabled': value.enabled},
                 )
-                # an edit without capabilities keeps the saved ones
-                kept = old is not None and 'capabilities' not in value.model_fields_set
+                # an edit without capabilities keeps the saved ones, unless the provider changes
+                kept = (
+                    old is not None
+                    and 'capabilities' not in value.model_fields_set
+                    and old['provider'] == value.provider  # a new provider gets its default
+                )
                 values = (
                     value.name,
                     value.provider,

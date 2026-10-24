@@ -102,7 +102,7 @@ def test_sessions_have_the_output_columns(store):
                 "SELECT column_name FROM information_schema.columns WHERE table_schema='ka' AND table_name='agent_sessions'"
             )
         }
-    assert {'output', 'output_schema_id', 'output_schema_version'} <= columns
+    assert {'output', 'output_error', 'output_schema_id', 'output_schema_version'} <= columns
 
 
 def test_down_removes_everything_and_up_restores_it(store):
@@ -111,8 +111,29 @@ def test_down_removes_everything_and_up_restores_it(store):
         assert conn.execute("SELECT to_regclass('ka.output_schemas') AS t").fetchone()['t'] is None
         columns = conn.execute(
             """SELECT count(*) AS n FROM information_schema.columns WHERE table_schema='ka'
-            AND column_name IN ('output_schema_id','output_schema_version','output')"""
+            AND column_name IN ('output_schema_id','output_schema_version','output','output_error')"""
         ).fetchone()['n']
         assert columns == 0
         run(conn, '0136_output_schemas.up.sql')
         assert conn.execute("SELECT to_regclass('ka.output_schemas') AS t").fetchone()['t'] is not None
+
+
+def test_a_handler_run_may_be_skipped_and_down_removes_skipped_runs(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        handler = a_handler(conn, project)
+        event = conn.execute(
+            """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at)
+            VALUES (%s,'run','run.output','A',%s,'k',now()) RETURNING id""",
+            (project, Jsonb({'chain': 3})),
+        ).fetchone()['id']
+        conn.execute(
+            """INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message)
+            VALUES (%s,%s,'Triage','skipped','Stopped.')""",
+            (event, handler['id']),
+        )
+        run(conn, '0136_output_schemas.down.sql')
+        assert (
+            conn.execute("SELECT count(*) AS n FROM ka.event_handler_runs WHERE status='skipped'").fetchone()['n'] == 0
+        )
+        run(conn, '0136_output_schemas.up.sql')

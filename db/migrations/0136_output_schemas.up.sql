@@ -36,10 +36,12 @@ ALTER TABLE event_handlers
 -- A run that was started with a schema: the version it pinned and the validated JSON it finished with.
 ALTER TABLE agent_sessions
     ADD COLUMN output jsonb,
+    ADD COLUMN output_error jsonb CHECK (output_error IS NULL OR jsonb_typeof(output_error) = 'object'),
     ADD COLUMN output_schema_id uuid,
     ADD COLUMN output_schema_version integer,
     ADD CONSTRAINT agent_sessions_output_schema_pinned CHECK (output_schema_version IS NULL OR output_schema_id IS NOT NULL);
 COMMENT ON COLUMN agent_sessions.output_schema_id IS 'The schema the run was started with (no foreign key: a run outlives its schema).';
+COMMENT ON COLUMN agent_sessions.output_error IS 'A final answer that did not match its schema: {errors, raw}.';
 COMMENT ON COLUMN agent_sessions.output IS 'The JSON the run finished with, validated against its output schema version.';
 
 -- A run that finished with a valid output emits run.output (source 'run', source_id: the run).
@@ -51,5 +53,10 @@ ALTER TABLE events
 ALTER TABLE llm_models
     ADD COLUMN capabilities jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(capabilities) = 'object');
 UPDATE llm_models SET capabilities = jsonb_build_object('supports_structured_output', provider = 'openai');
+
+-- A handler that does not start its agent because a run.output chain is too deep is recorded as skipped.
+ALTER TABLE event_handler_runs
+    DROP CONSTRAINT event_handler_runs_status_check,
+    ADD CONSTRAINT event_handler_runs_status_check CHECK (status IN ('succeeded', 'failed', 'skipped'));
 
 COMMIT;

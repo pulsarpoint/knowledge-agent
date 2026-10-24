@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from knowledge_admin.events import matching as event_matching, targets, templates as event_templates
+from knowledge_admin.output_schemas import runs as output_runs
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions import start
 
@@ -38,6 +39,11 @@ def run_message(text: str) -> str:
 
 class HandlerFailed(Exception):
     """A handler action that could not run; the message is recorded on its run."""
+
+
+class Skipped(Exception):
+    """The handler does not act on this event (a run.output chain too deep); recorded as a skipped run with the
+    reason, without failing the event."""
 
 
 class NotForHandler(Exception):
@@ -80,7 +86,8 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     everything it has (every tool, every expert), the rendered prompt as its first message, the handler's
     creator as actor, titled by the event, with the handler's output schema (its pinned version or the current one). The agent is the handler's own or the one mapped to the ticket's assignee
     (events/targets.py). One run per event and handler: processing the event again links the run it started before,
-    looked up first, so a changed agent or mapping cannot refuse it or start a second agent."""
+    looked up first, so a changed agent or mapping cannot refuse it or start a second agent. A run.output event
+    starts a run one deeper in its chain; at MAX_CHAIN the handler is skipped (a loop guard)."""
     row = conn.execute(
         """SELECT s.id,coalesce(a.name,s.agent_id) AS name FROM ka.agent_sessions s
         LEFT JOIN ka.agents a ON a.id=s.agent_id WHERE s.event_id=%s AND s.handler_id=%s""",
@@ -88,6 +95,9 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     ).fetchone()
     if row is not None:
         return f'Started a run of {row["name"]}.', {'agent_session_id': row['id']}
+    chain = output_runs.chain_of(event)
+    if chain >= output_runs.MAX_CHAIN:
+        raise Skipped(output_runs.CHAIN_TOO_DEEP)
     agent_id, refusal, fires = targets.pick_agent(handler, event, targets.mapping_rows(conn, handler, event))
     if not fires:
         raise NotForHandler(refusal)
@@ -117,6 +127,7 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
             event_id=event['id'],
             handler_id=handler['id'],
             title=f'{agent["name"]} · {event["type"]} {event["subject"]}',
+            chain=chain + 1 if event['type'] == 'run.output' else 0,
         )
     except HTTPException as exc:
         raise HandlerFailed(str(exc.detail)) from None
@@ -141,6 +152,8 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
             status = 'succeeded'
         except NotForHandler:
             continue  # the savepoint left nothing behind; no run is recorded
+        except Skipped as exc:
+            status, message = 'skipped', str(exc)
         except (HandlerFailed, event_templates.TemplateProblem) as exc:
             status, message = 'failed', str(exc)
         except Exception:

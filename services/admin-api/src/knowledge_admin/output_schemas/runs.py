@@ -2,6 +2,7 @@
 the instructions fallback) and recording a valid output on the run with its run.output event (record)."""
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -11,6 +12,10 @@ from knowledge_admin.output_schemas.rules import validate
 
 MAX_OUTPUT_BYTES = 256 * 1024
 MAX_ERRORS = 20  # in the retry message and the failure record
+MAX_ERROR_CHARS = 300  # each error (an enum or const error echoes the value)
+MAX_CHAIN = 3  # a handler starts no agent from a run.output whose chain is this deep
+CHAIN_TOO_DEEP = f'Stopped: run.output chain is {MAX_CHAIN} runs deep.'
+FENCE = re.compile(r'^```[a-zA-Z]*\n(.*)\n```$', re.DOTALL)
 OUTPUT_INVALID = 'Output did not match the schema'
 TOO_LARGE = 'Output is larger than 256 KB.'
 RETRY = 'Your final answer does not match the output schema: {errors}. Answer again with JSON only.'
@@ -32,17 +37,30 @@ def verdict(schema: dict, raw: str, *, retried: bool) -> Verdict:
     with the errors, then failure. An answer over 256 KB fails at once (a retry would not make it smaller)."""
     if len(raw.encode()) > MAX_OUTPUT_BYTES:
         return Verdict('failed', errors=[TOO_LARGE], message=TOO_LARGE)
+    fenced = FENCE.match(raw.strip())
     try:
-        value = json.loads(raw)
+        value = json.loads(fenced.group(1) if fenced else raw)
     except ValueError as exc:
         errors = [f'$: the answer is not JSON ({getattr(exc, "msg", exc)})']
     else:
-        errors = validate(schema, value)[:MAX_ERRORS]
+        errors = [_capped(error) for error in validate(schema, value)[:MAX_ERRORS]]
         if not errors:
             return Verdict('valid', output=value)
     if retried:
         return Verdict('failed', errors=errors, message=OUTPUT_INVALID)
     return Verdict('retry', errors=errors, message=RETRY.format(errors='; '.join(errors)))
+
+
+def _capped(error: str) -> str:
+    return error if len(error) <= MAX_ERROR_CHARS else error[:MAX_ERROR_CHARS] + '…'
+
+
+def chain_of(event: dict) -> int:
+    """How many runs deep a run.output event is (0 for a run not started from one); other events carry no chain."""
+    if event['type'] != 'run.output':
+        return 0
+    chain = event['payload'].get('chain', 0)
+    return chain if isinstance(chain, int) and chain >= 0 else 0
 
 
 def supports_structured_output(model: dict) -> bool:
@@ -57,9 +75,12 @@ def fallback_instructions(schema: dict) -> str:
 
 
 def record(conn, session: dict, config: dict, output: Any, turn: int) -> None:
-    """Store a valid output on the run and emit run.output, in the caller's transaction (the turn's commit)."""
+    """Store a valid output on the run and emit run.output, in the caller's transaction (the turn's commit). The payload's
+    chain is the run's (config output_chain: 1 + the chain of the run.output that started it; else 0). started_from is
+    the resource an ad-hoc run started from, so null for the saved-agent runs that take a schema; handler_id and
+    event_id say where such a run came from."""
     pinned = config['output_schema']
-    conn.execute('UPDATE ka.agent_sessions SET output=%s WHERE id=%s', (Jsonb(output), session['id']))
+    conn.execute('UPDATE ka.agent_sessions SET output=%s,output_error=NULL WHERE id=%s', (Jsonb(output), session['id']))
     agent_name = session.get('agent_name') or config['name']
     payload = {
         'run_id': str(session['id']),
@@ -72,6 +93,7 @@ def record(conn, session: dict, config: dict, output: Any, turn: int) -> None:
         'started_from': config.get('started_from'),
         'handler_id': None if session.get('handler_id') is None else str(session['handler_id']),
         'event_id': session.get('event_id'),
+        'chain': config.get('output_chain', 0),
     }
     conn.execute(
         """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
@@ -84,4 +106,12 @@ def record(conn, session: dict, config: dict, output: Any, turn: int) -> None:
             Jsonb(payload),
             f'run:{session["id"]}:{turn}:output',
         ),
+    )
+
+
+def record_error(conn, session_id, errors: list[str], raw: str) -> None:
+    """Keep a final answer that did not match its schema on the run ({errors, raw}); it has no output."""
+    conn.execute(
+        'UPDATE ka.agent_sessions SET output=NULL,output_error=%s WHERE id=%s',
+        (Jsonb({'errors': errors, 'raw': raw}), session_id),
     )

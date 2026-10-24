@@ -8,6 +8,7 @@ import asyncio
 import json
 
 import pytest
+from psycopg.types.json import Jsonb
 
 from knowledge_admin.agents.runner import JsonSchemaOutput, instructions_and_tools, schema_output
 from knowledge_admin.events import processor as event_processor
@@ -53,6 +54,17 @@ def test_an_invalid_answer_is_retried_once_with_its_errors_then_fails():
 def test_an_answer_that_is_not_json_is_an_error():
     found = output_runs.verdict(SCHEMA, 'High, I think.', retried=False)
     assert found.kind == 'retry' and found.errors[0].startswith('$: the answer is not JSON')
+
+
+def test_an_answer_in_one_code_fence_is_read_as_its_json():
+    for raw in ('```json\n{"severity": "high"}\n```', '```\n{"severity": "high"}\n```'):
+        assert output_runs.verdict(SCHEMA, raw, retried=False).output == {'severity': 'high'}
+
+
+def test_each_error_in_the_retry_message_is_capped():
+    schema = {**SCHEMA, 'properties': {'severity': {'type': 'string', 'enum': ['a']}}}
+    found = output_runs.verdict(schema, json.dumps({'severity': 'y' * 5000}), retried=False)
+    assert len(found.errors[0]) <= output_runs.MAX_ERROR_CHARS + 1 and found.errors[0].endswith('…')
 
 
 def test_an_output_over_256_kb_fails_without_a_retry():
@@ -207,6 +219,7 @@ def test_the_same_agent_with_and_without_a_schema(worker):
         'started_from': None,
         'handler_id': None,
         'event_id': None,
+        'chain': 0,
     }
     without = start(worker.client, agent_id=worker.agent).json()['id']
     plain = FakeAgent([answer('High, I think.')])
@@ -247,6 +260,7 @@ def test_an_invalid_answer_is_retried_once_and_then_the_run_fails(worker):
         'errors': ["$.severity: 2 is not of type 'string'"],
         'raw': '{"severity": 2}',
     }
+    assert done['output_error'] == {'errors': ["$.severity: 2 is not of type 'string'"], 'raw': '{"severity": 2}'}
     assert output_events(worker.store) == []
 
 
@@ -255,7 +269,7 @@ def test_a_corrected_answer_after_the_retry_is_the_output(worker):
     session_id = start(worker.client, agent_id=worker.agent, output_schema_id=schema['id']).json()['id']
     fake = FakeAgent([answer('Here: high'), answer(VALID)])
     done = run(worker, session_id, fake)
-    assert (done['status'], done['output']) == ('waiting', {'severity': 'high'})
+    assert (done['status'], done['output'], done['output_error']) == ('waiting', {'severity': 'high'}, None)
     retry = [
         e['payload'] for e in events(worker.store, session_id) if e['kind'] == 'input' and e['payload'].get('retry')
     ]
@@ -383,5 +397,115 @@ def test_models_carry_the_structured_output_capability(tester):
         f'/api/llm/models/{openai["id"]}', headers=HEADERS, json=model_body(name='A', revision=updated['revision'])
     ).json()
     assert kept['capabilities'] == {'supports_structured_output': False}  # an edit without it keeps it
+    moved = model_body(name='A', provider='anthropic', api_format='native', api_key='k', base_url='http://c.test')
+    moved = tester.client.put(
+        f'/api/llm/models/{openai["id"]}', headers=HEADERS, json={**moved, 'revision': kept['revision']}
+    ).json()
+    assert moved['capabilities'] == {'supports_structured_output': False}  # a new provider: its default again
+    back = model_body(name='A', revision=moved['revision'], api_key='k')
+    back = tester.client.put(f'/api/llm/models/{openai["id"]}', headers=HEADERS, json=back).json()
+    assert back['capabilities'] == {'supports_structured_output': True}
     pinned = start(tester.client, agent_id=tester.agent).json()['config']['model']
     assert pinned['capabilities'] == {'supports_structured_output': True}
+
+
+def test_every_turn_of_a_run_with_a_schema_is_validated(worker):
+    """A later turn (a message or a wake-up after the first answer) ends with its own validated output and event."""
+    schema = created(worker.client)
+    session_id = start(worker.client, agent_id=worker.agent, output_schema_id=schema['id']).json()['id']
+    store = worker.store
+    fake = FakeAgent([answer(VALID), answer('{"severity": "low"}')])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        await wait_for(store, session_id, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        url = f'/api/sessions/{session_id}'
+        await asyncio.to_thread(worker.client.post, url + '/messages', headers=HEADERS, json={'text': 'Again.'})
+        done = await wait_for(store, session_id, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
+        await asyncio.to_thread(worker.client.post, url + '/close', headers=HEADERS)
+        await asyncio.wait_for(runner, 5)
+        return done
+
+    done = asyncio.run(scenario())
+    assert done['output'] == {'severity': 'low'}
+    assert [e['payload']['output'] for e in output_events(store)] == [{'severity': 'high'}, {'severity': 'low'}]
+    assert fake.calls[1]['output_schema']['id'] == schema['id']
+
+
+# --- run.output chains --------------------------------------------------------------------------------------------
+
+
+def output_event(store, chain: int) -> dict:
+    return an_event(
+        store,
+        source='run',
+        type='run.output',
+        subject='Tester',
+        payload=Jsonb({'chain': chain, 'output': {'severity': 'high'}}),
+    )
+
+
+def test_a_run_started_from_run_output_carries_the_chain_and_stops_at_three(tester):
+    schema = created(tester.client)
+    a_handler(
+        tester.store,
+        name='Chain',
+        type_pattern='run.output',
+        action='agent',
+        emit=None,
+        agent_id=tester.agent,
+        prompt='Again',
+        output_schema_id=schema['id'],
+    )
+    for chain in (0, 2, 3):
+        output_event(tester.store, chain)
+        assert event_processor.run_once(tester.store) is True
+    with tester.store.connect() as conn:
+        started = conn.execute(
+            "SELECT (agent_config->>'output_chain')::int AS chain FROM ka.agent_sessions ORDER BY created_at"
+        ).fetchall()
+        runs = conn.execute('SELECT status,message FROM ka.event_handler_runs ORDER BY id').fetchall()
+        statuses = conn.execute("SELECT status FROM ka.events WHERE type='run.output' ORDER BY id").fetchall()
+    assert [row['chain'] for row in started] == [1, 3]
+    assert [(r['status'], r['message']) for r in runs][-1] == ('skipped', 'Stopped: run.output chain is 3 runs deep.')
+    assert [r['status'] for r in runs][:2] == ['succeeded', 'succeeded']
+    assert [r['status'] for r in statuses] == ['processed'] * 3  # a stopped chain is not a failed event
+
+
+def test_a_run_from_another_event_starts_a_chain_at_zero(worker):
+    schema = created(worker.client)
+    a_handler(
+        worker.store,
+        action='agent',
+        emit=None,
+        agent_id=worker.agent,
+        prompt='Triage',
+        output_schema_id=schema['id'],
+    )
+    an_event(worker.store, payload=Jsonb({'chain': 7}))  # only run.output events carry a chain
+    event_processor.run_once(worker.store)
+    with worker.store.connect() as conn:
+        session_id = conn.execute('SELECT id FROM ka.agent_sessions').fetchone()['id']
+    run(worker, session_id, FakeAgent([answer(VALID)]))
+    [event] = output_events(worker.store)
+    assert event['payload']['chain'] == 0 and event['payload']['event_id'] is not None
+
+
+def test_a_chained_run_output_carries_its_chain(worker):
+    schema = created(worker.client)
+    a_handler(
+        worker.store,
+        type_pattern='run.output',
+        action='agent',
+        emit=None,
+        agent_id=worker.agent,
+        prompt='Again',
+        output_schema_id=schema['id'],
+    )
+    output_event(worker.store, 1)
+    event_processor.run_once(worker.store)
+    with worker.store.connect() as conn:
+        session_id = conn.execute('SELECT id FROM ka.agent_sessions').fetchone()['id']
+    run(worker, session_id, FakeAgent([answer(VALID)]))
+    [event] = output_events(worker.store)[1:]  # the first is the scripted event the chain came from
+    assert event['payload']['chain'] == 2
