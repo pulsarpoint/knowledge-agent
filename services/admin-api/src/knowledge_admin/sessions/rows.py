@@ -132,7 +132,7 @@ def started_by(conn, session_id: UUID) -> tuple[dict | None, dict | None]:
     included (events/previous_output.py); (None, None) for other runs."""
     row = conn.execute(
         """SELECT s.schedule_id,c.name AS schedule_name,s.handler_id,h.name AS handler_name,p.id AS previous_id,
-        p.updated_at AS previous_at FROM ka.agent_sessions s
+        p.last_activity_at AS previous_at FROM ka.agent_sessions s
         LEFT JOIN ka.schedules c ON c.id=s.schedule_id LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
         LEFT JOIN ka.agent_sessions p ON p.id::text=s.agent_config->>'previous_output_from' WHERE s.id=%s""",
         (session_id,),

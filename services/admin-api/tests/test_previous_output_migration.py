@@ -101,6 +101,16 @@ def test_backfill_from_handler_runs_and_the_chain_root_and_down(store):
                 VALUES (%s,%s,'Check','succeeded',%s)""",
                 (event['id'], handler['id'], session),
             )
+        gone_handler = add_test_session(conn, project, actor, agent, model, purpose='event')
+        deleted = uuid4()  # a handler deleted before 0138 (its runs lost handler_id; its handler run keeps it)
+        conn.execute(
+            """INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,agent_session_id)
+            VALUES (%s,%s,'Gone','succeeded',%s)""",
+            (manual['id'], deleted, gone_handler),
+        )
+        gone_event = add_test_session(
+            conn, project, actor, agent, model, purpose='event', config={'id': agent, 'event': {'root_id': fired['id']}}
+        )  # its event was deleted (event_id NULL): the pinned root says which schedule
         run(conn, UP)
         rows = {
             row['id']: (row['handler_id'], row['schedule_id'])
@@ -109,3 +119,5 @@ def test_backfill_from_handler_runs_and_the_chain_root_and_down(store):
     assert rows[scheduled] == (handler['id'], schedule)
     assert rows[by_hand] == (handler['id'], None)
     assert rows[plain] == (None, None)
+    assert rows[gone_handler] == (deleted, None)
+    assert rows[gone_event] == (None, schedule)

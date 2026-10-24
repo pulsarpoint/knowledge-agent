@@ -57,7 +57,7 @@ def finished(tester, session_id, output) -> None:
 def test_the_block_is_compact_json_with_the_run_and_its_schema():
     row = {
         'id': UUID('12345678-aaaa-bbbb-cccc-000000000000'),
-        'updated_at': datetime(2026, 10, 24, 6, 5, 59, tzinfo=UTC),
+        'last_activity_at': datetime(2026, 10, 24, 6, 5, 59, tzinfo=UTC),
         'output': {'server': 'app-1', 'findings': []},
         'schema_name': 'Health',
         'output_schema_version': 2,
@@ -72,7 +72,7 @@ def test_the_block_is_compact_json_with_the_run_and_its_schema():
 def test_the_json_is_capped_at_16_kb():
     row = {
         'id': uuid4(),
-        'updated_at': datetime(2026, 10, 24, tzinfo=UTC),
+        'last_activity_at': datetime(2026, 10, 24, tzinfo=UTC),
         'output': {'text': 'x' * 20000},
         'schema_name': 'Health',
         'output_schema_version': 1,
@@ -223,3 +223,18 @@ def test_the_runs_list_filters_by_schedule(tester):
 def session_for(tester, schedule_id) -> UUID:
     with tester.store.connect() as conn:
         return conn.execute('SELECT id FROM ka.agent_sessions WHERE schedule_id=%s', (schedule_id,)).fetchone()['id']
+
+
+def test_the_time_is_the_last_activity_not_a_later_update(tester):
+    schedule = a_schedule(tester.client, name='Nightly check')
+    checker(tester)
+    first = fire(tester, UUID(schedule['id']))
+    update(tester, first, status='waiting', output={'severity': 'low'}, last_activity_at='2026-10-23T06:05:00Z')
+    update(tester, first, status='closed', closed_at=datetime(2026, 10, 24, 6, 0, tzinfo=UTC))  # bumps updated_at
+    with tester.store.connect() as conn:
+        row = conn.execute('SELECT updated_at,last_activity_at FROM ka.agent_sessions WHERE id=%s', (first,)).fetchone()
+    assert row['updated_at'] > row['last_activity_at']
+    second = fire(tester, UUID(schedule['id']))
+    assert f'Finished 2026-10-23 06:05 UTC (run {str(first)[:8]})' in session(tester, second)['task']
+    detail = tester.client.get(f'/api/sessions/{second}', headers=HEADERS).json()
+    assert datetime.fromisoformat(detail['previous_output']['finished_at']) == datetime(2026, 10, 23, 6, 5, tzinfo=UTC)

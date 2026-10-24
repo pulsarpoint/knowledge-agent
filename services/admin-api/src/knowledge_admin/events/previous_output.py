@@ -10,10 +10,11 @@ MAX_BYTES = 16 * 1024
 TRUNCATED = ' (truncated)'
 COMPARE = 'Compare with it: say what is new, what changed and what is resolved.'
 
-# Valid outputs only: a run whose answer did not match its schema has output null.
-LATEST = """SELECT id,updated_at,output,output_schema_version,agent_config->'output_schema'->>'name' AS schema_name
+# Valid outputs only: a run whose answer did not match its schema has output null. Its time is last_activity_at (the
+# last model call): updated_at moves later, e.g. when close_idle closes the run a day after it ended.
+LATEST = """SELECT id,last_activity_at,output,output_schema_version,agent_config->'output_schema'->>'name' AS schema_name
     FROM ka.agent_sessions WHERE handler_id=%s AND {schedule} AND output IS NOT NULL
-    ORDER BY created_at DESC,id DESC LIMIT 1"""
+    ORDER BY created_at DESC LIMIT 1"""
 
 
 def schedule_of(conn, event: dict) -> UUID | None:
@@ -37,7 +38,7 @@ def block(row: dict) -> str:
     data = text.encode()
     if len(data) > MAX_BYTES:
         text = data[:MAX_BYTES].decode(errors='ignore') + TRUNCATED
-    finished = row['updated_at'].astimezone(UTC).strftime('%Y-%m-%d %H:%M')
+    finished = row['last_activity_at'].astimezone(UTC).strftime('%Y-%m-%d %H:%M')
     return (
         f'# Previous run\nFinished {finished} UTC (run {str(row["id"])[:8]}), output schema "{row["schema_name"]}" '
         f'v{row["output_schema_version"]}:\n{text}\n{COMPARE}'
