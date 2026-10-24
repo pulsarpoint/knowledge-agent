@@ -140,8 +140,13 @@ export function restoreSettings(options: AgentOptions, saved: unknown, toolNames
  * against today's options like restored settings: resources that are gone or not usable, experts that are gone and a
  * model that is gone are left out (the default model instead). */
 export function settingsFromSession(options: AgentOptions, session: SessionDetail): AgentSettings {
-  const config = (session.config ?? {}) as { experts?: { id: string }[]; output_schema?: unknown };
-  const outputSchema = options.agent ? schemaChoice(config.output_schema) : null;
+  const config = (session.config ?? {}) as {
+    experts?: { id: string }[];
+    output_schema?: { follows_current?: unknown };
+  };
+  const pinned = options.agent ? schemaChoice(config.output_schema) : null;
+  // a run started with Current pinned the version it found; it starts again with Current
+  const outputSchema = pinned && config.output_schema?.follows_current === true ? { ...pinned, version: null } : pinned;
   const experts = new Set(options.experts.map((item) => item.id));
   // what the run was given (an environment, not what it brought)
   const given = session.given_resources ?? [];
@@ -279,8 +284,13 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
   };
 }
 
-/** "Claude · web-1, Payments": the model and up to three chosen resources (+n more). */
-export function settingsSummary(options: AgentOptions, settings: AgentSettings): string {
+/** "Claude · web-1, Payments": the model and up to three chosen resources (+n more), then the output schema unless
+ * `output` is false (Run agent shows its own picker). */
+export function settingsSummary(
+  options: AgentOptions,
+  settings: AgentSettings,
+  { output = true }: { output?: boolean } = {},
+): string {
   const model = options.models.find((item) => item.id === settings.modelId)?.name ?? "No model";
   const names = AGENT_KINDS.flatMap(({ key, field }) =>
     options.resources[key].filter((item) => settings.chosen[field].includes(item.id)).map((item) => item.name),
@@ -289,7 +299,8 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
     names.length === 0
       ? "no resources"
       : names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
-  return `${model} · ${resources}${settings.outputSchema ? ` · Output: ${choiceLabel(settings.outputSchema)}` : ""}`;
+  const schema = output && settings.outputSchema ? ` · Output: ${choiceLabel(settings.outputSchema)}` : "";
+  return `${model} · ${resources}${schema}`;
 }
 
 /** The Ask agent settings of a document, the Test settings of a saved agent, or the settings for writing a new document:

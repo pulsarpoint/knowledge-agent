@@ -31,6 +31,7 @@ export default function AgentSettingsSheet({
   previewMessage,
   session,
   onStartNew,
+  showOutputSchema = true,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -41,6 +42,8 @@ export default function AgentSettingsSheet({
   previewMessage: string;
   session: SessionDetail | null;
   onStartNew: () => void;
+  /** False where the opener has its own picker (Run agent). */
+  showOutputSchema?: boolean;
 }) {
   // Memoised: a fresh object every render would clear the preview on unrelated re-renders.
   const scopeResource = isResourceScope(scope)
@@ -204,7 +207,7 @@ export default function AgentSettingsSheet({
                 </Field>
               ))}
             </FieldSet>
-            {agent && (
+            {agent && showOutputSchema && (
               <OutputSchemaPicker
                 idPrefix="settings"
                 value={settings.outputSchema ?? null}

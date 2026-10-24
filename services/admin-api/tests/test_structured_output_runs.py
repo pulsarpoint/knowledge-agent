@@ -126,7 +126,7 @@ def test_a_saved_agent_run_pins_the_schema_version(tester):
     schema = created(tester.client)
     response = start(tester.client, agent_id=tester.agent, output_schema_id=schema['id'])
     assert response.status_code == 201, response.text
-    pinned = {'id': schema['id'], 'name': 'Triage', 'version': 1, 'schema': SCHEMA}
+    pinned = {'id': schema['id'], 'name': 'Triage', 'version': 1, 'schema': SCHEMA, 'follows_current': True}
     assert response.json()['config']['output_schema'] == pinned
     row = session_row(tester.store, response.json()['id'])
     assert (str(row['output_schema_id']), row['output_schema_version'], row['output']) == (schema['id'], 1, None)
@@ -142,6 +142,7 @@ def test_a_start_may_name_a_version_and_run_agent_chats_take_a_schema(tester):
     assert saved(tester.client, schema, schema=CHANGED).status_code == 200
     older = start(tester.client, agent_id=tester.agent, output_schema_id=schema['id'], output_schema_version=1)
     assert older.json()['config']['output_schema']['schema'] == SCHEMA
+    assert older.json()['config']['output_schema']['follows_current'] is False  # a named version stays fixed
     current = start(tester.client, agent_id=tester.agent, output_schema_id=schema['id'], purpose='chat')
     assert current.status_code == 201, current.text  # Run agent (purpose chat) takes one
     assert current.json()['config']['output_schema']['version'] == 2

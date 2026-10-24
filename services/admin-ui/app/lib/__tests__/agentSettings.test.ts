@@ -444,6 +444,13 @@ test("a saved agent's output schema goes into its start, comes back from this br
     given_resources: [],
   } as unknown as SessionDetail;
   expect(settingsFromSession(agentOptions, session).outputSchema).toEqual(fixed.outputSchema);
+  // ... and a run started with Current starts again with Current
+  const following = {
+    ...session,
+    config: { output_schema: { id: "s1", name: "Verdict", version: 2, schema: {}, follows_current: true } },
+  } as unknown as SessionDetail;
+  expect(settingsFromSession(agentOptions, following).outputSchema).toEqual(current.outputSchema);
   expect(settingsSummary(agentOptions, fixed)).toMatch(/· Output: Verdict v2$/);
   expect(settingsSummary(agentOptions, current)).toMatch(/· Output: Verdict$/);
+  expect(settingsSummary(agentOptions, fixed, { output: false })).not.toMatch(/Output/); // Run agent shows its picker
 });

@@ -393,8 +393,10 @@ supported`):
   `POST /api/sessions`: the Test tab (`test`), Run agent (`chat`) and event handlers (`event`, from
   `event_handlers.output_schema_id` / `output_schema_version`; a handler without a version follows the current one). The
   ad-hoc runs are chats on a resource or a document (`resource`, `documents`, `revision`): 400 `Chats do not take an
-  output schema.` The run pins `config.output_schema = {id, name, version, schema}` (and `agent_sessions.output_schema_id`
-  / `output_schema_version`), so later edits do not change it; the Debug tab shows it.
+  output schema.` The run pins `config.output_schema = {id, name, version, schema, follows_current}` (and
+  `agent_sessions.output_schema_id` / `output_schema_version`), so later edits do not change it; the Debug tab shows it.
+  `follows_current` is true when no version was named: **Start new chat with these settings** then picks **Current**
+  again rather than the version this run pinned.
 - The runner gives the model `JsonSchemaOutput` (`agents/runner.py`) as the output type: strict when the model's
   `capabilities.supports_structured_output` is on (LLM settings; on for OpenAI-style models by default); otherwise
   non-strict, and the instructions end with `Finish with JSON only, matching this JSON Schema: <schema>`.

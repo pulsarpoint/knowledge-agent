@@ -128,7 +128,7 @@ export default function RunAgentDialog({
             <Field>
               <FieldLabel>Resources</FieldLabel>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm">{settingsSummary(current.options, current.settings)}</p>
+                <p className="text-sm">{settingsSummary(current.options, current.settings, { output: false })}</p>
                 <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPicking(true)}>
                   Choose resources
                 </Button>
@@ -170,6 +170,7 @@ export default function RunAgentDialog({
           previewMessage={message}
           session={null}
           onStartNew={() => setPicking(false)}
+          showOutputSchema={false}
         />
       )}
     </AlertDialog>

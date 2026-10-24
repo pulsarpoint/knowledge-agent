@@ -544,8 +544,8 @@ An agent has one configuration: what its tabs show is what runs. A conversation 
 **Run an agent.** **Run** (the play button) on an agent's row, or **Run agent** next to **New agent**, opens the *Run
 agent* dialog: the agent (preselected from the row; from the top button choose one of the enabled agents — a disabled
 agent's **Run** is off), the **First message** (required) and its resources — every resource of the agent unless you
-narrow them with **Choose resources**, the same settings sheet as the Test tab's — and an optional **Output schema**
-(4.22). **Start** starts a chat session and
+narrow them with **Choose resources**, the same settings sheet as the Test tab's (without its Output schema) — and an
+optional **Output schema** in the dialog itself (4.22). **Start** starts a chat session and
 opens its session page (`/sessions/<id>`), where you send further messages, **Stop** a turn and **Close session**. A
 chat is not listed on the agent's Test tab; its turns are **Chat** runs in Agent runs (4.14), and it can be reviewed
 with **Suggest improvements** through the API like a Test session.
@@ -565,7 +565,8 @@ choose some of the agent's experts and some of
 its resources (see *Resources of a run* below). **Preview** shows the
 configuration the run would use. **Output schema** (none, or a schema of the library with **Current** or a fixed
 version) makes the next run finish with JSON in that schema (4.22); the current settings line under the heading then
-ends with *Output: <schema>*. Settings are remembered per agent in this browser and reset when the agent is saved.
+ends with *Output: <schema>*. **Start new chat with these settings** keeps **Current** for a run started with Current
+(not the version it pinned). Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
 badge) to reopen them. A Jira event run's page also lists **Earlier runs on <KEY>**: the other runs on the same
 ticket. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →

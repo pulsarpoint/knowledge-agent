@@ -320,6 +320,11 @@ export default function OutputSchemaEditorView() {
                 Every saved change is a version. Runs keep the version they started with.
               </SheetDescription>
             </SheetHeader>
+            {error && (
+              <Alert variant="destructive" className="mx-4 w-auto">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
             <ul className="flex flex-col gap-2 px-4 pb-4">
               {entry.versions.map((item) => (
                 <li key={item.version} className="flex flex-col gap-2 rounded-md border p-3 text-sm">

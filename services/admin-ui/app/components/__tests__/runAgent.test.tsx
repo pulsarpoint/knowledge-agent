@@ -153,7 +153,13 @@ test("Run agent can start with an output schema, at the current version or a fix
   fireEvent.click(within(dialog).getByRole("combobox", { name: "Schema version" }));
   fireEvent.click(await screen.findByRole("option", { name: "v2" }));
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Start" })).toBeEnabled());
-  fireEvent.click(within(dialog).getByRole("button", { name: "Start" }));
+  // the picker is the dialog's own: not in the Resources line, not in the resources sheet
+  expect(within(dialog).getByText(/web-1, db-1/)).not.toHaveTextContent("Output");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Choose resources" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).queryByRole("combobox", { name: "Output schema" })).toBeNull();
+  fireEvent.click(within(sheet).getByRole("button", { name: "Done" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Start" }));
   await screen.findByText("Session sess-9");
   expect(sessions.startSession).toHaveBeenCalledWith(
     expect.objectContaining({

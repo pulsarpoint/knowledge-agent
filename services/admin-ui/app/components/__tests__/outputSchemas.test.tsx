@@ -183,6 +183,18 @@ test("Versions opens a side sheet; a version's JSON can be viewed and copied int
   await waitFor(() => expect(screen.getByLabelText("Schema (JSON)")).toHaveValue(JSON.stringify(old, null, 2)));
 });
 
+test("a version that cannot be read shows its error inside the Versions sheet", async () => {
+  api((url) => {
+    if (url === "/api/output-schemas/s1/versions/1") return refused("Output schema version not found.", 404);
+    if (url === "/api/output-schemas/s1") return { schema: detail() };
+  });
+  editor("/output-schemas/s1");
+  fireEvent.click(await screen.findByRole("button", { name: "Versions (2)" }));
+  const sheet = await screen.findByRole("dialog", { name: "Versions of Verdict" });
+  fireEvent.click(within(sheet).getByRole("button", { name: "View version 1" }));
+  expect(await within(sheet).findByText("Output schema version not found.")).toBeInTheDocument();
+});
+
 test("Delete asks first; a schema a handler uses is refused with the handler names", async () => {
   let deletes = 0;
   const fetch = api((url, init) => {

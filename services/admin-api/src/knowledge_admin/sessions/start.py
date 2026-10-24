@@ -352,8 +352,9 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
 
 
 def pinned_schema(conn, project: UUID, schema_id: UUID, number: int | None) -> dict:
-    """The output schema version a run pins: {id, name, version, schema}; the current version unless one is named
-    (404 when the schema or the version is not in this workspace)."""
+    """The output schema version a run pins: {id, name, version, schema, follows_current}; the current version unless
+    one is named (follows_current: none was, so Start new chat with these settings picks Current again; 404 when the
+    schema or the version is not in this workspace)."""
     row = conn.execute(
         'SELECT id,name,current_version FROM ka.output_schemas WHERE id=%s AND project_id=%s', (schema_id, project)
     ).fetchone()
@@ -362,7 +363,13 @@ def pinned_schema(conn, project: UUID, schema_id: UUID, number: int | None) -> d
     found = output_schemas.version(conn, project, schema_id, number or row['current_version'])
     if found is None:
         raise HTTPException(404, SCHEMA_VERSION_NOT_FOUND)
-    return {'id': str(row['id']), 'name': row['name'], 'version': found['version'], 'schema': found['schema']}
+    return {
+        'id': str(row['id']),
+        'name': row['name'],
+        'version': found['version'],
+        'schema': found['schema'],
+        'follows_current': number is None,
+    }
 
 
 def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
