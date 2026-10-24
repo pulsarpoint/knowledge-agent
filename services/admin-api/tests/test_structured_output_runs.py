@@ -219,7 +219,6 @@ def test_the_same_agent_with_and_without_a_schema(worker):
         'started_from': None,
         'handler_id': None,
         'event_id': None,
-        'chain': 0,
     }
     without = start(worker.client, agent_id=worker.agent).json()['id']
     plain = FakeAgent([answer('High, I think.')])
@@ -432,69 +431,116 @@ def test_every_turn_of_a_run_with_a_schema_is_validated(worker):
     assert fake.calls[1]['output_schema']['id'] == schema['id']
 
 
-# --- run.output chains --------------------------------------------------------------------------------------------
+# --- run.output in the events chain -------------------------------------------------------------------------------
 
 
-def output_event(store, chain: int) -> dict:
-    return an_event(
-        store,
-        source='run',
-        type='run.output',
-        subject='Tester',
-        payload=Jsonb({'chain': chain, 'output': {'severity': 'high'}}),
-    )
+def lineage(event: dict) -> tuple:
+    return (event['depth'], event['parent_id'], event['root_id'])
 
 
-def test_a_run_started_from_run_output_carries_the_chain_and_stops_at_three(tester):
-    schema = created(tester.client)
-    a_handler(
-        tester.store,
-        name='Chain',
-        type_pattern='run.output',
-        action='agent',
-        emit=None,
-        agent_id=tester.agent,
-        prompt='Again',
-        output_schema_id=schema['id'],
-    )
-    for chain in (0, 2, 3):
-        output_event(tester.store, chain)
-        assert event_processor.run_once(tester.store) is True
-    with tester.store.connect() as conn:
-        started = conn.execute(
-            "SELECT (agent_config->>'output_chain')::int AS chain FROM ka.agent_sessions ORDER BY created_at"
-        ).fetchall()
-        runs = conn.execute('SELECT status,message FROM ka.event_handler_runs ORDER BY id').fetchall()
-        statuses = conn.execute("SELECT status FROM ka.events WHERE type='run.output' ORDER BY id").fetchall()
-    assert [row['chain'] for row in started] == [1, 3]
-    assert [(r['status'], r['message']) for r in runs][-1] == ('skipped', 'Stopped: run.output chain is 3 runs deep.')
-    assert [r['status'] for r in runs][:2] == ['succeeded', 'succeeded']
-    assert [r['status'] for r in statuses] == ['processed'] * 3  # a stopped chain is not a failed event
-
-
-def test_a_run_from_another_event_starts_a_chain_at_zero(worker):
+def test_a_run_started_outside_events_records_depth_zero(worker):
     schema = created(worker.client)
-    a_handler(
-        worker.store,
-        action='agent',
-        emit=None,
-        agent_id=worker.agent,
-        prompt='Triage',
-        output_schema_id=schema['id'],
-    )
-    an_event(worker.store, payload=Jsonb({'chain': 7}))  # only run.output events carry a chain
-    event_processor.run_once(worker.store)
-    with worker.store.connect() as conn:
-        session_id = conn.execute('SELECT id FROM ka.agent_sessions').fetchone()['id']
+    session_id = start(worker.client, agent_id=worker.agent, output_schema_id=schema['id']).json()['id']
+    assert 'event' not in session_row(worker.store, session_id)['agent_config']
     run(worker, session_id, FakeAgent([answer(VALID)]))
     [event] = output_events(worker.store)
-    assert event['payload']['chain'] == 0 and event['payload']['event_id'] is not None
+    assert lineage(event) == (0, None, event['id'])  # a root of its own chain
+    assert 'chain' not in event['payload']
 
 
-def test_a_chained_run_output_carries_its_chain(worker):
+def test_a_handler_run_records_its_event_and_its_output_joins_that_chain(worker):
+    schema = created(worker.client)
+    a_handler(
+        worker.store, action='agent', emit=None, agent_id=worker.agent, prompt='Triage', output_schema_id=schema['id']
+    )
+    root = an_event(worker.store)
+    event_processor.run_once(worker.store)
+    with worker.store.connect() as conn:
+        session = conn.execute('SELECT id,agent_config FROM ka.agent_sessions').fetchone()
+    assert session['agent_config']['event'] == {'id': root['id'], 'root_id': root['id'], 'depth': 0}
+    run(worker, session['id'], FakeAgent([answer(VALID)]))
+    [event] = output_events(worker.store)
+    assert lineage(event) == (1, root['id'], root['id'])
+    assert event['payload']['event_id'] == root['id']
+
+
+def test_a_handler_with_a_schema_is_skipped_on_an_event_at_the_deepest_level(tester):
+    schema = created(tester.client)
+    common = {
+        'action': 'agent',
+        'emit': None,
+        'agent_id': tester.agent,
+        'prompt': 'Again',
+        'type_pattern': 'run.output',
+    }
+    a_handler(tester.store, name='A with schema', output_schema_id=schema['id'], **common)
+    a_handler(tester.store, name='B without schema', **common)  # its run emits no run.output, so it cannot loop
+    deepest = an_event(tester.store, source='run', type='run.output', subject='Tester', depth=event_processor.MAX_DEPTH)
+    assert event_processor.run_once(tester.store) is True
+    found = [(r['handler_name'], r['status'], r['message']) for r in runs_of(tester.store, deepest['id'])]
+    assert found == [
+        ('A with schema', 'skipped', 'Stopped: the event chain is 5 levels deep; its run.output would be deeper.'),
+        ('B without schema', 'succeeded', 'Started a run of Tester.'),
+    ]
+    assert event_row(tester.store, deepest['id'])['status'] == 'processed'  # a stopped loop is not a failed event
+
+
+def runs_of(store, event_id) -> list[dict]:
+    with store.connect() as conn:
+        return conn.execute('SELECT * FROM ka.event_handler_runs WHERE event_id=%s ORDER BY id', (event_id,)).fetchall()
+
+
+def event_row(store, event_id) -> dict:
+    with store.connect() as conn:
+        return conn.execute('SELECT * FROM ka.events WHERE id=%s', (event_id,)).fetchone()
+
+
+def loop_until_quiet(worker, first_session: str) -> list[str]:
+    """Run a session, process every pending event, run the session a handler started, and so on until nothing is
+    left; returns the sessions in the order they ran."""
+    ran, pending = [], [first_session]
+    while pending:
+        session_id = pending.pop()
+        run(worker, session_id, FakeAgent([answer(VALID)]))
+        ran.append(session_id)
+        assert len(ran) <= 20, 'the loop did not stop'
+        while event_processor.run_once(worker.store):
+            pass
+        with worker.store.connect() as conn:
+            pending = [str(r['id']) for r in conn.execute("SELECT id FROM ka.agent_sessions WHERE status<>'closed'")]
+    return ran
+
+
+def test_a_run_output_loop_through_an_emit_handler_stops_at_the_deepest_level(worker):
+    schema = created(worker.client)
+    a_handler(worker.store, name='Emit', type_pattern='run.output', emit=Jsonb({'type': 'output.again'}))
+    a_handler(
+        worker.store,
+        name='Again',
+        type_pattern='output.again',
+        action='agent',
+        emit=None,
+        agent_id=worker.agent,
+        prompt='Again',
+        output_schema_id=schema['id'],
+    )
+    first = start(worker.client, agent_id=worker.agent, output_schema_id=schema['id']).json()['id']
+    ran = loop_until_quiet(worker, first)
+    # run.output 0 → emit 1 → run → run.output 2 → emit 3 → run → run.output 4 → emit 5 → skipped
+    assert len(ran) == 3
+    assert [e['depth'] for e in output_events(worker.store)] == [0, 2, 4]
+    with worker.store.connect() as conn:
+        last = conn.execute("SELECT * FROM ka.events WHERE type='output.again' ORDER BY depth DESC LIMIT 1").fetchone()
+    assert last['depth'] == event_processor.MAX_DEPTH
+    [stopped] = runs_of(worker.store, last['id'])
+    assert stopped['status'] == 'skipped' and 'deep' in stopped['message']
+
+
+def test_a_direct_run_output_loop_stops_at_the_deepest_level(worker):
     schema = created(worker.client)
     a_handler(
         worker.store,
+        name='Again',
         type_pattern='run.output',
         action='agent',
         emit=None,
@@ -502,10 +548,11 @@ def test_a_chained_run_output_carries_its_chain(worker):
         prompt='Again',
         output_schema_id=schema['id'],
     )
-    output_event(worker.store, 1)
-    event_processor.run_once(worker.store)
-    with worker.store.connect() as conn:
-        session_id = conn.execute('SELECT id FROM ka.agent_sessions').fetchone()['id']
-    run(worker, session_id, FakeAgent([answer(VALID)]))
-    [event] = output_events(worker.store)[1:]  # the first is the scripted event the chain came from
-    assert event['payload']['chain'] == 2
+    first = start(worker.client, agent_id=worker.agent, output_schema_id=schema['id']).json()['id']
+    ran = loop_until_quiet(worker, first)
+    events_ = output_events(worker.store)
+    assert len(ran) == event_processor.MAX_DEPTH + 1
+    assert [e['depth'] for e in events_] == list(range(event_processor.MAX_DEPTH + 1))
+    assert {e['root_id'] for e in events_} == {events_[0]['id']}  # one chain
+    [stopped] = runs_of(worker.store, events_[-1]['id'])
+    assert stopped['status'] == 'skipped'

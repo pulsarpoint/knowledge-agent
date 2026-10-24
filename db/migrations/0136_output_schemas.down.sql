@@ -10,7 +10,9 @@ ALTER TABLE llm_models DROP COLUMN capabilities;
 DELETE FROM events WHERE source = 'run';
 ALTER TABLE events
     DROP CONSTRAINT events_source_check,
-    ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler', 'manual', 'memory', 'schedule'));
+    ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler', 'manual', 'memory', 'schedule')),
+    DROP CONSTRAINT events_source_made,
+    ADD CONSTRAINT events_source_made CHECK (source = 'handler' OR (parent_id IS NULL AND handler_id IS NULL AND depth = 0));
 ALTER TABLE agent_sessions
     DROP CONSTRAINT agent_sessions_output_schema_pinned,
     DROP COLUMN output,

@@ -44,10 +44,15 @@ COMMENT ON COLUMN agent_sessions.output_schema_id IS 'The schema the run was sta
 COMMENT ON COLUMN agent_sessions.output_error IS 'A final answer that did not match its schema: {errors, raw}.';
 COMMENT ON COLUMN agent_sessions.output IS 'The JSON the run finished with, validated against its output schema version.';
 
--- A run that finished with a valid output emits run.output (source 'run', source_id: the run).
+-- A run that finished with a valid output emits run.output (source 'run', source_id: the run). A run a handler started
+-- from an event records it one level below that event, in its chain (so MAX_DEPTH stops every loop).
 ALTER TABLE events
     DROP CONSTRAINT events_source_check,
-    ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler', 'manual', 'memory', 'schedule', 'run'));
+    ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler', 'manual', 'memory', 'schedule', 'run')),
+    DROP CONSTRAINT events_source_made,
+    ADD CONSTRAINT events_source_made CHECK (
+        source = 'handler' OR (handler_id IS NULL AND (source = 'run' OR (parent_id IS NULL AND depth = 0)))
+    );
 
 -- Model capabilities (LLM settings): supports_structured_output (strict JSON Schema output); on for OpenAI-style models.
 ALTER TABLE llm_models

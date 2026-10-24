@@ -13,8 +13,6 @@ from knowledge_admin.output_schemas.rules import validate
 MAX_OUTPUT_BYTES = 256 * 1024
 MAX_ERRORS = 20  # in the retry message and the failure record
 MAX_ERROR_CHARS = 300  # each error (an enum or const error echoes the value)
-MAX_CHAIN = 3  # a handler starts no agent from a run.output whose chain is this deep
-CHAIN_TOO_DEEP = f'Stopped: run.output chain is {MAX_CHAIN} runs deep.'
 FENCE = re.compile(r'^```[a-zA-Z]*\n(.*)\n```$', re.DOTALL)
 OUTPUT_INVALID = 'Output did not match the schema'
 TOO_LARGE = 'Output is larger than 256 KB.'
@@ -55,14 +53,6 @@ def _capped(error: str) -> str:
     return error if len(error) <= MAX_ERROR_CHARS else error[:MAX_ERROR_CHARS] + '…'
 
 
-def chain_of(event: dict) -> int:
-    """How many runs deep a run.output event is (0 for a run not started from one); other events carry no chain."""
-    if event['type'] != 'run.output':
-        return 0
-    chain = event['payload'].get('chain', 0)
-    return chain if isinstance(chain, int) and chain >= 0 else 0
-
-
 def supports_structured_output(model: dict) -> bool:
     """The model's Supports structured output capability; unset: on for OpenAI-style models."""
     capabilities = model.get('capabilities') or {}
@@ -75,10 +65,11 @@ def fallback_instructions(schema: dict) -> str:
 
 
 def record(conn, session: dict, config: dict, output: Any, turn: int) -> None:
-    """Store a valid output on the run and emit run.output, in the caller's transaction (the turn's commit). The payload's
-    chain is the run's (config output_chain: 1 + the chain of the run.output that started it; else 0). started_from is
-    the resource an ad-hoc run started from, so null for the saved-agent runs that take a schema; handler_id and
-    event_id say where such a run came from."""
+    """Store a valid output on the run and emit run.output, in the caller's transaction (the turn's commit). A run a
+    handler started from an event (config event: its id, root_id and depth) records it one level below that event in
+    its chain, so the events MAX_DEPTH stops every loop through runs; any other run's run.output is a root (depth 0).
+    started_from is the resource an ad-hoc run started from, so null for the saved-agent runs that take a schema;
+    handler_id and event_id say where such a run came from."""
     pinned = config['output_schema']
     conn.execute('UPDATE ka.agent_sessions SET output=%s,output_error=NULL WHERE id=%s', (Jsonb(output), session['id']))
     agent_name = session.get('agent_name') or config['name']
@@ -93,11 +84,12 @@ def record(conn, session: dict, config: dict, output: Any, turn: int) -> None:
         'started_from': config.get('started_from'),
         'handler_id': None if session.get('handler_id') is None else str(session['handler_id']),
         'event_id': session.get('event_id'),
-        'chain': config.get('output_chain', 0),
     }
+    parent = config.get('event')
     conn.execute(
-        """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
-        VALUES (%s,'run',%s,'run.output',%s,%s,%s,%s,now()) ON CONFLICT (project_id,dedupe_key) DO NOTHING""",
+        """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at,
+        parent_id,root_id,depth) VALUES (%s,'run',%s,'run.output',%s,%s,%s,%s,now(),
+        (SELECT id FROM ka.events WHERE id=%s),%s,%s) ON CONFLICT (project_id,dedupe_key) DO NOTHING""",
         (
             session['project_id'],
             session['id'],
@@ -105,6 +97,9 @@ def record(conn, session: dict, config: dict, output: Any, turn: int) -> None:
             f'{agent_name} · {pinned["name"]}',
             Jsonb(payload),
             f'run:{session["id"]}:{turn}:output',
+            parent and parent['id'],  # a parent deleted since leaves the link empty
+            parent and parent['root_id'],
+            parent['depth'] + 1 if parent else 0,
         ),
     )
 

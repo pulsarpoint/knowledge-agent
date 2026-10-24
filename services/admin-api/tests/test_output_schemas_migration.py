@@ -125,7 +125,7 @@ def test_a_handler_run_may_be_skipped_and_down_removes_skipped_runs(store):
         event = conn.execute(
             """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at)
             VALUES (%s,'run','run.output','A',%s,'k',now()) RETURNING id""",
-            (project, Jsonb({'chain': 3})),
+            (project, Jsonb({})),
         ).fetchone()['id']
         conn.execute(
             """INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message)
@@ -136,4 +136,33 @@ def test_a_handler_run_may_be_skipped_and_down_removes_skipped_runs(store):
         assert (
             conn.execute("SELECT count(*) AS n FROM ka.event_handler_runs WHERE status='skipped'").fetchone()['n'] == 0
         )
+        run(conn, '0136_output_schemas.up.sql')
+
+
+def test_a_run_output_may_sit_in_an_events_chain_and_down_restores_the_check(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        root = conn.execute(
+            """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at)
+            VALUES (%s,'manual','x.y','A','{}','root',now()) RETURNING id""",
+            (project,),
+        ).fetchone()['id']
+        conn.execute(
+            """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at,parent_id,root_id,depth)
+            VALUES (%s,'run','run.output','A','{}','child',now(),%s,%s,1)""",
+            (project, root, root),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute(
+                """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at,depth)
+                VALUES (%s,'manual','x.y','A','{}','deep',now(),1)""",
+                (project,),
+            )
+        run(conn, '0136_output_schemas.down.sql')
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute(
+                """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at,depth)
+                VALUES (%s,'manual','x.y','A','{}','deep',now(),1)""",
+                (project,),
+            )
         run(conn, '0136_output_schemas.up.sql')

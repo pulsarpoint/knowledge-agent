@@ -561,10 +561,9 @@ def start_run(
     conninfo: str,
     *,
     purpose: str | None = None,
-    event_id: int | None = None,
+    event: dict | None = None,
     handler_id: UUID | None = None,
     title: str | None = None,
-    chain: int = 0,
 ) -> UUID:
     """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
     a new document → documents, a server, service or environment → resource (tagged with it; server_id for a server),
@@ -572,14 +571,16 @@ def start_run(
     with its event and handler),
     its tags (the request's and its resource's), its first input, and audit it. POST /api/sessions and the
     event processor share it. The title is the message's first line unless one is given (an event run's names its event).
-    chain: how many runs deep a run started from a run.output event is (pinned as output_chain; its own run.output
-    carries it)."""
-    if value.agent_id is None and (purpose, event_id, handler_id, title, chain) != (None, None, None, None, 0):
-        raise ValueError('Only a saved agent run takes a purpose, an event, a handler, a title or a chain.')
+    An event run pins its event's id, root_id and depth (config event): its run.output joins that chain one level
+    deeper (output_schemas.runs.record)."""
+    if value.agent_id is None and (purpose, event, handler_id, title) != (None, None, None, None):
+        raise ValueError('Only a saved agent run takes a purpose, an event, a handler or a title.')
     session_id = uuid4()
     pinned, model, origin = build(conn, project, value, session_id, conninfo)
-    if chain:
-        pinned['output_chain'] = chain
+    event_id = None
+    if event is not None:
+        event_id = event['id']
+        pinned['event'] = {'id': event['id'], 'root_id': event['root_id'], 'depth': event['depth']}
     title = (title or value.message.splitlines()[0])[:TITLE_LENGTH]
     resource = value.resource()
     tags = value.run_tags()
