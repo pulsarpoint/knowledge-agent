@@ -24,6 +24,7 @@ from knowledge_admin.events import (
 )
 from knowledge_admin.jira import api as jira_api
 from knowledge_admin.memory import api as memory_api
+from knowledge_admin.output_schemas import api as output_schemas_api
 from knowledge_admin.sessions import api as sessions_api
 from knowledge_admin.tools.catalog import CATALOG, GROUPS
 
@@ -85,6 +86,7 @@ def build_api(
     router.include_router(event_handlers_api.build_api(app_name, repository_store))
     router.include_router(notifications_api.build_api(app_name, repository_store))
     router.include_router(memory_api.build_api(app_name, repository_store))
+    router.include_router(output_schemas_api.build_api(app_name, repository_store))
 
     from knowledge_admin.sessions import tracing as agent_tracing
 

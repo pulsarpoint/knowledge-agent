@@ -361,6 +361,32 @@ tools are offered in every run; the write tools only in a session turn (`catalog
 or an expert. An older stored access object with a role that no longer exists still loads (an unknown role is
 ignored).
 
+## Output schemas
+
+An **output schema** is a named JSON Schema a run can be asked to answer with. Schemas live in a library (Administration
+-> Output schemas); an agent carries none: the schema is chosen per run. Every save of a changed schema adds a version
+(`current_version`); old versions are kept, because runs and consumers depend on the exact shape. Saving only a new name or
+description changes the revision, not the version.
+
+A schema must be in the strict subset structured output accepts, checked on save by the pure `check_schema`
+(`output_schemas/rules.py`), which lists every problem with its location (`$.properties.tags: 'minItems' is not
+supported`):
+
+- the root is an object; every object lists all its properties in `required` and sets `additionalProperties: false`;
+- keywords: `type` (`object`, `array`, `string`, `number`, `integer`, `boolean`, `null`, or a list of them for a
+  nullable value), `enum`, `description`, `properties`, `required`, `additionalProperties`, `items` (arrays need `items`);
+- anything else is refused, including `$ref` and `$defs`: a schema is one self-contained tree. A schema over 64 KB is
+  refused.
+
+`validate(schema, value)` returns the ways a value does not match (`$.steps[0].title: 1 is not of type 'string'`).
+
+- `GET /api/output-schemas` (with `used_by`: the handlers that use each), `POST /api/output-schemas`,
+  `GET|PUT /api/output-schemas/{id}` (GET includes the JSON and the version list; PUT takes `revision`: 409 `This output
+  schema changed since you opened it.`), `GET /api/output-schemas/{id}/versions/{version}`.
+- `DELETE /api/output-schemas/{id}?revision=` is refused while a handler uses the schema: 409 `Used by: <handler names>.`
+- `POST /api/output-schemas/check` takes `{schema, sample?}` and returns `{problems, sample_errors}`; `sample_errors`
+  is `null` without a sample (or when the schema has problems) and `[]` when the sample matches.
+
 ## Clones
 
 An agent has **one configuration**: what its tabs show is what runs. There are no configuration versions, drafts or

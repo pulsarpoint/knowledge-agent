@@ -84,6 +84,7 @@ def at_0133(postgres):
 
 def test_down_gives_back_the_0133_schema(store, at_0133):
     with store.connect() as conn:
+        run(conn, '0136_output_schemas.down.sql')
         run(conn, '0135_agent_disabled_tools.down.sql')  # (after 0135 down)
         run(conn, DOWN)
         assert schema(conn) == at_0133
