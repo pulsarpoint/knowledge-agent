@@ -158,8 +158,8 @@ def test_an_event_or_handler_deleted_later_leaves_the_run(tester):
     with t.store.connect() as conn:
         conn.execute('DELETE FROM ka.event_handler_runs WHERE handler_id=%s', (handler['id'],))
         conn.execute('DELETE FROM ka.event_handlers WHERE id=%s', (handler['id'],))
-    [session] = sessions(t.store)
-    assert (session['handler_id'], session['purpose']) == (None, 'event')
+    [session] = sessions(t.store)  # the run keeps its handler's id (0138: no foreign key, a run outlives it)
+    assert (session['handler_id'], session['purpose']) == (handler['id'], 'event')
 
 
 def test_an_event_run_starts_with_every_tool_even_without_servers(tester):

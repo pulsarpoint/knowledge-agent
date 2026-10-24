@@ -31,8 +31,9 @@ NOT_AGENT_ASSIGNEE = 'Only Send to agent handlers can target the assignee.'
 ASSIGNEE_WITH_AGENT = 'Leave the agent empty when the handler targets the assignee.'
 NOT_JIRA_ASSIGNEE = 'Agent mapped to the assignee works only with Jira events, e.g. jira.ticket.*.'
 NOT_AGENT_SCHEMA = 'Only Send to agent handlers take an output schema.'
+NOT_AGENT_PREVIOUS = 'Only Send to agent handlers include the previous output.'
 SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_from,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,h.give_back,
-    h.output_schema_id,h.output_schema_version,h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
+    h.output_schema_id,h.output_schema_version,h.include_previous_output,h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
         FROM ka.event_handler_runs r WHERE r.handler_id=h.id ORDER BY r.id DESC LIMIT 1) AS last_run
     FROM ka.event_handlers h LEFT JOIN ka.agents a ON a.id=h.agent_id"""
 
@@ -67,6 +68,7 @@ class HandlerDraft(BaseModel):
     give_back: bool = False
     output_schema_id: UUID | None = None  # the run finishes with JSON in this schema
     output_schema_version: int | None = Field(default=None, ge=1)  # None: the current version when the run starts
+    include_previous_output: bool = False  # the last valid output of this handler (same schedule) goes into the task
 
 
 class HandlerInput(HandlerDraft):
@@ -146,11 +148,14 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         'give_back': draft.give_back,
         'output_schema_id': draft.output_schema_id,
         'output_schema_version': draft.output_schema_version,
+        'include_previous_output': draft.include_previous_output,
     }
     if (draft.output_schema_id is not None or draft.output_schema_version is not None) and draft.action != 'agent':
         raise bad(NOT_AGENT_SCHEMA)
     if draft.output_schema_version is not None and draft.output_schema_id is None:
         raise bad(start.VERSION_WITHOUT_SCHEMA)
+    if draft.include_previous_output and draft.action != 'agent':
+        raise bad(NOT_AGENT_PREVIOUS)
     try:
         if draft.action == 'emit':
             emit = (draft.emit or EmitTemplates()).model_dump()
@@ -180,8 +185,8 @@ def insert(conn, project: UUID, values: dict, actor: UUID) -> UUID:
     """Insert a handler from `stored` values; UniqueViolation when the project has a handler with that name."""
     return conn.execute(
         """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
-        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,output_schema_id,output_schema_version,created_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        action,emit,agent_from,agent_id,prompt,reply_to_jira,give_back,output_schema_id,output_schema_version,
+        include_previous_output,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (
             project,
             values['name'],
@@ -197,6 +202,7 @@ def insert(conn, project: UUID, values: dict, actor: UUID) -> UUID:
             values['give_back'],
             values['output_schema_id'],
             values['output_schema_version'],
+            values['include_previous_output'],
             actor,
         ),
     ).fetchone()['id']
@@ -317,7 +323,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                     conn.execute(
                         """UPDATE ka.event_handlers SET name=%s,enabled=%s,type_pattern=%s,conditions=%s,action=%s,
                         emit=%s,agent_from=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,give_back=%s,output_schema_id=%s,
-                        output_schema_version=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
+                        output_schema_version=%s,include_previous_output=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
                         (
                             values['name'],
                             values['enabled'],
@@ -332,6 +338,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             values['give_back'],
                             values['output_schema_id'],
                             values['output_schema_version'],
+                            values['include_previous_output'],
                             handler_id,
                         ),
                     )

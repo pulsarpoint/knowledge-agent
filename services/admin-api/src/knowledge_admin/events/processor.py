@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
-from knowledge_admin.events import matching as event_matching, targets, templates as event_templates
+from knowledge_admin.events import matching as event_matching, previous_output, targets, templates as event_templates
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions import start
 
@@ -88,7 +88,9 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     (events/targets.py). One run per event and handler: processing the event again links the run it started before,
     looked up first, so a changed agent or mapping cannot refuse it or start a second agent. The run records the
     event (id, root, depth) and its run.output joins the event's chain one level deeper; a handler with a schema is
-    skipped on an event at MAX_DEPTH, so emits and runs climb one depth and every loop stops (a loop guard)."""
+    skipped on an event at MAX_DEPTH, so emits and runs climb one depth and every loop stops (a loop guard). The run
+    records its handler and the schedule at its chain's root; with include_previous_output, the last valid output of
+    that handler and schedule is added to its task (events/previous_output.py)."""
     row = conn.execute(
         """SELECT s.id,coalesce(a.name,s.agent_id) AS name FROM ka.agent_sessions s
         LEFT JOIN ka.agents a ON a.id=s.agent_id WHERE s.event_id=%s AND s.handler_id=%s""",
@@ -110,6 +112,8 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
         raise HandlerFailed(DISABLED)
     prompt = event_templates.render_prompt(handler['prompt'], event)
     started = f'Started a run of {agent["name"]}.'
+    schedule_id = previous_output.schedule_of(conn, event)
+    found = previous_output.latest(conn, handler['id'], schedule_id) if handler['include_previous_output'] else None
     try:
         value = start.StartInput(
             agent_id=agent_id,
@@ -126,6 +130,8 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
             purpose='event',
             event=event,
             handler_id=handler['id'],
+            schedule_id=schedule_id,
+            previous=found and (found['id'], previous_output.block(found)),
             title=f'{agent["name"]} · {event["type"]} {event["subject"]}',
         )
     except HTTPException as exc:

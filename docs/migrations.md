@@ -596,3 +596,14 @@ normal), for an agent that checks a server and a handler that turns each issue i
 has a schema of that name keeps its own. Workspaces created later do not get it (create it on the Output schemas page).
 The down migration removes the seeded schema only where it is untouched (one version, the seeded JSON) and no handler
 names it.
+
+## 0138_previous_output
+
+Include the previous output: `ka.agent_sessions` gains `schedule_id` (the schedule whose `schedule.fired` event is the
+root of the run's event chain) and `handler_id` loses its foreign key — neither has one, so a run outlives a deleted
+schedule or handler. The partial index `agent_sessions_previous_output` (`handler_id, schedule_id, created_at DESC`
+where `output IS NOT NULL`) serves the lookup of a handler's last valid output. `ka.event_handlers` gains
+`include_previous_output` (boolean, default false). Existing runs are backfilled: `handler_id` from
+`ka.event_handler_runs` (also for a deleted handler), `schedule_id` from the root of their event's chain (or the
+`root_id` the run pinned when the event is gone). The down migration drops the flag, the index and `schedule_id`, and
+restores the `handler_id` foreign key (`ON DELETE SET NULL`), clearing the ids of handlers that no longer exist.

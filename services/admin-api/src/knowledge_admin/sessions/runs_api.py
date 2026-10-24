@@ -3,6 +3,7 @@
 from collections import Counter
 from functools import partial
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -26,7 +27,9 @@ RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload-
       AND (%(user)s::text IS NULL OR strpos(lower(p.email), lower(%(user)s)) > 0)
       AND (%(key_prefix)s::text IS NULL OR starts_with(s.run_key, %(key_prefix)s))
       AND (%(has_output)s::boolean IS NULL OR %(has_output)s = EXISTS (SELECT 1 FROM ka.agent_sessions z
-        WHERE z.id::text=split_part(s.run_key, ':', 2) AND z.output IS NOT NULL))"""
+        WHERE z.id::text=split_part(s.run_key, ':', 2) AND z.output IS NOT NULL))
+      AND (%(schedule_id)s::uuid IS NULL OR EXISTS (SELECT 1 FROM ka.agent_sessions z
+        WHERE z.id::text=split_part(s.run_key, ':', 2) AND z.schedule_id=%(schedule_id)s))"""
 
 EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS agent, 'expert_call' AS kind,
     left(i.payload->>'task', 200) AS title, p.email AS "user", i.created_at AS started_at,
@@ -80,6 +83,7 @@ def build_api(app_name: str, store) -> APIRouter:
         user: str | None = None,
         key_prefix: str | None = None,
         has_output: bool | None = None,
+        schedule_id: UUID | None = None,
         sort: Literal['started', 'tokens'] = 'started',
         order: Literal['desc', 'asc'] = 'desc',
         page: int = Query(1, ge=1),
@@ -90,7 +94,7 @@ def build_api(app_name: str, store) -> APIRouter:
         # expert calls of this agent from other agents' runs list with its own runs
         rows = RUNS + (
             f' UNION ALL {EXPERT_CALLS}'
-            if agent_id is not None and kind in (None, 'expert_call') and has_output is None
+            if agent_id is not None and kind in (None, 'expert_call') and has_output is None and schedule_id is None
             else ''
         )
         matching = MATCHING.format(rows=rows)
@@ -102,6 +106,7 @@ def build_api(app_name: str, store) -> APIRouter:
             'user': user,
             'key_prefix': key_prefix,
             'has_output': has_output,
+            'schedule_id': schedule_id,
             'limit': page_size,
             'offset': (page - 1) * page_size,
         }

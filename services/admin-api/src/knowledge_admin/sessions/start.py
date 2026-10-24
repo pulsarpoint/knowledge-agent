@@ -570,6 +570,8 @@ def start_run(
     purpose: str | None = None,
     event: dict | None = None,
     handler_id: UUID | None = None,
+    schedule_id: UUID | None = None,
+    previous: tuple[UUID, str] | None = None,
     title: str | None = None,
 ) -> UUID:
     """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
@@ -579,15 +581,20 @@ def start_run(
     its tags (the request's and its resource's), its first input, and audit it. POST /api/sessions and the
     event processor share it. The title is the message's first line unless one is given (an event run's names its event).
     An event run pins its event's id, root_id and depth (config event): its run.output joins that chain one level
-    deeper (output_schemas.runs.record)."""
-    if value.agent_id is None and (purpose, event, handler_id, title) != (None, None, None, None):
-        raise ValueError('Only a saved agent run takes a purpose, an event, a handler or a title.')
+    deeper (output_schemas.runs.record). It records the schedule at its chain's root; `previous` (a run id and its
+    block, events/previous_output.py) is added to the first message, and the run pins previous_output_from."""
+    if value.agent_id is None and (purpose, event, handler_id, schedule_id, previous, title) != (None,) * 6:
+        raise ValueError('Only a saved agent run takes a purpose, an event, a handler, a schedule or a title.')
     session_id = uuid4()
     pinned, model, origin = build(conn, project, value, session_id, conninfo)
     event_id = None
     if event is not None:
         event_id = event['id']
         pinned['event'] = {'id': event['id'], 'root_id': event['root_id'], 'depth': event['depth']}
+    task = value.message
+    if previous is not None:
+        pinned['previous_output_from'] = str(previous[0])
+        task = f'{value.message}\n\n{previous[1]}'
     title = (title or value.message.splitlines()[0])[:TITLE_LENGTH]
     resource = value.resource()
     tags = value.run_tags()
@@ -596,8 +603,8 @@ def start_run(
         schema = pinned.get('output_schema') or {}
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            target_document_id,prompt_snapshot,context_snapshot,agent_config,event_id,handler_id,output_schema_id,
-            output_schema_version) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,'{}',%s,%s,%s,%s,%s)""",
+            target_document_id,prompt_snapshot,context_snapshot,agent_config,event_id,handler_id,schedule_id,
+            output_schema_id,output_schema_version) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,'{}',%s,%s,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -611,6 +618,7 @@ def start_run(
                 Jsonb(pinned),
                 event_id,
                 handler_id,
+                schedule_id,
                 schema.get('id'),
                 schema.get('version'),
             ),
@@ -717,7 +725,7 @@ def start_run(
     conn.execute('UPDATE ka.agent_sessions SET access=%s WHERE id=%s', (Jsonb(pinned['access']), session_id))
     conn.execute(
         'INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
-        (session_id, actor, value.message),
+        (session_id, actor, task),
     )
     conn.execute(
         """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)

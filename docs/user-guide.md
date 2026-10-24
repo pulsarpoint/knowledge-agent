@@ -685,6 +685,10 @@ in/out/cached, model calls and the status: Starting, Working, Waiting for you, S
 **Run details**). Each answer links to its **Full record**. A run
 that wrote a draft shows **Open draft** (or **Open document** once it is promoted; a discarded draft shows "The document draft
 was discarded.").
+A run a handler started says so under the title: **Started by schedule <name> through handler <name>** (or **Started
+by handler <name>** when its event chain did not start with a schedule; `(deleted)` for a schedule or handler that is
+gone), and, when its task included an earlier output (4.17), **Previous output from run <id> (<time>)**, linked to
+that run.
 
 - **Send message**: the message box stays enabled while the agent works. The agent receives the comment at its next step
   ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn.
@@ -819,7 +823,8 @@ Known secrets are replaced with `[redacted]`; very large values are cut at 1,000
 characters. The run type filter offers **Test session** (Test tab turns), **Chat** (turns of chats started with **Run agent**
 on the Agents page), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
 can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
-finished with an output schema's JSON; **No output**) and by user (part of the email, press Enter).
+finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
+started) and by user (part of the email, press Enter).
 Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
 / **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Test tab and from each
 document run turn.
@@ -941,6 +946,14 @@ A handler does one thing:
   JSON in that schema (4.22). Its `run.output` event joins the chain of the event that started the run, one level
   deeper, so a loop through runs stops at 5 levels like any chain: on an event 5 levels deep a handler with a schema is
   **Skipped** ("Stopped: the event chain is 5 levels deep; its run.output would be deeper.").
+  **Include the previous output** ("Adds the last valid output of this handler (for the same schedule) to each run's
+  task, so the agent can compare.") adds, after the prompt in the run's first message, the output of the handler's last
+  run for the same schedule that finished with valid JSON — a run whose event chain did not start with a schedule (a
+  Jira or manual event) is compared with the handler's last such run. The block starts with `# Previous run`, says
+  when it finished (UTC), which run and which schema version, holds the JSON (compact, cut at 16 KB with
+  ` (truncated)`) and ends with `Compare with it: say what is new, what changed and what is resolved.`. Two schedules
+  on one handler keep separate histories; a run whose answer did not match its schema is skipped; the first run gets
+  nothing added. It never goes into the agent's instructions.
 
   Instead of one agent, **Agent** can be **Agent mapped to the assignee** (Jira event types only): each matching
   event runs the agent mapped to the ticket's assignee under Jira → Settings → **Users and agents** (4.7). An

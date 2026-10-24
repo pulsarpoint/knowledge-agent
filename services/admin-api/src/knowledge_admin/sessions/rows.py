@@ -110,6 +110,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
                 'issue': ticket['issue_id'],
             },
         ).fetchall()
+    row['started_by'], row['previous_output'] = started_by(conn, session_id)
     pinned_shown = row['purpose'] in ('test', 'event', 'chat', 'revision') or (
         row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {})
     )  # a new-document run
@@ -124,6 +125,25 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
             (session_id,),
         ).fetchall()
     return row
+
+
+def started_by(conn, session_id: UUID) -> tuple[dict | None, dict | None]:
+    """A handler run: its schedule and handler with their names (None when deleted), and the run whose output its task
+    included (events/previous_output.py); (None, None) for other runs."""
+    row = conn.execute(
+        """SELECT s.schedule_id,c.name AS schedule_name,s.handler_id,h.name AS handler_name,p.id AS previous_id,
+        p.updated_at AS previous_at FROM ka.agent_sessions s
+        LEFT JOIN ka.schedules c ON c.id=s.schedule_id LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
+        LEFT JOIN ka.agent_sessions p ON p.id::text=s.agent_config->>'previous_output_from' WHERE s.id=%s""",
+        (session_id,),
+    ).fetchone()
+    by = None
+    if row['handler_id'] is not None:
+        by = {key: row[key] for key in ('schedule_id', 'schedule_name', 'handler_id', 'handler_name')}
+    previous = None
+    if row['previous_id'] is not None:
+        previous = {'session_id': row['previous_id'], 'finished_at': row['previous_at']}
+    return by, previous
 
 
 def stream_event(row: dict) -> dict:

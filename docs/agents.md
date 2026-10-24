@@ -95,7 +95,11 @@ limit, no per-turn time limit, no 300-second limit).
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per
   event and handler), the agent's current configuration with its whole access object, everything it has on that it can
-  use, the rendered prompt as the first message and the handler's creator as the actor. It is titled
+  use, the rendered prompt as the first message and the handler's creator as the actor. Since 0138 the run also records
+  `schedule_id` (the schedule at its event chain's root; neither id is a foreign key); with the handler's
+  `include_previous_output`, the last valid output of the same handler and schedule (`schedule_id IS NOT DISTINCT
+  FROM`) is appended to the first message as a `# Previous run` block (never the system prompt), and the pinned
+  configuration records `previous_output_from`. It is titled
   `<agent> · <event type> <subject>`, shows in the agent's Test tab under Earlier runs, and can be opened and continued.
   There are no automatic retries. When the first turn ends, agent-session-worker writes one notification
   (`ka.notifications.session_id` points at the run) with the answer or the failure; a run closed before its first
@@ -439,6 +443,10 @@ supported`):
   run has not finished.` while it runs.
 - `GET /api/agent-runs?has_output=true|false` lists only runs that have (or lack) an output; `false` also lists runs
   that are not sessions (expert calls aside), which never have one.
+- `GET /api/agent-runs?schedule_id=<uuid>` lists only the runs whose event chain that schedule started (expert calls
+  aside). `GET /api/sessions/{id}` carries `started_by` (`{schedule_id, schedule_name, handler_id, handler_name}` for a
+  handler run, names null when deleted; null otherwise) and `previous_output` (`{session_id, finished_at}` of the run
+  whose output its task included, or null).
 
 ## Clones
 
