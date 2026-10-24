@@ -17,6 +17,8 @@ const handler = (extra = {}) => ({
   prompt: null,
   reply_to_jira: false,
   give_back: false,
+  output_schema_id: null,
+  output_schema_version: null,
   revision: 1,
   created_at: "2026-10-09T10:00:00Z",
   updated_at: "2026-10-09T10:00:00Z",
@@ -80,6 +82,20 @@ const SHEET_DATA = {
     handlers: [],
   },
   "GET /api/events": EVENTS,
+  "GET /api/output-schemas": {
+    schemas: [
+      {
+        id: "schema-1",
+        name: "Verdict",
+        description: "",
+        current_version: 2,
+        revision: 1,
+        created_at: "",
+        updated_at: "",
+        used_by: [],
+      },
+    ],
+  },
 };
 
 test("lists handlers with what they do", async () => {
@@ -152,6 +168,8 @@ test("creating an emit handler with a condition sends the draft", async () => {
       prompt: null,
       reply_to_jira: false,
       give_back: false,
+      output_schema_id: null,
+      output_schema_version: null,
     }),
   );
   expect(await screen.findByText("Emit triage.requested")).toBeInTheDocument();
@@ -681,4 +699,64 @@ test("a saved pattern that is not in the list opens as Custom pattern", async ()
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByRole("combobox", { name: "Event type" })).toHaveTextContent("Custom pattern…");
   expect(within(sheet).getByLabelText("Event type pattern")).toHaveValue("jira.*.created");
+});
+
+test("Send to agent can finish with an output schema at a fixed version or the current one", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  api({
+    "GET /api/event-handlers": { handlers: [] },
+    ...SHEET_DATA,
+    "POST /api/event-handlers": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { status: 201, body: { handler: handler() } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).queryByRole("combobox", { name: "Output schema" })).toBeNull(); // emit: no agent run
+  await user.type(within(sheet).getByLabelText("Name"), "Judge");
+  await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
+  await user.click(screen.getByRole("option", { name: "Send to agent" }));
+  await user.click(within(sheet).getByRole("combobox", { name: "Agent" }));
+  await user.click(screen.getByRole("option", { name: "Tester" }));
+  await user.click(within(sheet).getByRole("combobox", { name: "Output schema" }));
+  await user.click(await screen.findByRole("option", { name: "Verdict" }));
+  await user.click(within(sheet).getByRole("combobox", { name: "Schema version" }));
+  await user.click(screen.getByRole("option", { name: "v1" }));
+  await user.click(within(sheet).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(sent).toMatchObject({ output_schema_id: "schema-1", output_schema_version: 1 }));
+});
+
+test("a saved handler opens with its schema following the current version; the switch keeps it", async () => {
+  const user = userEvent.setup();
+  let sent: Record<string, unknown> = {};
+  const saved = handler({
+    action: "agent",
+    emit: null,
+    agent_id: "tester",
+    agent_name: "Tester",
+    prompt: "Judge",
+    output_schema_id: "schema-1",
+  });
+  api({
+    "GET /api/event-handlers": { handlers: [saved] },
+    ...SHEET_DATA,
+    "PUT /api/event-handlers/h-1": (body: unknown) => {
+      sent = body as Record<string, unknown>;
+      return { body: { handler: { ...saved, enabled: false, revision: 2 } } };
+    },
+  });
+  view();
+  await user.click(await screen.findByRole("switch", { name: "Enabled: Triage" }));
+  await waitFor(() =>
+    expect(sent).toMatchObject({ enabled: false, output_schema_id: "schema-1", output_schema_version: null }),
+  );
+  await user.click(screen.getByRole("button", { name: "Edit Triage" }));
+  const sheet = await screen.findByRole("dialog");
+  await waitFor(() =>
+    expect(within(sheet).getByRole("combobox", { name: "Output schema" })).toHaveTextContent("Verdict"),
+  );
+  expect(within(sheet).getByRole("combobox", { name: "Schema version" })).toHaveTextContent("Current (v2)");
 });

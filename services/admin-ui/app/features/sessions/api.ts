@@ -353,6 +353,9 @@ export interface StartInput {
   expert_ids: string[];
   /** Catalog tools this run never offers (more than the saved agent's own). */
   disabled_tools: string[];
+  /** A saved agent's run only: it finishes with JSON in this output schema (the version: the current one if left out). */
+  output_schema_id?: string;
+  output_schema_version?: number;
 }
 export type RunSummary = SessionSummary & {
   started_by: string | null;

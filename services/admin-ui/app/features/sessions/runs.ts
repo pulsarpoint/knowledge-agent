@@ -60,7 +60,18 @@ export interface RunRecord {
   tool_counts?: ToolCount[];
 }
 /** The listing's URL search params, in request order; each has a default left out of the URL. */
-export const RUN_PARAMS = ["kind", "agent_id", "status", "user", "key_prefix", "sort", "order", "page", "page_size"];
+export const RUN_PARAMS = [
+  "kind",
+  "agent_id",
+  "status",
+  "has_output",
+  "user",
+  "key_prefix",
+  "sort",
+  "order",
+  "page",
+  "page_size",
+];
 export const RUN_DEFAULTS: Record<string, string> = { sort: "started", order: "desc", page: "1", page_size: "50" };
 export interface RunPage {
   runs: RunSummary[];

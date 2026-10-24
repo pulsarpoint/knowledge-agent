@@ -32,6 +32,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.19 Memory](#419-memory)
   - [4.20 System map](#420-system-map)
   - [4.21 Prompts](#421-prompts)
+  - [4.22 Output schemas](#422-output-schemas)
 - [5. End-to-end workflows](#5-end-to-end-workflows)
 - [6. Operations](#6-operations)
 - [7. Current limitations](#7-current-limitations)
@@ -154,7 +155,7 @@ General conventions throughout the admin app:
 | Group | Items |
 | --- | --- |
 | Administration | Storage · Prompts · Skills · MCP servers · Agent runs · Schedules · Events · Notifications · Memory |
-| Agents | All agents |
+| Agents | All agents · Output schemas |
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers · System map |
@@ -180,6 +181,7 @@ and memory embeddings.
 | API format | OpenAI chat only: **Responses** or **Chat Completions** |
 | Embedding dimensions | Bedrock Titan v2 only: 256, 512 or 1024 |
 | API key | Encrypted. Required for Anthropic and Bedrock (Bedrock uses a bearer API key, not IAM) |
+| Supports structured output | Chat models: the model accepts a JSON Schema as its answer format (on by default for OpenAI compatible). Off: a run with an output schema gets the schema in its instructions instead; its answer is still checked (4.22) |
 | Enabled | Disabled models cannot be selected or tested |
 
 **Test connection** sends "Reply with OK." (or one embedding) with a 35 s limit.
@@ -542,7 +544,8 @@ An agent has one configuration: what its tabs show is what runs. A conversation 
 **Run an agent.** **Run** (the play button) on an agent's row, or **Run agent** next to **New agent**, opens the *Run
 agent* dialog: the agent (preselected from the row; from the top button choose one of the enabled agents — a disabled
 agent's **Run** is off), the **First message** (required) and its resources — every resource of the agent unless you
-narrow them with **Choose resources**, the same settings sheet as the Test tab's. **Start** starts a chat session and
+narrow them with **Choose resources**, the same settings sheet as the Test tab's — and an optional **Output schema**
+(4.22). **Start** starts a chat session and
 opens its session page (`/sessions/<id>`), where you send further messages, **Stop** a turn and **Close session**. A
 chat is not listed on the agent's Test tab; its turns are **Chat** runs in Agent runs (4.14), and it can be reviewed
 with **Suggest improvements** through the API like a Test session.
@@ -560,7 +563,9 @@ step); **Stop** ends the current turn.
 shown read-only ("Change them in General."); to try another prompt, clone the agent. In the sheet you can
 choose some of the agent's experts and some of
 its resources (see *Resources of a run* below). **Preview** shows the
-configuration the run would use. Settings are remembered per agent in this browser and reset when the agent is saved.
+configuration the run would use. **Output schema** (none, or a schema of the library with **Current** or a fixed
+version) makes the next run finish with JSON in that schema (4.22); the current settings line under the heading then
+ends with *Output: <schema>*. Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
 badge) to reopen them. A Jira event run's page also lists **Earlier runs on <KEY>**: the other runs on the same
 ticket. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
@@ -675,7 +680,8 @@ main pane shows each turn (your message, a collapsed **Worked** block with think
 and scrolls on its own; the message box is always visible. After you scroll up it stops following new events and shows
 **Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up. The header shows tokens
 in/out/cached, model calls and the status: Starting, Working, Waiting for you, Stopped, Failed or Finished; the sidebar shows
-**Agents in this run** and the draft (on a narrow screen open **Run details**). Each answer links to its **Full record**. A run
+**Agents in this run**, the draft and, for a run started with an output schema, **Output** (on a narrow screen open
+**Run details**). Each answer links to its **Full record**. A run
 that wrote a draft shows **Open draft** (or **Open document** once it is promoted; a discarded draft shows "The document draft
 was discarded.").
 
@@ -811,7 +817,8 @@ sessions, earlier test chats, document runs and the earlier Generate documents s
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
 characters. The run type filter offers **Test session** (Test tab turns), **Chat** (turns of chats started with **Run agent**
 on the Agents page), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
-can also filter by agent, by status (Working, Completed, Failed, Stopped) and by user (part of the email, press Enter).
+can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
+finished with an output schema's JSON; **No output**) and by user (part of the email, press Enter).
 Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
 / **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Test tab and from each
 document run turn.
@@ -929,7 +936,8 @@ A handler does one thing:
   the event again. Any enabled agent can be chosen; its run gets all of the agent's resources. A handler whose agent was
   deleted or disabled can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
-  the same handler.
+  the same handler. **Output schema** (none, or a schema with **Current** or a fixed version) makes the run finish with
+  JSON in that schema (4.22).
 
   Instead of one agent, **Agent** can be **Agent mapped to the assignee** (Jira event types only): each matching
   event runs the agent mapped to the ticket's assignee under Jira → Settings → **Users and agents** (4.7). An
@@ -1062,6 +1070,43 @@ existing tags are suggested. Saving changed text creates a draft version; **Acti
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
 `service`, `mixed`).
+
+### 4.22 Output schemas
+
+**Agents → Output schemas** (`/output-schemas`) is the library of JSON Schemas a run can be asked to finish with. The
+list shows each schema's name, description, current version and the handlers that use it; **New schema** opens the
+editor.
+
+- **Editor.** Name, description and **Schema (JSON)**. The schema must stay in the subset strict structured output
+  accepts: the root is an object; every object lists all its properties in `required` and sets
+  `additionalProperties: false`; types `object`, `array`, `string`, `number`, `integer`, `boolean`, `null` (nullable
+  via a type list), `enum` and `description`. **Check** shows each problem with its path (for example
+  `$.properties.tags: 'minItems' is not supported`), or "The schema is accepted."; **Save** refuses a schema with
+  problems. Up to 64 KB.
+- **Validate sample.** Paste an answer a run could give into **Sample (JSON)**: it is checked against the schema in the
+  editor and either matches or lists why not.
+- **Versions.** Every save of a changed schema adds a version; old versions are kept. **Versions (n)** opens a side
+  sheet with each version (when, by whom, **Current**); **View** shows its JSON and **Copy to editor** puts it back in
+  the editor (save to make it the next version).
+- **Delete** asks first. A schema a handler uses is refused ("Used by: <handler names>."). Runs that used it keep their
+  output.
+
+**Choosing a schema for a run.** The schema belongs to the run, not to the agent: the same agent answers normally or
+with JSON depending on how it is started. Choose **Output schema** in the Test tab's **Settings**, in **Run agent**
+(4.10), in a **Send to agent** handler (4.17), or send `output_schema_id` (and optionally `output_schema_version`)
+when starting a run through the API. **Current** uses the schema's current version when the run starts; the run keeps
+that exact version, so later edits do not change it. Chats on a document, a resource or Documents → New never take a
+schema ("Chats do not take an output schema.").
+
+**What happens.** The schema goes to the model as the answer format (a model without **Supports structured output**
+gets it in its instructions). The final answer is checked; if it does not match, the model is asked once more with the
+errors. Still invalid, the run fails with "Output did not match the schema", keeping the errors and the raw answer. A
+valid answer is stored on the run (up to 256 KB) and recorded as a `run.output` event that handlers can react to.
+
+**Reading the output.** The run page (and the Test tab) shows **Output** beside the transcript: the formatted JSON with
+**Copy**, or the errors and raw answer of a failed run. Over the API, `GET /api/sessions/<id>/output` returns
+`{schema, output, valid, errors?, raw?}`, `GET /api/sessions/<id>/status` a light status for polling, and
+`POST /api/sessions?wait=<1–120>` starts a run and waits for its result.
 
 ---
 

@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
 import * as sessions from "~/features/sessions/api";
+import * as outputSchemas from "~/features/outputSchemas/api";
 import { agentOptions } from "~/lib/__tests__/agentScopeFixture";
 
 vi.mock("~/features/agents/api", async () => ({
@@ -15,6 +16,10 @@ vi.mock("~/features/sessions/api", async () => ({
   startSession: vi.fn(),
 }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => null }));
+vi.mock("~/features/outputSchemas/api", async () => ({
+  ...(await vi.importActual("~/features/outputSchemas/api")),
+  getOutputSchemas: vi.fn(),
+}));
 
 const counts = {
   server: 1,
@@ -61,6 +66,20 @@ beforeEach(() => {
     },
   }));
   vi.mocked(sessions.startSession).mockResolvedValue({ id: "sess-9" } as sessions.SessionDetail);
+  vi.mocked(outputSchemas.getOutputSchemas).mockResolvedValue({
+    schemas: [
+      {
+        id: "schema-1",
+        name: "Verdict",
+        description: "",
+        current_version: 3,
+        revision: 1,
+        created_at: "",
+        updated_at: "",
+        used_by: [],
+      },
+    ],
+  });
 });
 
 function Session() {
@@ -120,6 +139,29 @@ test("Run agent in the top bar asks for an enabled agent first; a disabled agent
   await screen.findByText("Session sess-9");
   expect(sessions.startSession).toHaveBeenCalledWith(
     expect.objectContaining({ agent_id: "triage", purpose: "chat", message: "Hi" }),
+  );
+  expect(vi.mocked(sessions.startSession).mock.calls[0][0]).not.toHaveProperty("output_schema_id");
+});
+
+test("Run agent can start with an output schema, at the current version or a fixed one", async () => {
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Run Operations" }));
+  const dialog = await screen.findByRole("alertdialog", { name: "Run agent" });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "First message" }), { target: { value: "Judge" } });
+  fireEvent.click(within(dialog).getByRole("combobox", { name: "Output schema" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Verdict" }));
+  fireEvent.click(within(dialog).getByRole("combobox", { name: "Schema version" }));
+  fireEvent.click(await screen.findByRole("option", { name: "v2" }));
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Start" })).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole("button", { name: "Start" }));
+  await screen.findByText("Session sess-9");
+  expect(sessions.startSession).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agent_id: "ops",
+      purpose: "chat",
+      output_schema_id: "schema-1",
+      output_schema_version: 2,
+    }),
   );
 });
 

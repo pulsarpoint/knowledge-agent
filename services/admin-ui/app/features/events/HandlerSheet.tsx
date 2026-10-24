@@ -18,6 +18,8 @@ import {
   type Operator,
   type PreviewResult,
 } from "./handlers";
+import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
+import type { OutputSchemaChoice } from "~/features/outputSchemas/api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -46,6 +48,7 @@ interface Form {
   prompt: string;
   reply_to_jira: boolean;
   give_back: boolean;
+  output_schema: OutputSchemaChoice | null;
 }
 
 const ASSIGNEE = "@assignee";
@@ -63,6 +66,7 @@ const BLANK: Form = {
   prompt: "",
   reply_to_jira: false,
   give_back: false,
+  output_schema: null,
 };
 /** Send to agent on a pattern like * or jira.ticket.* can run the agent many times at once (the first Jira pull records every ticket). */
 const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
@@ -106,6 +110,10 @@ function fromHandler(handler: EventHandler): Form {
     prompt: handler.prompt ?? "",
     reply_to_jira: handler.reply_to_jira,
     give_back: handler.give_back,
+    // the picker shows the schema's name from the library
+    output_schema: handler.output_schema_id
+      ? { id: handler.output_schema_id, name: "", version: handler.output_schema_version ?? null }
+      : null,
   };
 }
 function toDraft(form: Form): HandlerDraft {
@@ -133,6 +141,8 @@ function toDraft(form: Form): HandlerDraft {
     prompt: form.action === "agent" ? form.prompt : null,
     reply_to_jira: repliesInJira(form),
     give_back: offersGiveBack(form) && form.give_back,
+    output_schema_id: form.action === "agent" ? (form.output_schema?.id ?? null) : null,
+    output_schema_version: form.action === "agent" ? (form.output_schema?.version ?? null) : null,
   };
 }
 
@@ -506,6 +516,11 @@ function HandlerForm({
                 onChange={(e) => update({ prompt: e.target.value })}
               />
             </Field>
+            <OutputSchemaPicker
+              idPrefix="handler"
+              value={form.output_schema}
+              onChange={(output_schema) => update({ output_schema })}
+            />
             {jira && (
               <Field orientation="horizontal">
                 <Checkbox

@@ -31,6 +31,7 @@ import AgentSettingsSheet from "./AgentSettingsSheet";
 import RunSuggestions from "./RunSuggestions";
 import RunWorkspace from "./RunWorkspace";
 import DebugPanel from "./DebugPanel";
+import RunOutputPanel from "~/features/outputSchemas/RunOutputPanel";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -285,6 +286,11 @@ export default function AgentChat({
           run={foreign ? { ...run, session: null, events: [] } : run}
           notice={notice || info}
           agentName={session?.agent_name ?? (scope.kind === "agent" ? scope.name : "Ask agent")}
+          sidebar={
+            session?.config?.output_schema != null && (
+              <RunOutputPanel sessionId={session.id} status={session.status} turns={session.turns} />
+            )
+          }
           heading={
             <div className="flex flex-col gap-1">
               <h2 className="break-words font-semibold">

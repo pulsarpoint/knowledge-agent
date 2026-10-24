@@ -10,6 +10,7 @@ import {
   type AgentSettings,
 } from "~/features/sessions/agentSettings";
 import { getSessionOptions, startSession, type AgentOptions, type ChatScope } from "~/features/sessions/api";
+import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -27,7 +28,8 @@ import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
 /** Run agent: start a chat (a chat session) with a saved, enabled agent and open it on its session page. Every resource
- * of the agent is given unless narrowed with the Test tab's settings sheet. `agentId` preselects the agent (a row's Run). */
+ * of the agent is given unless narrowed with the Test tab's settings sheet; an output schema makes it finish with JSON.
+ * `agentId` preselects the agent (a row's Run). */
 export default function RunAgentDialog({
   agents,
   agentId,
@@ -133,6 +135,16 @@ export default function RunAgentDialog({
               </div>
               {reason && <FieldDescription className="text-destructive">{reason}</FieldDescription>}
             </Field>
+          )}
+          {current && (
+            <OutputSchemaPicker
+              idPrefix="run-agent"
+              value={current.settings.outputSchema ?? null}
+              disabled={busy}
+              onChange={(outputSchema) =>
+                setLoaded((state) => state && { ...state, settings: { ...state.settings, outputSchema } })
+              }
+            />
           )}
           {error && (
             <Alert variant="destructive">

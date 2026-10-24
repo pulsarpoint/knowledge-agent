@@ -35,7 +35,7 @@ export default function RunsView() {
   const [sort, order, user, keyPrefix] = [value("sort"), value("order"), value("user"), value("key_prefix")];
   const page = Math.max(1, Number(value("page")) || 1);
   const pageSize = Number(value("page_size")) || 50;
-  const filtered = ["kind", "agent_id", "status", "user", "key_prefix"].some((key) => params.get(key));
+  const filtered = ["kind", "agent_id", "status", "has_output", "user", "key_prefix"].some((key) => params.get(key));
   const [data, setData] = useState<RunPage | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [error, setError] = useState("");
@@ -132,6 +132,19 @@ export default function RunsView() {
                 {label}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Output
+          <select
+            aria-label="Output"
+            className={SELECT}
+            value={value("has_output")}
+            onChange={(e) => update({ has_output: e.target.value })}
+          >
+            <option value="">All</option>
+            <option value="true">Has output</option>
+            <option value="false">No output</option>
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">

@@ -414,3 +414,36 @@ test("saved off tools that are no longer in the catalog are dropped (they would 
   expect(restoreSettings(options, saved, ["ssh_run", "get_document"]).disabledTools).toEqual(["ssh_run"]);
   expect(restoreSettings(options, saved).disabledTools).toEqual(["ssh_run", "gone_tool"]); // catalog unknown: kept
 });
+
+test("a saved agent's output schema goes into its start, comes back from this browser and from an open run", () => {
+  const agent = { kind: "agent" as const, id: "ops", name: "Operations" };
+  const base = defaultSettings(agentOptions);
+  expect(startInput(agent, agentOptions, base, "x")).not.toHaveProperty("output_schema_id");
+  const current = { ...base, outputSchema: { id: "s1", name: "Verdict", version: null } };
+  const body = startInput(agent, agentOptions, current, "x");
+  expect(body.output_schema_id).toBe("s1");
+  expect(body).not.toHaveProperty("output_schema_version");
+  const fixed = { ...base, outputSchema: { id: "s1", name: "Verdict", version: 2 } };
+  expect(startInput(agent, agentOptions, fixed, "x")).toMatchObject({
+    output_schema_id: "s1",
+    output_schema_version: 2,
+  });
+  // a chat never sends one
+  expect(
+    startInput(doc(), options, { ...defaultSettings(options), outputSchema: fixed.outputSchema }, "x"),
+  ).not.toHaveProperty("output_schema_id");
+  // restored (an unreadable choice is dropped)
+  const saved = { v: 2, revision: 3, linked: [], settings: fixed };
+  expect(restoreSettings(agentOptions, saved).outputSchema).toEqual(fixed.outputSchema);
+  const broken = { ...saved, settings: { ...fixed, outputSchema: { id: 7 } } };
+  expect(restoreSettings(agentOptions, broken)).not.toHaveProperty("outputSchema");
+  // Start new chat with these settings keeps the run's pinned schema
+  const session = {
+    model_id: "m1",
+    config: { output_schema: { id: "s1", name: "Verdict", version: 2, schema: {} } },
+    given_resources: [],
+  } as unknown as SessionDetail;
+  expect(settingsFromSession(agentOptions, session).outputSchema).toEqual(fixed.outputSchema);
+  expect(settingsSummary(agentOptions, fixed)).toMatch(/· Output: Verdict v2$/);
+  expect(settingsSummary(agentOptions, current)).toMatch(/· Output: Verdict$/);
+});

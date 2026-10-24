@@ -719,3 +719,38 @@ test("a wake-up that is no longer pending shows the refusal", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   expect(await screen.findByText("This wake-up is not pending in this session.")).toBeVisible();
 });
+
+test("a run started with an output schema shows its Output beside the transcript; a normal run has none", async () => {
+  const pinned = {
+    ...detail,
+    purpose: "test",
+    status: "waiting",
+    turns: 1,
+    config: { output_schema: { id: "o1", name: "Verdict", version: 2, schema: {} } },
+  };
+  const fetch = vi.fn(async (url: string) =>
+    url.includes("/events/history")
+      ? page([])
+      : url.endsWith("/output")
+        ? Response.json({ schema: { id: "o1", name: "Verdict", version: 2 }, output: { verdict: "pass" }, valid: true })
+        : Response.json(pinned),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const { unmount } = render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  const panel = await screen.findByRole("region", { name: "Output" });
+  expect(await within(panel).findByLabelText("Output JSON")).toHaveTextContent('"verdict": "pass"');
+  expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/output", expect.anything());
+  unmount();
+  serve({ ...detail, purpose: "test", config: {} });
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  await screen.findByRole("link", { name: "the agent" });
+  expect(screen.queryByRole("region", { name: "Output" })).toBeNull();
+});

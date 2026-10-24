@@ -42,6 +42,7 @@ test("administration has its own navigation without reader pages", async () => {
   expect(administration.getByRole("link", { name: "Prompts" })).toHaveAttribute("href", "/prompts");
   const agents = within(screen.getByRole("navigation", { name: "Agents" }));
   expect(agents.getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
+  expect(agents.getByRole("link", { name: "Output schemas" })).toHaveAttribute("href", "/output-schemas");
   expect(agents.queryByRole("link", { name: "Multi-agent board" })).toBeNull();
   expect(agents.queryByRole("link", { current: "page" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Agents" })).toBeNull();
@@ -108,6 +109,23 @@ test("the Notifications page has its heading", async () => {
   expect(await screen.findByText("List")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute("data-active", "true");
   expect(screen.getByRole("heading", { level: 1, name: "Notifications" })).toBeInTheDocument();
+});
+
+test("an output schema page has its heading and keeps Output schemas current", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))),
+  );
+  render(
+    <MemoryRouter initialEntries={["/output-schemas/s1"]}>
+      <AdminLayout>
+        <div>Editor</div>
+      </AdminLayout>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("Editor")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Output schemas" })).toHaveAttribute("data-active", "true");
+  expect(screen.getByRole("heading", { level: 1, name: "Output schemas" })).toBeInTheDocument();
 });
 
 test("a server page has its own heading and keeps Servers current in the navigation", async () => {

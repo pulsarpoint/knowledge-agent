@@ -20,6 +20,8 @@ export interface ModelInput {
   enabled: boolean;
   api_key?: string | null;
   revision?: number;
+  /** What the model supports; unset when saved: on for OpenAI-style models. */
+  capabilities?: { supports_structured_output?: boolean | null };
 }
 export interface ModelProfile extends Omit<ModelInput, "api_key" | "revision"> {
   id: string;

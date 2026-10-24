@@ -221,3 +221,42 @@ test("an open conversation shows its tools read-only", async () => {
   expect(screen.getByRole("checkbox", { name: "ssh_run" })).toBeDisabled();
   expect(screen.getByRole("checkbox", { name: "ssh_run" })).not.toBeChecked();
 });
+
+test("a saved agent's next run can be given an output schema; a document's chat has no schema", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/output-schemas"
+        ? new Response(
+            JSON.stringify({
+              schemas: [
+                {
+                  id: "s1",
+                  name: "Verdict",
+                  description: "",
+                  current_version: 1,
+                  revision: 1,
+                  created_at: "",
+                  updated_at: "",
+                  used_by: [],
+                },
+              ],
+            }),
+          )
+        : new Response("{}", { status: 404 }),
+    ),
+  );
+  const { unmount } = render(<Harness scope={docScope} />);
+  expect(screen.queryByRole("combobox", { name: "Output schema" })).toBeNull();
+  unmount();
+  render(<Harness scope={agentScope} opts={agentOptions} />);
+  fireEvent.click(screen.getByRole("combobox", { name: "Output schema" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Verdict" }));
+  await waitFor(() =>
+    expect(JSON.parse(screen.getByLabelText("Settings state").textContent!).outputSchema).toEqual({
+      id: "s1",
+      name: "Verdict",
+      version: null,
+    }),
+  );
+});

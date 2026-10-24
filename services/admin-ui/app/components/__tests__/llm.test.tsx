@@ -164,3 +164,30 @@ test("Bedrock embedding form keeps embedding type and saves its region", async (
     api_key: "test-key",
   });
 });
+
+test("a chat model saves Supports structured output (on by default for OpenAI, kept when editing)", async () => {
+  const saved = vi.fn();
+  const fetch = vi.fn(
+    async (_url: string, init?: RequestInit) =>
+      new Response(JSON.stringify({ ...bedrock, ...JSON.parse(init!.body as string), revision: 2 })),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const { unmount } = render(
+    <LlmModelForm
+      model={{ ...bedrock, capabilities: { supports_structured_output: true } }}
+      onSaved={saved}
+      onClose={() => {}}
+    />,
+  );
+  const toggle = screen.getByRole("switch", { name: "Supports structured output" });
+  expect(toggle).toBeChecked();
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(saved).toHaveBeenCalled());
+  expect(JSON.parse(fetch.mock.calls[0][1]!.body as string).capabilities).toEqual({
+    supports_structured_output: false,
+  });
+  unmount();
+  render(<LlmModelForm model={null} onSaved={() => {}} onClose={() => {}} />);
+  expect(screen.getByRole("switch", { name: "Supports structured output" })).toBeChecked();
+});

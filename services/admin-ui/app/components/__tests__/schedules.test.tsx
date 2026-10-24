@@ -491,6 +491,8 @@ test("Add handler opens the handler sheet prefilled for the schedule and saves i
     prompt: "Summarise yesterday.",
     reply_to_jira: false,
     give_back: false,
+    output_schema_id: null,
+    output_schema_version: null,
   });
 });
 

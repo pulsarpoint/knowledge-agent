@@ -15,6 +15,7 @@ import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
 import Markdown from "~/components/Markdown";
 import RunWorkspace from "./RunWorkspace";
+import RunOutputPanel from "~/features/outputSchemas/RunOutputPanel";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
@@ -123,6 +124,9 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         }
         sidebar={
           <>
+            {session.config?.output_schema != null && (
+              <RunOutputPanel sessionId={session.id} status={session.status} turns={session.turns} />
+            )}
             {session.related_runs && session.related_runs.length > 0 && (
               <section aria-label={`Earlier runs on ${session.ticket_key}`} className="flex flex-col gap-2">
                 <h2 className="text-sm font-semibold">Earlier runs on {session.ticket_key}</h2>

@@ -5,6 +5,7 @@ import { AGENT_KINDS } from "~/lib/resources";
 import ResourcePicker from "~/components/ResourcePicker";
 import { OWN, startInput, withScope, type AgentSettings } from "./agentSettings";
 import ToolsList from "~/features/agents/ToolsList";
+import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -203,6 +204,14 @@ export default function AgentSettingsSheet({
                 </Field>
               ))}
             </FieldSet>
+            {agent && (
+              <OutputSchemaPicker
+                idPrefix="settings"
+                value={settings.outputSchema ?? null}
+                disabled={locked}
+                onChange={(outputSchema) => onChange({ outputSchema })}
+              />
+            )}
           </fieldset>
           {/* Outside the disabled fieldset: a read-only run's prompt can still be expanded (its fields stay disabled). */}
           <Collapsible open={advanced} onOpenChange={setAdvanced}>

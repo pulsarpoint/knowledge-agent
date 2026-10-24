@@ -27,6 +27,10 @@ export interface HandlerDraft {
   /** After the Jira comment is posted, assign the ticket back (previous assignee, else reporter). Only with
    * reply_to_jira and the assignee's agent. */
   give_back: boolean;
+  /** Send to agent only: the run finishes with JSON in this output schema (null: a normal answer). */
+  output_schema_id: string | null;
+  /** null: the schema's current version when the run starts. */
+  output_schema_version: number | null;
 }
 export interface EventHandler extends HandlerDraft {
   id: string;
@@ -139,4 +143,6 @@ export const toDraft = (handler: EventHandler): HandlerDraft => ({
   prompt: handler.prompt,
   reply_to_jira: handler.reply_to_jira,
   give_back: handler.give_back,
+  output_schema_id: handler.output_schema_id ?? null,
+  output_schema_version: handler.output_schema_version ?? null,
 });

@@ -4,6 +4,7 @@ import {
   Bell,
   Brain,
   BookOpen,
+  Braces,
   CalendarClock,
   FolderOpen,
   Bot,
@@ -102,90 +103,95 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const eventsPage = pathname === "/events" || pathname.startsWith("/events/");
   const notificationsPage = pathname === "/notifications";
   const memoryPage = pathname === "/memory" || pathname.startsWith("/memory/");
-  const title = promptsPage
-    ? "Prompts"
-    : notificationsPage
-      ? "Notifications"
-      : memoryPage
-        ? "Memory"
-        : eventsPage
-          ? "Events"
-          : schedulesPage
-            ? "Schedules"
-            : runsPage
-              ? "Agent runs"
-              : pathname === "/storage"
-                ? "Storage"
-                : environments
-                  ? "Environments"
-                  : docsPage
-                    ? docsFolders
-                      ? "Documentation folders"
-                      : "Documents"
-                    : pathname === "/mcp-servers"
-                      ? "MCP servers"
-                      : pathname === "/llm-settings"
-                        ? "LLM Settings"
-                        : pathname === "/skills"
-                          ? "Skills"
-                          : agentPage
-                            ? "Agents"
-                            : repositories
-                              ? "Code projects"
-                              : codeGraphs
-                                ? "Code graphs"
-                                : systemMap
-                                  ? "System map"
-                                  : services
-                                    ? "Services"
-                                    : servers
-                                      ? "Servers"
-                                      : jiraSettings
-                                        ? "Jira Settings"
-                                        : jiraTickets
-                                          ? "Jira Tickets"
-                                          : "Administration";
-  const description = promptsPage
-    ? "Reusable instructions for agents, organised by tags."
-    : notificationsPage
-      ? "Answers agents gave to events, and the calls that failed."
-      : memoryPage
-        ? "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries."
-        : eventsPage
-          ? "Things that happened at your sources, and handlers that turn them into new events or agent answers."
-          : schedulesPage
-            ? "Run work on a timetable, such as pulling Jira tickets."
-            : runsPage
-              ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers."
-              : pathname === "/storage"
-                ? "See where source code and code graphs are stored, and browse their folders."
-                : environments
-                  ? "Organize services and servers into Development, Staging, Production, or your own environments."
-                  : docsPage
-                    ? "Write and maintain documentation linked to your code projects, services, and servers."
-                    : pathname === "/mcp-servers"
-                      ? "Manage external tools for Code search and SSH agents."
-                      : pathname === "/llm-settings"
-                        ? "Manage model providers, credentials, and connection tests."
-                        : pathname === "/skills"
-                          ? "Manage reusable instructions for your agents."
-                          : agentPage
-                            ? "Create agents with their own models, instructions, resources, and test conversations."
-                            : repositories
-                              ? "Browse the mounted code folder and organize local folders and Git sources into projects."
-                              : codeGraphs
-                                ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
-                                : services
-                                  ? "Connect applications, source code, and server deployments for agent investigations."
+  const outputSchemasPage = pathname === "/output-schemas" || pathname.startsWith("/output-schemas/");
+  const title = outputSchemasPage
+    ? "Output schemas"
+    : promptsPage
+      ? "Prompts"
+      : notificationsPage
+        ? "Notifications"
+        : memoryPage
+          ? "Memory"
+          : eventsPage
+            ? "Events"
+            : schedulesPage
+              ? "Schedules"
+              : runsPage
+                ? "Agent runs"
+                : pathname === "/storage"
+                  ? "Storage"
+                  : environments
+                    ? "Environments"
+                    : docsPage
+                      ? docsFolders
+                        ? "Documentation folders"
+                        : "Documents"
+                      : pathname === "/mcp-servers"
+                        ? "MCP servers"
+                        : pathname === "/llm-settings"
+                          ? "LLM Settings"
+                          : pathname === "/skills"
+                            ? "Skills"
+                            : agentPage
+                              ? "Agents"
+                              : repositories
+                                ? "Code projects"
+                                : codeGraphs
+                                  ? "Code graphs"
                                   : systemMap
-                                    ? "The system as a graph you open one level at a time."
-                                    : servers
-                                      ? "Manage hosts, descriptions, and tags for your service infrastructure."
-                                      : jiraSettings
-                                        ? "Configure access to your Jira Data Center server and test the connection."
-                                        : jiraTickets
-                                          ? "Filter the Jira tickets saved by the pull."
-                                          : "";
+                                    ? "System map"
+                                    : services
+                                      ? "Services"
+                                      : servers
+                                        ? "Servers"
+                                        : jiraSettings
+                                          ? "Jira Settings"
+                                          : jiraTickets
+                                            ? "Jira Tickets"
+                                            : "Administration";
+  const description = outputSchemasPage
+    ? "JSON Schemas a run can be asked to finish with, versioned. Handlers, the API, Test and Run agent choose one per run."
+    : promptsPage
+      ? "Reusable instructions for agents, organised by tags."
+      : notificationsPage
+        ? "Answers agents gave to events, and the calls that failed."
+        : memoryPage
+          ? "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries."
+          : eventsPage
+            ? "Things that happened at your sources, and handlers that turn them into new events or agent answers."
+            : schedulesPage
+              ? "Run work on a timetable, such as pulling Jira tickets."
+              : runsPage
+                ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers."
+                : pathname === "/storage"
+                  ? "See where source code and code graphs are stored, and browse their folders."
+                  : environments
+                    ? "Organize services and servers into Development, Staging, Production, or your own environments."
+                    : docsPage
+                      ? "Write and maintain documentation linked to your code projects, services, and servers."
+                      : pathname === "/mcp-servers"
+                        ? "Manage external tools for Code search and SSH agents."
+                        : pathname === "/llm-settings"
+                          ? "Manage model providers, credentials, and connection tests."
+                          : pathname === "/skills"
+                            ? "Manage reusable instructions for your agents."
+                            : agentPage
+                              ? "Create agents with their own models, instructions, resources, and test conversations."
+                              : repositories
+                                ? "Browse the mounted code folder and organize local folders and Git sources into projects."
+                                : codeGraphs
+                                  ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
+                                  : services
+                                    ? "Connect applications, source code, and server deployments for agent investigations."
+                                    : systemMap
+                                      ? "The system as a graph you open one level at a time."
+                                      : servers
+                                        ? "Manage hosts, descriptions, and tags for your service infrastructure."
+                                        : jiraSettings
+                                          ? "Configure access to your Jira Data Center server and test the connection."
+                                          : jiraTickets
+                                            ? "Filter the Jira tickets saved by the pull."
+                                            : "";
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -290,6 +296,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <Link to="/agents" aria-current={agentPage ? "page" : undefined}>
                     <Bot />
                     <span>All agents</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={outputSchemasPage}>
+                  <Link to="/output-schemas">
+                    <Braces />
+                    <span>Output schemas</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getTools } from "~/features/agents/api";
+import { choiceLabel, type OutputSchemaChoice } from "~/features/outputSchemas/api";
 import { AGENT_KINDS, emptyIds } from "~/lib/resources";
 import {
   getSessionOptions,
@@ -35,6 +36,8 @@ export interface AgentSettings {
   experts: string[];
   /** Catalog tools this run starts without (a saved agent's own off tools are added by the API). */
   disabledTools: string[];
+  /** A saved agent's run: the output schema it finishes with (absent or null: a normal answer). */
+  outputSchema?: OutputSchemaChoice | null;
 }
 
 const usable = (item: { id: string; usable?: boolean }) => item.usable !== false;
@@ -46,6 +49,14 @@ const linkedIds = (options: AgentOptions) =>
   AGENT_KINDS.flatMap(({ key }) => options.resources[key].filter((item) => item.linked).map((item) => item.id)).sort();
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+/** An output schema choice as saved, or null when it is not one. */
+function schemaChoice(value: unknown): OutputSchemaChoice | null {
+  if (!value || typeof value !== "object") return null;
+  const { id, name, version } = value as Record<string, unknown>;
+  if (typeof id !== "string" || typeof name !== "string") return null;
+  if (version !== null && !(typeof version === "number" && Number.isInteger(version) && version > 0)) return null;
+  return { id, name, version };
+}
 
 export function defaultSettings(options: AgentOptions): AgentSettings {
   if (options.agent) {
@@ -112,6 +123,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown, toolNames
     typeof settings.systemPrompt === "string" && settings.systemPrompt.trim()
       ? settings.systemPrompt
       : base.systemPrompt;
+  const outputSchema = options.agent ? schemaChoice(settings.outputSchema) : null;
   return {
     modelId,
     promptKey,
@@ -120,6 +132,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown, toolNames
     ...(options.agent ? { documents: strings(settings.documents).filter((id) => documents.has(id)) } : {}),
     experts: strings(settings.experts).filter((id) => experts.has(id)),
     disabledTools: strings(settings.disabledTools).filter((name) => !toolNames || toolNames.includes(name)),
+    ...(outputSchema ? { outputSchema } : {}),
   };
 }
 
@@ -127,7 +140,8 @@ export function restoreSettings(options: AgentOptions, saved: unknown, toolNames
  * against today's options like restored settings: resources that are gone or not usable, experts that are gone and a
  * model that is gone are left out (the default model instead). */
 export function settingsFromSession(options: AgentOptions, session: SessionDetail): AgentSettings {
-  const config = (session.config ?? {}) as { experts?: { id: string }[] };
+  const config = (session.config ?? {}) as { experts?: { id: string }[]; output_schema?: unknown };
+  const outputSchema = options.agent ? schemaChoice(config.output_schema) : null;
   const experts = new Set(options.experts.map((item) => item.id));
   // what the run was given (an environment, not what it brought)
   const given = session.given_resources ?? [];
@@ -151,6 +165,7 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     experts: (config.experts ?? []).map((entry) => String(entry.id)).filter((id) => experts.has(id)),
     // the agent's own off tools are locked in the sheet, not part of the chat's choice
     disabledTools: (session.disabled_tools ?? []).filter((name) => !agentOff.includes(name)),
+    ...(outputSchema ? { outputSchema } : {}),
   };
 }
 
@@ -192,7 +207,11 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
   if (scope.kind === "agent") {
     // a saved agent keeps its own model and prompt; the run only narrows it (a document as the agent has it)
     const picked = settings.documents ?? [];
+    const schema = settings.outputSchema;
     return {
+      ...(schema
+        ? { output_schema_id: schema.id, ...(schema.version === null ? {} : { output_schema_version: schema.version }) }
+        : {}),
       agent_id: scope.id,
       message: message.trim(),
       context: "",
@@ -270,7 +289,7 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
     names.length === 0
       ? "no resources"
       : names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
-  return `${model} · ${resources}`;
+  return `${model} · ${resources}${settings.outputSchema ? ` · Output: ${choiceLabel(settings.outputSchema)}` : ""}`;
 }
 
 /** The Ask agent settings of a document, the Test settings of a saved agent, or the settings for writing a new document:

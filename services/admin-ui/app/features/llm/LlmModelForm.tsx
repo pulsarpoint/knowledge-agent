@@ -31,6 +31,10 @@ export default function LlmModelForm({
   const [apiKey, setApiKey] = useState("");
   const [removeKey, setRemoveKey] = useState(false);
   const [enabled, setEnabled] = useState(model?.enabled ?? true);
+  // Runs with an output schema send it as strict structured output; off: the schema goes into the instructions.
+  const [structured, setStructured] = useState(
+    model?.capabilities?.supports_structured_output ?? (model?.provider ?? "openai") === "openai",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +46,7 @@ export default function LlmModelForm({
     );
     setApiKey("");
     setRemoveKey(false);
+    if (!model) setStructured(value === "openai");
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -59,6 +64,7 @@ export default function LlmModelForm({
             base_url: provider === "bedrock" ? null : baseUrl,
             aws_region: provider === "bedrock" ? region : null,
             enabled,
+            ...(embeddings ? {} : { capabilities: { supports_structured_output: structured } }),
             ...(model ? { revision: model.revision } : {}),
             ...(embeddings ? { embedding_dimensions: dimensions, embedding_version: version } : {}),
             ...(apiKey ? { api_key: apiKey } : removeKey ? { api_key: null } : {}),
@@ -287,6 +293,18 @@ export default function LlmModelForm({
                       if (value) setApiKey("");
                     }}
                   />
+                </Field>
+              )}
+              {!embeddings && (
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldLabel htmlFor="llm-structured">Supports structured output</FieldLabel>
+                    <FieldDescription>
+                      The model accepts a JSON Schema as its answer format. Off: runs with an output schema get the
+                      schema in their instructions instead; their answer is still checked.
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch id="llm-structured" checked={structured} disabled={saving} onCheckedChange={setStructured} />
                 </Field>
               )}
               <Field orientation="horizontal">

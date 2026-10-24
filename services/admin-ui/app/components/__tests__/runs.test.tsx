@@ -429,3 +429,19 @@ test("no runs under filters says so; an unknown agent in the URL still shows in 
   expect(screen.getByLabelText("Agent")).toHaveValue("gone");
   expect(screen.getByText("Page 1 of 1 · 0 runs")).toBeVisible();
 });
+
+test("the Output filter lists runs that finished with an output schema's JSON, or the ones without", async () => {
+  const fetchMock = listing(1);
+  renderRuns();
+  await screen.findByText("How many retries?");
+  expect(
+    within(screen.getByLabelText("Output"))
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["All", "Has output", "No output"]);
+  fireEvent.change(screen.getByLabelText("Output"), { target: { value: "true" } });
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?has_output=true"));
+  expect(where()).toBe("?has_output=true");
+  fireEvent.change(screen.getByLabelText("Output"), { target: { value: "false" } });
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?has_output=false"));
+});
