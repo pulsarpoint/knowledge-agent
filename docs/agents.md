@@ -413,6 +413,22 @@ supported`):
   `chain` is 3 or more: its handler run is recorded `skipped` with `Stopped: run.output chain is 3 runs deep.` (the
   event is still processed, not failed).
 
+### Reading the output
+
+- `POST /api/sessions?wait=<1-120>` starts the run and holds the answer until it ends (polling the session row every 0.5 s,
+  without blocking the server): `200` with `{id, status, output}`, or for a failed run `{id, status: "failed", output:
+  null, error, errors?, raw?}`; when the time is up, `202` with `{id, status: "running"}`. Without `wait` the start
+  answers `201` at once, as before.
+- `GET /api/sessions/{id}/status` returns `{id, status, started_at, last_activity_at, progress: {turns, tool_calls,
+  step}, output_ready, error?}`. `status` maps the session's: starting is `queued`, working is `running`, waiting is
+  `finished` for a run with an output schema (otherwise `waiting`), failed and stopped are `failed` (stopped: `Stopped.`),
+  closed is `finished` (`failed` for a run with a schema that closed without an output). `step` is the tool running now
+  (the current turn's last tool call without a result) or `thinking` while a turn runs, else null.
+- `GET /api/sessions/{id}/output` returns `{schema: {id, name, version}, output, valid, errors?, raw?}` (a failed run:
+  `output` null, `valid` false, with `errors` and `raw`). 404 `This run has no output schema.` without a schema; 409 `The
+  run has not finished.` while it runs.
+- `GET /api/agent-runs?has_output=true|false` lists only runs that have (or lack) an output.
+
 ## Clones
 
 An agent has **one configuration**: what its tabs show is what runs. There are no configuration versions, drafts or

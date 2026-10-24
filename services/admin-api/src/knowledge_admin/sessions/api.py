@@ -4,11 +4,12 @@ stop, close, the event stream) and the lists."""
 import asyncio
 from functools import partial
 import json
+import time
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.capabilities.wakeups import NOT_PENDING, cancel_pending
@@ -17,7 +18,7 @@ from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn
-from knowledge_admin.sessions import debug, start
+from knowledge_admin.sessions import debug, run_status, start
 from knowledge_admin.sessions.rows import (
     CLOSED,
     NOTHING_TO_STOP,
@@ -32,6 +33,7 @@ DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
 HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
 LIVE_UNAVAILABLE = 'Live session updates are not running.'
+WAIT_POLL_SECONDS = 0.5
 
 
 LIST = SUMMARY.replace(
@@ -157,13 +159,70 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             shown = debug.view(conn, db, project, stored, prompt_id=value.prompt_id, prompt_text=value.system_prompt)
         return {'config': pinned, 'first_message': value.message, **shown}
 
-    @router.post('', status_code=201)
-    def start_session(value: start.StartInput, request: Request) -> dict:
+    @router.post('', status_code=201, response_model=None)
+    async def start_session(
+        value: start.StartInput, request: Request, wait: int | None = Query(None, ge=1, le=120)
+    ) -> dict | JSONResponse:
+        """Start a run. With `wait` (seconds), hold the answer until the run ends: 200 with {id, status, output} (or the
+        failure with its errors), or 202 with {id, status: "running"} when the time is up (follow with /status)."""
         db = database()
-        with workspace(db, app_name) as (conn, project):
-            actor = db.actor(conn, *request_actor(request))
-            session_id = start.start_run(conn, project, actor, value, db.conninfo)
-            return session_detail(conn, project, session_id)
+
+        def begin() -> dict:
+            with workspace(db, app_name) as (conn, project):
+                actor = db.actor(conn, *request_actor(request))
+                session_id = start.start_run(conn, project, actor, value, db.conninfo)
+                return session_detail(conn, project, session_id)
+
+        def read(session_id: UUID) -> dict:
+            with db.connect() as conn:
+                return run_status.run_row(conn, db.project(conn, app_name), session_id)
+
+        detail = await asyncio.to_thread(begin)
+        if wait is None:
+            return detail
+        deadline = time.monotonic() + wait
+        while True:  # polling the row keeps the wait independent of the event stream's hub
+            row = await asyncio.to_thread(read, detail['id'])
+            if row is not None and row['status'] not in ('starting', 'working'):
+                return JSONResponse(jsonable_encoder(run_status.result(row)))
+            if time.monotonic() >= deadline:
+                return JSONResponse({'id': str(detail['id']), 'status': 'running'}, status_code=202)
+            await asyncio.sleep(WAIT_POLL_SECONDS)
+
+    @router.get('/{session_id}/status')
+    def session_status(session_id: UUID, response: Response) -> dict:
+        """A light read for clients polling a run: its status, progress and whether its output is ready."""
+        response.headers['Cache-Control'] = 'no-store'
+        db = database()
+        with db.connect() as conn:
+            row = run_status.run_row(conn, db.project(conn, app_name), session_id)
+            if row is None:
+                raise HTTPException(404, 'Session not found.')
+            return run_status.view(conn, row)
+
+    @router.get('/{session_id}/output')
+    def session_output(session_id: UUID, response: Response) -> dict:
+        """The JSON a run with an output schema finished with, or the errors and raw answer of a failed one."""
+        response.headers['Cache-Control'] = 'no-store'
+        db = database()
+        with db.connect() as conn:
+            row = run_status.run_row(conn, db.project(conn, app_name), session_id)
+        if row is None:
+            raise HTTPException(404, 'Session not found.')
+        if row['output_schema_id'] is None:
+            raise HTTPException(404, run_status.NO_SCHEMA)
+        if row['status'] in ('starting', 'working'):
+            raise HTTPException(409, run_status.NOT_FINISHED)
+        answer = {
+            'schema': {
+                'id': row['output_schema_id'],
+                'name': row['schema_name'],
+                'version': row['output_schema_version'],
+            },
+            'output': row['output'],
+            'valid': row['output'] is not None,
+        }
+        return {**answer, **(row['output_error'] or {})}
 
     @router.post('/{session_id}/review')
     async def review(session_id: UUID, value: ReviewInput, request: Request) -> dict:

@@ -24,7 +24,9 @@ RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload-
       AND (%(agent_id)s::text IS NULL OR s.agent_id=%(agent_id)s)
       AND (%(kind)s::text IS NULL OR s.payload->>'kind'=%(kind)s)
       AND (%(user)s::text IS NULL OR strpos(lower(p.email), lower(%(user)s)) > 0)
-      AND (%(key_prefix)s::text IS NULL OR starts_with(s.run_key, %(key_prefix)s))"""
+      AND (%(key_prefix)s::text IS NULL OR starts_with(s.run_key, %(key_prefix)s))
+      AND (%(has_output)s::boolean IS NULL OR %(has_output)s = EXISTS (SELECT 1 FROM ka.agent_sessions z
+        WHERE z.id::text=split_part(s.run_key, ':', 2) AND z.output IS NOT NULL))"""
 
 EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS agent, 'expert_call' AS kind,
     left(i.payload->>'task', 200) AS title, p.email AS "user", i.created_at AS started_at,
@@ -77,6 +79,7 @@ def build_api(app_name: str, store) -> APIRouter:
         status: Literal['working', 'completed', 'failed', 'stopped'] | None = None,
         user: str | None = None,
         key_prefix: str | None = None,
+        has_output: bool | None = None,
         sort: Literal['started', 'tokens'] = 'started',
         order: Literal['desc', 'asc'] = 'desc',
         page: int = Query(1, ge=1),
@@ -85,7 +88,11 @@ def build_api(app_name: str, store) -> APIRouter:
         if page_size not in PAGE_SIZES:
             raise HTTPException(400, 'Page size must be 25, 50 or 100.')
         # expert calls of this agent from other agents' runs list with its own runs
-        rows = RUNS + (f' UNION ALL {EXPERT_CALLS}' if agent_id is not None and kind in (None, 'expert_call') else '')
+        rows = RUNS + (
+            f' UNION ALL {EXPERT_CALLS}'
+            if agent_id is not None and kind in (None, 'expert_call') and has_output is None
+            else ''
+        )
         matching = MATCHING.format(rows=rows)
         direction = order.upper()
         params = {
@@ -94,6 +101,7 @@ def build_api(app_name: str, store) -> APIRouter:
             'status': status,
             'user': user,
             'key_prefix': key_prefix,
+            'has_output': has_output,
             'limit': page_size,
             'offset': (page - 1) * page_size,
         }
