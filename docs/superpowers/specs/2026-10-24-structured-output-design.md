@@ -6,7 +6,9 @@ and external applications reading a run's output over REST (e.g. as a judge).
 
 ## Decisions (from the conversation)
 
-1. **Output schemas are a shared library:** named JSON Schemas on their own page, chosen by agents and handlers.
+1. **Output schemas are a shared library:** named JSON Schemas on their own page.
+4. **The schema belongs to the invocation, not the agent:** the same agent runs with a schema or without one, depending
+   on what the caller needs (a handler, an API start, a Test run). Agents have no default schema.
 2. **Non-chat runs only:** event/handler runs, schedules (through handlers), API starts and the agent Test tab. Chats
    stay conversational.
 3. **Invalid output fails the run:** after one corrective retry, a run whose final answer does not match its schema ends
@@ -23,19 +25,20 @@ and external applications reading a run's output over REST (e.g. as a judge).
   A pure `check_schema(schema) -> list[str]` (problems with JSON pointers) validates it on save: anything outside the
   subset is refused with its path ("$.properties.tags: 'minItems' is not supported").
 - REST: `GET/POST /api/output-schemas`, `GET/PUT/DELETE /api/output-schemas/{id}` (revision; delete refused while an
-  agent or handler uses it: "Used by: <names>."), and `POST /api/output-schemas/check` (`{schema, sample?}` → problems,
+  handler uses it: "Used by: <handler names>."), and `POST /api/output-schemas/check` (`{schema, sample?}` → problems,
   and whether the sample validates).
-- UI: **Output schemas** page (agents area of the sidebar): list (name, description, used by), editor (name,
+- UI: **Output schemas** page (agents area of the sidebar): list (name, description, used by handlers), editor (name,
   description, JSON editor with the check result, a sample JSON box with **Validate sample**), delete with the
   AlertDialog confirmation.
 
 ## 2. Choosing a schema for a run
 
-- `ka.agents.output_schema_id` (nullable, → output_schemas): a saved agent's default, used by its non-chat runs. Set in
-  the agent's settings (**Output**: none or a schema).
-- `ka.event_handlers.output_schema_id` (nullable): a handler that starts an agent can choose or override the schema for
-  that run (handler editor: **Output schema**: agent's default / none / a schema).
+- The caller chooses, per invocation; agents carry no schema.
+- `ka.event_handlers.output_schema_id` (nullable, → output_schemas, migration 0136): a handler that starts an agent runs
+  it with that schema, or without one (handler editor: **Output schema**: none / a schema).
 - API start (`POST /api/sessions` with a saved agent, non-chat purposes): optional `output_schema_id`.
+- The agent's **Test** tab: an **Output schema** picker (none / a schema) for the next test run, so the same agent can
+  be tried both ways.
 - Chats (resource, document, ad-hoc chat purposes) never get an output schema; a request that names one for a chat →
   400 "Chats do not take an output schema."
 - The run pins the schema (`pinned config.output_schema = {id, name, schema}`), so later edits of the schema do not
@@ -73,7 +76,7 @@ and external applications reading a run's output over REST (e.g. as a judge).
 
 - `check_schema`: accepted subset, refused keywords with paths; sample validation.
 - Library API: CRUD, revision, delete refused while used, auth like other agent settings.
-- Selection: agent default, handler override, API start, chats refused, pinning.
+- Selection: handler schema, API start, Test tab, the same agent with and without a schema, chats refused, pinning.
 - Runner: valid output stored and `run.output` emitted; invalid → one retry with errors → valid; still invalid → failed
   with errors and raw kept, no event.
 - Output endpoint states; run page Output panel; Output schemas page (editor, check, sample, delete confirmation).
