@@ -108,10 +108,8 @@ limit, no per-turn time limit, no 300-second limit).
   with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
   Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
-  `event_session` for event runs); **Full record** links to it. Its `input` event keeps the turn's message and the
-  exact instructions sent to the model (`instructions`: `runner.run_instructions`, redacted with the run's secrets,
-  at most 64 KB, cut with `[truncated]`); the run page shows them in a collapsible **Instructions** block above the
-  input. A run recorded by `agent()` (`config['record']`) keeps them the same way.
+  `event_session` for event runs); **Full record** links to it. Its `instructions` event keeps the instructions sent
+  to the model, with the Skills section when the run has skills.
 - `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and event runs;
   refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer

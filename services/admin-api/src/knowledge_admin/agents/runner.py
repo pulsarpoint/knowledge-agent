@@ -34,7 +34,7 @@ from knowledge_admin.sessions.tracing import trace_secrets
 from knowledge_admin.llm.model_adapter import agent_model
 from knowledge_admin.output_schemas.runs import fallback_instructions, supports_structured_output
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.sessions.run_record import TRUNCATED, CompositeHooks, RunRecorder
+from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp, skills
 from knowledge_admin.capabilities.files import mounted
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, SUBAGENT, WAKEUPS
@@ -43,7 +43,6 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references
 
 logger = logging.getLogger(__name__)
-MAX_RECORDED_INSTRUCTIONS = 64 * 1024  # bytes of the instructions a run record's input keeps
 
 
 class JsonSchemaOutput(AgentOutputSchemaBase):
@@ -166,10 +165,7 @@ async def agent(
                 'start',
                 {'kind': record.get('kind', 'run'), 'title': record.get('title', task[:200]), 'agent': config['name']},
             )
-            given = {'task': task, 'history': history or []}
-            if (instructions := recorded_instructions(config, output_schema)) is not None:
-                given['instructions'] = instructions
-            recorder.add('input', given)
+            recorder.add('input', {'task': task, 'history': history or []})
         run_hooks = CompositeHooks(activity, recorder, hooks) if recorder or hooks else activity
         status = 'failed'
         with trace_secrets(secrets), trace(redact(config['name'], secrets)):
@@ -331,7 +327,9 @@ def instructions_and_tools(
     switched off (config['disabled_tools']: tools/selection.py); what a tool may do is decided by its check against the
     run's access object. tools False: none at all (an internal LLM call, not an agent run). output_schema (the run's
     pinned schema) on a model without structured output adds the schema to the instructions (fallback_instructions)."""
-    prompt = run_instructions(config, output_schema)
+    prompt = get_prompt(config)
+    if output_schema is not None and not supports_structured_output(config['model']):
+        prompt += '\n\n' + fallback_instructions(output_schema['schema'])
     selected_mcp = mcp.selected_servers(config)
     if not tools:
         return prompt, [], [], []
@@ -377,29 +375,6 @@ def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict
         if not credentials.get(server['private_key_ref']['id']):
             raise ValueError(f'The SSH key for {server["name"]} was not supplied.')
     return servers
-
-
-def run_instructions(config: dict[str, Any], output_schema: dict[str, Any] | None = None) -> str:
-    """The exact instructions a run of this configuration sends: get_prompt, and on a model without structured output
-    the pinned output schema (fallback_instructions)."""
-    prompt = get_prompt(config)
-    if output_schema is not None and not supports_structured_output(config['model']):
-        prompt += '\n\n' + fallback_instructions(output_schema['schema'])
-    return prompt
-
-
-def recorded_instructions(config: dict[str, Any], output_schema: dict[str, Any] | None = None) -> str | None:
-    """The instructions a run record's input keeps (run_instructions), at most MAX_RECORDED_INSTRUCTIONS bytes (cut
-    with TRUNCATED); None when the configuration has no prompt to send (the run fails before any model call). The
-    recorder redacts them with the run's secrets."""
-    try:
-        text = run_instructions(config, output_schema)
-    except ValueError:
-        return None
-    if len(text.encode()) <= MAX_RECORDED_INSTRUCTIONS:
-        return text
-    kept = MAX_RECORDED_INSTRUCTIONS - len(TRUNCATED.encode())
-    return text.encode()[:kept].decode(errors='ignore') + TRUNCATED
 
 
 def get_prompt(config: dict[str, Any]) -> str:

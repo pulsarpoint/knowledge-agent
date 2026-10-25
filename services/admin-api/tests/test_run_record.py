@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from knowledge_admin.sessions import run_record
-from knowledge_admin.agents.runner import agent, get_prompt, recorded_instructions
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.sessions.run_record import RunRecorder
 from test_sdk_agent import config, responses_api  # noqa: F401 (fixtures)
 
@@ -55,22 +55,13 @@ def test_agent_run_records_full_timeline(config, captured):
     assert all(event['run_key'] == 'run:test-1' and event['agent_id'] == 'fixture' for event in captured)
 
 
-def test_the_recorded_input_keeps_the_instructions_sent_with_the_skills_section(config, captured):
+def test_the_instructions_event_keeps_the_skills_section(config, captured):
     skills = [{'id': 'k1', 'name': 'inspect', 'description': 'Inspect service health', 'folder': 'skills/k1/v1'}]
-    run = {**recorded(config), 'skills': skills, 'instructions': 'Never print fixture-secret.'}
-    asyncio.run(agent(run, 'Explain', credentials={'model-key': 'fixture-secret'}))
+    asyncio.run(agent({**recorded(config), 'skills': skills}, 'Explain', credentials={'model-key': 'fixture-secret'}))
+    [text] = [event['payload']['text'] for event in captured if event['kind'] == 'instructions']
+    assert '## Skills' in text and '- inspect: Inspect service health' in text
     [given] = [event['payload'] for event in captured if event['kind'] == 'input']
-    assert given['instructions'] == get_prompt(run).replace('fixture-secret', '[redacted]')
-    assert '## Skills' in given['instructions'] and '- inspect: Inspect service health' in given['instructions']
-    assert 'fixture-secret' not in given['instructions']
-
-
-def test_recorded_instructions_are_capped_at_64_kb(config):
-    long = {**config, 'instructions': 'x' * 70_000}
-    text = recorded_instructions(long)
-    assert len(text.encode()) <= 64 * 1024 and text.endswith('[truncated]')
-    assert recorded_instructions(config) == get_prompt(config)
-    assert recorded_instructions({**config, 'system_prompt': {'content': ' '}}) is None  # no prompt: nothing sent
+    assert 'instructions' not in given
 
 
 def test_unrecorded_runs_write_nothing(config, captured):
