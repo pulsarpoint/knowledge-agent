@@ -267,3 +267,29 @@ def test_changes_need_the_revision_and_an_upload_fits_25_mb(client):
     assert client.post(f'/api/skills/{skill["id"]}/update/upload', headers=ZIP, content=data).status_code == 400
     big = {**ZIP, 'Content-Length': str(26 * 1024 * 1024)}
     assert client.post('/api/skills/import/zip', headers=big, content=b'x').status_code == 413
+
+
+def test_a_chunked_upload_past_the_limit_is_refused_while_it_streams(client, monkeypatch):
+    import asyncio
+
+    import httpx
+
+    from knowledge_admin.skills import api
+
+    monkeypatch.setattr(api, 'MAX_UPLOAD', 1000)
+    sent = []
+
+    async def chunks():  # no Content-Length: the body comes chunked
+        for _ in range(50):
+            sent.append(1)
+            yield b'x' * 100
+
+    async def post():  # the ASGI transport streams the body as the app reads it (TestClient reads it all first)
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(transport=transport, base_url='http://test') as http:
+            return await http.post('/api/skills/import/zip?file=a.zip', headers=ZIP, content=chunks())
+
+    refused = asyncio.run(post())
+    assert refused.status_code == 413
+    assert refused.json()['error']['message'] == 'An upload can be at most 25 MB.'
+    assert len(sent) < 50  # it stopped reading past the limit

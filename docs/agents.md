@@ -423,7 +423,16 @@ with 409). `POST /api/skills/{id}/restore` (`version`), `PATCH
 the API. Each change is audited (`skill.created`, `skill.updated`, `skill.saved`, `skill.restored`, `skill.deleted`,
 `skill.enabled`, `skill.disabled`).
 
-At run time `load_skill` returns the body of the current `SKILL.md`.
+**At run time.** A run pins its skills' folders at start: the access entries of type skill carry `folder` (relative to
+the data folder), so an update, a restore or a switch-off during the run does not change what it reads or runs. The run's
+instructions list the skills by name and description; `load_skill(name)` returns the pinned `SKILL.md` body, the
+skill's files at their absolute paths (`<DATA_ROOT_DIR>/<folder>/<path>`, e.g. `/work/data/skills/<id>/<version>/...`)
+with their sizes, and the note "Read files with read_file; run scripts with shell_run; both take these paths." There is
+no skill file tool: the skill folders are roots of `list_files`, `read_file` and `search_files` (which need a code
+project or a skill) and `shell_run` mounts them read-only at the same paths (scripts run with no network; outputs go to
+the scratch working directory). The path is the same everywhere because every container mounts the data folder at
+`/work/data` (the admin-api's writable `skills/` bind sits at the same path). Debug lists the run's skills with their
+folder.
 
 ## Output schemas
 

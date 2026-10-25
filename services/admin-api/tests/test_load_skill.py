@@ -1,5 +1,6 @@
 """Skills on demand: the instructions list each skill of the run's access by name and description (never its text);
-load_skill returns a listed, enabled skill's instructions and refuses any other with the same text."""
+load_skill returns a listed skill's instructions from the folder the run pinned and refuses any other with the same
+text (its file list: test_skill_runtime)."""
 
 import asyncio
 
@@ -67,16 +68,20 @@ def test_a_run_without_skills_has_no_section():
 
 def test_load_skill_returns_a_listed_skills_instructions(run):
     config, _ = run
-    assert load(config, 'inspect') == 'Check the exit code.'
+    assert load(config, 'inspect').startswith('Check the exit code.\n\n## Files\n')
 
 
-def test_load_skill_refuses_an_unlisted_or_disabled_skill(run, store):
-    config, found = run
+def test_load_skill_refuses_an_unlisted_skill(run):
+    config, _ = run
     assert load(config, 'other') == REFUSED
     assert load({**config, 'access': {'resources': [], 'roles': {}}}, 'inspect') == REFUSED
+
+
+def test_a_skill_switched_off_during_a_run_stays_pinned(run, store):
+    config, found = run
     with store.connect() as conn:
         conn.execute('UPDATE ka.agent_skills SET enabled=false WHERE id=%s', (found['id'],))
-    assert load(config, 'inspect') == REFUSED
+    assert load(config, 'inspect').startswith('Check the exit code.')
 
 
 def test_check_load_skill_matches_on_the_entry_name():
@@ -86,16 +91,12 @@ def test_check_load_skill_matches_on_the_entry_name():
     assert check_load_skill({'resources': []}, name='inspect') == REFUSED
 
 
-def test_a_database_outage_is_a_refusal(run, monkeypatch):
-    import psycopg
-
+def test_a_missing_or_broken_folder_is_a_refusal(run, skills_folder):
     config, _ = run
-
-    def down():
-        raise psycopg.OperationalError('connection refused')
-
-    monkeypatch.setattr('knowledge_admin.capabilities.skills.connect', down)
-    assert load(config, 'inspect') == 'Skills are unavailable right now.'
-    monkeypatch.undo()
-    monkeypatch.setattr(inventory, '_store', None)
+    [entry] = [item for item in config['access']['resources'] if item['type'] == 'skill']
+    gone = {**config, 'access': {'resources': [{**entry, 'folder': 'skills/gone/v1'}]}}
+    assert load(gone, 'inspect') == 'Skills are unavailable right now.'
+    unpinned = {**config, 'access': {'resources': [{k: v for k, v in entry.items() if k != 'folder'}]}}
+    assert load(unpinned, 'inspect') == 'Skills are unavailable right now.'
+    (skills_folder / entry['folder'] / 'SKILL.md').write_text('no frontmatter')
     assert load(config, 'inspect') == 'Skills are unavailable right now.'

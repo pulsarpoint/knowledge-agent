@@ -9,16 +9,14 @@ from pydantic import Field
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
-from knowledge_admin.capabilities.files import _roots
+from knowledge_admin.capabilities.files import _roots, check_list_files
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 
 def check_shell_run(access: dict, **_) -> str | None:
-    """None when allowed, else the refusal text: the shell reads the run's code projects."""
-    if not access_rules.has_any(access, 'code_project'):
-        return access_rules.refuse_none('code_project')
-    return None
+    """None when allowed, else the refusal text: the shell reads the run's code projects and runs its skills' scripts."""
+    return check_list_files(access)
 
 
 @tool
@@ -41,8 +39,9 @@ async def shell_run(
     Quote paths and use single quotes around ast-grep patterns containing $.
 
     The working directory is writable scratch space shared across shell calls
-    within this run. Selected code and graph paths retain the absolute
-    paths in the agent resources and are read-only. Other projects, credentials
+    within this run. Selected code, skill and graph paths retain the absolute
+    paths in the agent resources and are read-only: run a skill's scripts at the
+    paths load_skill lists and write their outputs to scratch. Other projects, credentials
     and network access are unavailable. Use ssh_run for configured remote servers.
     Shell variables do not persist between calls; save intermediate work to files.
     Inspect exit_code, stderr and timed_out. Output over 32 KiB per stream is

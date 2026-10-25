@@ -102,6 +102,7 @@ ARGS = {
 }
 
 NO_CODE = 'This run has no code projects.'
+NO_CODE_OR_SKILL = 'This run has no code projects or skills.'
 NO_SERVERS = 'This run has no servers.'
 NO_DOCUMENTS = 'This run has no documents.'
 NOT_SERVER = 'This server is not available in this run.'
@@ -127,7 +128,9 @@ def some(names, value) -> dict:
     return dict.fromkeys(names, value)
 
 
-CODE = row(NO_CODE, code=None, other=None)  # the file and shell tools too: they read the code projects' folders
+CODE = row(NO_CODE, code=None, other=None)
+# the file and shell tools read the code projects' folders and the skills' folders
+FILES = row(NO_CODE_OR_SKILL, code=None, skill=None, other=None)
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
 # usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
 USE = row(
@@ -140,10 +143,10 @@ USE = row(
 ALWAYS = row(None)
 
 EXPECTED = {
-    'list_files': CODE,
-    'read_file': CODE,
-    'search_files': CODE,
-    'shell_run': CODE,
+    'list_files': FILES,
+    'read_file': FILES,
+    'search_files': FILES,
+    'shell_run': FILES,
     'code_search': CODE,
     'ast_grep': CODE,
     'code_graph': row(NO_CODE, code=None, other=NOT_CODE),

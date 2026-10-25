@@ -1,4 +1,6 @@
-"""Read and search the folders of the run's code projects and its workspace."""
+"""Read and search the folders of the run's code projects and skills, and its workspace. A skill folder is the one the
+run pinned at start, at its absolute path under the data folder: the same path load_skill lists and the shell mounts
+(read-only there; these tools only read)."""
 
 import asyncio
 import json
@@ -10,6 +12,7 @@ from pydantic import Field
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.sessions.activity import redact
+from knowledge_admin.skills.store import absolute
 from knowledge_admin.tools.registry import tool
 
 
@@ -19,15 +22,16 @@ def mounted(path: Path) -> bool:
 
 
 def _roots(context: RunContext) -> list[Path]:
-    """The workspace and the folders of the run's code projects (their access entries)."""
+    """The workspace, the folders of the run's code projects and its skills' pinned folders (their access entries)."""
     config = context['config']
     access = config['access']
-    paths = [context['workspace']]  # the workspace and the code folders must be mounted
+    paths = [context['workspace']]  # the workspace and the code and skill folders must be mounted
     paths.extend(
         Path(path)
         for project in access_rules.entries(access, 'code_project')
         for path in project.get('folder_paths', [])
     )
+    paths.extend(absolute(skill['folder']) for skill in access_rules.entries(access, 'skill') if skill.get('folder'))
     for path in paths:
         if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
@@ -36,8 +40,8 @@ def _roots(context: RunContext) -> list[Path]:
 
 def check_list_files(access: dict, **_) -> str | None:
     """None when allowed, else the refusal text. Which paths: _path, inside the folders of these entries."""
-    if not access_rules.has_any(access, 'code_project'):
-        return access_rules.refuse_none('code_project')
+    if not access_rules.has_any(access, 'code_project') and not access_rules.has_any(access, 'skill'):
+        return access_rules.refuse_none('code_project', 'skill')
     return None
 
 
@@ -72,7 +76,7 @@ async def list_files(
     offset: Annotated[int, Field(description='Number of directory entries to skip for pagination.')] = 0,
     limit: Annotated[int, Field(description='Maximum entries to return, from 1 to 1000.')] = 200,
 ) -> str:
-    """List accessible roots or the immediate children of one selected folder."""
+    """List accessible roots (the workspace, code project folders and skill folders) or the immediate children of one selected folder."""
     if refusal := check_list_files(context['config']['access'], path=path):
         return refusal
     if offset < 0 or not 1 <= limit <= 1000:
@@ -98,7 +102,9 @@ async def list_files(
 @tool
 async def read_file(
     context: RunContext,
-    path: Annotated[str, Field(description='Absolute file path from the configured folders or workspace.')],
+    path: Annotated[
+        str, Field(description='Absolute file path from the configured code or skill folders or workspace.')
+    ],
     offset: Annotated[int, Field(description='Byte offset; use next_offset from an earlier result to continue.')] = 0,
     max_bytes: Annotated[int, Field(description='Maximum bytes in byte mode, from 1 to 65536.')] = 32768,
     start_line: Annotated[

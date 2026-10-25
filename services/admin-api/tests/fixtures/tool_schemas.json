@@ -39,8 +39,8 @@
       "title": "ListFiles",
       "type": "object"
     },
-    "summary": "List the selected folders and their contents.",
-    "usage": "List accessible roots or the immediate children of one selected folder."
+    "summary": "List the selected code and skill folders and their contents.",
+    "usage": "List accessible roots (the workspace, code project folders and skill folders) or the immediate children of one selected folder."
   },
   {
     "group": "code",
@@ -74,7 +74,7 @@
           "type": "integer"
         },
         "path": {
-          "description": "Absolute file path from the configured folders or workspace.",
+          "description": "Absolute file path from the configured code or skill folders or workspace.",
           "title": "Path",
           "type": "string"
         },
@@ -101,7 +101,7 @@
       "title": "ReadFile",
       "type": "object"
     },
-    "summary": "Read a file or a line range.",
+    "summary": "Read a file or a line range from a code or skill folder.",
     "usage": "Read a source line range or a paginated UTF-8 byte excerpt from a selected file.\n\nUse read_file for surrounding comments, imports and targeted ranges."
   },
   {
@@ -143,7 +143,7 @@
       "title": "SearchFiles",
       "type": "object"
     },
-    "summary": "Find literal text with ripgrep.",
+    "summary": "Find literal text in code and skill folders with ripgrep.",
     "usage": "Search literal text in selected files using ripgrep, with file/line citations.\n\nGit ignore rules apply; hidden files and symlinks within folders are skipped.\nA truncated result can be narrowed by searching a subfolder or a longer query.\n\nUse search_files for text discovery."
   },
   {
@@ -172,8 +172,8 @@
       "title": "ShellRun",
       "type": "object"
     },
-    "summary": "Run Bash, rg, ast-grep, git and Python in an isolated sandbox.",
-    "usage": "Run Bash commands or Python scripts in an isolated Linux workspace.\n\nAvailable programs include bash, python/python3, rg, ast-grep, git, sed, awk,\nfind and standard Linux utilities. Pipelines, Bash arrays and heredocs work.\nFor Python use: python - <<'PY'\nimport json\nprint(json.dumps({'ok': True}))\nPY\nUse rg -n 'symbol' /work/data/code/project to locate code, then ast-grep or sed\nto inspect complete functions or focused ranges. Python's sqlite3 module can\nquery configured graph databases; use sqlite3.connect('file:PATH?mode=ro', uri=True).\nQuote paths and use single quotes around ast-grep patterns containing $.\n\nThe working directory is writable scratch space shared across shell calls\nwithin this run. Selected code and graph paths retain the absolute\npaths in the agent resources and are read-only. Other projects, credentials\nand network access are unavailable. Use ssh_run for configured remote servers.\nShell variables do not persist between calls; save intermediate work to files.\nInspect exit_code, stderr and timed_out. Output over 32 KiB per stream is\ntruncated: write large results to scratch files and inspect focused sections.\n\nUse shell_run for Bash pipelines, rg, ast-grep and Python scripts. Selected resource paths are mounted read-only at\nthe same absolute paths; pwd shows writable scratch space. Inspect focused source ranges; use code_graph for indexed\nrelationships when available. Scratch files persist between tool calls within this run. Network access is disabled\nin the shell; use ssh_run for configured servers."
+    "summary": "Run Bash, rg, ast-grep, git, Python and skill scripts in an isolated sandbox.",
+    "usage": "Run Bash commands or Python scripts in an isolated Linux workspace.\n\nAvailable programs include bash, python/python3, rg, ast-grep, git, sed, awk,\nfind and standard Linux utilities. Pipelines, Bash arrays and heredocs work.\nFor Python use: python - <<'PY'\nimport json\nprint(json.dumps({'ok': True}))\nPY\nUse rg -n 'symbol' /work/data/code/project to locate code, then ast-grep or sed\nto inspect complete functions or focused ranges. Python's sqlite3 module can\nquery configured graph databases; use sqlite3.connect('file:PATH?mode=ro', uri=True).\nQuote paths and use single quotes around ast-grep patterns containing $.\n\nThe working directory is writable scratch space shared across shell calls\nwithin this run. Selected code, skill and graph paths retain the absolute\npaths in the agent resources and are read-only: run a skill's scripts at the\npaths load_skill lists and write their outputs to scratch. Other projects, credentials\nand network access are unavailable. Use ssh_run for configured remote servers.\nShell variables do not persist between calls; save intermediate work to files.\nInspect exit_code, stderr and timed_out. Output over 32 KiB per stream is\ntruncated: write large results to scratch files and inspect focused sections.\n\nUse shell_run for Bash pipelines, rg, ast-grep and Python scripts. Selected resource paths are mounted read-only at\nthe same absolute paths; pwd shows writable scratch space. Inspect focused source ranges; use code_graph for indexed\nrelationships when available. Scratch files persist between tool calls within this run. Network access is disabled\nin the shell; use ssh_run for configured servers."
   },
   {
     "group": "code",
@@ -2902,8 +2902,8 @@
       "title": "LoadSkill",
       "type": "object"
     },
-    "summary": "Get the full instructions of a skill listed in the agent's instructions.",
-    "usage": "Get the full instructions of a skill listed under Skills in your instructions. Call it once per skill, before following the skill."
+    "summary": "Get a listed skill's full instructions and its files.",
+    "usage": "Get the full instructions of a skill listed under Skills in your instructions, and the list of its files at their absolute paths. Call it once per skill, before following the skill."
   },
   {
     "group": "agents",

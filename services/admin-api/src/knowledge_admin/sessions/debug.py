@@ -59,7 +59,10 @@ def view(
         **instructions_and_tool_list(config, secrets),
         'prompt': prompt_origin(conn, project, prompt_id, prompt_text),
         'agent_instructions': redact(config['instructions'], secrets),
-        'skills': [{'name': item['name']} for item in access_rules.listing(config['access'], 'skill')],
+        'skills': [
+            {'name': item['name'], 'folder': item.get('folder')}
+            for item in access_rules.listing(config['access'], 'skill')
+        ],
         # what the run may use: resources with their source (never their connections: access.listing)
         'access': {'resources': access_rules.listing(config['access'])},
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,

@@ -81,9 +81,11 @@ the run's resources by `resource_of`). `new_document` names the folder and slug 
 document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
 
-`load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
-name: the body of `SKILL.md` in the skill's current folder (`ka.agent_skills.folder`; enabled only; any other name is refused with `This skill is not available in this
-run.`). The run's instructions list its skills by name and description only (`skills.section`, used by
+`load_skill` (`capabilities/skills.py`; group `agents`) returns, for a skill in the run's access by name, the body of
+`SKILL.md` and the skill's files at their absolute paths with their sizes, then the note `Read files with read_file;
+run scripts with shell_run; both take these paths.` It reads the folder the run pinned at start (the skill entry's
+`folder`), so an update or a switch-off during the run changes nothing for it; any other name is refused with `This
+skill is not available in this run.`. The run's instructions list its skills by name and description only (`skills.section`, used by
 `runner.get_prompt` and `sessions/text.agent_system_prompt`); a run without skills has no Skills section.
 
 Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog and have no usage text of their
@@ -94,7 +96,8 @@ start request names (`expert_ids`). Subagents never get them, and an expert's ow
 Calls share the turn's limit of 16 helpers with subagents.
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
-  folders of the run's code projects and its workspace. Absolute paths are checked
+  folders of the run's code projects, its skills' pinned folders (absolute, under the data folder) and its workspace;
+  a run needs a code project or a skill. `shell_run` mounts the same folders read-only at the same paths. Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.
 - `ast_grep`. Runs the native ast-grep CLI in search-only mode to
   return complete functions, methods, classes, or other matched syntax nodes.

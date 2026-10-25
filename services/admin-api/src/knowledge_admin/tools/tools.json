@@ -3,25 +3,25 @@
     "name": "list_files",
     "group": "code",
     "label": "List files",
-    "summary": "List the selected folders and their contents."
+    "summary": "List the selected code and skill folders and their contents."
   },
   {
     "name": "read_file",
     "group": "code",
     "label": "Read file",
-    "summary": "Read a file or a line range."
+    "summary": "Read a file or a line range from a code or skill folder."
   },
   {
     "name": "search_files",
     "group": "code",
     "label": "Search files",
-    "summary": "Find literal text with ripgrep."
+    "summary": "Find literal text in code and skill folders with ripgrep."
   },
   {
     "name": "shell_run",
     "group": "code",
     "label": "Shell",
-    "summary": "Run Bash, rg, ast-grep, git and Python in an isolated sandbox."
+    "summary": "Run Bash, rg, ast-grep, git, Python and skill scripts in an isolated sandbox."
   },
   {
     "name": "code_search",
@@ -201,7 +201,7 @@
     "name": "load_skill",
     "group": "agents",
     "label": "Load a skill",
-    "summary": "Get the full instructions of a skill listed in the agent's instructions."
+    "summary": "Get a listed skill's full instructions and its files."
   },
   {
     "name": "schedule_wakeup",

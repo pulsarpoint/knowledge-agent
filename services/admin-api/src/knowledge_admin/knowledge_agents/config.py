@@ -206,7 +206,7 @@ CODE_PROJECTS = """SELECT r.id,r.name,r.description,
     ORDER BY lower(r.name),r.id"""
 SERVICES = """SELECT id,name,description FROM ka.services WHERE project_id=%s AND id=ANY(%s::uuid[])
     ORDER BY lower(name),id"""
-SKILLS = """SELECT id,name,description,enabled FROM ka.agent_skills
+SKILLS = """SELECT id,name,description,enabled,folder FROM ka.agent_skills
     WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY name,id"""
 MCP_SERVERS = """SELECT id,name,description,url,enabled,token_ciphertext IS NOT NULL AS has_token
     FROM ka.mcp_servers WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY lower(name),id"""
@@ -321,7 +321,8 @@ def entry(type_: str, item: Mapping[str, Any], **extra) -> dict[str, Any]:
 def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
     """The access entries of loaded items by type (load_items' shape; 'document': entries already), each once: servers, services, code projects, skills (enabled ones, listed in the instructions),
     MCP servers (enabled ones), documents, environments. A code project carries its folders and its graph (graphs:
-    load_graphs), a server and an MCP server their connection."""
+    load_graphs), a skill its folder (relative to the data folder: the run pins it), a server and an MCP server
+    their connection."""
     graph_of = {str(graph['id']): graph for graph in graphs}
 
     def code_project(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -333,7 +334,9 @@ def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, An
     found += [entry('service', item) for item in items.get('service', [])]
     found += [code_project(item) for item in items.get('code_project', [])]
     found += [
-        entry('skill', item, description=item['description']) for item in items.get('skill', []) if item['enabled']
+        entry('skill', item, description=item['description'], folder=item['folder'])
+        for item in items.get('skill', [])
+        if item['enabled']
     ]
     found += [
         entry('mcp_server', item, **{k: item[k] for k in MCP_FIELDS})

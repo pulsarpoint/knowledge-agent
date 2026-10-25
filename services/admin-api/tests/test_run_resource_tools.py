@@ -81,9 +81,10 @@ def test_file_and_code_tools_reach_only_the_given_code_projects(folders):
 def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeypatch):
     monkeypatch.setenv('AGENT_SHELL_URL', 'http://shell.invalid')  # refused before any request
     context = run_context(folders)
-    code = access_rules.refuse_none('code_project')  # the file and shell tools read the code projects' folders
-    assert invoke(list_files, context) == code
-    assert invoke(shell_run, context, command='ls /') == code
+    code = access_rules.refuse_none('code_project')
+    files = access_rules.refuse_none('code_project', 'skill')  # the file and shell tools read code and skill folders
+    assert invoke(list_files, context) == files
+    assert invoke(shell_run, context, command='ls /') == files
     assert invoke(code_search, context, path=str(folders['given']), language='Python', name='given') == code
     assert invoke(ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN) == code
     assert invoke(code_graph, context, project_id='given') == code

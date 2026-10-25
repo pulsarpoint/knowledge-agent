@@ -76,7 +76,9 @@ def test_browse_read_pagination_redaction_and_folder_boundaries(context, tmp_pat
         assert 'outside' in asyncio.run(invoke(read_file, context, path=str(path)))
     resources = context['config']['access']['resources']
     resources[:] = [item for item in resources if item['type'] != 'code_project']  # its access: no code project now
-    assert asyncio.run(invoke(read_file, context, path=str(code / 'a.txt'))) == 'This run has no code projects.'
+    assert (
+        asyncio.run(invoke(read_file, context, path=str(code / 'a.txt'))) == 'This run has no code projects or skills.'
+    )
 
 
 def test_file_input_limits_binary_files_and_literal_search(context, tmp_path):

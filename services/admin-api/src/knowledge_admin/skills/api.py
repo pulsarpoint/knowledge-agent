@@ -290,10 +290,12 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
         declared = request.headers.get('content-length', '')
         if declared.isdigit() and int(declared) > MAX_UPLOAD:
             raise HTTPException(413, 'An upload can be at most 25 MB.')
-        data = await request.body()
-        if len(data) > MAX_UPLOAD:
-            raise HTTPException(413, 'An upload can be at most 25 MB.')
-        return data
+        data = bytearray()
+        async for chunk in request.stream():  # a chunked body has no Content-Length: count while it comes
+            data.extend(chunk)
+            if len(data) > MAX_UPLOAD:
+                raise HTTPException(413, 'An upload can be at most 25 MB.')
+        return bytes(data)
 
     def zip_skills(data: bytes) -> list[dict]:
         try:
