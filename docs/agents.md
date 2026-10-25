@@ -108,7 +108,10 @@ limit, no per-turn time limit, no 300-second limit).
   with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
   Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
-  `event_session` for event runs); **Full record** links to it.
+  `event_session` for event runs); **Full record** links to it. Its `input` event keeps the turn's message and the
+  exact instructions sent to the model (`instructions`: `runner.run_instructions`, redacted with the run's secrets,
+  at most 64 KB, cut with `[truncated]`); the run page shows them in a collapsible **Instructions** block above the
+  input. A run recorded by `agent()` (`config['record']`) keeps them the same way.
 - `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and event runs;
   refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
@@ -209,8 +212,9 @@ once; earlier activity loaded by scrolling up is already counted).
 subagent works on one task (at most 20,000 characters) without the conversation: its configuration is a copy of the
 agent's pinned configuration with every tool but `run_subagent` (the parent's MCP servers kept, no experts, content
 editor off), the resource lists narrowed to the given ids (each must be in the agent's current lists; given resources make it a run of exactly those, so
-an empty list gives nothing), the built-in prompt `knowledge_agents/prompts/subagent.md`, no instructions, skills off
-and the same model. It gets only the turn's already decrypted credentials its configuration references (SSH private
+an empty list gives nothing), the built-in prompt `knowledge_agents/prompts/subagent.md`, no instructions, the parent
+run's skills (`config['skills']`) and the same model. It gets only the turn's already decrypted credentials its
+configuration references (SSH private
 keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at
 most 16 helpers, subagents and expert calls together ("This turn already started 16 helpers."), and runs
 `AGENT_MAX_SUBAGENTS` (default 4) at once, shared with expert calls; later calls wait. The result is the subagent's final answer, redacted, or `Subagent failed: <reason>`; refusals are tool
@@ -235,7 +239,8 @@ a model), `<kind> <id> is not one of your resources.`, a resource outside the ex
 or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin. A failure returns `Expert <name>
 failed: <reason>` (redacted) and the caller goes on.
 
-A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with its own
+A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, tools and model, the calling run's skills
+(`experts.inherit`: no new read), with its own
 access object narrowed to the given resources (no document or inventory write tools), no conversation, and no expert tools (an expert cannot call experts). It has
 `run_subagent` like every run: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
 16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
@@ -385,8 +390,8 @@ its source. Executable bits are kept.
 save writes the complete new folder under a staging name, renames it into place, then sets `folder` in one update (and
 `revision` +1). A run that already started keeps the folder it began with. Each skill keeps its last 3 folders and the
 current one (for **Restore**, which switches `folder` back to a kept folder with that folder's source); older ones are
-deleted only when no running run pinned them: a session that is not closed whose config's access entries of type skill
-name the folder (`store.pinned_folders`). Cleanup runs after every update of that skill and over every skill folder at
+deleted only when no running run pinned them: a session that is not closed whose config's `skills` name the folder
+(`store.pinned_folders`). Cleanup runs after every update of that skill and over every skill folder at
 admin-api startup, which also removes deleted skills' folders that were pinned when they were deleted.
 
 **Limits.** A folder holds at most 500 files, 5 MB per file and 10 MB in all. Paths are relative, without `..`, empty or
@@ -423,9 +428,14 @@ with 409). `POST /api/skills/{id}/restore` (`version`), `PATCH
 the API. Each change is audited (`skill.created`, `skill.updated`, `skill.saved`, `skill.restored`, `skill.deleted`,
 `skill.enabled`, `skill.disabled`).
 
-**At run time.** A run pins its skills' folders at start: the access entries of type skill carry `folder` (relative to
-the data folder), so an update, a restore or a switch-off during the run does not change what it reads or runs. The run's
-instructions list the skills by name and description; `load_skill(name)` returns the pinned `SKILL.md` body, the
+**At run time.** Every run gets every enabled skill: run start (`experts.pin`, for every path that pins a
+configuration) reads the project's enabled skills once and pins them as `config['skills']` = `[{id, name, description,
+folder}]` in name order (`skills.run_skills`; a skill whose folder is missing on disk is left out). Skills are not part of
+the access model (no `skill` access type; an older stored skill entry is ignored, and migration 0141 removed them). The
+pinned `folder` (relative to the data folder) means an update, a restore or a switch-off during the run does not change
+what it reads or runs, and a skill enabled after the start is not in that run. The run's instructions list the skills by
+name and description (no list when `load_skill` is switched off for the run); an unlisted name gets "No skill named
+<name> in this run."; `load_skill(name)` returns the pinned `SKILL.md` body, the
 skill's files at their absolute paths (`<DATA_ROOT_DIR>/<folder>/<path>`, e.g. `/work/data/skills/<id>/<version>/...`)
 with their sizes, and the note "Read files with read_file; run scripts with shell_run; both take these paths." There is
 no skill file tool: the skill folders are roots of `list_files`, `read_file` and `search_files` (which need a code

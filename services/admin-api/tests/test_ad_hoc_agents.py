@@ -55,8 +55,9 @@ def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
         ('code_project', 'Payments API', 'given'),
         ('document', NEW['name'], 'given'),
     ]
-    for key in ('code', 'documents', 'ssh', 'services', 'skills', 'mcp', 'run_resources', 'chosen_resources', 'tools'):
+    for key in ('code', 'documents', 'ssh', 'services', 'mcp', 'run_resources', 'chosen_resources', 'tools'):
         assert key not in config
+    assert config['skills'] == []  # every enabled skill of the project: it has none
 
 
 def test_an_environment_brings_its_services_code_and_servers(sessions):

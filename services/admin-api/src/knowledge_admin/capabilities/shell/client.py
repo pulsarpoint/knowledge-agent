@@ -14,9 +14,10 @@ from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 
-def check_shell_run(access: dict, **_) -> str | None:
-    """None when allowed, else the refusal text: the shell reads the run's code projects and runs its skills' scripts."""
-    return check_list_files(access)
+def check_shell_run(access: dict, skills=(), **_) -> str | None:
+    """None when allowed, else the refusal text: the shell reads the run's code projects and runs its skills' scripts
+    (skills: config['skills'])."""
+    return check_list_files(access, skills)
 
 
 @tool
@@ -51,7 +52,7 @@ async def shell_run(
     the same absolute paths; pwd shows writable scratch space. Inspect focused source ranges; use code_graph for indexed
     relationships when available. Scratch files persist between tool calls within this run. Network access is disabled
     in the shell; use ssh_run for configured servers."""
-    if refusal := check_shell_run(context['config']['access'], command=command):
+    if refusal := check_shell_run(context['config']['access'], context['config'].get('skills') or [], command=command):
         return refusal
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')

@@ -3,9 +3,9 @@ the tools and resources it is given and without the conversation. Subagents run 
 and Generate documents), whose runner puts the turn's Subagents into the run context.
 
 The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with its
-access object narrowed, the built-in prompt, no instructions, no skills and no experts. A subagent gets every tool but
-run_subagent (its run has no Subagents host) and every tool of the MCP servers in its access; what a tool may do is
-decided by its check against the subagent's access (the parent's, narrowed); it has no write tools.
+access object narrowed, the built-in prompt, no instructions and no experts; it keeps the parent's skills. A subagent
+gets every tool but run_subagent (its run has no Subagents host) and every tool of the MCP servers in its access; what
+a tool may do is decided by its check against the subagent's access (the parent's, narrowed); it has no write tools.
 
 Running (Subagents): one per native turn, in parallel up to AGENT_MAX_SUBAGENTS, each recorded in the turn's record
 with parent_call_id and counted in the session's totals; Stop cancels them with the turn. Expert calls (ask_<name>,
@@ -52,7 +52,8 @@ def check_task(task: str) -> None:
 
 def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
     """The configuration a subagent runs with: the parent's with its access narrowed (subagent_access: what the
-    access entries carry is all the tools reach). resources None: the parent's resources; otherwise exactly those."""
+    access entries carry is all the tools reach) and the parent's skills (config['skills'], copied). resources None: the
+    parent's resources; otherwise exactly those."""
     sub = copy.deepcopy(dict(config))
     sub.pop('record', None)
     sub['experts'] = []  # a subagent never calls experts
@@ -65,10 +66,10 @@ def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]
 
 def subagent_access(parent: Mapping[str, Any], resources: Mapping[str, list[str]] | None) -> dict[str, Any]:
     """The parent's access narrowed (access.narrow, never widened) to what the subagent is given: the given resources
-    (None: all of the parent's but its documents and skills, which a subagent never gets) and the parent's MCP servers;
+    (None: all of the parent's but its documents, which a subagent never gets) and the parent's MCP servers;
     a subagent never changes content: it has no document or inventory write tools (runner.instructions_and_tools)."""
     if resources is None:
-        picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'skill', 'mcp_server')]
+        picked = [entry for entry in parent['resources'] if entry['type'] not in ('document', 'mcp_server')]
     else:
         picked = picks(resources)
     picked += [entry for entry in parent['resources'] if entry['type'] == 'mcp_server']

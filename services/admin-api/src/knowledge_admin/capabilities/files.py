@@ -1,6 +1,6 @@
-"""Read and search the folders of the run's code projects and skills, and its workspace. A skill folder is the one the
-run pinned at start, at its absolute path under the data folder: the same path load_skill lists and the shell mounts
-(read-only there; these tools only read)."""
+"""Read and search the folders of the run's code projects and skills (config['skills']), and its workspace. A skill
+folder is the one the run pinned at start, at its absolute path under the data folder: the same path load_skill lists
+and the shell mounts (read-only there; these tools only read)."""
 
 import asyncio
 import json
@@ -15,6 +15,8 @@ from knowledge_admin.sessions.activity import redact
 from knowledge_admin.skills.store import absolute
 from knowledge_admin.tools.registry import tool
 
+NO_FOLDERS = 'This run has no code projects or skills.'
+
 
 def mounted(path: Path) -> bool:
     """An absolute, canonical path to an existing directory."""
@@ -22,8 +24,9 @@ def mounted(path: Path) -> bool:
 
 
 def skill_folder(entry: dict) -> Path | None:
-    """A skill entry's pinned folder, absolute; None when it has none, the folder is not a plain path under the data
-    folder, or it is missing or not mounted: that skill is left out and the run's other folders keep working."""
+    """A skill's pinned folder (an item of config['skills']), absolute; None when it has none, the folder is not a plain
+    path under the data folder, or it is missing or not mounted: that skill is left out and the run's other folders
+    keep working."""
     folder = entry.get('folder')
     if not isinstance(folder, str) or not folder or folder.startswith('/') or '..' in folder.split('/'):
         return None
@@ -44,25 +47,26 @@ def _roots(context: RunContext) -> list[Path]:
     for path in paths:
         if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
-    paths.extend(path for skill in access_rules.entries(access, 'skill') if (path := skill_folder(skill)))
+    paths.extend(path for skill in context['config'].get('skills') or [] if (path := skill_folder(skill)))
     return list(dict.fromkeys(paths))
 
 
-def check_list_files(access: dict, **_) -> str | None:
-    """None when allowed, else the refusal text. Which paths: _path, inside the folders of these entries."""
-    if not access_rules.has_any(access, 'code_project') and not access_rules.has_any(access, 'skill'):
-        return access_rules.refuse_none('code_project', 'skill')
+def check_list_files(access: dict, skills=(), **_) -> str | None:
+    """None when allowed (the run has a code project or a skill: skills is config['skills']), else the refusal text.
+    Which paths: _path, inside the folders of these."""
+    if not access_rules.has_any(access, 'code_project') and not skills:
+        return NO_FOLDERS
     return None
 
 
-def check_read_file(access: dict, **_) -> str | None:
+def check_read_file(access: dict, skills=(), **_) -> str | None:
     """None when allowed, else the refusal text."""
-    return check_list_files(access)
+    return check_list_files(access, skills)
 
 
-def check_search_files(access: dict, **_) -> str | None:
+def check_search_files(access: dict, skills=(), **_) -> str | None:
     """None when allowed, else the refusal text."""
-    return check_list_files(access)
+    return check_list_files(access, skills)
 
 
 def _path(context: RunContext, path: str) -> Path:
@@ -87,7 +91,7 @@ async def list_files(
     limit: Annotated[int, Field(description='Maximum entries to return, from 1 to 1000.')] = 200,
 ) -> str:
     """List accessible roots (the workspace, code project folders and skill folders) or the immediate children of one selected folder."""
-    if refusal := check_list_files(context['config']['access'], path=path):
+    if refusal := check_list_files(context['config']['access'], context['config'].get('skills') or [], path=path):
         return refusal
     if offset < 0 or not 1 <= limit <= 1000:
         raise ValueError('Use a nonnegative offset and a limit from 1 to 1000.')
@@ -128,7 +132,7 @@ async def read_file(
     """Read a source line range or a paginated UTF-8 byte excerpt from a selected file.
 
     Use read_file for surrounding comments, imports and targeted ranges."""
-    if refusal := check_read_file(context['config']['access'], path=path):
+    if refusal := check_read_file(context['config']['access'], context['config'].get('skills') or [], path=path):
         return refusal
     if offset < 0 or not 1 <= max_bytes <= 65536:
         raise ValueError('Use a nonnegative offset and max_bytes from 1 to 65536.')
@@ -186,7 +190,7 @@ async def search_files(
     A truncated result can be narrowed by searching a subfolder or a longer query.
 
     Use search_files for text discovery."""
-    if refusal := check_search_files(context['config']['access'], path=path):
+    if refusal := check_search_files(context['config']['access'], context['config'].get('skills') or [], path=path):
         return refusal
     if not query or '\n' in query or '\0' in query or len(query) > 4000 or not 1 <= max_matches <= 500:
         raise ValueError('Provide a single-line query up to 4000 characters and max_matches from 1 to 500.')

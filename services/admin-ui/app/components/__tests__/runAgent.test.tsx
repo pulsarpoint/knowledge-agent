@@ -27,7 +27,6 @@ const counts = {
   environment: 0,
   code_project: 0,
   document: 0,
-  skill: 0,
   mcp_server: 0,
 };
 const summary = (id: string, name: string, enabled = true): profiles.AgentSummary => ({

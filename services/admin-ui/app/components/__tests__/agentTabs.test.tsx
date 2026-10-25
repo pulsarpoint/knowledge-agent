@@ -67,7 +67,6 @@ beforeEach(() => {
       environment: 0,
       code_project: 0,
       document: 0,
-      skill: 0,
       mcp_server: 0,
     },
     model_name: null,
@@ -80,7 +79,6 @@ beforeEach(() => {
     environment: [],
     code_project: [],
     document: [],
-    skill: [],
     mcp_server: [],
   });
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({

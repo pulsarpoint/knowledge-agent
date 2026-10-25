@@ -43,7 +43,6 @@ beforeEach(() => {
     environment: [],
     code_project: [],
     document: [],
-    skill: [],
     mcp_server: [],
   });
   vi.mocked(llm.getLlmSettings).mockResolvedValue({

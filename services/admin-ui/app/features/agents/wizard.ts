@@ -30,7 +30,6 @@ export interface WizardOptions {
     servers: (WizardResource & { hostname: string; tags: string[]; ssh_ready: boolean })[];
     environments: WizardResource[];
     documents: { id: string; title: string; description?: string }[];
-    skills: WizardResource[];
     mcp_servers: WizardResource[];
     services: WizardResource[];
     existing_agents: { name: string; description: string; when_to_use: string }[];

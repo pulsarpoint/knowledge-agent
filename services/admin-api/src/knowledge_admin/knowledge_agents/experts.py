@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from knowledge_admin.capabilities.skills import run_skills
 from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
 from knowledge_admin.sessions.run_access import KINDS, agent_access, picks
 from knowledge_admin.tools.selection import disabled_for
@@ -61,9 +62,10 @@ def offered(conn, caller_id: str | None) -> list[dict[str, Any]]:
     return entries
 
 
-def pin(conn, config: dict[str, Any], caller_id: str | None) -> dict[str, Any]:
-    """The configuration a session pins, with the experts it may call (later changes apply to new sessions)."""
-    return {**config, 'experts': offered(conn, caller_id)}
+def pin(conn, project, config: dict[str, Any], caller_id: str | None) -> dict[str, Any]:
+    """The configuration a session pins, with the experts it may call and every enabled skill of the project
+    (skills.run_skills), read once now: later changes apply to new sessions."""
+    return {**config, 'experts': offered(conn, caller_id), 'skills': run_skills(conn, project)}
 
 
 def load(
@@ -106,6 +108,6 @@ def load(
 
 def inherit(config: Mapping[str, Any], caller: Mapping[str, Any]) -> dict[str, Any]:
     """The expert's configuration for a call from a run of `caller`: its own off tools and the caller's (a tool off in
-    the calling run is never offered to the expert it asks)."""
+    the calling run is never offered to the expert it asks), and the caller's skills (no new read)."""
     off = disabled_for(config.get('disabled_tools', ()), caller.get('disabled_tools', ()))
-    return {**config, 'disabled_tools': sorted(off)}
+    return {**config, 'disabled_tools': sorted(off), 'skills': list(caller.get('skills') or [])}

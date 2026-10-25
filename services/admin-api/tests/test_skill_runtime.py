@@ -1,4 +1,4 @@
-"""Skills at run time: a run pins its skills' folders at start (the skill entries carry `folder`); load_skill returns
+"""Skills at run time: a run pins every enabled skill with its folder at start (config['skills']); load_skill returns
 the pinned SKILL.md body and the skill's files at their absolute paths; the skill folders are read-only roots of the
 file tools and of the shell, and only the run's own skills are reachable."""
 
@@ -10,12 +10,13 @@ import pytest
 
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.files import check_list_files
+from knowledge_admin.capabilities.skills import run_skills
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.sessions.debug import view
 from knowledge_admin.sessions.run_access import agent_access
 from knowledge_admin.skills.store import absolute, pinned_folders
 from knowledge_admin.tools.catalog import CATALOG
-from test_agents import agent_mounts, of, saved_agent  # noqa: F401  (fixtures)
+from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_expert_tools import model_of
 from test_repositories import HEADERS
 from test_test_sessions import test_start
@@ -39,13 +40,14 @@ def pinned(store, saved_agent, monkeypatch, tmp_path):  # noqa: F811
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         access = agent_access(conn, project, config, None)
+        skills = run_skills(conn, project)
     workspace = (tmp_path / 'workspace').resolve()
     workspace.mkdir()
     access = {'resources': [item for item in access['resources'] if item['type'] != 'code_project']}
     context = {
         'workspace': workspace,
         'credentials': {},
-        'config': {**config, 'access': access, 'project_id': str(project)},
+        'config': {**config, 'access': access, 'skills': skills, 'project_id': str(project)},
     }
     return client, skill, context
 
@@ -55,9 +57,9 @@ def call(tool: str, context: dict, **arguments) -> str:
     return asyncio.run(spec.run(context, spec.arguments.model_validate(arguments)))
 
 
-def test_a_runs_skill_entry_carries_its_pinned_folder(pinned):
+def test_a_runs_skill_carries_its_pinned_folder(pinned):
     _, skill, context = pinned
-    [entry] = of(context['config'], 'skill')
+    [entry] = context['config']['skills']
     assert entry['folder'] == skill['folder']
 
 
@@ -105,8 +107,8 @@ def test_skill_folders_are_roots_of_the_file_tools(pinned):
     assert found == [f'{folder}/scripts/check.sh:1:echo checked']
 
 
-def test_read_file_cannot_reach_a_skill_outside_the_runs_access(pinned):
-    """Review Focus 4: another skill's folder is outside the run's roots."""
+def test_read_file_cannot_reach_a_skill_the_run_did_not_pin(pinned):
+    """Review Focus 4: a skill created after the run started is outside the run's roots."""
     client, _, context = pinned
     other = client.post('/api/skills', headers=HEADERS, json={'name': 'other', 'description': 'Another skill.'})
     assert other.status_code == 201, other.text
@@ -116,11 +118,11 @@ def test_read_file_cannot_reach_a_skill_outside_the_runs_access(pinned):
 
 
 def test_the_file_tools_and_the_shell_need_a_code_project_or_a_skill():
-    skill = {'type': 'skill', 'id': 'k1', 'name': 'inspect', 'folder': 'skills/k1/v1'}
+    skill = {'id': 'k1', 'name': 'inspect', 'description': '', 'folder': 'skills/k1/v1'}
     from knowledge_admin.capabilities.shell.client import check_shell_run
 
     for check in (check_list_files, check_shell_run):
-        assert check({'resources': [skill]}) is None
+        assert check({'resources': []}, skills=[skill]) is None
         assert check({'resources': []}) == 'This run has no code projects or skills.'
 
 
@@ -158,10 +160,11 @@ def test_a_missing_skill_folder_leaves_out_only_that_skill(pinned, tmp_path, mon
     _, skill, context = pinned
     folder = absolute(skill['folder'])
     resources = context['config']['access']['resources']
-    [entry] = [item for item in resources if item['type'] == 'skill']
+    skills = context['config']['skills']
+    [entry] = skills
     gone = {**entry, 'id': 'k2', 'name': 'gone', 'folder': 'skills/gone/v1'}
     escaping = {**entry, 'id': 'k3', 'name': 'escaping', 'folder': '../outside'}
-    resources += [gone, escaping]
+    skills += [gone, escaping]
     roots = [item['path'] for item in json.loads(call('list_files', context))['entries']]
     assert roots == [str(context['workspace']), str(folder)]
     for name in ('gone', 'escaping'):

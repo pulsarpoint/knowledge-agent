@@ -41,7 +41,6 @@ const options: profiles.AgentOptions = {
   environment: [],
   code_project: [],
   document: [entry("document", "d1", "Runbook"), entry("document", "d2", "Guide")],
-  skill: [],
   mcp_server: [],
 };
 
@@ -73,6 +72,8 @@ test("lists the agent's resources by type with names, short descriptions and mis
   expect(within(services).getByText("Missing service (v-gone)")).toBeVisible();
   expect(within(services).getByRole("button", { name: "Remove Missing service (v-gone)" })).toBeEnabled();
   expect(within(services).getByText(/dropped when you save/)).toBeVisible();
+  expect(screen.queryByRole("group", { name: "Skills" })).toBeNull(); // every agent sees every enabled skill
+  expect(screen.queryByText(/skill/i)).toBeNull();
 });
 
 test("add, select all and remove make one PUT with the access object; missing ones are dropped", async () => {

@@ -38,8 +38,6 @@ ACCESS = {
         ),
     ),
     'code': run(item('code_project', 'c1', 'payments-api', folder_paths=['/code/payments'])),
-    # a saved agent's skill (skills are always given)
-    'skill': run(item('skill', 'k1', 'inspect')),
     # a run on an environment (its server and service come with it): it may write drafts
     'environment': run(
         item('environment', 'e1', 'prod'),
@@ -53,7 +51,6 @@ ACCESS = {
         item('environment', 'e9', 'staging'),
         item('code_project', 'c9', 'other-code'),
         item('document', 'd9', 'Other doc'),
-        item('skill', 'k9', 'other-skill'),
     ),
 }
 
@@ -108,7 +105,7 @@ NO_DOCUMENTS = 'This run has no documents.'
 NOT_SERVER = 'This server is not available in this run.'
 NOT_CODE = 'This code project is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
-NOT_SKILL = 'This skill is not available in this run.'
+NO_SKILL = 'No skill named inspect in this run.'  # no access object has skills: they are config['skills']
 WITH_SERVER = ('server', 'server_with_services', 'new_document', 'environment')
 LINKED_TOO = (
     'Documents linked to a server, service or environment in this run are usable too: list_documents lists them.'
@@ -129,8 +126,9 @@ def some(names, value) -> dict:
 
 
 CODE = row(NO_CODE, code=None, other=None)
-# the file and shell tools read the code projects' folders and the skills' folders
-FILES = row(NO_CODE_OR_SKILL, code=None, skill=None, other=None)
+# the file and shell tools read the code projects' folders and the skills' folders (config['skills']:
+# test_the_folder_tools_and_load_skill_take_the_runs_skills)
+FILES = row(NO_CODE_OR_SKILL, code=None, other=None)
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
 # usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
 USE = row(
@@ -164,7 +162,7 @@ EXPECTED = {
     'save_memory': ALWAYS,
     'update_memory': ALWAYS,
     'run_subagent': row(NOT_SERVER, **some(WITH_SERVER, None)),
-    'load_skill': row(NOT_SKILL, skill=None),
+    'load_skill': row(NO_SKILL),
     'schedule_wakeup': ALWAYS,  # a session's own wake-ups; the time is checked in test_wakeups
     'list_wakeups': ALWAYS,
     'cancel_wakeup': ALWAYS,
@@ -205,6 +203,12 @@ def test_check(tool, access_name):
     check = check_of(tool)
     assert check is not None, f'{tool} has no check_{tool}'
     assert check(ACCESS[access_name], **ARGS[tool]) == EXPECTED[tool][access_name]
+
+
+def test_the_folder_tools_and_load_skill_take_the_runs_skills():
+    skills = [{'id': 'k1', 'name': 'inspect', 'description': '', 'folder': 'skills/k1/v1'}]
+    for tool in ('list_files', 'read_file', 'search_files', 'shell_run', 'load_skill'):
+        assert check_of(tool)(ACCESS['empty'], skills=skills, **ARGS[tool]) is None, tool
 
 
 def test_a_new_document_is_created_only_for_resources_in_the_list():

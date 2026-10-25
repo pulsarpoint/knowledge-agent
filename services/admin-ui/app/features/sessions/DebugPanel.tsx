@@ -12,7 +12,6 @@ const TYPE_WORDS: Record<string, string> = {
   environment: "Environment",
   code_project: "Code project",
   document: "Document",
-  skill: "Skill",
   mcp_server: "MCP server",
 };
 

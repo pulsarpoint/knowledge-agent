@@ -36,13 +36,13 @@ def test_can_create_document_needs_every_built_for():
 def test_has_any():
     a = run_access()
     assert access.has_any(a, 'server')
-    assert not access.has_any(a, 'skill')
+    assert not access.has_any(a, 'service')
 
 
 def test_refusal_texts_are_exact():
     assert access.refuse_use('code_project') == 'This code project is not available in this run.'
     assert access.refuse_use('mcp_server') == 'This MCP server is not available in this run.'
-    assert access.refuse_none('skill') == 'This run has no skills.'
+    assert access.refuse_none('service') == 'This run has no services.'
     assert access.refuse_none('code_project', 'server') == 'This run has no code projects or servers.'
     assert set(access.TYPES) == set(access.TYPE_WORDS)
     assert access.TYPES == (
@@ -51,9 +51,8 @@ def test_refusal_texts_are_exact():
         'environment',
         'code_project',
         'document',
-        'skill',
         'mcp_server',
-    )  # the collection type is gone
+    )  # the collection type is gone; skills are not access (config['skills'])
 
 
 def test_narrow_none_keeps_agent_list():
@@ -95,7 +94,7 @@ def test_listing_filters_and_keeps_order():
     )
     assert [r['id'] for r in access.listing(a)] == ['s1', 'd1', 'd2', 'v1']
     assert [r['id'] for r in access.listing(a, 'document')] == ['d1', 'd2']
-    assert access.listing(a, 'skill') == []
+    assert access.listing(a, 'environment') == []
 
 
 def test_expand_marks_a_grandchild_via_its_direct_parent():

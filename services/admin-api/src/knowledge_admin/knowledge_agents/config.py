@@ -138,8 +138,10 @@ SECTIONS: dict[str, str] = {
 
 def _access(access: Mapping[str, Any]) -> dict[str, Any]:
     """The stored access object in a comparable form: references sorted (keys an older object may still carry, such
-    as roles, are left out)."""
-    references = [{'type': r['type'], 'id': str(r['id'])} for r in access.get('resources', [])]
+    as roles, and references of a type that is gone, such as skills, are left out)."""
+    references = [
+        {'type': r['type'], 'id': str(r['id'])} for r in access.get('resources', []) if r['type'] in access_rules.TYPES
+    ]
     return {'resources': sorted(references, key=lambda r: (r['type'], r['id']))}
 
 
@@ -171,7 +173,7 @@ SAVED = """SELECT revision,when_to_use,model_id,system_prompt,access,instruction
 
 def saved_config(conn, agent_id: str) -> dict[str, Any]:
     """An agent's configuration as it is saved, in the shape sections() reads (and its revision): its access object's
-    stored references, not loaded entries, so a deleted item or a switched-off skill does not change it. Clone compare
+    stored references, not loaded entries, so a deleted item does not change it. Clone compare
     and the Apply checks read this. LookupError: no such agent."""
     row = conn.execute(SAVED, (agent_id,)).fetchone()
     if row is None:
@@ -206,8 +208,6 @@ CODE_PROJECTS = """SELECT r.id,r.name,r.description,
     ORDER BY lower(r.name),r.id"""
 SERVICES = """SELECT id,name,description FROM ka.services WHERE project_id=%s AND id=ANY(%s::uuid[])
     ORDER BY lower(name),id"""
-SKILLS = """SELECT id,name,description,enabled,folder FROM ka.agent_skills
-    WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY name,id"""
 MCP_SERVERS = """SELECT id,name,description,url,enabled,token_ciphertext IS NOT NULL AS has_token
     FROM ka.mcp_servers WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY lower(name),id"""
 # A server with its own SSH settings.
@@ -285,14 +285,13 @@ def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list
     return {
         'code_project': code_projects,
         'service': load(SERVICES, 'service'),
-        'skill': load(SKILLS, 'skill'),
         'mcp_server': mcp_servers,
         'server': servers,
         'environment': load(ENVIRONMENTS, 'environment'),
     }
 
 
-LOADED = ('code_project', 'service', 'skill', 'mcp_server', 'server', 'environment')
+LOADED = ('code_project', 'service', 'mcp_server', 'server', 'environment')
 # What an entry carries of its item, besides its type, id, name and short description (access.py).
 SERVER_FIELDS = (
     'hostname',
@@ -319,10 +318,9 @@ def entry(type_: str, item: Mapping[str, Any], **extra) -> dict[str, Any]:
 
 
 def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
-    """The access entries of loaded items by type (load_items' shape; 'document': entries already), each once: servers, services, code projects, skills (enabled ones, listed in the instructions),
-    MCP servers (enabled ones), documents, environments. A code project carries its folders and its graph (graphs:
-    load_graphs), a skill its folder (relative to the data folder: the run pins it), a server and an MCP server
-    their connection."""
+    """The access entries of loaded items by type (load_items' shape; 'document': entries already), each once: servers,
+    services, code projects, MCP servers (enabled ones), documents, environments. A code project carries its folders
+    and its graph (graphs: load_graphs), a server and an MCP server their connection."""
     graph_of = {str(graph['id']): graph for graph in graphs}
 
     def code_project(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -333,11 +331,6 @@ def resource_entries(items: Mapping[str, list], graphs: Iterable[Mapping[str, An
     found = [entry('server', item, **{k: item[k] for k in SERVER_FIELDS}) for item in items.get('server', [])]
     found += [entry('service', item) for item in items.get('service', [])]
     found += [code_project(item) for item in items.get('code_project', [])]
-    found += [
-        entry('skill', item, description=item['description'], folder=item['folder'])
-        for item in items.get('skill', [])
-        if item['enabled']
-    ]
     found += [
         entry('mcp_server', item, **{k: item[k] for k in MCP_FIELDS})
         for item in items.get('mcp_server', [])

@@ -68,14 +68,16 @@ ENTRIES = [
         graph_path='/index/worker/graph.sqlite',
         code_root='/code',
     ),
-    entry('skill', 'inspect', 'Inspect', description='Inspect first.'),
     entry('mcp_server', 'docs', 'Docs', url='http://docs.test/mcp', enabled=True, bearer_token_ref={'id': 'mcp-token'}),
 ]
 
 
+SKILL = {'id': 'inspect', 'name': 'inspect', 'description': 'Inspect first.', 'folder': 'skills/inspect/v1'}
+
+
 def parent(without=(), **change) -> dict:
     """A fixed lead agent's pinned configuration: its access holds an SSH server, a service, two code projects with
-    graphs, a skill and an MCP server (but the ids in without); instructions."""
+    graphs and an MCP server (but the ids in without); a skill (config['skills']); instructions."""
     value = {
         'id': 'lead',
         'name': 'Lead',
@@ -87,6 +89,7 @@ def parent(without=(), **change) -> dict:
         'system_prompt': {'content': 'Lead the work.'},
         'instructions': 'Use the runbook.',
         'record': {'run_key': 'run:x'},
+        'skills': [SKILL],
     }
     value.update(change)
     return with_access(value, [item for item in ENTRIES if item['id'] not in without])
@@ -110,7 +113,7 @@ def test_a_subagent_gets_every_tool_but_run_subagent_and_the_wakeups_the_given_r
     assert sub['system_prompt'] == {'content': PROMPT} and PROMPT.startswith(
         'You are a helper started by another agent'
     )
-    assert (sub['instructions'], sub['name']) == ('', 'Lead · subagent') and entries(sub['access'], 'skill') == []
+    assert (sub['instructions'], sub['name']) == ('', 'Lead · subagent') and sub['skills'] == [SKILL]
     assert sub['model'] == MODEL and 'record' not in sub and sub['experts'] == []
     # its access: the parent's narrowed to the given code project, and the parent's MCP servers
     assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
@@ -124,7 +127,7 @@ def test_without_resources_a_subagent_keeps_the_parents_lists():
     sub = subagent_config(parent(), None)
     assert [s['id'] for s in selected_servers(sub)] == ['docs']
     assert entries(sub['access'], 'server')[0]['hostname'] == 'prod.test'  # the connection comes with its entry
-    # all of the parent's resources but its skills
+    # all of the parent's resources
     assert [(e['type'], e['id']) for e in sub['access']['resources']] == [
         ('server', 'prod'),
         ('service', 'payments'),

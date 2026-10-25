@@ -576,7 +576,7 @@ def test_a_session_turn_calls_an_expert_with_its_own_saved_configuration(native)
         pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
         conn.execute(
             'UPDATE ka.agent_sessions SET agent_config=%s WHERE id=%s',
-            (Jsonb(pin(conn, pinned['agent_config'], None)), sid),
+            (Jsonb(pin(conn, pinned['agent_config']['project_id'], pinned['agent_config'], None)), sid),
         )
     results: list[str] = []
     expert = FakeSubagent(

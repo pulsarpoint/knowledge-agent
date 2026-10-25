@@ -35,6 +35,23 @@ function Event({ event }: { event: RunEvent }) {
       <span className="font-normal text-muted-foreground">· {who}</span>
     </span>
   );
+  if (event.kind === "input" && typeof p.instructions === "string")
+    // the request: the exact instructions sent to the model, collapsed above the input
+    return (
+      <div className="flex flex-col gap-3">
+        <details>
+          <summary className="cursor-pointer">
+            <span className="text-sm font-medium">Instructions</span>{" "}
+            <span className="text-sm text-muted-foreground">· {who}</span>
+          </summary>
+          <Block>{p.instructions}</Block>
+        </details>
+        <details>
+          <summary className="cursor-pointer">{head}</summary>
+          <Block>{text({ task: p.task, history: p.history })}</Block>
+        </details>
+      </div>
+    );
   if (event.kind === "instructions" || event.kind === "input")
     return (
       <details>

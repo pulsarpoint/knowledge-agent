@@ -179,9 +179,8 @@ def test_options_list_every_project_resource_by_type_and_the_list_counts_access(
         'environment',
         'code_project',
         'document',
-        'skill',
         'mcp_server',
-    ]
+    ]  # skills are not access: every run gets every enabled skill
     assert found['server'] == [
         {'type': 'server', 'id': w.server['id'], 'name': 'web-1', 'description_short': 'Shop front end'}
     ]
@@ -199,7 +198,6 @@ def test_options_list_every_project_resource_by_type_and_the_list_counts_access(
         'environment': 0,
         'code_project': 0,
         'document': 0,
-        'skill': 0,
         'mcp_server': 0,
     }
     assert 'accepts' not in listed

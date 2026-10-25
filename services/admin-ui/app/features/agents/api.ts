@@ -1,12 +1,12 @@
 import { request } from "~/lib/api";
-/** The types of resource an agent's access may reference, with their labels, in the order the editor shows them. */
+/** The types of resource an agent's access may reference, with their labels, in the order the editor shows them.
+ * Skills are not access: every agent sees every enabled skill. */
 export const ACCESS_TYPES = [
   { type: "server", label: "Servers", one: "server", many: "servers" },
   { type: "service", label: "Services", one: "service", many: "services" },
   { type: "environment", label: "Environments", one: "environment", many: "environments" },
   { type: "code_project", label: "Code projects", one: "code project", many: "code projects" },
   { type: "document", label: "Documents", one: "document", many: "documents" },
-  { type: "skill", label: "Skills", one: "skill", many: "skills" },
   { type: "mcp_server", label: "MCP servers", one: "MCP server", many: "MCP servers" },
 ] as const;
 export type AccessType = (typeof ACCESS_TYPES)[number]["type"];

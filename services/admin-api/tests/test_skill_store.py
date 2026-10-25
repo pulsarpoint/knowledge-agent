@@ -70,7 +70,8 @@ def a_run_pinning(conn, project, folder: str, *, status: str = 'working'):
     actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
     agent = f'agent-{uuid4().hex[:6]}'
     conn.execute("INSERT INTO ka.agents(id,name,system_prompt) VALUES (%s,%s,'Be brief.')", (agent, agent))
-    config = {'id': agent, 'access': {'resources': [{'type': 'skill', 'id': str(uuid4()), 'folder': folder}]}}
+    skill = {'id': str(uuid4()), 'name': 'inspect', 'description': 'Inspect.', 'folder': folder}
+    config = {'id': agent, 'access': {'resources': []}, 'skills': [skill]}
     return add_test_session(conn, project, actor, agent, a_model(conn, actor), config=config, status=status)
 
 
@@ -79,7 +80,9 @@ def test_pinned_folders_are_named_by_runs_that_are_not_closed(store_db):
     a_run_pinning(conn, project, 'skills/s/v1')
     a_run_pinning(conn, project, 'skills/s/v2', status='closed')
     actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
-    add_test_session(conn, project, actor, 'nobody', a_model(conn, actor), config={'access': 'odd'})
+    add_test_session(conn, project, actor, 'nobody', a_model(conn, actor), config={'skills': 'odd'})
+    old = {'access': {'resources': [{'type': 'skill', 'id': 'k1', 'folder': 'skills/s/v3'}]}}  # ignored
+    add_test_session(conn, project, actor, 'nobody', a_model(conn, actor), config=old)
     assert folders.pinned_folders(conn) == {'skills/s/v1'}
 
 

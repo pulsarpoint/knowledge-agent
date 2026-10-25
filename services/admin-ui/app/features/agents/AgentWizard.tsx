@@ -123,8 +123,6 @@ function catalogList(catalog: WizardOptions["catalog"], type: AccessType): Wizar
       }));
     case "document":
       return catalog.documents.map((d) => ({ id: d.id, name: d.title, description: d.description }));
-    case "skill":
-      return catalog.skills;
     case "mcp_server":
       return catalog.mcp_servers;
   }
@@ -320,7 +318,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                         ["Documents", catalog.documents.length],
                         ["Servers", catalog.servers.length],
                         ["Environments", catalog.environments.length],
-                        ["Skills", catalog.skills.length],
                         ["MCP servers", catalog.mcp_servers.length],
                         ["Services", catalog.services.length],
                       ] as const

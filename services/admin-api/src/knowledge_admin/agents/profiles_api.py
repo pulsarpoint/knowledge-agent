@@ -34,7 +34,6 @@ RESOURCES = {
         ORDER BY lower(name),id""",
     'document': """SELECT id,title AS name,description FROM ka.live_documents WHERE project_id=%s
         ORDER BY lower(title),id""",
-    'skill': 'SELECT id,name,description FROM ka.agent_skills WHERE project_id=%s ORDER BY lower(name),id',
     'mcp_server': 'SELECT id,name,description FROM ka.mcp_servers WHERE project_id=%s ORDER BY lower(name),id',
 }
 

@@ -624,3 +624,11 @@ ones; one version each, input kind `code`):
 
 The down migration removes each prompt only where it is unchanged (its one version, never saved again) and drops the
 trigger and functions.
+
+## 0141_skills_for_all
+
+Skills leave the access model: every run gets every enabled skill of the project, pinned at start in its configuration
+(`agent_config.skills`). The skill entries (`{"type": "skill", ...}`) are removed from stored access objects: saved
+agents (`ka.agents.access`), runs (`ka.agent_sessions.access`) and the access copy in a run's `agent_config`, as 0139
+did. Code also ignores such an entry when it reads an older object. The down migration restores nothing (the removed
+entries are test data and do not come back).

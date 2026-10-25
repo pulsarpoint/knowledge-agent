@@ -1,6 +1,6 @@
-"""Skills on demand: the instructions list each skill of the run's access by name and description (never its text);
-load_skill returns a listed skill's instructions from the folder the run pinned and refuses any other with the same
-text (its file list: test_skill_runtime)."""
+"""Skills on demand: the instructions list each skill the run pinned (config['skills']) by name and description (never
+its text); load_skill returns a listed skill's instructions from the folder the run pinned and refuses any other (its
+file list: test_skill_runtime)."""
 
 import asyncio
 
@@ -9,12 +9,13 @@ from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.skills import check_load_skill
+from knowledge_admin.capabilities.skills import run_skills
 from knowledge_admin.sessions.run_access import agent_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.tools.catalog import CATALOG
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 
-REFUSED = 'This skill is not available in this run.'
+REFUSED = 'No skill named {name} in this run.'
 SECTION = """## Skills
 A skill is a set of instructions to follow. Below is the list of skills that can be used. Each entry has a name and a description; call `load_skill` with the name to get its full instructions when you use it.
 ### Available skills
@@ -26,14 +27,15 @@ A skill is a set of instructions to follow. Below is the list of skills that can
 
 
 def skill(id_: str, name: str) -> dict:
-    return {'type': 'skill', 'id': id_, 'name': name, 'description_short': '', 'source': 'given'}
+    return {'id': id_, 'name': name, 'description': '', 'folder': f'skills/{id_}/v1'}
 
 
 def bare_config(*skills: dict) -> dict:
     return {
         'system_prompt': {'content': 'You answer.'},
         'instructions': 'Be brief.',
-        'access': {'resources': list(skills)},
+        'access': {'resources': []},
+        'skills': list(skills),
     }
 
 
@@ -45,7 +47,8 @@ def run(store, saved_agent, monkeypatch):  # noqa: F811
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         access = agent_access(conn, project, config, None)
-    return {**config, 'access': access, 'project_id': str(project)}, saved_agent[3]
+        skills = run_skills(conn, project)
+    return {**config, 'access': access, 'skills': skills, 'project_id': str(project)}, saved_agent[3]
 
 
 def load(config: dict, name: str) -> str:
@@ -62,7 +65,7 @@ def test_the_instructions_list_the_skills_by_name_and_description_only(run):
 
 
 def test_a_run_without_skills_has_no_section():
-    for prompt in (get_prompt(bare_config()), agent_system_prompt(bare_config() | {'skills': {}})):
+    for prompt in (get_prompt(bare_config()), agent_system_prompt(bare_config() | {'skills': []})):
         assert '## Skills' not in prompt and 'load_skill' not in prompt
 
 
@@ -73,8 +76,8 @@ def test_load_skill_returns_a_listed_skills_instructions(run):
 
 def test_load_skill_refuses_an_unlisted_skill(run):
     config, _ = run
-    assert load(config, 'other') == REFUSED
-    assert load({**config, 'access': {'resources': [], 'roles': {}}}, 'inspect') == REFUSED
+    assert load(config, 'other') == REFUSED.format(name='other')
+    assert load({**config, 'skills': []}, 'inspect') == REFUSED.format(name='inspect')
 
 
 def test_a_skill_switched_off_during_a_run_stays_pinned(run, store):
@@ -84,19 +87,19 @@ def test_a_skill_switched_off_during_a_run_stays_pinned(run, store):
     assert load(config, 'inspect').startswith('Check the exit code.')
 
 
-def test_check_load_skill_matches_on_the_entry_name():
-    access = bare_config(skill('k1', 'inspect'))['access']
-    assert check_load_skill(access, name='inspect') is None
-    assert check_load_skill(access, name='k1') == REFUSED
-    assert check_load_skill({'resources': []}, name='inspect') == REFUSED
+def test_check_load_skill_matches_on_the_skill_name():
+    skills = bare_config(skill('k1', 'inspect'))['skills']
+    assert check_load_skill({'resources': []}, name='inspect', skills=skills) is None
+    assert check_load_skill({'resources': []}, name='k1', skills=skills) == REFUSED.format(name='k1')
+    assert check_load_skill({'resources': []}, name='inspect') == REFUSED.format(name='inspect')
 
 
 def test_a_missing_or_broken_folder_is_a_refusal(run, skills_folder):
     config, _ = run
-    [entry] = [item for item in config['access']['resources'] if item['type'] == 'skill']
-    gone = {**config, 'access': {'resources': [{**entry, 'folder': 'skills/gone/v1'}]}}
+    [entry] = config['skills']
+    gone = {**config, 'skills': [{**entry, 'folder': 'skills/gone/v1'}]}
     assert load(gone, 'inspect') == "This skill's files are unavailable."
-    unpinned = {**config, 'access': {'resources': [{k: v for k, v in entry.items() if k != 'folder'}]}}
+    unpinned = {**config, 'skills': [{k: v for k, v in entry.items() if k != 'folder'}]}
     assert load(unpinned, 'inspect') == "This skill's files are unavailable."
     (skills_folder / entry['folder'] / 'SKILL.md').write_text('no frontmatter')
     assert load(config, 'inspect') == 'Skills are unavailable right now.'

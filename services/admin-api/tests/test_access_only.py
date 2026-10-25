@@ -18,7 +18,8 @@ from test_session_access import NEW, start, stored
 from test_test_sessions import analyst, start as agent_start, tester  # noqa: F401  (fixtures)
 
 PROJECT = '5f0c2d7e-0000-4000-8000-000000000001'
-SECTIONS = ('code', 'documents', 'ssh', 'services', 'skills', 'mcp', 'document_access')
+# (skills are not access: every run pins every enabled skill as config['skills'], test_skills_for_all)
+SECTIONS = ('code', 'documents', 'ssh', 'services', 'mcp', 'document_access')
 CONNECTION = ('hostname', 'port', 'username', 'allow_sudo', 'known_hosts', 'private_key_ref', 'url', 'bearer_token_ref')
 
 

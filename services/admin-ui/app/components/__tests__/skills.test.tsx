@@ -81,6 +81,14 @@ function show() {
   return router;
 }
 
+test("the page says every agent sees every enabled skill and each row has its enabled switch", async () => {
+  api({ "GET /api/skills": () => [200, { skills: [notes, { ...pdf, enabled: false }] }] });
+  show();
+  expect(await screen.findByText("Every agent sees every enabled skill; disable a skill to hide it.")).toBeVisible();
+  expect(screen.getByRole("switch", { name: "notes enabled" })).toBeChecked();
+  expect(screen.getByRole("switch", { name: "pdf-forms enabled" })).not.toBeChecked();
+});
+
 test("the list shows each skill's version and source; Update from source only for git skills", async () => {
   const calls = api({
     "GET /api/skills": () => [200, { skills: [notes, pdf] }],

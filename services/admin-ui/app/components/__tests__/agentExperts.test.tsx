@@ -46,7 +46,6 @@ beforeEach(() => {
     environment: [],
     code_project: [],
     document: [],
-    skill: [],
     mcp_server: [],
   });
   vi.mocked(profiles.saveAgent).mockImplementation(async (draft) => ({ ...draft, revision: draft.revision + 1 }));
@@ -105,7 +104,6 @@ test("All agents and the agent header show the Expert badge", async () => {
           environment: 0,
           code_project: 0,
           document: 0,
-          skill: 0,
           mcp_server: 0,
         },
       },
@@ -120,7 +118,6 @@ test("All agents and the agent header show the Expert badge", async () => {
           environment: 0,
           code_project: 0,
           document: 0,
-          skill: 0,
           mcp_server: 0,
         },
       },

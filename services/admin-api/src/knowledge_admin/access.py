@@ -3,7 +3,7 @@
 access = {"resources": [{type, id, name, description_short, source, ...}]}  (keys an older stored object may still
           carry, such as roles or a document entry's editable, are ignored)
 An entry also carries what the tools need to reach its resource: a code project its folder_paths (and graph_path,
-code_root), a skill its description and pinned folder, a new document where it goes; a server its connection
+code_root), a new document where it goes; a server its connection
 (hostname, port, username, allow_sudo, known_hosts, enabled, ssh_allowed, private_key_ref) and an MCP server its (url,
 enabled, bearer_token_ref): references only, never secrets. listing shows only the PUBLIC fields: the model and the
 Debug tab never see a connection. A server entry the run can use over SSH (ssh_reason None) has a pinned connection;
@@ -11,14 +11,14 @@ a server added only as the run's own resource carries none.
 No I/O. Every tool decides access through these functions.
 """
 
-TYPES = ('server', 'service', 'environment', 'code_project', 'document', 'skill', 'mcp_server')
+TYPES = ('server', 'service', 'environment', 'code_project', 'document', 'mcp_server')  # skills are not access: every
+# run gets every enabled skill (config['skills']); an older object's skill entries are ignored
 TYPE_WORDS = {
     'server': 'server',
     'service': 'service',
     'environment': 'environment',
     'code_project': 'code project',
     'document': 'document',
-    'skill': 'skill',
     'mcp_server': 'MCP server',
 }
 # What listing shows of an entry (get_available_resources, the Debug tab): never a connection.

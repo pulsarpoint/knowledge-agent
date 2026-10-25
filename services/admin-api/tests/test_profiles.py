@@ -73,11 +73,7 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
     first = create(client, 'Code one')
     second = create(client, 'Code two')
     repository = client.post('/api/repositories', headers=HEADERS, json={'remote_url': 'example/repo'}).json()
-    skill = client.post(
-        '/api/skills',
-        headers=HEADERS,
-        json={'name': 'review', 'description': 'Review procedures', 'instructions': 'Inspect retries.'},
-    ).json()
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'Payments'}).json()
     code = {
         'resources': [{'type': 'code_project', 'id': repository['id']}],
     }
@@ -85,9 +81,9 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
     assert response.status_code == 200, response.text
     first = response.json()
     assert [(r['type'], r['id']) for r in first['access']['resources']] == [('code_project', repository['id'])]
-    skilled = {**code, 'resources': [*code['resources'], {'type': 'skill', 'id': skill['id']}]}
-    first = update(client, first, access=skilled).json()
-    assert [r['id'] for r in first['access']['resources']] == [repository['id'], skill['id']]
+    both = {**code, 'resources': [*code['resources'], {'type': 'service', 'id': service['id']}]}
+    first = update(client, first, access=both).json()
+    assert [r['id'] for r in first['access']['resources']] == [repository['id'], service['id']]
     gone = {**code, 'resources': [{'type': 'code_project', 'id': str(uuid4())}]}
     first = update(client, first, access=gone).json()  # a resource that does not exist is dropped
     assert first['access']['resources'] == []
@@ -137,19 +133,17 @@ def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
             conn.execute("INSERT INTO ka.agents(id,name,system_prompt) VALUES ('missing-prompt','Missing prompt',NULL)")
 
 
-def test_skills_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(store, tmp_path):
+def test_services_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     first, second = create(client, 'First specialist'), create(client, 'Second specialist')
-    skills = [
-        client.post(
-            '/api/skills', headers=HEADERS, json={'name': name, 'description': name, 'instructions': f'Follow {name}.'}
-        ).json()['id']
+    skills = [  # services (skills are not access: every run gets every enabled skill)
+        client.post('/api/services', headers=HEADERS, json={'name': name}).json()['id']
         for name in ('inspect', 'verify')
     ]
 
     def access(*ids):
         return {
-            'resources': [{'type': 'skill', 'id': i} for i in ids],
+            'resources': [{'type': 'service', 'id': i} for i in ids],
         }
 
     first = update(client, first, access=access(*skills)).json()
@@ -157,7 +151,7 @@ def test_skills_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(st
     assert [r['id'] for r in first['access']['resources']] == skills
     assert [r['id'] for r in second['access']['resources']] == [skills[0]]
     with store.connect() as conn:
-        conn.execute('DELETE FROM ka.agent_skills WHERE id=%s', (UUID(skills[1]),))
+        conn.execute('DELETE FROM ka.services WHERE id=%s', (UUID(skills[1]),))
     found = client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()['access']['resources']
     assert [(r['id'], r.get('missing', False)) for r in found] == [(skills[0], False), (skills[1], True)]
     saved = update(client, client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()).json()

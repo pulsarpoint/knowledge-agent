@@ -428,7 +428,6 @@
                 "environment",
                 "code_project",
                 "document",
-                "skill",
                 "mcp_server"
               ],
               "type": "string"

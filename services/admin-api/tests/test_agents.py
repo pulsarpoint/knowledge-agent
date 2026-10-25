@@ -92,7 +92,6 @@ def saved_agent(store, tmp_path):
                 ('server', server['id']),
                 ('service', service['id']),
                 ('code_project', repo['id']),
-                ('skill', skill['id']),
                 ('mcp_server', mcp['id']),
             ],
         )
@@ -122,9 +121,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
             'folder_paths': ['/work/code/managed/payments'],
         }
     ]
-    [found] = of(config, 'skill')
-    assert (found['id'], found['description']) == (skill['id'], 'Inspect service health')
-    assert 'instructions' not in found  # load_skill reads them
+    assert of(config, 'skill') == []  # skills are not access: a run pins every enabled skill (config['skills'])
     [tools] = of(config, 'mcp_server')
     assert set(tools) == {'type', 'id', 'name', 'description_short', 'url', 'enabled', 'bearer_token_ref'}
     [service] = of(config, 'service')

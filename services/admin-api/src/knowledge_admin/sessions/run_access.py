@@ -6,8 +6,8 @@ picked (each checked: check_picks), each loaded with what the tools need (config
 connection, a code project its folders and graph). What it was given is narrowed out of that
 with access.narrow; the children of what it was given are loaded when it does not hold them (bring: an environment the
 services and servers deployed in it; a service its code projects (built_from) and the servers it is deployed on; a
-server the services deployed on it) and added by access.expand, each 'via <type> <id>' of its direct parent. Skills and MCP servers are not picked:
-always given."""
+server the services deployed on it) and added by access.expand, each 'via <type> <id>' of its direct parent. MCP servers
+are not picked: always given. Skills are not access: every run gets every enabled skill (config['skills'])."""
 
 from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple
@@ -16,7 +16,7 @@ from uuid import UUID
 from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import entry, load_entries
 
-ALWAYS_GIVEN = ('skill', 'mcp_server')
+ALWAYS_GIVEN = ('mcp_server',)
 OWN = {
     'server': 'SELECT id,name,description FROM ka.servers WHERE project_id=%s AND id=%s',
     'service': 'SELECT id,name,description FROM ka.services WHERE project_id=%s AND id=%s',
@@ -200,8 +200,8 @@ def agent_access(
     picked: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
     """A saved agent's run's access object: the agent's access (as get_agent_config holds it) narrowed to picked
-    (None: all of it; ValueError: a pick outside it, access.narrow; its skills and MCP servers are added by
-    run_access), what was given bringing its children (run_access: the agent's access need not hold them)."""
+    (None: all of it; ValueError: a pick outside it, access.narrow; its MCP servers are added by run_access), what was
+    given bringing its children (run_access: the agent's access need not hold them)."""
     holds = config['access']['resources']
     given_entries = access_rules.narrow({'resources': holds}, picked)['resources']
     picks_given = [{'type': item['type'], 'id': item['id']} for item in given_entries]

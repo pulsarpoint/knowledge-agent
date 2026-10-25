@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 
 from native_fakes import FakeAgent, call, hang, llm, message, stubborn, tool
 from knowledge_admin.sessions import run_record
-from knowledge_admin.agents.runner import agent
+from knowledge_admin.agents.runner import agent, get_prompt
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession
@@ -65,7 +65,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     with store.connect() as conn:  # a run record setting never reaches a session turn (agent() would record it)
         conn.execute(
             'UPDATE ka.agent_sessions SET agent_config=agent_config || %s WHERE id=%s',
-            (Jsonb({'record': {'run_key': 'run:x'}}), sid),
+            (Jsonb({'record': {'run_key': 'run:x'}, 'instructions': f'Never print {KEY}.'}), sid),
         )
     fake = FakeAgent(
         [
@@ -148,7 +148,10 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
         'agent': 'Ad-hoc agent',
         'turn': 1,
     }
-    assert turn1[1]['payload'] == {'task': first['task']}  # no empty history from agent()'s own run record
+    # no empty history from agent()'s own run record; the instructions sent, redacted
+    sent = get_prompt(first['config']).replace(KEY, '[redacted]')
+    assert turn1[1]['payload'] == {'task': first['task'], 'instructions': sent} and KEY not in sent
+    assert 'Never print [redacted].' in sent
     assert turn1[2]['payload']['text'] == 'Native prompt for Ad-hoc agent'
     assert (
         turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
@@ -541,9 +544,10 @@ def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_tur
     assert fake.calls[1]['task'] == 'Also cover retries.' and fake.calls[1]['history'] == []
     assert inputs(store, sid)[1:] == [('Also cover retries.', 'delivered', 2)]
     recorded = events(store, sid)
+    sent = get_prompt(fake.calls[1]['config'])
     assert [(e['run_key'], e['payload']) for e in recorded if e['kind'] == 'input'][1:] == [
         (f'cc:{sid}:1', {'task': 'Also cover retries.', 'comment': True}),
-        (f'cc:{sid}:2', {'task': 'Also cover retries.'}),
+        (f'cc:{sid}:2', {'task': 'Also cover retries.', 'instructions': sent}),
     ]
 
 

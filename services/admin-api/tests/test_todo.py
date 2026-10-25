@@ -55,7 +55,6 @@ def test_delete_keeps_every_resource_its_access_referenced(store, tmp_path):
         ('server', server['id']),
         ('service', service['id']),
         ('code_project', repository['id']),
-        ('skill', skill['id']),
         ('mcp_server', mcp['id']),
     ]
     access = {'resources': [{'type': t, 'id': i} for t, i in references]}

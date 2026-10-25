@@ -13,12 +13,12 @@ NOT_FROM_JIRA = 'This event did not come from a Jira connection.'
 
 def agent_system_prompt(config: dict[str, Any]) -> str:
     """The agent's instructions for a session: the active prompt, the agent's instructions and its skills by name and
-    description (skills.section; load_skill gives their instructions). What to write in this session stays in the first
-    message."""
+    description (config['skills']: skills.section; load_skill gives their instructions). What to write in this session
+    stays in the first message."""
     parts = [config['system_prompt']['content'].strip()]
     if config['instructions'].strip():
         parts.append('## Instructions\n\n' + config['instructions'].strip())
-    if listed := skills.section(config['access']):
+    if listed := skills.section(config):
         parts.append(listed)
     return '\n\n'.join(parts)
 

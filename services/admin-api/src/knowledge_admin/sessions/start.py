@@ -440,7 +440,7 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    pinned = pin(conn, config, agent_id)
+    pinned = pin(conn, project, config, agent_id)
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     if value.context:
         content = pinned['system_prompt']['content'] + f'\n\n# Context\n\n{value.context}'
@@ -555,6 +555,7 @@ def build(
             system_prompt += f'\n\n{context}' if '\n# Context\n' in system_prompt else f'\n\n# Context\n\n{context}'
     pinned = pin(
         conn,
+        project,
         {
             'id': AD_HOC_AGENT,
             'name': AD_HOC_NAME,

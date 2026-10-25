@@ -296,8 +296,9 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     # archived items are dropped
     expected['code']['projects'].remove(unselected)
     expected = held(expected)
-    # the working copy differed everywhere but in documents: the collection type is gone, so neither holds any
-    assert [key for key in expected if drifted[key] == expected[key]] == ['documents']
+    # the working copy differed everywhere but in skills and documents: skills are not access any more and the
+    # collection type is gone, so neither holds any
+    assert [key for key in expected if drifted[key] == expected[key]] == ['skills', 'documents']
     convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     migrated = held(sections(legacy(after)))

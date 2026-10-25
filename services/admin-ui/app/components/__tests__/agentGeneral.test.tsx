@@ -43,7 +43,6 @@ const NO_COUNTS = {
   environment: 0,
   code_project: 0,
   document: 0,
-  skill: 0,
   mcp_server: 0,
 };
 const connection = {
@@ -89,7 +88,6 @@ beforeEach(() => {
     environment: [],
     code_project: [],
     document: [],
-    skill: [],
     mcp_server: [],
   });
   vi.mocked(profiles.saveAgent).mockImplementation(async (value) => ({ ...value, revision: value.revision + 1 }));
@@ -220,7 +218,6 @@ test("General keeps resources saved on the Resources tab meanwhile", async () =>
     environment: [],
     code_project: [],
     document: [],
-    skill: [],
     mcp_server: [],
   });
   open("/agents/search");

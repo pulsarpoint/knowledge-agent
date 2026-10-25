@@ -82,7 +82,7 @@ def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeyp
     monkeypatch.setenv('AGENT_SHELL_URL', 'http://shell.invalid')  # refused before any request
     context = run_context(folders)
     code = access_rules.refuse_none('code_project')
-    files = access_rules.refuse_none('code_project', 'skill')  # the file and shell tools read code and skill folders
+    files = 'This run has no code projects or skills.'  # the file and shell tools read code and skill folders
     assert invoke(list_files, context) == files
     assert invoke(shell_run, context, command='ls /') == files
     assert invoke(code_search, context, path=str(folders['given']), language='Python', name='given') == code

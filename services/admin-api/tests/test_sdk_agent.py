@@ -200,12 +200,15 @@ def config(responses_api, tmp_path):
             'api_key_ref': {'id': 'model-key'},
         },
     }
-    # its access: a code project, an enabled skill and a service (no MCP server, no SSH server)
+    # the skills its run pinned (every enabled skill of the project)
+    value['skills'] = [
+        {'id': 'inspection', 'name': 'Inspection', 'description': 'Inspect before changing.', 'folder': 'skills/i/v1'}
+    ]
+    # its access: a code project and a service (no MCP server, no SSH server)
     return with_access(
         value,
         [
             entry('code_project', 'source', 'Source', description_short='Local source', folder_paths=[str(source)]),
-            entry('skill', 'inspection', 'Inspection', description='Inspect before changing.'),
             entry('service', 'payments', 'Payments'),
         ],
     )
@@ -313,6 +316,7 @@ def test_document_output_budget_reaches_the_provider(config, responses_api):
 def test_disabled_resources_are_not_used_or_validated(config, responses_api):
     _, requests = responses_api
     with_access(config)  # nothing in its access
+    config['skills'] = []  # and no skills
     result = asyncio.run(
         agent(config, 'Answer without resources.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45)
     )

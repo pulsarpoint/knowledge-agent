@@ -81,12 +81,14 @@ the run's resources by `resource_of`). `new_document` names the folder and slug 
 document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
 
-`load_skill` (`capabilities/skills.py`; group `agents`) returns, for a skill in the run's access by name, the body of
+`load_skill` (`capabilities/skills.py`; group `agents`) returns, for one of the run's skills (`config['skills']`: every
+enabled skill, pinned at start) by name, the body of
 `SKILL.md` and the skill's files at their absolute paths with their sizes, then the note `Read files with read_file;
-run scripts with shell_run; both take these paths.` It reads the folder the run pinned at start (the skill entry's
-`folder`), so an update or a switch-off during the run changes nothing for it; any other name is refused with `This
-skill is not available in this run.`. The run's instructions list its skills by name and description only (`skills.section`, used by
-`runner.get_prompt` and `sessions/text.agent_system_prompt`); a run without skills has no Skills section.
+run scripts with shell_run; both take these paths.` It reads the folder the run pinned at start (the skill's
+`folder`), so an update or a switch-off during the run changes nothing for it; any other name is refused with `No
+skill named <name> in this run.`. The run's instructions list its skills by name and description only (`skills.section`, used by
+`runner.get_prompt` and `sessions/text.agent_system_prompt`); a run without skills, or with `load_skill` switched off,
+has no Skills section.
 
 Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog and have no usage text of their
 own. A session pins the experts it may call (`config['experts']`); the runtime builds one function tool per entry

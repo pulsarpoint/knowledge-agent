@@ -123,9 +123,14 @@ export default function SkillsView() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {skills ? `${skills.length} ${skills.length === 1 ? "skill" : "skills"}` : "Loading skills…"}
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm text-muted-foreground">
+            {skills ? `${skills.length} ${skills.length === 1 ? "skill" : "skills"}` : "Loading skills…"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Every agent sees every enabled skill; disable a skill to hide it.
+          </p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" disabled={blocked} onClick={() => setRefresh((value) => value + 1)}>
             <RefreshCw data-icon="inline-start" />

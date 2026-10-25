@@ -23,7 +23,7 @@ from cryptography.exceptions import InvalidTag
 
 from knowledge_admin.sessions import tracing as agent_tracing, run_record
 from knowledge_admin.sessions.activity import tool_failed
-from knowledge_admin.agents.runner import agent, load_credentials
+from knowledge_admin.agents.runner import agent, load_credentials, recorded_instructions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
 from knowledge_admin.knowledge_agents.history import HistorySession
@@ -372,8 +372,8 @@ class NativeRunner(shared.SessionRunner):
         recorder.add(
             'start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'], 'turn': number}
         )
-        recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
+        given = False  # the input event: added once the turn's secrets are known, so its instructions are redacted
         events = SessionEvents(
             recorder, secrets=secrets, first=number == 1, record_usage=lambda usage: self.add_usage(recorder, usage)
         )
@@ -402,6 +402,10 @@ class NativeRunner(shared.SessionRunner):
                 )
                 config, credentials, history = await asyncio.to_thread(self.load)
                 secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
+                instructions = recorded_instructions(config, config.get('output_schema'))
+                recorder.add('input', {'task': text, **({'instructions': instructions} if instructions else {})})
+                given = True
+                await asyncio.to_thread(recorder.flush)
                 comments = Comments(self, number, recorder, history)
                 status, result = await self.drive(config, text, credentials, history, events, comments, subagents)
                 if status == 'waiting' and config.get('output_schema') is not None:
@@ -412,6 +416,8 @@ class NativeRunner(shared.SessionRunner):
                     message = STOPPED
             except Exception as exc:
                 status, message = 'failed', failure(exc, secrets)
+                if not given:  # the turn failed before it was sent (its config or credentials did not load)
+                    recorder.add('input', {'task': text})
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
                 logger.warning(  # the redacted message, and the code frames only (the raw text may hold secrets)
                     'Agent session %s turn %s failed: %s\n%s',

@@ -48,17 +48,17 @@ def edit_prompt(client, agent_id: str, text: str) -> None:
 
 
 def test_apply_copies_everything_but_name_and_description(store, saved_agent):
-    client, skill = saved_agent[0], saved_agent[3]
+    client, mcp = saved_agent[0], saved_agent[4]
     copy_id = clone(client)['id']
     original = client.get('/api/agents/operations', headers=HEADERS).json()
     edit_prompt(client, copy_id, 'Answer from evidence.')
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET instructions='Gather evidence first.' WHERE id=%s", (copy_id,))
-        conn.execute(  # the clone drops the skill and becomes a content editor
+        conn.execute(  # the clone drops the MCP server and becomes a content editor
             """UPDATE ka.agents SET access=jsonb_build_object(
                 'resources',(SELECT jsonb_agg(r) FROM jsonb_array_elements(access->'resources') r WHERE r->>'id'<>%s),
                 'roles',jsonb_build_object('content_editor',true)) WHERE id=%s""",
-            (skill['id'], copy_id),
+            (mcp['id'], copy_id),
         )
         conn.execute(
             """UPDATE ka.agents SET name='Experiment',description='Evidence first',when_to_use='Payments',
@@ -67,7 +67,7 @@ def test_apply_copies_everything_but_name_and_description(store, saved_agent):
         )
     value = preview(client, copy_id)
     assert value['original'] == {'id': 'operations', 'name': original['name'], 'revision': original['revision']}
-    assert value['changes'] == ['General', 'Resources']  # each tab once: a skill is a resource
+    assert value['changes'] == ['General', 'Resources']  # each tab once: an MCP server is a resource
     applied = apply(client, copy_id, value)
     assert applied.status_code == 200, applied.text
     assert applied.json() == {'id': 'operations', 'revision': original['revision'] + 1}
@@ -163,8 +163,8 @@ def test_a_profile_save_waits_for_apply(store, saved_agent):
     waits_for_the_agent(store, lambda: update(client, current, instructions='Check only the queue.'))
 
 
-def test_switching_a_referenced_skill_off_keeps_the_fingerprint(store, saved_agent):
-    """Clone compare and the Apply check read the stored access references, not the loaded entries."""
+def test_switching_a_skill_off_keeps_the_fingerprint(store, saved_agent):
+    """Skills are not part of an agent's configuration (every run gets every enabled skill)."""
     client, skill = saved_agent[0], saved_agent[3]
     copy_id = clone(client)['id']
     before = preview(client, copy_id)

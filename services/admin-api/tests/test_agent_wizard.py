@@ -41,7 +41,6 @@ def wizard(store, saved_agent):
                 {'type': 'server', 'id': server['id']},
                 {'type': 'service', 'id': catalog['services'][0]['id']},
                 {'type': 'code_project', 'id': repo['id']},
-                {'type': 'skill', 'id': skill['id']},
                 {'type': 'mcp_server', 'id': mcp['id']},
             ],
         },
@@ -62,6 +61,7 @@ def test_wizard_context_excludes_secret_material_and_is_admin_only(wizard):
     repository = next(r['id'] for r in proposal['access']['resources'] if r['type'] == 'code_project')
     assert next(p for p in catalog['code_projects'] if p['id'] == repository)['folder_paths'] == ['managed/payments']
     assert all(isinstance(p['folder_paths'], list) for p in catalog['code_projects'])
+    assert 'skills' not in catalog  # every agent sees every enabled skill: none is chosen
     for secret in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret', 'ciphertext'):
         assert secret not in response.text
     assert client.get('/api/agents/wizard/options').status_code == 403
@@ -122,6 +122,11 @@ def test_wizard_roundtrip_every_resource(store, wizard):
         {
             'access': {
                 'resources': [{'type': 'printer', 'id': str(uuid4())}],
+            }
+        },
+        {  # skills are not chosen: every agent sees every enabled skill
+            'access': {
+                'resources': [{'type': 'skill', 'id': str(uuid4())}],
             }
         },
         {'model_id': str(uuid4())},

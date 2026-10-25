@@ -21,9 +21,9 @@ Files = dict[str, tuple[bytes, bool]]  # path -> (content, executable)
 NOT_CONFIGURED = 'The skills folder is not configured.'
 FIELDS = 'id,name,description,enabled,revision,source,folder,created_at,updated_at'
 PINNED = """SELECT DISTINCT e->>'folder' AS folder FROM ka.agent_sessions s
-    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(s.agent_config->'access'->'resources')='array'
-        THEN s.agent_config->'access'->'resources' ELSE '[]'::jsonb END) e
-    WHERE s.status<>'closed' AND e->>'type'='skill' AND jsonb_typeof(e->'folder')='string'"""
+    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(s.agent_config->'skills')='array'
+        THEN s.agent_config->'skills' ELSE '[]'::jsonb END) e
+    WHERE s.status<>'closed' AND jsonb_typeof(e->'folder')='string'"""
 
 
 def skills_root() -> Path:
@@ -162,7 +162,7 @@ def cleanup(root: Path, current: dict[str, str | None], pinned: set[str], *, all
 
 
 def pinned_folders(conn) -> set[str]:
-    """The skill folders runs that are not closed pinned (their config's access entries of type skill)."""
+    """The skill folders runs that are not closed pinned (config['skills'][*].folder)."""
     return {row['folder'] for row in conn.execute(PINNED)}
 
 

@@ -1,14 +1,13 @@
 """Skills on demand: the run's instructions list its skills by name and description (section); load_skill returns a
-listed skill's instructions (the body of its SKILL.md) and its files at their absolute paths. The skills are the run's
-access entries of type skill, each with the folder the run pinned at start: an update during the run does not change
-what it reads."""
+listed skill's instructions (the body of its SKILL.md) and its files at their absolute paths. Every run gets every
+enabled skill of the project: run start pins them in config['skills'] (run_skills), each with its folder, so an update
+or a switch during the run does not change what it reads. Skills are not part of the run's access object."""
 
 import asyncio
 from typing import Annotated
 
 from pydantic import Field
 
-from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import skill_folder
 from knowledge_admin.skills.rules import parse_skill_md
@@ -16,6 +15,9 @@ from knowledge_admin.skills.store import list_files
 from knowledge_admin.tools.registry import tool
 
 UNAVAILABLE = 'Skills are unavailable right now.'
+NO_SKILL = 'No skill named {name} in this run.'
+ENABLED = """SELECT id::text AS id,name,description,folder FROM ka.agent_skills
+    WHERE project_id=%s AND enabled ORDER BY name,id"""
 FILES_UNAVAILABLE = "This skill's files are unavailable."
 NOTE = 'Read files with read_file; run scripts with shell_run; both take these paths.'
 HEADER = """## Skills
@@ -27,22 +29,29 @@ HOW_TO = """### How to use skills
 - Missing/blocked: If a named skill isn't in the list, say so briefly and continue with the best fallback."""
 
 
-def section(access: dict) -> str:
-    """The skills section of the run's instructions: each skill by name and description; '' when it has none."""
-    skills = access_rules.listing(access, 'skill')
-    if not skills:
+def run_skills(conn, project) -> list[dict]:
+    """What a run pins as config['skills'] at start: every enabled skill of the project, in name order, as {id, name,
+    description, folder}; a skill whose folder is missing on disk is left out (files.skill_folder)."""
+    return [dict(row) for row in conn.execute(ENABLED, (project,)) if skill_folder(row) is not None]
+
+
+def section(config: dict) -> str:
+    """The skills section of the run's instructions: each of config['skills'] by name and description; '' when it has
+    none or load_skill is switched off for the run (config['disabled_tools'])."""
+    skills = config.get('skills') or []
+    if not skills or 'load_skill' in config.get('disabled_tools', ()):
         return ''
     lines = [f'- {item["name"]}: {" ".join((item.get("description") or "").split())}' for item in skills]
     return '\n'.join([HEADER, *lines, HOW_TO])
 
 
-def _skill(access: dict, name: str) -> dict | None:
-    return next((item for item in access_rules.listing(access, 'skill') if item['name'] == name), None)
+def _skill(skills, name: str) -> dict | None:
+    return next((item for item in skills if item['name'] == name), None)
 
 
-def check_load_skill(access: dict, name: str, **_) -> str | None:
-    """None when a skill of that name is in the run's access, else the refusal text."""
-    return None if _skill(access, name) is not None else access_rules.refuse_use('skill')
+def check_load_skill(access: dict, name: str, skills=(), **_) -> str | None:
+    """None when a skill of that name is in the run's skills (config['skills']), else the refusal text."""
+    return None if _skill(skills, name) is not None else NO_SKILL.format(name=name)
 
 
 def _instructions(entry: dict) -> str:
@@ -67,7 +76,8 @@ async def load_skill(
     name: Annotated[str, Field(min_length=1, max_length=200, description='The skill name, as listed under Skills.')],
 ) -> str:
     """Get the full instructions of a skill listed under Skills in your instructions, and the list of its files at their absolute paths. Call it once per skill, before following the skill."""
-    access = context['config']['access']
-    if refusal := check_load_skill(access, name=name):
+    config = context['config']
+    skills = config.get('skills') or []
+    if refusal := check_load_skill(config['access'], name=name, skills=skills):
         return refusal
-    return await asyncio.to_thread(_instructions, _skill(access, name))
+    return await asyncio.to_thread(_instructions, _skill(skills, name))

@@ -22,7 +22,6 @@ const proposal: api.AgentProposal = {
   access: {
     resources: [
       { type: "code_project", id: "repo" },
-      { type: "skill", id: "skill" },
       { type: "mcp_server", id: "mcp" },
       { type: "service", id: "service" },
       { type: "server", id: "server" },
@@ -39,7 +38,6 @@ const options: api.WizardOptions = {
     servers: [{ id: "server", name: "Staging", description: "", hostname: "staging.test", tags: [], ssh_ready: true }],
     environments: [{ id: "env", name: "Production", description: "" }],
     documents: [{ id: "doc", title: "Runbook", description: "On-call runbook" }],
-    skills: [{ id: "skill", name: "Inspection" }],
     mcp_servers: [{ id: "mcp", name: "Docs MCP" }],
     services: [{ id: "service", name: "Payments API" }],
     existing_agents: [],
@@ -81,10 +79,11 @@ test("generates a reviewable proposal, edits resources (no role switch, no per-d
   await user.clear(screen.getByLabelText("Agent name"));
   await user.type(screen.getByLabelText("Agent name"), "Reviewed agent");
   expect(screen.getByLabelText("Proposed resources")).toHaveTextContent(
-    "1 server · 1 service · 1 code project · 1 document · 1 skill · 1 MCP server",
+    "1 server · 1 service · 1 code project · 1 document · 1 MCP server",
   );
   expect(screen.queryByRole("switch", { name: /editor/i })).toBeNull();
   await user.click(screen.getByRole("tab", { name: "Resources" }));
+  expect(screen.queryByRole("group", { name: "Skills" })).toBeNull(); // skills are not chosen
   const projects = screen.getByRole("group", { name: "Code projects" });
   expect(within(projects).getByRole("checkbox", { name: "Payments" })).toBeChecked();
   await user.click(within(projects).getByRole("checkbox", { name: "Payments" }));
@@ -107,7 +106,6 @@ test("generates a reviewable proposal, edits resources (no role switch, no per-d
   expect(sent).not.toHaveProperty("servers");
   for (const field of ["tools", "subagents", "subagent_blocked"]) expect(sent).not.toHaveProperty(field);
   expect(sent.access.resources).toEqual([
-    { type: "skill", id: "skill" },
     { type: "mcp_server", id: "mcp" },
     { type: "service", id: "service" },
     { type: "server", id: "server" },

@@ -271,6 +271,49 @@ test("run record shows the full timeline", async () => {
   expect(screen.getByText("Three retries [1].")).toBeInTheDocument();
 });
 
+test("the request's instructions are a collapsible block above the input", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      json({
+        run_key: "cc:s1:1",
+        agent_id: "search",
+        user: "alice@example.test",
+        events: [
+          {
+            seq: 1,
+            kind: "start",
+            agent_id: "search",
+            payload: { kind: "test_session", title: "How many retries?", agent: "Search agent" },
+            created_at: "2026-10-04T10:00:00Z",
+          },
+          {
+            seq: 2,
+            kind: "input",
+            agent_id: "search",
+            payload: { task: "How many retries?", instructions: "SENT INSTRUCTIONS\n## Skills\n- inspect: Inspect." },
+            created_at: "2026-10-04T10:00:00Z",
+          },
+        ],
+      }),
+    ),
+  );
+  render(
+    <MemoryRouter>
+      <RunRecordView runKey="cc:s1:1" />
+    </MemoryRouter>,
+  );
+  const block = await screen.findByText(/SENT INSTRUCTIONS/);
+  expect(block).not.toBeVisible();
+  expect(block.textContent).toContain("- inspect: Inspect.");
+  const summaries = [...document.querySelectorAll("summary")];
+  expect(summaries.map((item) => item.textContent)).toEqual(["Instructions · search", "Input · search"]);
+  fireEvent.click(summaries[0]);
+  expect(block).toBeVisible();
+  expect(screen.getByText(/"task": "How many retries\?"/)).not.toBeVisible();
+  expect(screen.queryByText(/"instructions"/)).toBeNull(); // not repeated in the input block
+});
+
 test("an expert call row says who called it and opens only that call", async () => {
   vi.stubGlobal(
     "fetch",
