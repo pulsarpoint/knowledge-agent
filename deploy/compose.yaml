@@ -17,12 +17,17 @@ x-code-index-rw: &code-index-rw
   type: bind
   source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${CODE_INDEX_FOLDER:-code-index}
   target: /work/data/${CODE_INDEX_FOLDER:-code-index}
+x-skills-rw: &skills-rw
+  type: bind
+  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${SKILLS_FOLDER:-skills}
+  target: /work/data/${SKILLS_FOLDER:-skills}
 x-data-env: &data-env
   DATA_ROOT_DIR: /work/data
   DATA_ROOT: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}
   CODE_ROOT: /work/data/${CODE_FOLDER:-code}
   CODE_INDEX_ROOT: /work/data/${CODE_INDEX_FOLDER:-code-index}
   BOOTSTRAP_DOCS_ROOT: /work/data/${DOCS_FOLDER:-docs}
+  SKILLS_ROOT: /work/data/${SKILLS_FOLDER:-skills}
 services:
   postgres:
     image: knowledge-agent-v3-postgres:17.10-vector0.8.6
@@ -67,6 +72,7 @@ services:
       - *data-root
       - *code-rw
       - *code-index-rw
+      - *skills-rw
       - agent-workspaces:/work/agent-workspaces
     environment:
       <<: *data-env

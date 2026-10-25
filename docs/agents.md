@@ -365,6 +365,61 @@ tools are offered in every run; the write tools only in a session turn (`catalog
 or an expert. An older stored access object with a role that no longer exists still loads (an unknown role is
 ignored).
 
+## Skills
+
+A **skill** is a folder in the Agent Skills format: a `SKILL.md` (a YAML frontmatter with `name` and `description`, then
+the instructions) and any files it points to (`references/`, `scripts/`, `assets/`, binary files included). The code is
+in `skills/`: `rules.py` (pure: frontmatter, paths, limits, changed files, which folders cleanup deletes), `store.py`
+(folders on disk), `imports.py` (zip and git) and `api.py` (`/api/skills`).
+
+**Storage.** The files are on disk, the database holds the metadata. `ka.agent_skills` keeps `name` and `description`
+(read from `SKILL.md` at every import or save: `name` 1-64 lowercase letters, digits and single hyphens; `description`
+1-1024 characters), `enabled`, `revision`, `source` (`{kind: "upload", file}`, `{kind: "git", url, ref, path, commit}`
+or `{kind: "editor"}`) and `folder`, the current files relative to the data folder. Folders live under
+`SKILLS_FOLDER` (default `skills`, writable only in `admin-api`, `SKILLS_ROOT` in the container) as
+`skills/<skill id>/<version>/`, `<version>` being the short git commit (12 characters) or a UTC timestamp
+`YYYYMMDDTHHMMSSZ` for uploads and editor saves; `<version>.json` beside each folder records when it was written and
+its source. Executable bits are kept.
+
+**Updates write a new folder, then switch.** An import into a skill, an **Update from source**, an upload or an editor
+save writes the complete new folder under a staging name, renames it into place, then sets `folder` in one update (and
+`revision` +1). A run that already started keeps the folder it began with. Each skill keeps its last 3 folders and the
+current one (for **Restore**, which switches `folder` back to a kept folder with that folder's source); older ones are
+deleted only when no running run pinned them: a session that is not closed whose config's access entries of type skill
+name the folder (`store.pinned_folders`). Cleanup runs after every update of that skill and over every skill folder at
+admin-api startup, which also removes deleted skills' folders that were pinned when they were deleted.
+
+**Limits.** A folder holds at most 500 files, 5 MB per file and 10 MB in all. Paths are relative, without `..`, empty or
+`.` segments or backslashes; symbolic links and special files are refused. A refused import writes nothing.
+
+**Import.**
+
+- *Zip* (`POST /api/skills/import/zip?file=<name>`, the archive as the body, at most 25 MB): `SKILL.md` at the
+  archive's root, or in its only top-level folder, is one skill; otherwise every top-level folder holding a `SKILL.md`
+  (in the only top-level folder, too) is a skill, so one archive can import several. `?preview=true` lists them (name,
+  description, files) without writing anything. `__MACOSX/` and `.DS_Store` entries are ignored.
+- *Git* (`POST /api/skills/import/git` with `url`, `ref` and `path`, `preview` as for a zip): the admin-api fetches the
+  ref (the default branch when empty) with depth 1 into a temporary folder, with the code projects' Git settings (no
+  hooks, no prompts, HTTPS only, 2-minute timeout), reads the folder at `path` (the repository root when empty, without
+  `.git`) and records the commit. A public repository needs no credential; when a code project has the same remote URL
+  and a saved token, that token is used.
+- A name that exists is refused: `A skill named <name> exists; update it instead.` Importing into the skill itself
+  (`POST /api/skills/{id}/update/upload` with one skill in the zip, or `POST /api/skills/{id}/update/source`, which
+  re-imports a git skill from its URL, ref and path) writes a new folder and returns the changed files (`added`,
+  `removed`, `modified`).
+
+**Editor.** `POST /api/skills` (`name`, `description`, optional `instructions`) creates a skill from a `SKILL.md`
+template. `GET /api/skills/{id}` returns the skill with its files (path, size, executable) and its kept folders
+(`versions`: version, when, source, current); `GET /api/skills/{id}/files/<path>` returns one file (`text` is null for a
+binary file). `PUT /api/skills/{id}/files` (`revision`, `changes`: write a file from `text` or `content_base64`, with
+`executable`; `delete` a file or folder; `rename_to` a file or folder) saves a new folder from the current one plus the
+changes, after the same checks as an import. `POST /api/skills/{id}/restore` (`version`), `PATCH
+/api/skills/{id}/status` and `DELETE /api/skills/{id}` (the row, and its folders a running run has not pinned) complete
+the API. Each change is audited (`skill.created`, `skill.updated`, `skill.saved`, `skill.restored`, `skill.deleted`,
+`skill.enabled`, `skill.disabled`).
+
+At run time `load_skill` returns the body of the current `SKILL.md`.
+
 ## Output schemas
 
 An **output schema** is a named JSON Schema a run can be asked to answer with. Schemas live in a library (**Agents** ->

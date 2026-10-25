@@ -15,6 +15,7 @@ from knowledge_admin.api import build_api
 from knowledge_admin.sessions.hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.tools.fixture import sync_tools
+from knowledge_admin.skills.store import startup_cleanup as skill_cleanup
 
 
 def create_app(
@@ -28,6 +29,7 @@ def create_app(
     async def lifespan(app):
         if repository_store is not None:  # ka.tools = tools/tools.json (the fixture is the only writer)
             await asyncio.to_thread(sync_tools, repository_store)
+            await asyncio.to_thread(skill_cleanup, repository_store)
         hub = None
         if repository_store is not None:  # live session pages: one database listener per process
             hub = app.state.session_hub = SessionHub(repository_store.conninfo)

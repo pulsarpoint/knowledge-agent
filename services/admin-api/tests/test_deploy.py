@@ -19,10 +19,11 @@ FOLDERS = {
     'CODE_FOLDER': 'code',
     'CODE_INDEX_FOLDER': 'code-index',
     'DOCS_FOLDER': 'docs',
+    'SKILLS_FOLDER': 'skills',
 }
 WRITERS = {
     'shell-worker': [],
-    'admin-api': ['CODE_FOLDER', 'CODE_INDEX_FOLDER'],
+    'admin-api': ['CODE_FOLDER', 'CODE_INDEX_FOLDER', 'SKILLS_FOLDER'],
     'repository-worker': ['CODE_FOLDER', 'CODE_INDEX_FOLDER'],
     'agent-session-worker': [],
 }
@@ -179,6 +180,7 @@ def test_services_compute_their_roots_from_the_folder_variables():
         'CODE_ROOT': '/work/data/' + folder('CODE_FOLDER'),
         'CODE_INDEX_ROOT': '/work/data/' + folder('CODE_INDEX_FOLDER'),
         'BOOTSTRAP_DOCS_ROOT': '/work/data/' + folder('DOCS_FOLDER'),
+        'SKILLS_ROOT': '/work/data/' + folder('SKILLS_FOLDER'),
     }
     removed = {
         'RAG_SOURCE_ROOT',

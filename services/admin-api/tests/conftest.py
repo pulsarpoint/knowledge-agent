@@ -88,3 +88,18 @@ def store(postgres, migrated_template):
     finally:
         with psycopg.connect(postgres, autocommit=True) as conn:
             conn.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(database)))
+
+
+@pytest.fixture(autouse=True)
+def skills_folder(tmp_path, monkeypatch):
+    """Skill folders under a temporary data folder, whatever DATA_ROOT_DIR a test sets for other paths: never the
+    real data folder. Returns the data folder; skills are in its skills/."""
+    from pathlib import PurePosixPath
+
+    from knowledge_admin.skills import store as skill_store
+
+    data = tmp_path / 'skill-data'
+    (data / 'skills').mkdir(parents=True)
+    monkeypatch.setattr(skill_store, 'data_dir', lambda: PurePosixPath(data))
+    monkeypatch.setenv('SKILLS_ROOT', str(data / 'skills'))
+    return data

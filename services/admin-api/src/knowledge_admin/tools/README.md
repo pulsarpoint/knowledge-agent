@@ -82,7 +82,7 @@ document titled "<title>" is already linked to this <type> (<id>); update it wit
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
 
 `load_skill` (`capabilities/skills.py`; group `agents`) returns the instructions of a skill in the run's access, by
-name, read from `ka.agent_skills` (enabled only; any other name is refused with `This skill is not available in this
+name: the body of `SKILL.md` in the skill's current folder (`ka.agent_skills.folder`; enabled only; any other name is refused with `This skill is not available in this
 run.`). The run's instructions list its skills by name and description only (`skills.section`, used by
 `runner.get_prompt` and `sessions/text.agent_system_prompt`); a run without skills has no Skills section.
 

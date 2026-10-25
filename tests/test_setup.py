@@ -12,7 +12,7 @@ from pathlib import Path
 from scripts.setup import initialize
 
 
-SUBFOLDERS = ("code", "code-index", "docs")
+SUBFOLDERS = ("code", "code-index", "docs", "skills")
 OLD_OVERRIDES = ("CODE_PATH", "CODE_INDEX_PATH", "DOCS_PATH")
 
 
@@ -230,8 +230,8 @@ class SetupTests(unittest.TestCase):
             services = json.loads(result.stdout)["services"]
             # Compose escapes dollars when serializing config for safe reloading.
             data = str(root / "data").replace("$", "$$")
-            folders = {"code": "src/code", "index": "code-index"}
-            writers = {"shell-worker": [], "admin-api": ["code", "index"], "repository-worker": ["code", "index"],
+            folders = {"code": "src/code", "index": "code-index", "skills": "skills"}
+            writers = {"shell-worker": [], "admin-api": ["code", "index", "skills"], "repository-worker": ["code", "index"],
                        "agent-session-worker": []}
             for name, writable in writers.items():
                 mounts = sorted((v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]

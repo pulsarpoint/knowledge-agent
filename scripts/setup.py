@@ -14,6 +14,7 @@ FOLDERS = {
     "CODE_FOLDER": "code",
     "CODE_INDEX_FOLDER": "code-index",
     "DOCS_FOLDER": "docs",
+    "SKILLS_FOLDER": "skills",
 }
 # Absolute overrides from before the one data folder, and the variable that replaces each.
 REMOVED = {

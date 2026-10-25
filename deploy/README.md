@@ -62,6 +62,7 @@ each folder is writable only in the services listed.
 | `CODE_FOLDER` | `code` | `/work/data/code` | Code projects, Git clones and caches | `admin-api`, `repository-worker` |
 | `CODE_INDEX_FOLDER` | `code-index` | `/work/data/code-index` | Code graph snapshots | `admin-api`, `repository-worker` |
 | `DOCS_FOLDER` | `docs` | `/work/data/docs` | Bootstrap docs seeded from `examples/docs` | nothing |
+| `SKILLS_FOLDER` | `skills` | `/work/data/skills` | Skill folders (`<skill id>/<version>/`), see [skills](../docs/agents.md#skills) | `admin-api` |
 
 Each `*_FOLDER` value is a path relative to `DATA_ROOT`: no leading `/`, no `..`, no
 hidden or empty segments, and no folder inside another one. `make setup` stops and
@@ -82,7 +83,7 @@ are refused by `make setup`, which names the replacement variable. An override i
 
 ```bash
 mkdir -p /new/knowledge-agent
-for folder in code code-index docs; do
+for folder in code code-index docs skills; do
   rsync -a "/opt/knowledge-agent/$folder/" "/new/knowledge-agent/$folder/"
 done
 ```
@@ -93,7 +94,7 @@ Set `DATA_ROOT` in `.env` (`make setup DATA_ROOT=/new/knowledge-agent`), then `m
 
 | Location | Contents |
 | --- | --- |
-| `DATA_ROOT` host folder | Code, code graphs and bootstrap docs (see above) |
+| `DATA_ROOT` host folder | Code, code graphs, bootstrap docs and skills (see above) |
 | `knowledge-agent-v3_postgres-data` | V3 application data: documents, Jira tickets, memory (with vectors), agents, sessions and jobs |
 | `knowledge-agent-v3_keycloak-data` | Independent realm, users and login configuration |
 | `knowledge-agent-v3_phoenix-data` | Independent Phoenix traces and accounts |

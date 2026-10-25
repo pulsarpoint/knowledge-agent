@@ -1,5 +1,6 @@
 """Skills on demand: the run's instructions list its skills by name and description (section); load_skill returns a
-listed skill's instructions from ka.agent_skills. The skills are the run's access entries of type skill."""
+listed skill's instructions: the body of SKILL.md in the skill's current folder. The skills are the run's access entries
+of type skill."""
 
 import asyncio
 from typing import Annotated, Any
@@ -11,10 +12,12 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.inventory import UNAVAILABLE as STORE_UNAVAILABLE
 from knowledge_admin.capabilities.inventory import connect, project_of
+from knowledge_admin.skills.rules import parse_skill_md
+from knowledge_admin.skills.store import absolute
 from knowledge_admin.tools.registry import tool
 
 UNAVAILABLE = 'Skills are unavailable right now.'
-INSTRUCTIONS = """SELECT instructions FROM ka.agent_skills WHERE project_id=%s AND id=%s AND enabled"""
+FOLDER = """SELECT folder FROM ka.agent_skills WHERE project_id=%s AND id=%s AND enabled"""
 HEADER = """## Skills
 A skill is a set of instructions to follow. Below is the list of skills that can be used. Each entry has a name and a description; call `load_skill` with the name to get its full instructions when you use it.
 ### Available skills"""
@@ -47,14 +50,19 @@ def _instructions(config: dict[str, Any], skill_id: str) -> str:
     tools refuse)."""
     try:
         with connect() as conn:
-            row = conn.execute(INSTRUCTIONS, (project_of(conn, config), skill_id)).fetchone()
+            row = conn.execute(FOLDER, (project_of(conn, config), skill_id)).fetchone()
     except ValueError as error:
         if str(error) != STORE_UNAVAILABLE:  # only 'the store is not configured in this process' is a refusal
             raise
         return UNAVAILABLE
     except psycopg.OperationalError:  # the database is down or unreachable
         return UNAVAILABLE
-    return row['instructions'] if row is not None else access_rules.refuse_use('skill')
+    if row is None:
+        return access_rules.refuse_use('skill')
+    try:
+        return parse_skill_md((absolute(row['folder']) / 'SKILL.md').read_text(encoding='utf-8'))['body']
+    except (OSError, ValueError):  # the folder is unreadable or SKILL.md broke since it was saved
+        return UNAVAILABLE
 
 
 @tool

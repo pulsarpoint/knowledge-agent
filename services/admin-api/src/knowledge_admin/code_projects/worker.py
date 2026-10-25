@@ -29,6 +29,40 @@ class PullError(Exception):
     pass
 
 
+# Git as code projects and skill imports run it: no hooks, no system or global config, no prompts, HTTPS only.
+GIT_COMMAND = [
+    'git',
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'credential.helper=',
+    '-c',
+    'http.followRedirects=false',
+    '-c',
+    'protocol.allow=never',
+    '-c',
+    'protocol.https.allow=always',
+]
+
+
+def git_env(username: str | None, token: str | None) -> dict[str, str]:
+    """The environment Git runs with; a credential reaches it only through git_askpass.py."""
+    return {
+        'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
+        'GIT_CONFIG_NOSYSTEM': '1',
+        'GIT_CONFIG_GLOBAL': os.devnull,
+        'GIT_TERMINAL_PROMPT': '0',
+        'GIT_LFS_SKIP_SMUDGE': '1',
+        'GIT_NO_REPLACE_OBJECTS': '1',
+        'GIT_ASKPASS': str(Path(__file__).with_name('git_askpass.py')),
+        'KA_GITHUB_TOKEN': token or '',
+        'LC_ALL': 'C',
+        'KA_GIT_USERNAME': username or '',
+    }
+
+
 def pull_checkout(code_root: Path, repo: dict, job_id, username: str | None, token: str | None) -> tuple[str, str]:
     """Never execute source, hooks, LFS filters, or submodules from a fetched repo."""
     remote = git_url(repo['remote_url'])
@@ -46,38 +80,13 @@ def pull_checkout(code_root: Path, repo: dict, job_id, username: str | None, tok
     staging = directory / f'.pull-{job_id}'
     checkout = directory / 'checkouts' / str(job_id)
     deadline = time.monotonic() + 600
-    env = {
-        'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
-        'GIT_CONFIG_NOSYSTEM': '1',
-        'GIT_CONFIG_GLOBAL': os.devnull,
-        'GIT_TERMINAL_PROMPT': '0',
-        'GIT_LFS_SKIP_SMUDGE': '1',
-        'GIT_NO_REPLACE_OBJECTS': '1',
-        'GIT_ASKPASS': str(Path(__file__).with_name('git_askpass.py')),
-        'KA_GITHUB_TOKEN': token or '',
-        'LC_ALL': 'C',
-        'KA_GIT_USERNAME': username or '',
-    }
+    env = git_env(username, token)
 
     def git(*args: str, local_clone: bool = False) -> str:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise PullError('Pull exceeded the 10-minute limit')
-        command = [
-            'git',
-            '-c',
-            'core.hooksPath=/dev/null',
-            '-c',
-            'core.fsmonitor=false',
-            '-c',
-            'credential.helper=',
-            '-c',
-            'http.followRedirects=false',
-            '-c',
-            'protocol.allow=never',
-            '-c',
-            'protocol.https.allow=always',
-        ]
+        command = list(GIT_COMMAND)
         if local_clone:
             command += ['-c', 'protocol.file.allow=always']
         try:

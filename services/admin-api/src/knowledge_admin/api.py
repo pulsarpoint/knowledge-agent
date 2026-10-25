@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from knowledge_admin.config import App, ServerConfig
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin import storage
-from knowledge_admin.agents import skills
+from knowledge_admin.skills import api as skills
 from knowledge_admin.documents import (
     api as documents,
     drafts as document_drafts,
