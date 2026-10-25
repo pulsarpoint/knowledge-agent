@@ -57,7 +57,7 @@ def check_paths(entries: list[dict]) -> str | None:
             not path
             or path.startswith('/')
             or '\\' in path
-            or '\x00' in path
+            or any(ord(char) < 32 or ord(char) == 127 for char in path)  # control characters, \0 included
             or any(part in ('', '.', '..') for part in path.split('/'))
         ):
             return f'{path!r} is not a relative path inside the skill folder.'

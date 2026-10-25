@@ -95,8 +95,8 @@ def test_a_missing_or_broken_folder_is_a_refusal(run, skills_folder):
     config, _ = run
     [entry] = [item for item in config['access']['resources'] if item['type'] == 'skill']
     gone = {**config, 'access': {'resources': [{**entry, 'folder': 'skills/gone/v1'}]}}
-    assert load(gone, 'inspect') == 'Skills are unavailable right now.'
+    assert load(gone, 'inspect') == "This skill's files are unavailable."
     unpinned = {**config, 'access': {'resources': [{k: v for k, v in entry.items() if k != 'folder'}]}}
-    assert load(unpinned, 'inspect') == 'Skills are unavailable right now.'
+    assert load(unpinned, 'inspect') == "This skill's files are unavailable."
     (skills_folder / entry['folder'] / 'SKILL.md').write_text('no frontmatter')
     assert load(config, 'inspect') == 'Skills are unavailable right now.'

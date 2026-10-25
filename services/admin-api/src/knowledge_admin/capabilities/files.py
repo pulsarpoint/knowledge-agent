@@ -21,20 +21,30 @@ def mounted(path: Path) -> bool:
     return path.is_absolute() and path.resolve() == path and path.is_dir()
 
 
+def skill_folder(entry: dict) -> Path | None:
+    """A skill entry's pinned folder, absolute; None when it has none, the folder is not a plain path under the data
+    folder, or it is missing or not mounted: that skill is left out and the run's other folders keep working."""
+    folder = entry.get('folder')
+    if not isinstance(folder, str) or not folder or folder.startswith('/') or '..' in folder.split('/'):
+        return None
+    path = absolute(folder)
+    return path if mounted(path) else None
+
+
 def _roots(context: RunContext) -> list[Path]:
-    """The workspace, the folders of the run's code projects and its skills' pinned folders (their access entries)."""
-    config = context['config']
-    access = config['access']
-    paths = [context['workspace']]  # the workspace and the code and skill folders must be mounted
+    """The workspace, the folders of the run's code projects (each must be mounted) and its skills' pinned folders
+    (those that are available: skill_folder)."""
+    access = context['config']['access']
+    paths = [context['workspace']]
     paths.extend(
         Path(path)
         for project in access_rules.entries(access, 'code_project')
         for path in project.get('folder_paths', [])
     )
-    paths.extend(absolute(skill['folder']) for skill in access_rules.entries(access, 'skill') if skill.get('folder'))
     for path in paths:
         if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
+    paths.extend(path for skill in access_rules.entries(access, 'skill') if (path := skill_folder(skill)))
     return list(dict.fromkeys(paths))
 
 

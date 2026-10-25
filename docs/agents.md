@@ -431,8 +431,9 @@ with their sizes, and the note "Read files with read_file; run scripts with shel
 no skill file tool: the skill folders are roots of `list_files`, `read_file` and `search_files` (which need a code
 project or a skill) and `shell_run` mounts them read-only at the same paths (scripts run with no network; outputs go to
 the scratch working directory). The path is the same everywhere because every container mounts the data folder at
-`/work/data` (the admin-api's writable `skills/` bind sits at the same path). Debug lists the run's skills with their
-folder.
+`/work/data` (the admin-api's writable `skills/` bind sits at the same path). A pinned folder that is missing is left
+out of the roots and the shell mounts, and `load_skill` for that skill answers "This skill's files are unavailable.";
+the run's other folders and skills keep working. Debug lists the run's skills with their folder.
 
 ## Output schemas
 

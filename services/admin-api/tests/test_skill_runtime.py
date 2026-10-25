@@ -13,10 +13,12 @@ from knowledge_admin.capabilities.files import check_list_files
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.sessions.debug import view
 from knowledge_admin.sessions.run_access import agent_access
-from knowledge_admin.skills.store import absolute
+from knowledge_admin.skills.store import absolute, pinned_folders
 from knowledge_admin.tools.catalog import CATALOG
 from test_agents import agent_mounts, of, saved_agent  # noqa: F401  (fixtures)
+from test_expert_tools import model_of
 from test_repositories import HEADERS
+from test_test_sessions import test_start
 
 NOTE = 'Read files with read_file; run scripts with shell_run; both take these paths.'
 
@@ -147,3 +149,47 @@ def test_debug_lists_the_skills_with_their_folder(pinned, store):
         project = store.project(conn, 'shop')
         shown = view(conn, store, project, context['config'], prompt_id=None, prompt_text='')
     assert shown['skills'] == [{'name': 'inspect', 'folder': skill['folder']}]
+
+
+def test_a_missing_skill_folder_leaves_out_only_that_skill(pinned, tmp_path, monkeypatch):
+    """A pinned skill folder that is gone (or not mounted) is left out of the roots and the shell mounts, and its
+    load_skill says its files are unavailable; the other folders and skills keep working. A missing code folder still
+    fails the file tools."""
+    _, skill, context = pinned
+    folder = absolute(skill['folder'])
+    resources = context['config']['access']['resources']
+    [entry] = [item for item in resources if item['type'] == 'skill']
+    gone = {**entry, 'id': 'k2', 'name': 'gone', 'folder': 'skills/gone/v1'}
+    escaping = {**entry, 'id': 'k3', 'name': 'escaping', 'folder': '../outside'}
+    resources += [gone, escaping]
+    roots = [item['path'] for item in json.loads(call('list_files', context))['entries']]
+    assert roots == [str(context['workspace']), str(folder)]
+    for name in ('gone', 'escaping'):
+        assert call('load_skill', context, name=name) == "This skill's files are unavailable."
+    assert call('load_skill', context, name='inspect').startswith('Check the exit code.')
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={'exit_code': 0, 'stdout': '', 'stderr': '', 'timed_out': False})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setenv('AGENT_SHELL_URL', 'http://shell.test')
+    call('shell_run', context, command='ls')
+    assert sent['read_paths'] == [str(folder)]
+    code = {'type': 'code_project', 'id': 'c1', 'name': 'Code', 'folder_paths': [str(tmp_path / 'missing-code')]}
+    resources.append(code)
+    with pytest.raises(ValueError, match='Configured folder is unavailable'):
+        call('list_files', context)
+
+
+def test_a_started_session_pins_the_folder_cleanup_keeps(store, saved_agent):  # noqa: F811
+    """The entry a real session start stores is the shape store.pinned_folders reads."""
+    client, skill = saved_agent[0], saved_agent[3]
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET model_id=%s,enabled=true WHERE id='operations'", (model_of(saved_agent),))
+    response = client.post('/api/sessions', headers=HEADERS, json=test_start(client, 'operations', 'Hi'))
+    assert response.status_code == 201, response.text
+    with store.connect() as conn:
+        assert pinned_folders(conn) == {skill['folder']}

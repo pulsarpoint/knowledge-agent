@@ -97,7 +97,10 @@ Calls share the turn's limit of 16 helpers with subagents.
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
   folders of the run's code projects, its skills' pinned folders (absolute, under the data folder) and its workspace;
-  a run needs a code project or a skill. `shell_run` mounts the same folders read-only at the same paths. Absolute paths are checked
+  a run needs a code project or a skill. `shell_run` mounts the same folders read-only at the same paths. A missing code
+  folder fails these tools; a missing (or not mounted) skill folder only leaves that skill out (`files.skill_folder`),
+  and its `load_skill` answers `This skill's files are unavailable.`. `code_search` and `ast_grep` check paths against
+  the same roots, so in a run with a code project they also accept a skill folder path (read-only). Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.
 - `ast_grep`. Runs the native ast-grep CLI in search-only mode to
   return complete functions, methods, classes, or other matched syntax nodes.

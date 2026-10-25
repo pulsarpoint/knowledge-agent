@@ -66,6 +66,9 @@ def entry(path, type_='file'):
         [entry('')],
         [entry('a//b')],
         [entry('a\x00b')],
+        [entry('a\nb.md')],  # a control character would break load_skill's line per file
+        [entry('a\tb')],
+        [entry('a\x7fb')],
         [entry('link', 'symlink')],
         [entry('device', 'other')],
         [entry('SKILL.md'), entry('SKILL.md')],

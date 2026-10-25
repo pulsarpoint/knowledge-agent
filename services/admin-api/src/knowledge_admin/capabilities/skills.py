@@ -10,11 +10,13 @@ from pydantic import Field
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
+from knowledge_admin.capabilities.files import skill_folder
 from knowledge_admin.skills.rules import parse_skill_md
-from knowledge_admin.skills.store import absolute, list_files
+from knowledge_admin.skills.store import list_files
 from knowledge_admin.tools.registry import tool
 
 UNAVAILABLE = 'Skills are unavailable right now.'
+FILES_UNAVAILABLE = "This skill's files are unavailable."
 NOTE = 'Read files with read_file; run scripts with shell_run; both take these paths.'
 HEADER = """## Skills
 A skill is a set of instructions to follow. Below is the list of skills that can be used. Each entry has a name and a description; call `load_skill` with the name to get its full instructions when you use it.
@@ -43,12 +45,13 @@ def check_load_skill(access: dict, name: str, **_) -> str | None:
     return None if _skill(access, name) is not None else access_rules.refuse_use('skill')
 
 
-def _instructions(folder: str | None) -> str:
+def _instructions(entry: dict) -> str:
     """The pinned folder's SKILL.md body, its files at their absolute paths (as the file tools and the shell take them)
-    with their sizes, and NOTE; UNAVAILABLE when the folder is unreadable or SKILL.md is broken."""
-    if not folder:
-        return UNAVAILABLE
-    root = absolute(folder)
+    with their sizes, and NOTE; FILES_UNAVAILABLE when the folder is missing (files.skill_folder), UNAVAILABLE when it is
+    unreadable or SKILL.md is broken."""
+    root = skill_folder(entry)
+    if root is None:
+        return FILES_UNAVAILABLE
     try:
         body = parse_skill_md((root / 'SKILL.md').read_text(encoding='utf-8'))['body']
         files = list_files(root)
@@ -67,4 +70,4 @@ async def load_skill(
     access = context['config']['access']
     if refusal := check_load_skill(access, name=name):
         return refusal
-    return await asyncio.to_thread(_instructions, _skill(access, name).get('folder'))
+    return await asyncio.to_thread(_instructions, _skill(access, name))
