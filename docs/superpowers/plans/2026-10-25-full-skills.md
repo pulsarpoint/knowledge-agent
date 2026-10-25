@@ -3,8 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Skills are folders in the Agent Skills format (`SKILL.md` + files) stored on disk with metadata in the
-database; they are imported from a zip or git, edited in the app, read with `load_skill` / `read_skill_file`, and their
-scripts run in the sandboxed shell at `/skills/<name>/`.
+database; they are imported from a zip or git, edited in the app, opened with `load_skill`, read with the existing file
+tools, and their scripts run in the sandboxed shell — skill folders are roots like code project folders.
 
 **Architecture:** A `skills/` package holds the pure rules (frontmatter, paths, limits), the folder store (write a new
 folder, switch, keep the last 3, clean up unused) and the import (zip, git). The run pins each skill's folder; the
@@ -26,8 +26,10 @@ vitest.
   `YYYYMMDDTHHMMSSZ`); write the whole new folder, then switch `folder` in one update; keep the last 3; delete older ones
   only when no running run pinned them.
 - Limits: 10 MB per folder, 500 files, 5 MB per file; relative paths only, no `..`, no symlinks.
-- Exact texts: "A skill named <name> exists; update it instead."; the `load_skill` note "Read a file with
-  read_skill_file. Scripts are under /skills/<name>/ in shell_run."
+- Exact texts: "A skill named <name> exists; update it instead."; the `load_skill` note "Read files with read_file;
+  run scripts with shell_run; both take these paths."
+- No new file tool: skill folders are roots of `list_files` / `read_file` / `search_files` / `shell_run` at their
+  absolute paths, read-only.
 - Scripts run only through `shell_run` in the existing sandbox (no network, read-only skill mounts, scratch writable).
 - Work only in `.claude/worktrees/full-skills` (branch `feature/full-skills`). Never `make`, never touch `.env`/`.local`,
   never `git stash` in any form, never touch the running Docker stack, never kill processes you did not start, never
@@ -45,7 +47,8 @@ vitest.
 2. A zip with `../evil` or a symlink → refused, nothing written (Task 1).
 3. Update from source on a git skill → new folder with the new commit, changed files listed, previous folder kept for
    Restore (Task 1).
-4. A skill script runs in `shell_run` at `/skills/<name>/scripts/...` and cannot write into the skill folder (Task 2).
+4. A skill script runs in `shell_run` at the path `load_skill` listed and cannot write into the skill folder; `read_file`
+   cannot reach a skill outside the run's access (Task 2).
 5. Cleanup never deletes a folder a running run pinned (Task 1).
 
 ---
@@ -65,16 +68,17 @@ tests (`test_skill_rules.py`, `test_skill_store.py`, `test_skill_import.py` with
 - [ ] Failing tests (Review Focus 2, 3, 5; limits; name clash; several skills in one zip) → implement → full backend
   suite → commit `feat(skills): skills are folders, imported from zip or git`.
 
-### Task 2: Runtime — load_skill, read_skill_file, scripts
+### Task 2: Runtime — load_skill and skill folders as file roots
 
-**Files:** `capabilities/skills.py` (`load_skill` returns the `SKILL.md` body + file list + the note; new
-`read_skill_file(name, path)` with 64 KB truncation and binary handling; checks via access), run start / access
-building (skill entries carry `folder`, pinned), `capabilities/shell/client.py` and the shell worker (mount each run
-skill's folder read-only at `/skills/<name>/`; find how code project paths are mounted and passed), `tools/tools.json`
-(+ golden, matrix rows), `sessions/debug.py` (skills with folder), tests (`test_skill_runtime.py`: Review Focus 1, 4;
-the shell mount through the existing shell-worker test path).
+**Files:** `capabilities/skills.py` (`load_skill` returns the `SKILL.md` body + the file list with absolute paths + the
+note), `capabilities/files.py` (`_roots` adds the run's skill folders; `check_list_files` / `check_read_file` /
+`check_search_files` allow a run with a code project or a skill), `capabilities/shell/client.py` and the shell worker
+(the skill folders mount read-only at the same paths, as code project folders do — verify the shell worker sees the
+data folder's `skills/` path), run start / access building (skill entries carry `folder`, pinned), `tools/tools.json`
+descriptions of the file tools (they also read skill folders) and `load_skill` (+ golden, matrix rows),
+`sessions/debug.py` (skills with folder), tests (`test_skill_runtime.py`: Review Focus 1, 4).
 
-- [ ] Failing tests → implement → full backend suite → commit `feat(skills): load_skill lists files, read_skill_file, scripts run at /skills`.
+- [ ] Failing tests → implement → full backend suite → commit `feat(skills): load_skill lists files; skill folders are file tool roots`.
 
 ### Task 3: UI — Skills page, import, editor
 

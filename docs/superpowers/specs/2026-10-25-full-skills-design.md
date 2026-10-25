@@ -59,13 +59,13 @@ references, scripts and assets), so skills from GitHub and skill marketplaces wo
 ## 3. At run time
 
 - The run's instructions keep listing skills by name and description (unchanged).
-- `load_skill(name)` returns the current version's `SKILL.md` body and the list of its other files (path, size), plus a
-  short note: "Read a file with read_skill_file. Scripts are under /skills/<name>/ in shell_run."
-- New tool `read_skill_file(name, path)`: returns a text file's content (up to 64 KB, the rest cut with a note); binary
-  files answer with their size and type only. Refused for a skill not in the run's access, with the existing refusal.
-- Scripts: the run's skills are mounted read-only at `/skills/<name>/` inside the shell sandbox — the shell worker
-  mounts each skill's folder (from the data folder it already shares) like code projects today. Scripts run with no
-  network, in the scratch working directory; their outputs stay in scratch.
+- **No new file tool.** The run's skill folders become roots of the existing generic file tools, exactly as code
+  project folders are: `list_files`, `read_file` (byte mode with `offset` / `next_offset`, or a line range with line
+  numbers — it already pages) and `search_files` read them, and `shell_run` mounts them read-only at the same absolute
+  paths. One path works in every tool. The file tools' access check becomes "the run has a code project or a skill".
+- `load_skill(name)` returns the `SKILL.md` body and the list of the skill's files with their absolute paths (and
+  sizes), plus the note: "Read files with read_file; run scripts with shell_run; both take these paths."
+- Scripts run with no network, in the scratch working directory; skill folders are read-only, outputs stay in scratch.
 - The run pins its skills' folders at start (the access entries of type skill carry `folder`), so an update during a
   run does not change what it reads or runs.
 - Debug lists the run's skills with their folder (commit or timestamp).
@@ -94,7 +94,8 @@ references, scripts and assets), so skills from GitHub and skill marketplaces wo
   local test repository with a ref and a path), Update from source with a changed file list, name clash.
 - Folders: an update writes a new folder and switches; a run started before keeps its folder; the last 3 kept, older
   deleted only when unused; restore; delete.
-- Runtime: `load_skill` with the file list, `read_skill_file` (text, truncation, binary, refusal), scripts runnable in
-  `shell_run` at `/skills/<name>/` read-only, pinned folders.
+- Runtime: `load_skill` with the file list and paths; `read_file` / `list_files` / `search_files` reach a run's skill
+  folders and nothing else (a skill not in access is refused); scripts runnable in `shell_run` at the same paths,
+  read-only; pinned folders.
 - Editor API: save writes a new folder, frontmatter validation.
 - UI: Skills page, import flows, editor tree, versions sheet.
