@@ -16,7 +16,9 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0106_resource_runs.up.sql', '0106_resource_runs.down.sql'
-ASSISTANTS = """SELECT name FROM ka.documentation_prompts WHERE project_id=%s AND 'assistant'=ANY(tags) ORDER BY name"""
+# 0106's assistant prompts (0140 seeds the code project's, input kind code)
+ASSISTANTS = """SELECT name FROM ka.documentation_prompts WHERE project_id=%s AND 'assistant'=ANY(tags)
+    AND input_kind <> 'code' ORDER BY name"""
 TOOLS = [
     {'tool': 'ssh_run', 'mode': 'on'},
     {'tool': 'propose_document', 'mode': 'on'},
@@ -216,7 +218,7 @@ def test_the_assistant_and_server_discovery_prompts_name_get_resource(world):
         prompts = conn.execute(
             """SELECT p.name,v.content FROM ka.documentation_prompts p
             JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id WHERE p.project_id=%s
-            AND (p.name='Server discovery' OR 'assistant'=ANY(p.tags))""",
+            AND (p.name='Server discovery' OR 'assistant'=ANY(p.tags) AND p.input_kind <> 'code')""",
             (world.project,),
         ).fetchall()
     assert len(prompts) == 4

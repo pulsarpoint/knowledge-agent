@@ -13,8 +13,7 @@ GET_RESOURCE = (
 )
 RESOURCE = (
     'resource: {"type": "server" | "service" | "environment" | "code_project", "id": "<id>"}, or with "name" '
-    'instead of "id" (a '
-    'resource of this run: the Resource line, get_available_resources)'
+    'instead of "id" (a resource of this run: the Resource line, get_available_resources)'
 )
 USABLE = (
     'You may use a document given to this run or one linked to a server, service, environment or code project in it.'
@@ -43,17 +42,15 @@ SEARCH_DOCUMENTS = (
 )
 LIST_DOCUMENTS = (
     'The documents linked to a server, service, environment or code project of this run and to the resources that '
-    'belong to it (an '
-    'environment its services and servers, a server its services, a service its code projects and servers), as JSON: '
-    'each with id, title, description_short, tags, published (false: a new document this run drafted, not published '
+    'belong to it (an environment its services and servers, a server its services, a service its code projects and '
+    'servers), as JSON: each with id, title, description_short, tags, published (false: a new document this run drafted, not published '
     "yet) and your_draft (this run already has a draft of it). The resource's inventory document comes first. Read "
     'one with get_document. Look here before new_document, so you update a document instead of adding a second one.'
     f'\n\nField: {RESOURCE}.\n\nExample: {{"resource": {{"type": "service", "name": "api"}}}}'
 )
 NEW_DOCUMENT = (
     'Create a new document about a server, service, environment or code project of this run, as a draft built for '
-    'it (linked to it '
-    'for good); its folder and file name come from the resource and the title. A title already used by a document '
+    'it (linked to it for good); its folder and file name come from the resource and the title. A title already used by a document '
     "linked to the same resource is refused with that document's id: update that one instead. Returns the new "
     "document's id: use it with update_document, edit_document and get_document; it stays the document's id once "
     f'published.\n\n{DRAFTS}\n\nFields: {RESOURCE}; title (1–240 characters); content (the whole document in '
@@ -65,8 +62,7 @@ NEW_DOCUMENT = (
 UPDATE_DOCUMENT = (
     "Save this run's draft of a document with its complete new content (optionally a new title or description). "
     f'{USABLE} With resource, the document is also linked to that server, service, environment or code project '
-    'when a person '
-    'publishes the draft. To change one passage, use edit_document instead.\n\n'
+    'when a person publishes the draft. To change one passage, use edit_document instead.\n\n'
     f'{DRAFTS}\n\nFields: {DOCUMENT_ID}; content (the whole document in Markdown, up to 50,000 characters); title '
     '(optional: 1–240 characters, omit to keep it); description (optional: up to 4000 characters, omit to keep it); '
     f'{RESOURCE.replace("resource:", "resource (optional):", 1)}.\n\n'

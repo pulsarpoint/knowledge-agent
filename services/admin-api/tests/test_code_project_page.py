@@ -7,12 +7,13 @@ from uuid import uuid4
 
 from access_helpers import ids, of
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.sessions.start import RESOURCE_TAG
+from knowledge_admin.sessions.start import RESOURCE_TAG, assistant_prompt_id
 from test_discovery_runs import pinned_of
 from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 NAME = 'Code project overview'
+ASSISTANT = 'Code project assistant'
 
 
 def start(world, started_from: dict, **change):
@@ -73,7 +74,10 @@ def test_options_for_a_code_project_offer_its_prompts_and_mark_it_linked(world):
     response = world.client.get(f'/api/sessions/options?code_project_id={world.shop}', headers=HEADERS)
     assert response.status_code == 200, response.text
     options = response.json()
-    assert [prompt['name'] for prompt in options['prompts']] == [NAME]
+    assert [prompt['name'] for prompt in options['prompts']] == [ASSISTANT]  # a chat is an assistant
+    assert options['default_prompt_id'] == str(assistant_prompt_id(world.project, 'code_project'))
+    assert [prompt['name'] for prompt in options['discovery_prompts']] == [NAME]  # Discover…
+    assert 'new_document' in options['discovery_prompts'][0]['content']
     assert [item['id'] for item in options['resources']['code_projects'] if item['linked']] == [str(world.shop)]
     assert world.client.get(f'/api/sessions/options?code_project_id={uuid4()}', headers=HEADERS).status_code == 404
     both = world.client.get(
@@ -81,7 +85,16 @@ def test_options_for_a_code_project_offer_its_prompts_and_mark_it_linked(world):
     )
     assert both.status_code == 400
     server = world.client.get(f'/api/sessions/options?server_id={world.server["id"]}', headers=HEADERS).json()
-    assert NAME not in [prompt['name'] for prompt in server['prompts']]
+    assert [prompt['name'] for prompt in server['prompts']] == ['Server assistant']
+    assert [prompt['name'] for prompt in server['discovery_prompts']] == ['Server discovery']
+    service = world.client.get(f'/api/sessions/options?service_id={world.nginx}', headers=HEADERS).json()
+    assert service['discovery_prompts'] == []
+    document = world.client.get('/api/sessions/options?new_document=1', headers=HEADERS).json()
+    assert document['discovery_prompts'] == []
+
+
+def test_the_page_data_needs_an_administrator(world):
+    assert world.client.get(f'/api/code-projects/{world.shop}').status_code == 403
 
 
 def test_a_new_document_can_be_built_for_a_code_project(world):
@@ -121,21 +134,28 @@ def run(conn, name: str) -> None:
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
-def seeded(conn, project):
+def seeded(conn, project, name=NAME):
     return conn.execute(
         """SELECT p.id,p.input_kind,p.tags,v.content FROM ka.documentation_prompts p
         JOIN ka.documentation_prompt_versions v ON v.prompt_id=p.id WHERE p.project_id=%s AND p.name=%s""",
-        (project, NAME),
+        (project, name),
     ).fetchall()
 
 
-def test_every_workspace_and_every_new_one_has_the_overview_prompt_once(store):
+def test_every_workspace_and_every_new_one_has_the_two_prompts_once(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')  # created after the migration: the trigger seeds it
-        conn.execute('SELECT ka.seed_code_project_overview_prompt(%s)', (project,))  # again: still one
+        conn.execute('SELECT ka.seed_code_project_prompts(%s)', (project,))  # again: still one each
         rows = seeded(conn, project)
+        assistant = seeded(conn, project, ASSISTANT)
+    assert len(assistant) == 1
+    assert assistant[0]['id'] == assistant_prompt_id(project, 'code_project')
+    assert assistant[0]['input_kind'] == 'code' and assistant[0]['tags'] == ['assistant', 'code-project']
+    for words in ('Resource line', 'read_file', 'code_graph', 'shell_run', 'Never show passwords, keys or tokens.'):
+        assert words in assistant[0]['content']
+    assert 'only when the person asks' in assistant[0]['content']
     assert len(rows) == 1
-    assert rows[0]['input_kind'] == 'code' and rows[0]['tags'] == ['code-project', 'overview']
+    assert rows[0]['input_kind'] == 'code' and rows[0]['tags'] == ['code-project-discovery', 'overview']
     content = rows[0]['content']
     assert 'new_document' in content and 'update_document' in content
     for section in ('Purpose', 'Structure', 'How to run and build', 'Configuration', 'Dependencies', 'Deployment'):
@@ -143,7 +163,7 @@ def test_every_workspace_and_every_new_one_has_the_overview_prompt_once(store):
     assert 'Where to look first' in content
 
 
-def test_down_removes_only_the_unchanged_prompt(store):
+def test_down_removes_only_the_unchanged_prompts(store):
     with store.connect() as conn:
         shop = store.project(conn, 'shop')
         edited = store.project(conn, 'edited')
@@ -155,7 +175,7 @@ def test_down_removes_only_the_unchanged_prompt(store):
         )
         conn.execute('UPDATE ka.documentation_prompts SET next_version=3 WHERE id=%s', (prompt,))
         run(conn, '0140_code_project_prompt.down.sql')
-        assert seeded(conn, shop) == []
-        assert len(seeded(conn, edited)) == 2
-        run(conn, '0140_code_project_prompt.up.sql')  # up again: workspaces get it back
-        assert len(seeded(conn, shop)) == 1
+        assert seeded(conn, shop) == [] and seeded(conn, shop, ASSISTANT) == []
+        assert len(seeded(conn, edited)) == 2 and seeded(conn, edited, ASSISTANT) == []
+        run(conn, '0140_code_project_prompt.up.sql')  # up again: workspaces get them back
+        assert len(seeded(conn, shop)) == 1 and len(seeded(conn, shop, ASSISTANT)) == 1

@@ -27,7 +27,7 @@ const message = (reason: unknown, fallback: string) =>
   reason instanceof ApiError || reason instanceof Error ? reason.message : fallback;
 
 /** One code project: a header (name, Git source, ref, current commit and when it was synced, sync and code graph
- * status; Chat, Discover… when the library has prompts for code projects, Sync now and Edit — the list's form, in a
+ * status; Chat, Discover… when the library has discovery prompts for code projects, Sync now and Edit — the list's form, in a
  * sheet) and tabs Overview (details, checkout folders, code graph with Re-index, recent syncs and Built into: the
  * services built from it) and Documents (EntryDocuments). Reloads every 2 seconds while a sync or indexing runs. */
 export default function CodeProjectPage({ codeProjectId }: { codeProjectId: string }) {
@@ -37,7 +37,7 @@ export default function CodeProjectPage({ codeProjectId }: { codeProjectId: stri
   const [version, setVersion] = useState(0);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [discover, setDiscover] = useState(false); // the library has prompts for code projects
+  const [discover, setDiscover] = useState(false); // the library has discovery prompts for code projects
 
   useEffect(() => {
     const controller = new AbortController();
@@ -63,7 +63,7 @@ export default function CodeProjectPage({ codeProjectId }: { codeProjectId: stri
     const controller = new AbortController();
     getSessionOptions({ codeProjectId }, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) setDiscover(value.prompts.length > 0);
+        if (!controller.signal.aborted) setDiscover((value.discovery_prompts ?? []).length > 0);
       })
       .catch(() => undefined); // no Discover…
     return () => controller.abort();

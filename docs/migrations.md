@@ -610,11 +610,17 @@ restores the `handler_id` foreign key (`ON DELETE SET NULL`), clearing the ids o
 
 ## 0140_code_project_prompt
 
-A built-in prompt, **Code project overview**, in the prompt library of every workspace (seeded like Server discovery:
-`seed_code_project_overview_prompt`, run for the existing workspaces and by the `seed_code_project_overview` trigger for
-new ones; one version, tags `code-project` and `overview`, input kind `code`). A run started from a code project reads
-the repository (structure, entry points, configuration, deployment files) and drafts its overview document with
-`new_document` (or `update_document` of an existing overview): purpose, structure, how to run and build,
-configuration, dependencies, deployment, where to look first. Chats on a code project and its **Discover…** offer the
-prompts tagged `code-project`. The down migration removes the prompt only where it is unchanged (its one version,
-never saved again) and drops the trigger and functions.
+Two built-in prompts in the prompt library of every workspace (seeded like the assistant prompts and Server discovery:
+`seed_code_project_prompts`, run for the existing workspaces and by the `seed_code_project_prompts` trigger for new
+ones; one version each, input kind `code`):
+
+- **Code project assistant** (tags `assistant`, `code-project`; id `md5('knowledge-agent-v3:prompts:code-project-assistant:<workspace>')`):
+  a chat on a code project's default prompt. It answers questions about the repository by reading only what answers
+  them and drafts documents only when asked.
+- **Code project overview** (tags `code-project-discovery`, `overview`): what **Discover…** offers on a code project. It
+  reads the repository (structure, entry points, configuration, deployment files) and drafts its overview document
+  with `new_document` (or `update_document` of an existing overview): purpose, structure, how to run and build,
+  configuration, dependencies, deployment, where to look first.
+
+The down migration removes each prompt only where it is unchanged (its one version, never saved again) and drops the
+trigger and functions.

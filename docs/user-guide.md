@@ -248,8 +248,8 @@ Projects cannot be edited or removed while a job runs.
 
 Each project's name in the list opens its page, `/code-projects/<id>`. The header shows the name, the Git URL, the
 branch or tag, the current commit and when it was synced, and the sync and code graph status, with **Chat**,
-**Discover…** (only when the prompt library has prompts tagged `code-project`, such as the seeded **Code project
-overview**), **Sync now** (a Git pull; Git projects only) and **Edit** (the list's form, in a sheet on the right). Tabs:
+**Discover…** (only when the prompt library has discovery prompts for code projects, tagged
+`code-project-discovery`, such as the seeded **Code project overview**), **Sync now** (a Git pull; Git projects only) and **Edit** (the list's form, in a sheet on the right). Tabs:
 
 - **Overview** — the repository details, the checkout folders (`code/…`), the code graph (status, files, symbols,
   relationships, languages, last processed) with **Re-index** (**Generate graph** before the first one), the recent
@@ -260,9 +260,10 @@ overview**), **Sync now** (a Git pull; Git projects only) and **Edit** (the list
 
 **Chat** works as on a server, service or environment page ([Chats and Discover](#chats-and-discover)): the run holds
 the code project (its folders for the file tools and `shell_run`, its code graph for `code_graph`) and is tagged
-`code_projects/<id>`, so **Conversations** lists the chats about it. A chat on a code project offers the prompts tagged
-`code-project`; it has no seeded assistant prompt of its own, so the first of them is its default prompt. **Discover…**
-with **Code project overview** reads the repository and drafts an overview document (purpose, structure, how to run and
+`code_projects/<id>`, so **Conversations** lists the chats about it. Its default prompt is the seeded **Code project
+assistant** (tagged `assistant` and `code-project`): it answers questions about the repository by reading only the code
+that answers them (file tools, `code_graph`, read-only `shell_run`) and drafts a document only when you ask.
+**Discover…** with **Code project overview** reads the repository and drafts an overview document (purpose, structure, how to run and
 build, configuration, dependencies, deployment, where to look first) with `new_document`, or revises the existing one
 with `update_document`. The draft appears on the **Documents** tab, marked "Draft — not published", until you publish
 it. The page's data comes from `GET /api/code-projects/{id}` (the project as the list has it, plus `built_into`,
@@ -325,8 +326,9 @@ on very wide screens (2xl) it opens beside the Info, below that as a second tab 
 the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of another page is refused.
 
 A chat answers questions about the resource: its prompt is the resource type's assistant prompt (**Server
-assistant**, **Service assistant**, **Environment assistant** in **Administration → Prompts**), which uses the
-smallest read-only command that answers. **Settings** locks the resource on; you may add other resources. A server
+assistant**, **Service assistant**, **Environment assistant**, **Code project assistant** in **Administration →
+Prompts**; a chat offers the prompts tagged `assistant` and the type: `server`, `service`, `environment` or
+`code-project`), which uses the smallest read-only check that answers. **Settings** locks the resource on; you may add other resources. A server
 chat needs SSH to be set up and allowed for the server. A plain chat only drafts: documents it writes
 and inventory it saves are drafts for you to confirm.
 
@@ -337,8 +339,10 @@ instructions and skills), **Tools** (each name and description as the model sees
 **Resources** and **Model**. Before the first message it shows what the next conversation would start with; secrets
 are never shown.
 
-**Discover…** starts a run that explores the resource from a library prompt. The sheet offers the prompts (the seeded
-**Server discovery**, or **Code project overview** on a code project, is chosen when the library has it) and shows the prompt's text, which you may edit; the chat
+**Discover…** starts a run that explores the resource from a library prompt. The sheet offers the type's discovery
+prompts — tagged `server-discovery` on a server (the seeded **Server discovery**), `code-project-discovery` on a code
+project (the seeded **Code project overview**); a service or an environment has none, so it offers the chat's prompts —
+the first one chosen, and shows the prompt's text, which you may edit; the chat
 settings of the resource give the model and resources. **Start** starts the run and opens it as the page's chat, so you
 can watch it and write to it while it works. The run saves what it finds as drafts: services, deployments,
 connections and relations in the inventory (`save_inventory_draft`), documents with `new_document` (linked to the

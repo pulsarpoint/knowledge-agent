@@ -326,6 +326,8 @@ export interface AgentOptions {
   default_model_id: string | null;
   prompts: { id: string; name: string; content: string }[];
   default_prompt_id: string | null;
+  /** On a resource: the prompts Discover… offers (tagged its type's discovery tag); empty when it has none. */
+  discovery_prompts?: { id: string; name: string; content: string }[];
   resources: {
     servers: AgentServer[];
     services: AgentBringer[];

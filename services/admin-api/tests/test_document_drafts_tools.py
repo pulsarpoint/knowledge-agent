@@ -333,6 +333,8 @@ def test_a_code_project_chat_drafts_its_overview_and_lists_its_documents(rev):
     assert (draft['folder'], draft['slug']) == ('code-projects/shop', 'shop-overview')
     listed = json.loads(call(rev, 'list_documents', resource={'type': 'code_project', 'id': str(shop)}))
     assert [item['id'] for item in listed['documents']] == [document]
+    again = call(rev, 'new_document', resource={'type': 'code_project', 'id': str(shop)}, title='overview', content='#')
+    assert again == DUPLICATE_TITLE.format(title='overview', type='code project', id=document)
     detail = rev.docs.client.get(f'{API}/drafts/{document}', headers=HEADERS).json()
     assert promote(rev.docs, detail).status_code == 200
     assert links(rev, document) == [('code_project', str(shop), 'built_for')]

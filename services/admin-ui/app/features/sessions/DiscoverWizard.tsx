@@ -12,11 +12,14 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
-/** The library prompts a discovery run prefers, by name: the seeded Server discovery and Code project overview. */
-const DISCOVERY_PROMPTS = ["Server discovery", "Code project overview"];
-/** The library prompt a discovery run starts from: a preferred one when the library has it, else the chat's default. */
-const discoveryPrompt = (options: AgentOptions, fallback: string) =>
-  options.prompts.find((item) => DISCOVERY_PROMPTS.includes(item.name))?.id ?? fallback;
+/** The prompts Discover… offers: the resource type's discovery prompts (Server discovery, Code project overview), or
+ * the chat's prompts when its type has none. */
+const promptsOf = (options: AgentOptions) =>
+  options.discovery_prompts?.length ? options.discovery_prompts : options.prompts;
+/** The prompt a discovery run starts from: the first discovery prompt, else the chat's default. */
+const discoveryPrompt = (options: AgentOptions, fallback: string) => options.discovery_prompts?.[0]?.id ?? fallback;
+/** What a discovery run saves: a code project's only documents; the others' inventory entries and documents too. */
+const saves = (type: ResourceType) => (type === "code_project" ? "documents" : "inventory entries and documents");
 
 /** Discover…: a run on the resource from a library prompt (its text can be edited first), which saves what it finds as
  * drafts (inventory entries and documents) for a person to confirm. Start starts it and opens it as the page's chat
@@ -38,7 +41,9 @@ export default function DiscoverWizard({
   const key = choice?.key ?? (options && settings ? discoveryPrompt(options, settings.promptKey) : OWN);
   const text =
     choice?.text ??
-    (key === OWN ? (settings?.systemPrompt ?? "") : (options?.prompts.find((p) => p.id === key)?.content ?? ""));
+    (key === OWN
+      ? (settings?.systemPrompt ?? "")
+      : ((options && promptsOf(options).find((p) => p.id === key)?.content) ?? ""));
   const input =
     options && settings
       ? startInput(
@@ -94,7 +99,7 @@ export default function DiscoverWizard({
           <SheetHeader>
             <SheetTitle>Discover {resource.name}</SheetTitle>
             <SheetDescription>
-              {`A run that explores the ${resourceWord(resource.type)} and saves what it finds as drafts: inventory entries and documents. You confirm or discard them.`}
+              {`A run that explores the ${resourceWord(resource.type)} and saves what it finds as drafts: ${saves(resource.type)}. You confirm or discard them.`}
             </SheetDescription>
           </SheetHeader>
           <FieldGroup className="mt-4">
@@ -107,7 +112,7 @@ export default function DiscoverWizard({
                     onValueChange={(value) =>
                       setChoice({
                         key: value,
-                        text: value === OWN ? text : (options.prompts.find((p) => p.id === value)?.content ?? ""),
+                        text: value === OWN ? text : (promptsOf(options).find((p) => p.id === value)?.content ?? ""),
                       })
                     }
                   >
@@ -116,7 +121,7 @@ export default function DiscoverWizard({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {options.prompts.map((item) => (
+                        {promptsOf(options).map((item) => (
                           <SelectItem key={item.id} value={item.id}>
                             {item.name}
                           </SelectItem>

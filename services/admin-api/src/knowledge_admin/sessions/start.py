@@ -73,15 +73,14 @@ RESOURCE_TAGS = {
     'environment': 'environments',
     'code_project': 'code_projects',
 }
-# The prompts offered for a chat on a resource: tagged assistant and its type; for a code project, tagged code-project
-# (a prompt tag has no _).
+# A resource type's prompt tag (a prompt tag has no _): a chat on it offers the prompts tagged assistant and it (its
+# seeded "<Type> assistant" the default); Discover… offers those tagged its discovery tag (none: no discovery prompts).
 ASSISTANT_TAG = 'assistant'
-PROMPT_TAGS = {
-    'server': [ASSISTANT_TAG, 'server'],
-    'service': [ASSISTANT_TAG, 'service'],
-    'environment': [ASSISTANT_TAG, 'environment'],
-    'code_project': ['code-project'],
-}
+TYPE_TAGS = {'server': 'server', 'service': 'service', 'environment': 'environment', 'code_project': 'code-project'}
+DISCOVERY_TAGS = {'server': 'server-discovery', 'code_project': 'code-project-discovery'}
+PROMPTS = """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
+    JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
+    WHERE p.project_id=%s AND p.enabled AND p.tags @> %s::text[] ORDER BY lower(p.name),p.id"""
 RESOURCE_NOT_FOUND = {
     'server': 'Server not found.',
     'service': 'Service not found.',
@@ -295,8 +294,8 @@ def write_prompt_id(project: UUID) -> UUID:
 
 
 def assistant_prompt_id(project: UUID, kind: str) -> UUID:
-    """The seeded "<Type> assistant" prompt's id of a resource type (migration 0106: md5(...)::uuid)."""
-    return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:{kind}-assistant:{project}'.encode()).hexdigest())
+    """The seeded "<Type> assistant" prompt's id of a resource type (migrations 0106 and 0140: md5(...)::uuid)."""
+    return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:{TYPE_TAGS[kind]}-assistant:{project}'.encode()).hexdigest())
 
 
 def start_server(conn, project: UUID, server_id: UUID) -> dict:
@@ -782,9 +781,10 @@ def options(
     code_project_id: UUID | None = None,
 ) -> dict:
     """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
-    tagged documentation; for a server, service or environment, the prompts tagged assistant and with its type, its
-    seeded assistant prompt the first choice; for a code project, the prompts tagged code-project: PROMPT_TAGS),
-    resources (marked linked to the starting document or resource) and experts."""
+    tagged documentation; for a server, service, environment or code project, the prompts tagged assistant and its
+    type tag, its seeded assistant prompt the first choice), the prompts Discover… offers on a resource (tagged its
+    discovery tag: discovery_prompts; none for a document or a type without one), resources (marked linked to the
+    starting document or resource) and experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
     server = server_row(conn, project, server_id) if server_id is not None else None
     given = {
@@ -829,19 +829,11 @@ def options(
     ids = [item['id'] for item in models]
     default_model = last['model_id'] if last and last['model_id'] in ids else (ids[0] if ids else None)
     if kind is not None:
-        prompts = conn.execute(
-            """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
-            JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-            WHERE p.project_id=%s AND p.enabled AND p.tags @> %s::text[] ORDER BY lower(p.name),p.id""",
-            (project, PROMPT_TAGS[kind]),
-        ).fetchall()
+        prompts = conn.execute(PROMPTS, (project, [ASSISTANT_TAG, TYPE_TAGS[kind]])).fetchall()
     else:
-        prompts = conn.execute(
-            """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
-            JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-            WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s]::text[] ORDER BY lower(p.name),p.id""",
-            (project, WRITE_TAG if new_document else REVISION_TAG),
-        ).fetchall()
+        prompts = conn.execute(PROMPTS, (project, [WRITE_TAG if new_document else REVISION_TAG])).fetchall()
+    discovery = DISCOVERY_TAGS.get(kind)
+    discovery_prompts = conn.execute(PROMPTS, (project, [discovery])).fetchall() if discovery else []
     seeded = (
         assistant_prompt_id(project, kind)
         if kind
@@ -920,6 +912,7 @@ def options(
             'default_model_id': default_model,
             'prompts': prompts,
             'default_prompt_id': prompt_choice,
+            'discovery_prompts': discovery_prompts,
             'resources': resources,
             'experts': experts,
         }
@@ -981,6 +974,7 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
             'default_model_id': model['id'] if fits else None,
             'prompts': [],
             'default_prompt_id': None,
+            'discovery_prompts': [],
             'resources': resources,
             'experts': [
                 {'id': entry['id'], 'name': entry['name'], 'when_to_use': entry['when_to_use']}

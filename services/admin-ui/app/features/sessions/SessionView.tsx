@@ -6,6 +6,7 @@ import {
   closeSession,
   resourceChatPath,
   resourceOf,
+  resourceWord,
   sendMessage,
   statusLabels,
   stopSession,
@@ -92,7 +93,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       </Link>
     ) : resource ? (
       <Link className="underline" to={resourceChatPath(resource, session.id)}>
-        the {resource.type}
+        the {resourceWord(resource.type)}
       </Link>
     ) : session.agent_id ? (
       <Link

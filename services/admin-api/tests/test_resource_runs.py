@@ -169,14 +169,15 @@ def test_the_assistant_prompts_are_seeded_for_new_workspaces(world):
             (project,),
         ).fetchall()
     assert [(row['name'], row['input_kind']) for row in rows] == [
+        ('Code project assistant', 'code'),  # 0140
         ('Environment assistant', 'environment'),
         ('Server assistant', 'server'),
         ('Service assistant', 'service'),
     ]
-    for row in rows:
-        assert row['id'] == assistant_prompt_id(project, row['input_kind'])
+    for row, kind in zip(rows, ('code_project', 'environment', 'server', 'service')):
+        assert row['id'] == assistant_prompt_id(project, kind)
         assert 'Never show passwords, keys or tokens.' in row['content']
-    assert 'df -h' in rows[1]['content']
+    assert 'df -h' in rows[2]['content']
     for row in rows:
         assert 'get_resource' in row['content'] and 'get_server_info_basic' not in row['content']
         assert 'Resource line' in row['content'] and 'named in the context' not in row['content']

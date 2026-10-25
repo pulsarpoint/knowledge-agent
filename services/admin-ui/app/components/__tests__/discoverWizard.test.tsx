@@ -44,7 +44,7 @@ function Where() {
   const location = useLocation();
   return <output data-testid="where">{location.pathname + location.search}</output>;
 }
-function show(type: "server" | "service" | "environment", id: string) {
+function show(type: "server" | "service" | "environment" | "code_project", id: string) {
   const path = `/${type}s/${id}`;
   const router = createMemoryRouter(
     [
@@ -64,9 +64,10 @@ function show(type: "server" | "service" | "environment", id: string) {
 }
 
 const SERVER_DISCOVERY = "Explore the server in the Resource line and record what the inventory should hold about it.";
+// The server's discovery prompts come apart from its chat prompts (options.discovery_prompts).
 const withDiscovery = {
   ...options,
-  prompts: [...options.prompts, { id: "p3", name: "Server discovery", content: SERVER_DISCOVERY }],
+  discovery_prompts: [{ id: "p3", name: "Server discovery", content: SERVER_DISCOVERY }],
 };
 
 test("Discover… offers the library prompt, starts the run from it and opens the chat", async () => {
@@ -83,6 +84,10 @@ test("Discover… offers the library prompt, starts the run from it and opens th
   const prompt = (await within(dialog).findByRole("textbox", { name: "Prompt text" })) as HTMLTextAreaElement;
   expect(prompt.value).toBe(SERVER_DISCOVERY);
   expect(within(dialog).getByRole("combobox", { name: "Prompt" })).toHaveTextContent("Server discovery");
+  await user.click(within(dialog).getByRole("combobox", { name: "Prompt" }));
+  const choices = (await screen.findAllByRole("option")).map((item) => item.textContent);
+  expect(choices).toEqual(["Server discovery", "Own prompt"]); // the discovery prompts, not the chat's
+  await user.keyboard("{Escape}");
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
 
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1?chat=r9"));
@@ -163,4 +168,24 @@ test("a refused start shows why and keeps the sheet open", async () => {
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
   expect(await within(dialog).findByText("SSH is not set up for this server.")).toBeInTheDocument();
   expect(screen.getByTestId("where")).toHaveTextContent(/^\/servers\/s1$/);
+});
+
+test("on a code project Discover… offers Code project overview and starts from the code project", async () => {
+  const user = userEvent.setup();
+  const overview = { id: "p9", name: "Code project overview", content: "Read the repository." };
+  const calls = api({
+    "GET /api/sessions/options?code_project_id=c1": () => [200, { ...options, discovery_prompts: [overview] }],
+    "POST /api/sessions": () => [201, { id: "r3" }],
+  });
+  show("code_project", "c1");
+  await user.click(screen.getByRole("button", { name: "Discover…" }));
+  const dialog = await screen.findByRole("dialog");
+  const prompt = (await within(dialog).findByRole("textbox", { name: "Prompt text" })) as HTMLTextAreaElement;
+  expect(prompt.value).toBe("Read the repository.");
+  expect(within(dialog).getByText(/explores the code project/)).toBeInTheDocument();
+  await user.click(within(dialog).getByRole("button", { name: "Start" }));
+  await waitFor(() => expect(calls.some((call) => call.key === "POST /api/sessions")).toBe(true));
+  const started = calls.find((call) => call.key === "POST /api/sessions")!.body;
+  expect(started).toMatchObject({ started_from: { code_project_id: "c1" }, prompt_id: "p9" });
+  expect(started.message).toBe("Discover this code project.");
 });

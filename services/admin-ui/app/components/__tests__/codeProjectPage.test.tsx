@@ -78,7 +78,7 @@ function api(prompts = [overview]) {
       calls.push(key);
       const routes: Record<string, unknown> = {
         "GET /api/code-projects/c1": project,
-        "GET /api/sessions/options?code_project_id=c1": { ...shared, prompts, default_prompt_id: null },
+        "GET /api/sessions/options?code_project_id=c1": { ...shared, discovery_prompts: prompts },
         "GET /api/sessions?tag=code_projects%2Fc1": { sessions: [] },
         "GET /api/inventory/code_project/c1/documents": {
           inventory_document: null,
@@ -167,7 +167,7 @@ test("Chat opens the chat panel on the code project", async () => {
   expect(calls).toContain("GET /api/sessions/options?code_project_id=c1");
 });
 
-test("Discover… is shown only when prompts for code projects exist", async () => {
+test("Discover… is shown only when discovery prompts for code projects exist", async () => {
   api([]);
   show();
   await screen.findByRole("heading", { name: "Shop", level: 1 });
