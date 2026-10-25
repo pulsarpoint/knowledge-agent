@@ -131,7 +131,7 @@ SCRIPT
 def test_a_skill_script_runs_at_its_listed_path_and_cannot_write_there(
     shell_context, skills_folder, tmp_path, monkeypatch
 ):
-    """Review Focus 4: the skill folder is mounted read-only at the path load_skill lists; outputs go to scratch."""
+    """Review Focus 4: the skill folder is mounted read-only at the path the Skills section lists; outputs go to scratch."""
     folder = skills_folder / 'skills' / 'k1' / 'v1'
     (folder / 'scripts').mkdir(parents=True)
     (folder / 'SKILL.md').write_text('---\nname: inspect\ndescription: Inspect.\n---\n\nRun the script.\n')
@@ -141,8 +141,6 @@ def test_a_skill_script_runs_at_its_listed_path_and_cannot_write_there(
     monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path))  # the worker mounts only paths under the data folder
     skill = {'type': 'skill', 'id': 'k1', 'name': 'inspect', 'folder': 'skills/k1/v1', 'source': 'given'}
     shell_context['config']['access']['resources'].append(skill)
-    listed = asyncio.run(invoke(tool('load_skill'), shell_context, name='inspect'))
-    assert f'- {script} (' in listed
     result = json.loads(asyncio.run(invoke(shell_run, shell_context, command=f'{script}; cat out.txt')))
     assert result['exit_code'] == 0 and 'checked' in result['stdout'], result
     assert 'Read-only file system' in result['stderr'] and not (folder / 'written').exists()

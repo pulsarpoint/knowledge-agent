@@ -198,12 +198,6 @@
     "summary": "Hand a separate part of the work to a helper that runs in parallel."
   },
   {
-    "name": "load_skill",
-    "group": "agents",
-    "label": "Load a skill",
-    "summary": "Get a listed skill's full instructions and its files."
-  },
-  {
     "name": "schedule_wakeup",
     "group": "agents",
     "label": "Schedule a wake-up",

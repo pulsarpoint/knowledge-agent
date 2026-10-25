@@ -380,8 +380,8 @@ def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict
 def get_prompt(config: dict[str, Any]) -> str:
     """The active prompt with the agent's instructions and the access rules. A run started from a
     resource names it in one line (Resource: <type> <id> (<name>)); the run's resources are not in the prompt
-    (get_available_resources lists them); its skills (config['skills']) are listed by name and description (load_skill
-    gives their instructions; no list when load_skill is switched off)."""
+    (get_available_resources lists them); its skills (config['skills']) are listed by name, description and SKILL.md path
+    (read with read_file; no list when read_file is switched off)."""
     prompt = config['system_prompt']['content']
     if not prompt.strip():
         raise ValueError('The agent requires a system prompt.')

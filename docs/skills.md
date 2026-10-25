@@ -41,8 +41,9 @@ it; the Skills page says "Every agent sees every enabled skill; disable a skill 
 or updated after a run started does not change that run. Subagents and experts get the skills of the run that calls
 them.
 
-**Listed at creation, loaded on use.** A run's instructions list its skills, each by name and description, in a
-**Skills** section (a run without skills, or with `load_skill` switched off, has none); the instruction text never
-goes into the prompt. When the agent uses a skill (the person names it, or the task matches its description) it calls
-the `load_skill(name)` tool, which returns the pinned folder's `SKILL.md` body and its files. A name that is not among
-the run's skills gets "No skill named <name> in this run."
+**Listed at creation, read on use.** A run's instructions list its skills, each by name, description and the
+absolute path of its `SKILL.md`, in a **Skills** section (a run without skills, or with `read_file` switched off, has
+none); the instruction text never goes into the prompt. When the agent uses a skill (the person names it, or the task
+matches its description) it reads that `SKILL.md` with `read_file`, then follows it; the skill's other files are in the
+same folder (`list_files`, `read_file`) and its scripts run with `shell_run`. Debug and the session detail show the
+skills used: those whose `SKILL.md` the run read.

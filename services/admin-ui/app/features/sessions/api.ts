@@ -278,6 +278,8 @@ export interface SessionDebug {
   agent_instructions: string;
   /** `folder`: the skill folder this run uses (its last part is the version: a commit or a timestamp). */
   skills: { name: string; folder: string | null }[];
+  /** The skills whose SKILL.md the run read with read_file (a start preview has none). */
+  skills_used?: string[];
   tools: { name: string; description: string }[];
   /** What the run may use: each resource with its source (`given`, or `via <type> <id>` of the resource it came with) and
    * the roles. */

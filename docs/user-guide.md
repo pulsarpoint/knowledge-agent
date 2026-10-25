@@ -555,9 +555,9 @@ marketplaces work as they are.
   source; **Restore** asks first, then makes that version the current files again.
 - Limits: 10 MB and 500 files per skill, 5 MB per file; relative paths only, no `..`, no symbolic links.
 
-A run lists the skills in its access by name and description. `load_skill` returns a skill's instructions and its files
-with their absolute paths; the agent reads them with `read_file` and runs scripts with `shell_run` (read-only, no
-network). A run keeps the skill folders it started with, even if a skill is updated during it.
+A run lists its skills by name, description and the path of their `SKILL.md`. The agent reads that file with
+`read_file`, reads the skill's other files the same way and runs scripts with `shell_run` (read-only, no network). Debug
+shows which skills the run used. A run keeps the skill folders it started with, even if a skill is updated during it.
 
 ### 4.9 MCP servers
 
@@ -1299,13 +1299,12 @@ resources and roles decide).
 | `search_documents` | Every run | Full-text search over the published documents the run may read (given to it, or linked to a server, service, environment or code project in it); drafts are never searched. Returns each match's id, title, short description, tags, linked resources and a short snippet; read one with `get_document` |
 | `run_subagent` | Agent sessions (never inside a subagent) | Starts a helper with every tool but `run_subagent`, a subset of the run's resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
 | `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and the run did not leave it out (sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
-| `load_skill` | The skill is in the run's access and enabled | Returns the skill's `SKILL.md` instructions and its files with their absolute paths (read them with `read_file`, run scripts with `shell_run`); any other name gets "This skill is not available in this run." |
 
 Every tool works on the run's resources only; a kind the run has none of is refused with `This run has no ….`
 
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills are
-folders loaded with `load_skill` (their scripts run only through `shell_run`) and services add context; neither adds
+folders read with `read_file` (their scripts run only through `shell_run`) and services add context; neither adds
 tools.
 
 **Treat SSH access with care**: an agent with SSH enabled can change the server.

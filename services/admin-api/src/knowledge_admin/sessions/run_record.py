@@ -8,6 +8,7 @@ from agents import RunHooks
 from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 
+from knowledge_admin.capabilities.skills import skills_used
 from knowledge_admin.sessions.activity import redact
 
 MAX_TEXT = 1_000_000
@@ -35,6 +36,18 @@ def tool_counts_through(conn, run_keys: list[str]) -> tuple[list[dict[str, Any]]
         (list(run_keys),),
     ).fetchall()
     return [{'name': row['name'], 'calls': row['calls']} for row in rows], max((row['last'] for row in rows), default=0)
+
+
+def session_skills_used(conn, session_id, turns: int, skills: list[dict]) -> list[str]:
+    """The skills (config['skills']) whose SKILL.md the session's runs read with read_file (skills_used)."""
+    if not skills or turns < 1:
+        return []
+    calls = conn.execute(
+        """SELECT payload->>'name' AS name, payload->>'arguments' AS arguments FROM ka.agent_run_events
+        WHERE run_key=ANY(%s) AND kind='tool_call' AND payload->>'name'='read_file'""",
+        ([f'cc:{session_id}:{turn}' for turn in range(1, turns + 1)],),
+    ).fetchall()
+    return skills_used(skills, calls)
 
 
 _store = None

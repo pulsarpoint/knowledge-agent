@@ -1,6 +1,6 @@
-"""Skills at run time: a run pins every enabled skill with its folder at start (config['skills']); load_skill returns
-the pinned SKILL.md body and the skill's files at their absolute paths; the skill folders are read-only roots of the
-file tools and of the shell, and only the run's own skills are reachable."""
+"""Skills at run time: a run pins every enabled skill with its folder at start (config['skills']); the skill folders
+are read-only roots of the file tools (SKILL.md is read at the path the Skills section lists) and of the shell, and
+only the run's own skills are reachable."""
 
 import asyncio
 import json
@@ -8,6 +8,7 @@ import json
 import httpx
 import pytest
 
+from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.files import check_list_files
 from knowledge_admin.capabilities.skills import run_skills
@@ -20,8 +21,6 @@ from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_expert_tools import model_of
 from test_repositories import HEADERS
 from test_test_sessions import test_start
-
-NOTE = 'Read files with read_file; run scripts with shell_run; both take these paths.'
 
 
 @pytest.fixture
@@ -63,17 +62,6 @@ def test_a_runs_skill_carries_its_pinned_folder(pinned):
     assert entry['folder'] == skill['folder']
 
 
-def test_load_skill_returns_the_body_the_files_at_absolute_paths_and_the_note(pinned):
-    _, skill, context = pinned
-    folder = absolute(skill['folder'])
-    text = call('load_skill', context, name='inspect')
-    body = (folder / 'SKILL.md').read_text()
-    assert text.startswith('Check the exit code.')
-    assert f'- {folder}/SKILL.md ({len(body.encode())} bytes)' in text
-    assert f'- {folder}/scripts/check.sh (13 bytes)' in text
-    assert text.endswith(NOTE)
-
-
 def test_an_update_during_a_run_does_not_change_what_it_reads(pinned):
     """Review Focus 1: the run keeps reading its pinned folder."""
     client, skill, context = pinned
@@ -90,8 +78,8 @@ def test_an_update_during_a_run_does_not_change_what_it_reads(pinned):
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()['skill']['folder'] != skill['folder']
-    text = call('load_skill', context, name='inspect')
-    assert text.startswith('Check the exit code.') and str(absolute(skill['folder'])) in text
+    text = json.loads(call('read_file', context, path=str(absolute(skill['folder']) / 'SKILL.md')))['content']
+    assert 'Check the exit code.' in text
     script = str(absolute(skill['folder']) / 'scripts/check.sh')
     assert json.loads(call('read_file', context, path=script))['content'] == 'echo checked\n'
 
@@ -127,7 +115,7 @@ def test_the_file_tools_and_the_shell_need_a_code_project_or_a_skill():
 
 
 def test_the_shell_mounts_the_skill_folders_at_the_listed_paths(pinned, monkeypatch):
-    """Review Focus 4: shell_run gets the skill folder as a read-only path, the same path load_skill lists (the worker
+    """Review Focus 4: shell_run gets the skill folder as a read-only path, the same path the Skills section lists (the worker
     ro-binds every read path; test_shell_worker runs it in the container)."""
     _, skill, context = pinned
     sent = {}
@@ -142,7 +130,7 @@ def test_the_shell_mounts_the_skill_folders_at_the_listed_paths(pinned, monkeypa
     folder = str(absolute(skill['folder']))
     call('shell_run', context, command=f'{folder}/scripts/check.sh')
     assert sent['read_paths'] == [folder] and sent['workspace'] == str(context['workspace'])
-    assert folder in call('load_skill', context, name='inspect')
+    assert folder in get_prompt(context['config'])
 
 
 def test_debug_lists_the_skills_with_their_folder(pinned, store):
@@ -155,8 +143,8 @@ def test_debug_lists_the_skills_with_their_folder(pinned, store):
 
 def test_a_missing_skill_folder_leaves_out_only_that_skill(pinned, tmp_path, monkeypatch):
     """A pinned skill folder that is gone (or not mounted) is left out of the roots and the shell mounts, and its
-    load_skill says its files are unavailable; the other folders and skills keep working. A missing code folder still
-    fails the file tools."""
+    nothing of it is read; the other folders and skills keep working. A missing code folder still fails the file
+    tools."""
     _, skill, context = pinned
     folder = absolute(skill['folder'])
     resources = context['config']['access']['resources']
@@ -167,9 +155,6 @@ def test_a_missing_skill_folder_leaves_out_only_that_skill(pinned, tmp_path, mon
     skills += [gone, escaping]
     roots = [item['path'] for item in json.loads(call('list_files', context))['entries']]
     assert roots == [str(context['workspace']), str(folder)]
-    for name in ('gone', 'escaping'):
-        assert call('load_skill', context, name=name) == "This skill's files are unavailable."
-    assert call('load_skill', context, name='inspect').startswith('Check the exit code.')
     sent = {}
 
     def handler(request: httpx.Request) -> httpx.Response:

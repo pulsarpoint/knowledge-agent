@@ -80,7 +80,6 @@ ARGS = {
     'save_memory': {'name': 'x', 'content': 'y'},
     'update_memory': {'name': 'x', 'content': 'y', 'revision': 1},
     'run_subagent': {'task': 'look', 'resources': {'server_ids': ['s1']}},
-    'load_skill': {'name': 'inspect'},
     'schedule_wakeup': {'message': 'Check the deploy.', 'in_minutes': 30},
     'list_wakeups': {},
     'cancel_wakeup': {'id': 1},
@@ -105,7 +104,6 @@ NO_DOCUMENTS = 'This run has no documents.'
 NOT_SERVER = 'This server is not available in this run.'
 NOT_CODE = 'This code project is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
-NO_SKILL = 'No skill named inspect in this run.'  # no access object has skills: they are config['skills']
 WITH_SERVER = ('server', 'server_with_services', 'new_document', 'environment')
 LINKED_TOO = (
     'Documents linked to a server, service or environment in this run are usable too: list_documents lists them.'
@@ -127,7 +125,7 @@ def some(names, value) -> dict:
 
 CODE = row(NO_CODE, code=None, other=None)
 # the file and shell tools read the code projects' folders and the skills' folders (config['skills']:
-# test_the_folder_tools_and_load_skill_take_the_runs_skills)
+# test_the_folder_tools_take_the_runs_skills)
 FILES = row(NO_CODE_OR_SKILL, code=None, other=None)
 SERVER_ROW = row(NO_SERVERS, other=NOT_SERVER, **some(WITH_SERVER, None))
 # usable = readable: a document in the run's list, or one linked to a resource in it (the tool loads the links)
@@ -162,7 +160,6 @@ EXPECTED = {
     'save_memory': ALWAYS,
     'update_memory': ALWAYS,
     'run_subagent': row(NOT_SERVER, **some(WITH_SERVER, None)),
-    'load_skill': row(NO_SKILL),
     'schedule_wakeup': ALWAYS,  # a session's own wake-ups; the time is checked in test_wakeups
     'list_wakeups': ALWAYS,
     'cancel_wakeup': ALWAYS,
@@ -205,9 +202,9 @@ def test_check(tool, access_name):
     assert check(ACCESS[access_name], **ARGS[tool]) == EXPECTED[tool][access_name]
 
 
-def test_the_folder_tools_and_load_skill_take_the_runs_skills():
+def test_the_folder_tools_take_the_runs_skills():
     skills = [{'id': 'k1', 'name': 'inspect', 'description': '', 'folder': 'skills/k1/v1'}]
-    for tool in ('list_files', 'read_file', 'search_files', 'shell_run', 'load_skill'):
+    for tool in ('list_files', 'read_file', 'search_files', 'shell_run'):
         assert check_of(tool)(ACCESS['empty'], skills=skills, **ARGS[tool]) is None, tool
 
 

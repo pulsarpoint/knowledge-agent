@@ -143,6 +143,7 @@ test("the agent's instructions and skills are labelled", async () => {
         prompt: null,
         agent_instructions: "Be careful.",
         skills: [{ name: "Linux", folder: "skills/s1/abc123def456" }],
+        skills_used: ["Linux"],
       },
     ],
   });
@@ -155,8 +156,10 @@ test("the agent's instructions and skills are labelled", async () => {
   expect(within(prompt).getByText("Agent instructions")).toBeInTheDocument();
   expect(within(prompt).getByText("Be careful.")).toBeInTheDocument();
   expect(within(prompt).getByText("Skills")).toBeInTheDocument();
-  expect(within(prompt).getByText("Linux")).toBeInTheDocument();
+  expect(within(prompt).getByRole("listitem")).toHaveTextContent("Linux");
   expect(within(prompt).getByText("abc123def456")).toBeInTheDocument(); // the folder's version
+  expect(within(prompt).getByText("Skills used")).toBeInTheDocument(); // the SKILL.md files the run read
+  expect(within(prompt).getByTestId("skills-used")).toHaveTextContent("Linux");
 });
 
 function chat(initialRunId: string | null) {

@@ -42,7 +42,7 @@ async def shell_run(
     The working directory is writable scratch space shared across shell calls
     within this run. Selected code, skill and graph paths retain the absolute
     paths in the agent resources and are read-only: run a skill's scripts at the
-    paths load_skill lists and write their outputs to scratch. Other projects, credentials
+    paths listed under Skills and write their outputs to scratch. Other projects, credentials
     and network access are unavailable. Use ssh_run for configured remote servers.
     Shell variables do not persist between calls; save intermediate work to files.
     Inspect exit_code, stderr and timed_out. Output over 32 KiB per stream is

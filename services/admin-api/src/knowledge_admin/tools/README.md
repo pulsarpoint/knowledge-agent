@@ -81,14 +81,13 @@ the run's resources by `resource_of`). `new_document` names the folder and slug 
 document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
 
-`load_skill` (`capabilities/skills.py`; group `agents`) returns, for one of the run's skills (`config['skills']`: every
-enabled skill, pinned at start) by name, the body of
-`SKILL.md` and the skill's files at their absolute paths with their sizes, then the note `Read files with read_file;
-run scripts with shell_run; both take these paths.` It reads the folder the run pinned at start (the skill's
-`folder`), so an update or a switch-off during the run changes nothing for it; any other name is refused with `No
-skill named <name> in this run.`. The run's instructions list its skills by name and description only (`skills.section`, used by
-`runner.get_prompt` and `sessions/text.agent_system_prompt`); a run without skills, or with `load_skill` switched off,
-has no Skills section.
+There is no skill tool: the run's instructions list its skills (`config['skills']`: every enabled skill, pinned at start)
+by name, description and the absolute path of their `SKILL.md` (`skills.section`, used by `runner.get_prompt` and
+`sessions/text.agent_system_prompt`), and the run reads that file with `read_file`; the rest of the folder with
+`list_files` and `read_file`, scripts with `shell_run`. The folder is the one the run pinned at start (the skill's
+`folder`), so an update or a switch-off during the run changes nothing for it. A run without skills, or with `read_file`
+switched off, has no Skills section. `skills.skills_used` names the skills whose `SKILL.md` a run read (Debug and the
+session detail show it).
 
 Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog and have no usage text of their
 own. A session pins the experts it may call (`config['experts']`); the runtime builds one function tool per entry
@@ -101,7 +100,7 @@ Calls share the turn's limit of 16 helpers with subagents.
   folders of the run's code projects, its skills' pinned folders (absolute, under the data folder) and its workspace;
   a run needs a code project or a skill. `shell_run` mounts the same folders read-only at the same paths. A missing code
   folder fails these tools; a missing (or not mounted) skill folder only leaves that skill out (`files.skill_folder`),
-  and its `load_skill` answers `This skill's files are unavailable.`. `code_search` and `ast_grep` check paths against
+  and it is not listed under Skills. `code_search` and `ast_grep` check paths against
   the same roots, so in a run with a code project they also accept a skill folder path (read-only). Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.
 - `ast_grep`. Runs the native ast-grep CLI in search-only mode to

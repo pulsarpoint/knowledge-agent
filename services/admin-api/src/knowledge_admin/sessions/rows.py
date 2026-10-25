@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from knowledge_admin.documents.drafts import SESSION_DRAFT
 from knowledge_admin.knowledge_agents.config import AD_HOC_NAME
-from knowledge_admin.sessions.run_record import tool_counts_through
+from knowledge_admin.sessions.run_record import session_skills_used, tool_counts_through
 
 NO_MODEL = 'Choose an enabled model.'
 CLOSED = 'This session is closed. Start a new session.'
@@ -89,6 +89,11 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
         conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
     )
+    pinned = conn.execute(
+        "SELECT coalesce(agent_config->'skills','[]'::jsonb) AS skills FROM ka.agent_sessions WHERE id=%s",
+        (session_id,),
+    ).fetchone()['skills']
+    row['skills_used'] = session_skills_used(conn, session_id, row['turns'], pinned)
     ticket = conn.execute(
         """SELECT e.subject,e.source_id,e.payload->>'issue_id' AS issue_id FROM ka.events e
         WHERE e.source='jira' AND e.id=(SELECT event_id FROM ka.agent_sessions WHERE id=%s)""",

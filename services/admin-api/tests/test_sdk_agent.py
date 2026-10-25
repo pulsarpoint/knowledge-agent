@@ -275,7 +275,7 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
     assert request['path'] == '/v1/responses' and request['authorization'] == 'Bearer fixture-api-secret'
     assert request['body']['model'] == 'fixture-model'
     serialized = json.dumps(request['body'])
-    # a skill is listed by name and description; load_skill gives its instructions
+    # a skill is listed by name, description and SKILL.md path; its instructions are read with read_file
     for expected in (
         'Use the active saved system prompt.',
         'Explain the source fixture.',

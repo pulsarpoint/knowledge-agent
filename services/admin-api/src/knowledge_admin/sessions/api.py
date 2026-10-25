@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.capabilities.wakeups import NOT_PENDING, cancel_pending
 from knowledge_admin.identity import request_actor
+from knowledge_admin.sessions.run_record import session_skills_used
 from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
@@ -245,20 +246,24 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
             row = conn.execute(
-                'SELECT agent_config,access,prompt_snapshot FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
+                'SELECT agent_config,access,prompt_snapshot,turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
                 (session_id, project),
             ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Session not found.')
             snapshot = row['prompt_snapshot'] or {}
-            return debug.view(
-                conn,
-                db,
-                project,
-                {**row['agent_config'], 'access': row['access']},
-                prompt_id=snapshot.get('prompt_id'),
-                prompt_text=snapshot.get('system_prompt') or '',
-            )
+            config = {**row['agent_config'], 'access': row['access']}
+            return {
+                **debug.view(
+                    conn,
+                    db,
+                    project,
+                    config,
+                    prompt_id=snapshot.get('prompt_id'),
+                    prompt_text=snapshot.get('system_prompt') or '',
+                ),
+                'skills_used': session_skills_used(conn, session_id, row['turns'], config.get('skills') or []),
+            }
 
     @router.get('/{session_id}')
     def session(session_id: UUID, response: Response) -> dict:

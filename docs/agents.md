@@ -432,16 +432,16 @@ folder}]` in name order (`skills.run_skills`; a skill whose folder is missing on
 the access model (no `skill` access type; an older stored skill entry is ignored, and migration 0141 removed them). The
 pinned `folder` (relative to the data folder) means an update, a restore or a switch-off during the run does not change
 what it reads or runs, and a skill enabled after the start is not in that run. The run's instructions list the skills by
-name and description (no list when `load_skill` is switched off for the run); an unlisted name gets "No skill named
-<name> in this run."; `load_skill(name)` returns the pinned `SKILL.md` body, the
-skill's files at their absolute paths (`<DATA_ROOT_DIR>/<folder>/<path>`, e.g. `/work/data/skills/<id>/<version>/...`)
-with their sizes, and the note "Read files with read_file; run scripts with shell_run; both take these paths." There is
-no skill file tool: the skill folders are roots of `list_files`, `read_file` and `search_files` (which need a code
+name, description and the absolute path of its `SKILL.md` (`<DATA_ROOT_DIR>/<folder>/SKILL.md`, e.g.
+`/work/data/skills/<id>/<version>/SKILL.md`; no list when `read_file` is switched off for the run); the run reads it with
+`read_file`. There is no skill tool: the skill folders are roots of `list_files`, `read_file` and `search_files` (which need a code
 project or a skill) and `shell_run` mounts them read-only at the same paths (scripts run with no network; outputs go to
 the scratch working directory). The path is the same everywhere because every container mounts the data folder at
 `/work/data` (the admin-api's writable `skills/` bind sits at the same path). A pinned folder that is missing is left
-out of the roots and the shell mounts, and `load_skill` for that skill answers "This skill's files are unavailable.";
-the run's other folders and skills keep working. Debug lists the run's skills with their folder.
+out of the roots and the shell mounts (and is not listed); the run's other folders and skills keep working. Debug lists
+the run's skills with their folder and the skills used (`skills.skills_used`: the `SKILL.md` files read with
+`read_file`); the session detail has the same `skills_used`. An agent that stored `load_skill` as an off tool keeps
+working: the removed name is dropped when it is read (`selection.known`).
 
 **Running `test_shell_worker.py` in the container.** The sandbox tests skip where there is no bwrap (macOS). They need
 the shell-worker image (rebuilt by `make up`) with bwrap, `/work/agent-workspaces` and its seccomp setting; the image has

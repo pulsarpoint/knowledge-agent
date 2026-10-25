@@ -1,5 +1,5 @@
 """Every run sees every enabled skill: run start pins config['skills'] (all enabled skills of the project, in name order,
-whose folder is on disk); load_skill, the file tools, the shell, Debug and folder cleanup read it; subagents and experts
+whose folder is on disk); the Skills section, the file tools, the shell, Debug and folder cleanup read it; subagents and experts
 inherit it. Skills are not part of the access model: old stored skill entries are ignored, and 0141 strips them."""
 
 import asyncio
@@ -12,7 +12,6 @@ from access_helpers import give
 from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.capabilities.files import check_list_files
 from knowledge_admin.capabilities.shell.client import check_shell_run
-from knowledge_admin.capabilities.skills import check_load_skill
 from knowledge_admin.knowledge_agents import experts
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.subagents import subagent_config
@@ -58,12 +57,6 @@ def model_of_client(client) -> str:
     return model_of((client,))
 
 
-def load(config: dict, name: str, workspace=None) -> str:
-    spec = CATALOG['load_skill']
-    context = {'config': config, 'workspace': workspace, 'credentials': {}}
-    return asyncio.run(spec.run(context, spec.arguments.model_validate({'name': name})))
-
-
 def test_a_saved_agents_run_lists_every_enabled_skill_in_name_order(store, saved_agent):  # noqa: F811
     client, inspect = saved_agent[0], saved_agent[3]
     zeta = add_skill(client, 'zeta')
@@ -77,13 +70,13 @@ def test_a_saved_agents_run_lists_every_enabled_skill_in_name_order(store, saved
         for item in (alpha, inspect, zeta)
     ]
     assert not [item for item in config['access']['resources'] if item['type'] == 'skill']
-    assert '## Files' in load(config, 'zeta')
     later = add_skill(client, 'later')  # enabled after the run started: not in that run
     assert later['name'] not in [item['name'] for item in config['skills']]
-    assert load(config, 'later') == 'No skill named later in this run.'
-    assert load(config, 'muted') == 'No skill named muted in this run.'
     for prompt in (get_prompt(config), agent_system_prompt(config)):
-        assert '- alpha: alpha things\n- inspect: Inspect service health\n- zeta: zeta things\n' in prompt
+        assert (
+            f'- alpha: alpha things — {absolute(alpha["folder"])}/SKILL.md\n- inspect: Inspect service health — {absolute(inspect["folder"])}/SKILL.md\n- zeta: zeta things — {absolute(zeta["folder"])}/SKILL.md\n'
+            in prompt
+        )
         assert 'muted' not in prompt
 
 
@@ -102,35 +95,6 @@ def test_an_ad_hoc_run_gets_every_enabled_skill(sessions):  # noqa: F811
     add_skill(sessions.client, 'off', enabled=False)
     config = build(sessions)
     assert [item['name'] for item in config['skills']] == ['beta']
-
-
-def test_load_skill_off_means_no_skills_section():
-    skills = [{'id': 'k1', 'name': 'inspect', 'description': 'Inspect.', 'folder': 'skills/k1/v1'}]
-    config = {
-        'system_prompt': {'content': 'You answer.'},
-        'instructions': '',
-        'access': {'resources': []},
-        'skills': skills,
-    }
-    assert '## Skills' in get_prompt(config) and '## Skills' in agent_system_prompt(config)
-    off = {**config, 'disabled_tools': ['load_skill']}
-    for prompt in (get_prompt(off), agent_system_prompt(off)):
-        assert '## Skills' not in prompt and 'load_skill' not in prompt
-
-
-def test_load_skill_and_the_folder_tools_check_the_runs_skills():
-    skills = [{'id': 'k1', 'name': 'inspect', 'description': '', 'folder': 'skills/k1/v1'}]
-    empty = {'resources': []}
-    assert check_load_skill(empty, name='inspect', skills=skills) is None
-    assert check_load_skill(empty, name='other', skills=skills) == 'No skill named other in this run.'
-    assert check_load_skill(empty, name='inspect') == 'No skill named inspect in this run.'
-    for check in (check_list_files, check_shell_run):
-        assert check(empty, skills=skills) is None
-        assert check(empty) == 'This run has no code projects or skills.'
-        # an old access entry of type skill gives nothing
-        assert check({'resources': [{'type': 'skill', 'id': 'k1', 'name': 'inspect'}]}) == (
-            'This run has no code projects or skills.'
-        )
 
 
 def test_subagents_and_experts_inherit_the_callers_skills():

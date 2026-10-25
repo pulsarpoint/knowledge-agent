@@ -1,5 +1,5 @@
 """Read and search the folders of the run's code projects and skills (config['skills']), and its workspace. A skill
-folder is the one the run pinned at start, at its absolute path under the data folder: the same path load_skill lists
+folder is the one the run pinned at start, at its absolute path under the data folder: the same path the Skills section lists
 and the shell mounts (read-only there; these tools only read)."""
 
 import asyncio

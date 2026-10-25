@@ -142,6 +142,14 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
                 </li>
               ))}
             </ul>
+            {view.skills_used && view.skills_used.length > 0 && (
+              <>
+                <h4 className="mt-1 text-xs font-medium text-muted-foreground">Skills used</h4>
+                <p data-testid="skills-used" className="text-xs">
+                  {view.skills_used.join(", ")}
+                </p>
+              </>
+            )}
           </div>
         )}
       </Section>

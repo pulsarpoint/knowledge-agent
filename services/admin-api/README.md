@@ -82,7 +82,7 @@ allowed, a key: `access.ssh_reason`) gets its SSH credential, and `ssh_run` refu
 
 - A code project carries absolute `folder_paths` under `CODE_ROOT` and, when it has a generated graph, `graph_path`
   and `code_root`.
-- A skill carries its `description` (`load_skill` reads its instructions).
+- A skill carries its `description` (its `SKILL.md` is read with `read_file`).
 - A server carries its connection: `hostname`, `port`, `username`, `allow_sudo`, `known_hosts`, `enabled`,
   `ssh_allowed` and `private_key_ref`, always the server's own (there are no per-agent overrides).
 - An MCP server carries `url`, `enabled` and `bearer_token_ref`.

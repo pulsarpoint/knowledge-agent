@@ -173,7 +173,7 @@
       "type": "object"
     },
     "summary": "Run Bash, rg, ast-grep, git, Python and skill scripts in an isolated sandbox.",
-    "usage": "Run Bash commands or Python scripts in an isolated Linux workspace.\n\nAvailable programs include bash, python/python3, rg, ast-grep, git, sed, awk,\nfind and standard Linux utilities. Pipelines, Bash arrays and heredocs work.\nFor Python use: python - <<'PY'\nimport json\nprint(json.dumps({'ok': True}))\nPY\nUse rg -n 'symbol' /work/data/code/project to locate code, then ast-grep or sed\nto inspect complete functions or focused ranges. Python's sqlite3 module can\nquery configured graph databases; use sqlite3.connect('file:PATH?mode=ro', uri=True).\nQuote paths and use single quotes around ast-grep patterns containing $.\n\nThe working directory is writable scratch space shared across shell calls\nwithin this run. Selected code, skill and graph paths retain the absolute\npaths in the agent resources and are read-only: run a skill's scripts at the\npaths load_skill lists and write their outputs to scratch. Other projects, credentials\nand network access are unavailable. Use ssh_run for configured remote servers.\nShell variables do not persist between calls; save intermediate work to files.\nInspect exit_code, stderr and timed_out. Output over 32 KiB per stream is\ntruncated: write large results to scratch files and inspect focused sections.\n\nUse shell_run for Bash pipelines, rg, ast-grep and Python scripts. Selected resource paths are mounted read-only at\nthe same absolute paths; pwd shows writable scratch space. Inspect focused source ranges; use code_graph for indexed\nrelationships when available. Scratch files persist between tool calls within this run. Network access is disabled\nin the shell; use ssh_run for configured servers."
+    "usage": "Run Bash commands or Python scripts in an isolated Linux workspace.\n\nAvailable programs include bash, python/python3, rg, ast-grep, git, sed, awk,\nfind and standard Linux utilities. Pipelines, Bash arrays and heredocs work.\nFor Python use: python - <<'PY'\nimport json\nprint(json.dumps({'ok': True}))\nPY\nUse rg -n 'symbol' /work/data/code/project to locate code, then ast-grep or sed\nto inspect complete functions or focused ranges. Python's sqlite3 module can\nquery configured graph databases; use sqlite3.connect('file:PATH?mode=ro', uri=True).\nQuote paths and use single quotes around ast-grep patterns containing $.\n\nThe working directory is writable scratch space shared across shell calls\nwithin this run. Selected code, skill and graph paths retain the absolute\npaths in the agent resources and are read-only: run a skill's scripts at the\npaths listed under Skills and write their outputs to scratch. Other projects, credentials\nand network access are unavailable. Use ssh_run for configured remote servers.\nShell variables do not persist between calls; save intermediate work to files.\nInspect exit_code, stderr and timed_out. Output over 32 KiB per stream is\ntruncated: write large results to scratch files and inspect focused sections.\n\nUse shell_run for Bash pipelines, rg, ast-grep and Python scripts. Selected resource paths are mounted read-only at\nthe same absolute paths; pwd shows writable scratch space. Inspect focused source ranges; use code_graph for indexed\nrelationships when available. Scratch files persist between tool calls within this run. Network access is disabled\nin the shell; use ssh_run for configured servers."
   },
   {
     "group": "code",
@@ -2884,30 +2884,6 @@
     },
     "summary": "Hand a separate part of the work to a helper that runs in parallel.",
     "usage": "Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. It gets your tools except run_subagent and the experts; give it the fewest resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."
-  },
-  {
-    "group": "agents",
-    "label": "Load a skill",
-    "name": "load_skill",
-    "schema": {
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "description": "The skill name, as listed under Skills.",
-          "maxLength": 200,
-          "minLength": 1,
-          "title": "Name",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "LoadSkill",
-      "type": "object"
-    },
-    "summary": "Get a listed skill's full instructions and its files.",
-    "usage": "Get the full instructions of a skill listed under Skills in your instructions, and the list of its files at their absolute paths. Call it once per skill, before following the skill."
   },
   {
     "group": "agents",
