@@ -44,12 +44,13 @@ from knowledge_admin.tools.selection import disabled_for, validate as valid_tool
 
 REVISION_TAG = 'document-revision'
 WRITE_TAG = 'documentation'
-ASSISTANT_TAG = 'assistant'  # with the resource type's tag (server, service, environment): a chat prompt for it
-ONE_START = 'Choose one starting point: a document, a new document, a server, a service or an environment.'
+ONE_START = (
+    'Choose one starting point: a document, a new document, a server, a service, an environment or a code project.'
+)
 ID_OR_NEW = 'Give a document id or a new document.'
 ONE_NEW = 'One new document per run.'
 INVENTORY_FOR = 'An inventory document is written for one server, service or environment.'
-RESOURCE_FOR = 'A new document is built for one server, service or environment.'
+RESOURCE_FOR = 'A new document is built for one server, service, environment or code project.'
 NOT_THE_START = 'The new document must be the one the run starts from.'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
@@ -59,12 +60,33 @@ PICKS = (
     ('service', 'service_ids'),
     ('environment', 'environment_ids'),
 )
-# A chat on a resource: its tag (lists find its chats by it) and the table its id is in.
-RESOURCE_TYPES = {'server': 'servers', 'service': 'services', 'environment': 'environments'}
+# A chat on a resource: the table its id is in, and its tag (lists find its chats by it).
+RESOURCE_TYPES = {
+    'server': 'servers',
+    'service': 'services',
+    'environment': 'environments',
+    'code_project': 'repositories',
+}
+RESOURCE_TAGS = {
+    'server': 'servers',
+    'service': 'services',
+    'environment': 'environments',
+    'code_project': 'code_projects',
+}
+# The prompts offered for a chat on a resource: tagged assistant and its type; for a code project, tagged code-project
+# (a prompt tag has no _).
+ASSISTANT_TAG = 'assistant'
+PROMPT_TAGS = {
+    'server': [ASSISTANT_TAG, 'server'],
+    'service': [ASSISTANT_TAG, 'service'],
+    'environment': [ASSISTANT_TAG, 'environment'],
+    'code_project': ['code-project'],
+}
 RESOURCE_NOT_FOUND = {
     'server': 'Server not found.',
     'service': 'Service not found.',
     'environment': 'Environment not found.',
+    'code_project': 'Code project not found.',
 }
 TAG = re.compile(r'^[a-z0-9_-]+(/[a-z0-9_-]+)*$')
 TAG_LENGTH = 120
@@ -99,6 +121,7 @@ class NewDocument(BaseModel):
     server_id: UUID | None = None
     service_id: UUID | None = None
     environment_id: UUID | None = None
+    code_project_id: UUID | None = None
 
     @model_validator(mode='after')
     def valid(self):
@@ -109,7 +132,7 @@ class NewDocument(BaseModel):
             raise ValueError('Use letters or digits in the document name')
         self.folder = documentation_folder(self.folder)
         given = [kind for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
-        if INVENTORY_TAG in self.tags and len(given) != 1:
+        if INVENTORY_TAG in self.tags and (len(given) != 1 or given == ['code_project']):
             raise ValueError(INVENTORY_FOR)
         if len(given) > 1:
             raise ValueError(RESOURCE_FOR)
@@ -146,16 +169,25 @@ class StartedFrom(BaseModel):
     server_id: UUID | None = None
     service_id: UUID | None = None
     environment_id: UUID | None = None
+    code_project_id: UUID | None = None
 
     @model_validator(mode='after')
     def valid(self):
-        starts = (self.document_id, self.new_document, self.server_id, self.service_id, self.environment_id)
+        starts = (
+            self.document_id,
+            self.new_document,
+            self.server_id,
+            self.service_id,
+            self.environment_id,
+            self.code_project_id,
+        )
         if sum(item is not None for item in starts) != 1:
             raise ValueError(ONE_START)
         return self
 
     def resource(self) -> tuple[str, UUID] | None:
-        """(type, id) of the server, service or environment the run starts from; None for a document start."""
+        """(type, id) of the server, service, environment or code project the run starts from; None for a document
+        start."""
         for kind in RESOURCE_TYPES:
             value = getattr(self, f'{kind}_id')
             if value is not None:
@@ -167,8 +199,9 @@ CHAT_PURPOSE = 'Only a saved agent chat takes a purpose.'
 
 
 def resource_tag(kind: str, resource_id) -> str:
-    """The tag of a run started from a resource: servers/<id>, services/<id> or environments/<id>."""
-    return f'{RESOURCE_TYPES[kind]}/{resource_id}'
+    """The tag of a run started from a resource: servers/<id>, services/<id>, environments/<id> or
+    code_projects/<id>."""
+    return f'{RESOURCE_TAGS[kind]}/{resource_id}'
 
 
 class StartInput(BaseModel):
@@ -224,7 +257,7 @@ class StartInput(BaseModel):
         for tag in self.tags:
             if len(tag) > TAG_LENGTH or not TAG.match(tag):
                 raise ValueError(BAD_TAG.format(tag=tag[:TAG_LENGTH]))
-            if tag != own and tag.split('/', 1)[0] in RESOURCE_TYPES.values():
+            if tag != own and tag.split('/', 1)[0] in RESOURCE_TAGS.values():
                 raise ValueError(RESOURCE_TAG.format(tag=tag))
         if len(self.run_tags()) > MAX_TAGS:
             raise ValueError(TOO_MANY_TAGS)
@@ -276,11 +309,13 @@ def start_server(conn, project: UUID, server_id: UUID) -> dict:
 
 
 def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
-    """The service or environment a run starts from: it exists in this workspace. No SSH is needed: a server it brings
-    that the run cannot connect to is listed and read, and SSH skips it (inventory and documents still work)."""
-    table = 'ka.services' if kind == 'service' else 'ka.environments'
+    """The service, environment or code project a run starts from: it exists in this workspace (a code project not
+    archived). No SSH is needed: a server it brings that the run cannot connect to is listed and read, and SSH skips
+    it (inventory and documents still work)."""
+    live = ' AND archived_at IS NULL' if kind == 'code_project' else ''
     row = conn.execute(
-        f'SELECT id,name FROM {table} WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
+        f'SELECT id,name FROM ka.{RESOURCE_TYPES[kind]} WHERE id=%s AND project_id=%s{live} FOR SHARE',
+        (resource_id, project),
     ).fetchone()
     if row is None:
         raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
@@ -744,24 +779,23 @@ def options(
     server_id: UUID | None = None,
     service_id: UUID | None = None,
     environment_id: UUID | None = None,
+    code_project_id: UUID | None = None,
 ) -> dict:
     """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
     tagged documentation; for a server, service or environment, the prompts tagged assistant and with its type, its
-    seeded assistant prompt the first choice), resources (marked linked to the starting document or resource) and
-    experts."""
+    seeded assistant prompt the first choice; for a code project, the prompts tagged code-project: PROMPT_TAGS),
+    resources (marked linked to the starting document or resource) and experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
     server = server_row(conn, project, server_id) if server_id is not None else None
-    started = (
-        ('server', server_id)
-        if server_id is not None
-        else ('service', service_id)
-        if service_id is not None
-        else ('environment', environment_id)
-        if environment_id is not None
-        else None
-    )
+    given = {
+        'server': server_id,
+        'service': service_id,
+        'environment': environment_id,
+        'code_project': code_project_id,
+    }
+    started = next(((kind, value) for kind, value in given.items() if value is not None), None)
     kind = started[0] if started else None
-    if kind in ('service', 'environment'):
+    if kind in ('service', 'environment', 'code_project'):
         start_resource(conn, project, kind, started[1])  # 404 when it is not in this workspace
 
     def links(key: str) -> list:
@@ -798,8 +832,8 @@ def options(
         prompts = conn.execute(
             """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
             JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-            WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s,%s]::text[] ORDER BY lower(p.name),p.id""",
-            (project, ASSISTANT_TAG, kind),
+            WHERE p.project_id=%s AND p.enabled AND p.tags @> %s::text[] ORDER BY lower(p.name),p.id""",
+            (project, PROMPT_TAGS[kind]),
         ).fetchall()
     else:
         prompts = conn.execute(
@@ -873,7 +907,7 @@ def options(
         'code_projects': listed(
             """SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL
             ORDER BY lower(name),id""",
-            links('code_project_ids'),
+            [*links('code_project_ids'), *([code_project_id] if code_project_id else [])],
         ),
         'documents': [{'id': document['id'], 'name': document['title'], 'linked': True}] if document else [],
     }

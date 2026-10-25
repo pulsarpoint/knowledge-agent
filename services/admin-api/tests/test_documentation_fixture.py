@@ -90,14 +90,14 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
         fixture = conn.execute(
             """SELECT p.*,v.version FROM ka.documentation_prompts p
             JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-            WHERE p.project_id=%s AND NOT (p.tags && ARRAY['server-discovery','document-revision','new-document','assistant'])""",
+            WHERE p.project_id=%s AND NOT (p.tags && ARRAY['server-discovery','document-revision','new-document','assistant','code-project'])""",
             (existing_project,),
         ).fetchone()
         assert fixture['name'] == NAME and fixture['version'] == 1
         conn.execute('SELECT ka.seed_app_docs_prompt(%s)', (existing_project,))
         assert (
             conn.execute(
-                "SELECT count(*) AS n FROM ka.documentation_prompts WHERE NOT (tags && ARRAY['server-discovery','document-revision','new-document','assistant'])"
+                "SELECT count(*) AS n FROM ka.documentation_prompts WHERE NOT (tags && ARRAY['server-discovery','document-revision','new-document','assistant','code-project'])"
             ).fetchone()['n']
             == 2
         )
@@ -110,7 +110,7 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.down.sql').read_text(), prepare=False)
         assert (
             conn.execute(
-                "SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document','assistant'])",
+                "SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document','assistant','code-project'])",
                 (existing_project,),
             ).fetchone()['n']
             == 0
@@ -124,7 +124,7 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.up.sql').read_text(), prepare=False)
         assert (
             conn.execute(
-                "SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document','assistant'])",
+                "SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document','assistant','code-project'])",
                 (existing_project,),
             ).fetchone()['id']
             == fixture['id']

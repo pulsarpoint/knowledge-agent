@@ -120,9 +120,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         server_id: UUID | None = Query(None),
         service_id: UUID | None = Query(None),
         environment_id: UUID | None = Query(None),
+        code_project_id: UUID | None = Query(None),
     ) -> dict:
         db = database()
-        resources = sum(item is not None for item in (server_id, service_id, environment_id))
+        resources = sum(item is not None for item in (server_id, service_id, environment_id, code_project_id))
         starts = sum((document_id is not None, new_document)) + resources
         if starts > 1 or (agent_id is not None and (new_document or resources)):
             raise HTTPException(400, start.ONE_START)
@@ -144,6 +145,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 server_id,
                 service_id,
                 environment_id,
+                code_project_id,
             )
 
     @router.post('/preview')

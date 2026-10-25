@@ -21,6 +21,7 @@ OWN = {
     'server': 'SELECT id,name,description FROM ka.servers WHERE project_id=%s AND id=%s',
     'service': 'SELECT id,name,description FROM ka.services WHERE project_id=%s AND id=%s',
     'environment': 'SELECT id,name,description FROM ka.environments WHERE project_id=%s AND id=%s',
+    'code_project': 'SELECT id,name,description FROM ka.repositories WHERE project_id=%s AND id=%s',
 }
 NOT_AVAILABLE = '{label} {name} is not available: it was removed, archived or disabled.'
 

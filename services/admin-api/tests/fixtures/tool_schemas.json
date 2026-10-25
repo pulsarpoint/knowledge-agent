@@ -2115,7 +2115,7 @@
       "$defs": {
         "ResourceRef": {
           "additionalProperties": false,
-          "description": "A server, service or environment of the run, by id or by name.",
+          "description": "A server, service, environment or code project of the run, by id or by name.",
           "properties": {
             "id": {
               "anyOf": [
@@ -2144,11 +2144,12 @@
               "title": "Name"
             },
             "type": {
-              "description": "server, service or environment.",
+              "description": "server, service, environment or code_project.",
               "enum": [
                 "server",
                 "service",
-                "environment"
+                "environment",
+                "code_project"
               ],
               "title": "Type",
               "type": "string"
@@ -2167,7 +2168,7 @@
       "properties": {
         "resource": {
           "additionalProperties": false,
-          "description": "The server, service or environment, by id or by name.",
+          "description": "The server, service, environment or code project, by id or by name.",
           "properties": {
             "id": {
               "anyOf": [
@@ -2196,11 +2197,12 @@
               "title": "Name"
             },
             "type": {
-              "description": "server, service or environment.",
+              "description": "server, service, environment or code_project.",
               "enum": [
                 "server",
                 "service",
-                "environment"
+                "environment",
+                "code_project"
               ],
               "title": "Type",
               "type": "string"
@@ -2222,7 +2224,7 @@
       "type": "object"
     },
     "summary": "The documents of a server, service or environment, with this run's drafts.",
-    "usage": "The documents linked to a server, service or environment of this run and to the resources that belong to it (an environment its services and servers, a server its services, a service its code projects and servers), as JSON: each with id, title, description_short, tags, published (false: a new document this run drafted, not published yet) and your_draft (this run already has a draft of it). The resource's inventory document comes first. Read one with get_document. Look here before new_document, so you update a document instead of adding a second one.\n\nField: resource: {\"type\": \"server\" | \"service\" | \"environment\", \"id\": \"<id>\"}, or with \"name\" instead of \"id\" (a resource of this run: the Resource line, get_available_resources).\n\nExample: {\"resource\": {\"type\": \"service\", \"name\": \"api\"}}"
+    "usage": "The documents linked to a server, service, environment or code project of this run and to the resources that belong to it (an environment its services and servers, a server its services, a service its code projects and servers), as JSON: each with id, title, description_short, tags, published (false: a new document this run drafted, not published yet) and your_draft (this run already has a draft of it). The resource's inventory document comes first. Read one with get_document. Look here before new_document, so you update a document instead of adding a second one.\n\nField: resource: {\"type\": \"server\" | \"service\" | \"environment\" | \"code_project\", \"id\": \"<id>\"}, or with \"name\" instead of \"id\" (a resource of this run: the Resource line, get_available_resources).\n\nExample: {\"resource\": {\"type\": \"service\", \"name\": \"api\"}}"
   },
   {
     "group": "documents",
@@ -2232,7 +2234,7 @@
       "$defs": {
         "ResourceRef": {
           "additionalProperties": false,
-          "description": "A server, service or environment of the run, by id or by name.",
+          "description": "A server, service, environment or code project of the run, by id or by name.",
           "properties": {
             "id": {
               "anyOf": [
@@ -2261,11 +2263,12 @@
               "title": "Name"
             },
             "type": {
-              "description": "server, service or environment.",
+              "description": "server, service, environment or code_project.",
               "enum": [
                 "server",
                 "service",
-                "environment"
+                "environment",
+                "code_project"
               ],
               "title": "Type",
               "type": "string"
@@ -2304,7 +2307,7 @@
         },
         "resource": {
           "additionalProperties": false,
-          "description": "The server, service or environment the document is for, by id or by name.",
+          "description": "The server, service, environment or code project the document is for, by id or by name.",
           "properties": {
             "id": {
               "anyOf": [
@@ -2333,11 +2336,12 @@
               "title": "Name"
             },
             "type": {
-              "description": "server, service or environment.",
+              "description": "server, service, environment or code_project.",
               "enum": [
                 "server",
                 "service",
-                "environment"
+                "environment",
+                "code_project"
               ],
               "title": "Type",
               "type": "string"
@@ -2386,7 +2390,7 @@
       "type": "object"
     },
     "summary": "Draft a new document for a server, service or environment.",
-    "usage": "Create a new document about a server, service or environment of this run, as a draft built for it (linked to it for good); its folder and file name come from the resource and the title. A title already used by a document linked to the same resource is refused with that document's id: update that one instead. Returns the new document's id: use it with update_document, edit_document and get_document; it stays the document's id once published.\n\nEvery write is a draft: the run keeps one draft per document, and each update_document or edit_document call changes it; a person publishes it (or discards it) on the document's page. The live document does not change until then, so never say a document is published.\n\nFields: resource: {\"type\": \"server\" | \"service\" | \"environment\", \"id\": \"<id>\"}, or with \"name\" instead of \"id\" (a resource of this run: the Resource line, get_available_resources); title (1–240 characters); content (the whole document in Markdown, up to 50,000 characters); description (optional: one or two sentences, up to 4000 characters); tags (optional: up to 30 short lowercase tags).\n\nExample: {\"resource\": {\"type\": \"server\", \"name\": \"web-1\"}, \"title\": \"Disk layout\", \"content\": \"# Disk layout\\n\\nTwo disks: ...\", \"description\": \"Partitions and mounts of web-1.\", \"tags\": [\"storage\"]}"
+    "usage": "Create a new document about a server, service, environment or code project of this run, as a draft built for it (linked to it for good); its folder and file name come from the resource and the title. A title already used by a document linked to the same resource is refused with that document's id: update that one instead. Returns the new document's id: use it with update_document, edit_document and get_document; it stays the document's id once published.\n\nEvery write is a draft: the run keeps one draft per document, and each update_document or edit_document call changes it; a person publishes it (or discards it) on the document's page. The live document does not change until then, so never say a document is published.\n\nFields: resource: {\"type\": \"server\" | \"service\" | \"environment\" | \"code_project\", \"id\": \"<id>\"}, or with \"name\" instead of \"id\" (a resource of this run: the Resource line, get_available_resources); title (1–240 characters); content (the whole document in Markdown, up to 50,000 characters); description (optional: one or two sentences, up to 4000 characters); tags (optional: up to 30 short lowercase tags).\n\nExample: {\"resource\": {\"type\": \"server\", \"name\": \"web-1\"}, \"title\": \"Disk layout\", \"content\": \"# Disk layout\\n\\nTwo disks: ...\", \"description\": \"Partitions and mounts of web-1.\", \"tags\": [\"storage\"]}"
   },
   {
     "group": "documents",
@@ -2396,7 +2400,7 @@
       "$defs": {
         "ResourceRef": {
           "additionalProperties": false,
-          "description": "A server, service or environment of the run, by id or by name.",
+          "description": "A server, service, environment or code project of the run, by id or by name.",
           "properties": {
             "id": {
               "anyOf": [
@@ -2425,11 +2429,12 @@
               "title": "Name"
             },
             "type": {
-              "description": "server, service or environment.",
+              "description": "server, service, environment or code_project.",
               "enum": [
                 "server",
                 "service",
-                "environment"
+                "environment",
+                "code_project"
               ],
               "title": "Type",
               "type": "string"
@@ -2482,7 +2487,7 @@
               "type": "null"
             }
           ],
-          "description": "Also link the document to this server, service or environment when the draft is published."
+          "description": "Also link the document to this server, service, environment or code project when the draft is published."
         },
         "title": {
           "anyOf": [
@@ -2510,7 +2515,7 @@
       "type": "object"
     },
     "summary": "Save this run's draft of a document with its whole new text.",
-    "usage": "Save this run's draft of a document with its complete new content (optionally a new title or description). You may use a document given to this run or one linked to a server, service, environment or code project in it. With resource, the document is also linked to that server, service or environment when a person publishes the draft. To change one passage, use edit_document instead.\n\nEvery write is a draft: the run keeps one draft per document, and each update_document or edit_document call changes it; a person publishes it (or discards it) on the document's page. The live document does not change until then, so never say a document is published.\n\nFields: document_id (from search_documents, list_documents, get_resource, new_document or the run's context); content (the whole document in Markdown, up to 50,000 characters); title (optional: 1–240 characters, omit to keep it); description (optional: up to 4000 characters, omit to keep it); resource (optional): {\"type\": \"server\" | \"service\" | \"environment\", \"id\": \"<id>\"}, or with \"name\" instead of \"id\" (a resource of this run: the Resource line, get_available_resources).\n\nExample: {\"document_id\": \"<document id>\", \"content\": \"# Runbook\\n\\nRestart with ...\", \"resource\": {\"type\": \"service\", \"id\": \"<service id>\"}}"
+    "usage": "Save this run's draft of a document with its complete new content (optionally a new title or description). You may use a document given to this run or one linked to a server, service, environment or code project in it. With resource, the document is also linked to that server, service, environment or code project when a person publishes the draft. To change one passage, use edit_document instead.\n\nEvery write is a draft: the run keeps one draft per document, and each update_document or edit_document call changes it; a person publishes it (or discards it) on the document's page. The live document does not change until then, so never say a document is published.\n\nFields: document_id (from search_documents, list_documents, get_resource, new_document or the run's context); content (the whole document in Markdown, up to 50,000 characters); title (optional: 1–240 characters, omit to keep it); description (optional: up to 4000 characters, omit to keep it); resource (optional): {\"type\": \"server\" | \"service\" | \"environment\" | \"code_project\", \"id\": \"<id>\"}, or with \"name\" instead of \"id\" (a resource of this run: the Resource line, get_available_resources).\n\nExample: {\"document_id\": \"<document id>\", \"content\": \"# Runbook\\n\\nRestart with ...\", \"resource\": {\"type\": \"service\", \"id\": \"<service id>\"}}"
   },
   {
     "group": "documents",

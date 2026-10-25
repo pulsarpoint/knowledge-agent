@@ -308,3 +308,31 @@ def test_the_role_and_the_editable_flag_are_gone():
     assert grep(REMOVED, *paths) == []
     assert grep(EDITABLE, *paths) == []
     assert grep(r'\bsave_document\b', *paths) == []
+
+
+def test_a_code_project_chat_drafts_its_overview_and_lists_its_documents(rev):
+    """A run started from a code project writes new_document for it (built for it, in code-projects/<name>)."""
+    shop = uuid4()
+    with rev.docs.store.connect() as conn:
+        conn.execute(
+            "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'shop','Shop')",
+            (shop, rev.docs.project),
+        )
+    rev.config['access'] = {'resources': [{**entry('code_project', shop, 'Shop'), 'source': 'given'}]}
+    reply = call(
+        rev,
+        'new_document',
+        resource={'type': 'code_project', 'name': 'shop'},
+        title='Overview',
+        content='# Shop overview\n\nPurpose.\n',
+    )
+    assert reply.endswith(DRAFT_NOTE) and 'built for code project Shop' in reply
+    document = created_id(reply)
+    with rev.docs.store.connect() as conn:
+        draft = conn.execute('SELECT folder,slug FROM ka.documents WHERE id=%s', (document,)).fetchone()
+    assert (draft['folder'], draft['slug']) == ('code-projects/shop', 'shop-overview')
+    listed = json.loads(call(rev, 'list_documents', resource={'type': 'code_project', 'id': str(shop)}))
+    assert [item['id'] for item in listed['documents']] == [document]
+    detail = rev.docs.client.get(f'{API}/drafts/{document}', headers=HEADERS).json()
+    assert promote(rev.docs, detail).status_code == 200
+    assert links(rev, document) == [('code_project', str(shop), 'built_for')]

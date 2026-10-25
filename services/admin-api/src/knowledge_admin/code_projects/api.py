@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
 from knowledge_admin.db import storage, workspace
-from knowledge_admin.repositories import RepositoryInput, RepositoryStore
+from knowledge_admin.repositories import LATEST_JOB, REPOSITORY_FIELDS, RepositoryInput, RepositoryStore
 from knowledge_admin.identity import request_actor
 from knowledge_admin.data_root import host_path
 from knowledge_admin.code_projects.paths import code_path, code_root
@@ -29,6 +29,39 @@ def overlaps(a: str, b: str) -> bool:
     return a == b or a.startswith(b + '/') or b.startswith(a + '/')
 
 
+RECENT_SYNCS = 10
+GRAPH_FIELDS = (
+    'status',
+    'source_hash',
+    'source_file_count',
+    'stats',
+    'unresolved_references',
+    'parse_error_files',
+    'processed_at',
+    'engine_version',
+    'missing_folders',
+)
+
+
+def with_graph(conn, project: dict) -> dict:
+    """The project with its code graph state: its latest code_index job (processing) and its index manifest
+    (code_index; None when it has none)."""
+    project['processing'] = conn.execute(
+        """SELECT status,error,result FROM ka.jobs
+        WHERE repository_id=%s AND kind='code_index' ORDER BY created_at DESC,id DESC LIMIT 1""",
+        (project['id'],),
+    ).fetchone()
+    project['code_index'] = None
+    try:
+        manifest = index_directory(project['id']) / 'manifest.json'
+        if manifest.is_file():
+            data = json.loads(manifest.read_text())
+            project['code_index'] = {key: data[key] for key in GRAPH_FIELDS}
+    except (CodeProcessingError, OSError, ValueError):
+        pass
+    return project
+
+
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
@@ -43,33 +76,32 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         projects = repository_store().list(app_name)
         with repository_store().connect() as conn:
             for project in projects:
-                project['processing'] = conn.execute(
-                    """SELECT status,error,result FROM ka.jobs
-                    WHERE repository_id=%s AND kind='code_index' ORDER BY created_at DESC,id DESC LIMIT 1""",
-                    (project['id'],),
-                ).fetchone()
-                project['code_index'] = None
-                try:
-                    manifest = index_directory(project['id']) / 'manifest.json'
-                    if manifest.is_file():
-                        data = json.loads(manifest.read_text())
-                        project['code_index'] = {
-                            key: data[key]
-                            for key in (
-                                'status',
-                                'source_hash',
-                                'source_file_count',
-                                'stats',
-                                'unresolved_references',
-                                'parse_error_files',
-                                'processed_at',
-                                'engine_version',
-                                'missing_folders',
-                            )
-                        }
-                except (CodeProcessingError, OSError, ValueError):
-                    pass
+                with_graph(conn, project)
         return {'projects': projects}
+
+    @router.get('/code-projects/{repository_id}')
+    def get_code_project(repository_id: UUID):
+        """One code project as the list has it, with what its page adds: the services built from it (built_into),
+        its recent sync jobs (newest first) and its code graph state."""
+        with workspace(repository_store(), app_name) as (conn, project_id):
+            project = conn.execute(
+                f"""SELECT {REPOSITORY_FIELDS} FROM ka.repositories r {LATEST_JOB}
+                WHERE r.id=%s AND r.project_id=%s AND r.archived_at IS NULL""",
+                (repository_id, project_id),
+            ).fetchone()
+            if project is None:
+                raise HTTPException(404, 'Code project not found')
+            project['built_into'] = conn.execute(
+                """SELECT s.id,s.name FROM ka.service_relations l JOIN ka.services s ON s.id=l.from_service_id
+                WHERE l.kind='built_from' AND l.to_code_project_id=%s ORDER BY lower(s.name),s.id""",
+                (repository_id,),
+            ).fetchall()
+            project['sync_jobs'] = conn.execute(
+                """SELECT id,status,error,created_at,started_at,finished_at FROM ka.jobs
+                WHERE repository_id=%s AND kind='repository_sync' ORDER BY created_at DESC,id DESC LIMIT %s""",
+                (repository_id, RECENT_SYNCS),
+            ).fetchall()
+            return with_graph(conn, project)
 
     @router.post('/code-projects/{repository_id}/process', status_code=202)
     def process_project(repository_id: UUID, request: Request):

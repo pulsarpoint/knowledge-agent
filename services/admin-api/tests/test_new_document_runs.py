@@ -391,7 +391,7 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
     [
         (
             {'started_from': {'new_document': NEW, 'document_id': str(uuid4())}},
-            'Choose one starting point: a document, a new document, a server, a service or an environment.',
+            'Choose one starting point: a document, a new document, a server, a service, an environment or a code project.',
         ),
         ({'started_from': {'new_document': {**NEW, 'name': '!!!'}}}, 'Use letters or digits in the document name'),
         ({'started_from': {'new_document': {**NEW, 'folder': '../docs'}}}, FOLDER_RULE),
@@ -601,7 +601,7 @@ def test_an_inventory_run_writes_another_document_tagged_inventory_when_its_reso
         ),
         (
             {'service_id': str(uuid4()), 'server_id': str(uuid4())},
-            'A new document is built for one server, service or environment.',
+            'A new document is built for one server, service, environment or code project.',
         ),
     ],
 )

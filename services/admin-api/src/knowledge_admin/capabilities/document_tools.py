@@ -92,7 +92,12 @@ LINKED_TOO = (
     'Documents linked to a server, service or environment in this run are usable too: list_documents lists them.'
 )
 RESOURCE_KINDS = ('server', 'service', 'environment')
-RESOURCE_TABLES = {'server': 'ka.servers', 'service': 'ka.services', 'environment': 'ka.environments'}
+RESOURCE_TABLES = {
+    'server': 'ka.servers',
+    'service': 'ka.services',
+    'environment': 'ka.environments',
+    'code_project': 'ka.repositories',
+}
 MAX_READ = 50_000
 FENCE = re.compile(r'^ {0,3}(```|~~~)')
 HEADING = re.compile(r'^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$')
@@ -221,7 +226,7 @@ def _linked(conn, document: UUID | None) -> list[tuple[str, str]]:
 
 
 def resource_of(access: dict, resource: dict) -> tuple[str, str, str] | str:
-    """(type, id, name) of the server, service or environment `resource` names ({type, id}, or {type, name}: case does
+    """(type, id, name) of the server, service, environment or code project `resource` names ({type, id}, or {type, name}: case does
     not matter) among the run's resources, else the refusal text."""
     kind = resource['type']
     if not access_rules.has_any(access, kind):
@@ -788,10 +793,12 @@ class ToolArguments(BaseModel):
 
 
 class ResourceRef(BaseModel):
-    """A server, service or environment of the run, by id or by name."""
+    """A server, service, environment or code project of the run, by id or by name."""
 
     model_config = ConfigDict(extra='forbid')
-    type: Literal['server', 'service', 'environment'] = Field(description='server, service or environment.')
+    type: Literal['server', 'service', 'environment', 'code_project'] = Field(
+        description='server, service, environment or code_project.'
+    )
     id: str | None = Field(
         None,
         max_length=64,
@@ -862,7 +869,9 @@ async def search_documents(
 @tool(usage=texts.LIST_DOCUMENTS)
 async def list_documents(
     context,
-    resource: Annotated[ResourceRef, Field(description='The server, service or environment, by id or by name.')],
+    resource: Annotated[
+        ResourceRef, Field(description='The server, service, environment or code project, by id or by name.')
+    ],
 ) -> str:
     if refusal := check_list_documents(context['config']['access'], resource=resource):
         return refusal
@@ -873,7 +882,8 @@ async def list_documents(
 async def new_document(
     context,
     resource: Annotated[
-        ResourceRef, Field(description='The server, service or environment the document is for, by id or by name.')
+        ResourceRef,
+        Field(description='The server, service, environment or code project the document is for, by id or by name.'),
     ],
     title: Annotated[str, Field(min_length=1, max_length=240, description='The title, 1–240 characters.')],
     content: Content,
@@ -902,7 +912,10 @@ async def update_document(
     ] = None,
     resource: Annotated[
         ResourceRef | None,
-        Field(description='Also link the document to this server, service or environment when the draft is published.'),
+        Field(
+            description='Also link the document to this server, service, environment or code project when the draft '
+            'is published.'
+        ),
     ] = None,
 ) -> str:
     def change(base: dict[str, Any]) -> dict[str, Any]:

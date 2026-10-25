@@ -101,7 +101,10 @@ def test_a_run_needs_ssh_set_up_and_allowed(world):
 def test_one_starting_point(world):
     both = start(world, started_from={'server_id': world.server['id'], 'document_id': str(uuid4())})
     assert both.status_code == 400 and ONE_START in both.json()['error']['message']
-    assert ONE_START == 'Choose one starting point: a document, a new document, a server, a service or an environment.'
+    assert (
+        ONE_START
+        == 'Choose one starting point: a document, a new document, a server, a service, an environment or a code project.'
+    )
 
 
 def test_a_run_pins_its_server_and_the_context_facts(world):

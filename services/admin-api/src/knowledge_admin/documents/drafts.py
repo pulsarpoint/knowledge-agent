@@ -283,6 +283,7 @@ FOLDER_ROOTS = {
     'server': ('servers', 'server-documents'),
     'service': ('service-documents',),
     'environment': ('environments', 'environment-documents'),
+    'code_project': ('code-projects', 'code-project-documents'),
 }
 
 
