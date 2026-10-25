@@ -69,6 +69,9 @@ def entry(path, type_='file'):
         [entry('link', 'symlink')],
         [entry('device', 'other')],
         [entry('SKILL.md'), entry('SKILL.md')],
+        [entry('README.md'), entry('Readme.md')],
+        [entry('a'), entry('a/b')],
+        [entry('a/b'), entry('a')],
     ],
 )
 def test_check_paths_refuses_escapes_symlinks_and_duplicates(entries):

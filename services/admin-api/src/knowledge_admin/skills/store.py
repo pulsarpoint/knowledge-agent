@@ -71,9 +71,13 @@ def write_folder(root: Path, skill_id: str, files: Files, source: dict, *, commi
             file.write_bytes(content)
             file.chmod(0o755 if executable else 0o644)
         staging.mkdir(parents=True, exist_ok=True)
-        meta = {'created_at': datetime.now(timezone.utc).isoformat(), 'source': source}
-        (root / skill_id / f'{version}.json').write_text(json.dumps(meta))
         staging.rename(target)
+        meta = {'created_at': datetime.now(timezone.utc).isoformat(), 'source': source}
+        try:
+            (root / skill_id / f'{version}.json').write_text(json.dumps(meta))
+        except BaseException:
+            remove_folder(root, skill_id, version)
+            raise
     finally:
         if staging.exists():
             shutil.rmtree(staging)

@@ -42,8 +42,9 @@ def parse_skill_md(text: str) -> dict:
 
 def check_paths(entries: list[dict]) -> str | None:
     """None when every entry ({path, type: file | folder | symlink | other}) is a relative file or folder path without
-    '..', else the refusal text. Folders may end with '/', as a zip names them."""
-    seen = set()
+    '..', else the refusal text. Folders may end with '/', as a zip names them. Paths that differ only in case, and a
+    file that is also another path's folder, are refused (they cannot both exist on a case-insensitive disk)."""
+    seen, files, folders = set(), [], set()
     for item in entries:
         path = item['path']
         if item['type'] == 'folder':
@@ -60,9 +61,16 @@ def check_paths(entries: list[dict]) -> str | None:
             or any(part in ('', '.', '..') for part in path.split('/'))
         ):
             return f'{path!r} is not a relative path inside the skill folder.'
-        if path in seen:
-            return f'{path} appears twice.'
-        seen.add(path)
+        key = path.casefold()
+        if key in seen:
+            return f'{path} appears twice (names that differ only in case count as the same).'
+        seen.add(key)
+        parts = key.split('/')
+        folders.update('/'.join(parts[:end]) for end in range(1, len(parts)))
+        if item['type'] == 'file':
+            files.append((key, path))
+    if clash := next((path for key, path in files if key in folders), None):
+        return f'{clash} is a file and also a folder of other files.'
     return None
 
 

@@ -46,7 +46,7 @@ class GitSource(BaseModel):
 
 class Revision(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    revision: int | None = Field(default=None, ge=1, strict=True)
+    revision: int = Field(ge=1, strict=True)
 
 
 class RestoreInput(Revision):
@@ -225,7 +225,7 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
                 raise
             return [detail(skills_root, row) for row in created]
 
-    def update_skill(request: Request, skill_id: UUID, revision: int | None, make, action: str) -> dict:
+    def update_skill(request: Request, skill_id: UUID, revision: int, make, action: str) -> dict:
         """Write the new folder `make(row, skills_root)` returns ((files, source, commit)), then switch to it."""
         skills_root = root()
         subject, email = request_actor(request)
@@ -240,20 +240,27 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
             if name_taken(conn, project, meta['name'], skill_id):
                 raise HTTPException(409, clash(meta['name']))
             old = store.read_folder(skills_root, str(skill_id), PurePosixPath(row['folder']).name)
-            version = store.write_folder(skills_root, str(skill_id), files, source, commit=commit)
-            actor = db.actor(conn, subject, email)
-            row = store.switch(
-                conn,
-                project,
-                skill_id,
-                folder=store.relative(skills_root, str(skill_id), version),
-                name=meta['name'],
-                description=meta['description'],
-                source=source,
-                actor=actor,
-            )
-            audit(conn, project, actor, action, 'skill', skill_id, {'name': row['name'], 'version': version})
-            conn.commit()
+            kept = {item['version'] for item in store.kept_folders(skills_root, str(skill_id))}
+            version = None
+            try:
+                version = store.write_folder(skills_root, str(skill_id), files, source, commit=commit)
+                actor = db.actor(conn, subject, email)
+                row = store.switch(
+                    conn,
+                    project,
+                    skill_id,
+                    folder=store.relative(skills_root, str(skill_id), version),
+                    name=meta['name'],
+                    description=meta['description'],
+                    source=source,
+                    actor=actor,
+                )
+                audit(conn, project, actor, action, 'skill', skill_id, {'name': row['name'], 'version': version})
+                conn.commit()
+            except BaseException:  # the previous folder stays current; the new one never becomes a version
+                if version is not None and version not in kept:
+                    store.remove_folder(skills_root, str(skill_id), version)
+                raise
             cleanup(conn, skills_root, str(skill_id), version)
             return {'skill': detail(skills_root, row), 'changed': rules.changed_files(old, files)}
 
@@ -280,6 +287,9 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
             raise HTTPException(400, str(error)) from None
 
     async def zip_body(request: Request) -> bytes:
+        declared = request.headers.get('content-length', '')
+        if declared.isdigit() and int(declared) > MAX_UPLOAD:
+            raise HTTPException(413, 'An upload can be at most 25 MB.')
         data = await request.body()
         if len(data) > MAX_UPLOAD:
             raise HTTPException(413, 'An upload can be at most 25 MB.')
@@ -360,11 +370,21 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
 
     @router.post('/{skill_id}/update/source')
     def update_from_source(skill_id: UUID, value: Revision, request: Request) -> dict:
-        def make(row, _):
-            source = row['source']
-            if source.get('kind') != 'git':
-                raise HTTPException(400, 'Only a skill imported from git updates from its source.')
-            found, commit = from_git(source['url'], source.get('ref', ''), source.get('path', ''))
+        with workspace(database(), app_name) as (conn, project):
+            row = conn.execute(
+                'SELECT source,revision FROM ka.agent_skills WHERE id=%s AND project_id=%s', (skill_id, project)
+            ).fetchone()
+        if row is None:
+            raise HTTPException(404, NOT_FOUND)
+        source = row['source']
+        if source.get('kind') != 'git':
+            raise HTTPException(400, 'Only a skill imported from git updates from its source.')
+        if row['revision'] != value.revision:
+            raise HTTPException(409, STALE)
+        # Clone before taking the row lock; the revision, checked again under the lock, says the source is the same.
+        found, commit = from_git(source['url'], source.get('ref', ''), source.get('path', ''))
+
+        def make(*_):
             return found['files'], {**source, 'commit': commit}, commit
 
         return update_skill(request, skill_id, value.revision, make, 'skill.updated')
@@ -374,7 +394,7 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
         skill_id: UUID,
         request: Request,
         file: str = Query(default='', max_length=255),
-        revision: int | None = Query(default=None, ge=1),
+        revision: int = Query(ge=1),
     ) -> dict:
         found = zip_skills(await zip_body(request))
         if len(found) != 1:

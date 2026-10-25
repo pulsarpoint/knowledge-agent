@@ -119,25 +119,33 @@ def test_git_import_then_update_from_source_writes_a_new_folder_and_lists_change
     assert new['version'] == second[:12] and new['source']['commit'] == second and new['revision'] == 2
     assert [v['version'] for v in new['versions']] == [second[:12], first[:12]]
     assert (root / skill['folder'] / 'SKILL.md').exists()  # kept for Restore
-    restored = client.post(f'/api/skills/{skill["id"]}/restore', headers=HEADERS, json={'version': first[:12]})
+    stale = client.post(f'/api/skills/{skill["id"]}/update/source', headers=HEADERS, json={'revision': 1})
+    assert stale.status_code == 409  # checked before cloning, and again under the lock
+    assert (
+        client.post(f'/api/skills/{skill["id"]}/restore', headers=HEADERS, json={'version': first[:12]}).status_code
+        == 400
+    )
+    restored = client.post(
+        f'/api/skills/{skill["id"]}/restore', headers=HEADERS, json={'version': first[:12], 'revision': 2}
+    )
     assert restored.status_code == 200, restored.text
     assert restored.json()['folder'] == skill['folder'] and restored.json()['source']['commit'] == first
     editor = create(client, {'name': 'other', 'description': 'Other.'})
-    refused = client.post(f'/api/skills/{editor["id"]}/update/source', headers=HEADERS, json={})
+    refused = client.post(f'/api/skills/{editor["id"]}/update/source', headers=HEADERS, json={'revision': 1})
     assert refused.status_code == 400
 
 
 def test_update_from_upload_replaces_the_files(client, root):
     skill = create(client)
     data = a_zip({'SKILL.md': skill_md('inspect-logs', 'New scope.'), 'notes.md': b'n'})
-    response = client.post(f'/api/skills/{skill["id"]}/update/upload?file=v2.zip', headers=ZIP, content=data)
+    response = client.post(f'/api/skills/{skill["id"]}/update/upload?file=v2.zip&revision=1', headers=ZIP, content=data)
     assert response.status_code == 200, response.text
     assert response.json()['skill']['description'] == 'New scope.'
     assert response.json()['skill']['source'] == {'kind': 'upload', 'file': 'v2.zip'}
     assert {c['path'] for c in response.json()['changed']} == {'SKILL.md', 'notes.md'}
     other = create(client, {'name': 'other', 'description': 'Other.'})
     clash = client.post(
-        f'/api/skills/{other["id"]}/update/upload?file=v2.zip', headers=ZIP, content=data
+        f'/api/skills/{other["id"]}/update/upload?file=v2.zip&revision=1', headers=ZIP, content=data
     )  # SKILL.md names another skill
     assert clash.status_code == 409
 
@@ -224,3 +232,38 @@ def test_without_a_skills_folder_the_api_says_so(store, tmp_path, monkeypatch):
     monkeypatch.delenv('SKILLS_ROOT', raising=False)
     response = _client(tmp_path, repository_store=store).post('/api/skills', headers=HEADERS, json=VALUE)
     assert response.status_code == 503
+
+
+def test_a_failed_switch_leaves_no_new_folder_and_the_kept_folders_unchanged(client, root, monkeypatch):
+    from knowledge_admin.skills import store
+
+    skill = create(client)
+    for revision in (1, 2):
+        client.put(
+            f'/api/skills/{skill["id"]}/files',
+            headers=HEADERS,
+            json={'revision': revision, 'changes': [{'path': 'n.md', 'text': str(revision)}]},
+        )
+    before = client.get(f'/api/skills/{skill["id"]}', headers=HEADERS).json()
+    on_disk = sorted(p.name for p in (root / 'skills' / skill['id']).iterdir())
+
+    def broken(*_, **__):
+        raise RuntimeError('the database went away')
+
+    with monkeypatch.context() as patch, pytest.raises(RuntimeError):
+        patch.setattr(store, 'switch', broken)
+        client.put(
+            f'/api/skills/{skill["id"]}/files',
+            headers=HEADERS,
+            json={'revision': 3, 'changes': [{'path': 'n.md', 'text': 'lost'}]},
+        )
+    assert client.get(f'/api/skills/{skill["id"]}', headers=HEADERS).json() == before
+    assert sorted(p.name for p in (root / 'skills' / skill['id']).iterdir()) == on_disk
+
+
+def test_changes_need_the_revision_and_an_upload_fits_25_mb(client):
+    skill = create(client)
+    data = a_zip({'SKILL.md': skill_md('inspect-logs')})
+    assert client.post(f'/api/skills/{skill["id"]}/update/upload', headers=ZIP, content=data).status_code == 400
+    big = {**ZIP, 'Content-Length': str(26 * 1024 * 1024)}
+    assert client.post('/api/skills/import/zip', headers=big, content=b'x').status_code == 413

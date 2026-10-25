@@ -7,6 +7,7 @@ import stat
 import subprocess
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 from knowledge_admin.code_projects.worker import GIT_COMMAND, git_env
@@ -16,6 +17,9 @@ from knowledge_admin.skills.store import Files
 
 NO_SKILL = 'The archive has no SKILL.md at its root or in its top-level folders.'
 NOT_A_ZIP = 'This file is not a zip archive.'
+UNREADABLE = 'The archive cannot be read: it is damaged, encrypted or uses an unsupported compression.'
+ARCHIVE_TOO_LARGE = 'An archive can hold at most 50 MB of skills.'
+MAX_ARCHIVE = 50 * rules.MB
 GIT_FAILED = 'Git could not fetch this repository and ref. Check the URL, the ref and access.'
 GIT_TIMEOUT = 'Git timed out. Check the URL and try again.'
 ALLOW_LOCAL = False  # tests clone local repositories; the application clones HTTPS only
@@ -52,20 +56,41 @@ def _entry_type(info: zipfile.ZipInfo) -> str:
         return 'symlink'
     if info.is_dir():
         return 'folder'
-    return 'file' if not mode or stat.S_ISREG(mode) else 'other'
+    return 'file' if stat.S_IFMT(mode) in (0, stat.S_IFREG) else 'other'  # no type bits: a plain file
 
 
-def _under(files: Files, prefix: str) -> Files:
-    return {path.removeprefix(prefix): value for path, value in files.items() if path.startswith(prefix)}
+def _skill_prefixes(paths: list[str]) -> list[str]:
+    """Where the skills of an archive are, from its file paths alone: '' for SKILL.md at the root, else each top-level
+    folder holding a SKILL.md, looking inside the only top-level folder when the root has no files."""
+    base = ''
+    tops = sorted({path.split('/')[0] for path in paths if '/' in path})
+    if 'SKILL.md' not in paths and len(tops) == 1 and all('/' in path for path in paths):
+        base = tops[0] + '/'
+    inside = [path.removeprefix(base) for path in paths if path.startswith(base)]
+    if 'SKILL.md' in inside:
+        return [base]
+    folders = sorted({path.split('/')[0] for path in inside if '/' in path})
+    return [f'{base}{folder}/' for folder in folders if f'{folder}/SKILL.md' in inside]
 
 
-def _top_folders(files: Files) -> list[str]:
-    return sorted({path.split('/')[0] for path in files if '/' in path})
+def _read(archive: zipfile.ZipFile, info: zipfile.ZipInfo, budget: int) -> bytes:
+    """The entry's content, read with a running count: a header that understates the size cannot get past the file
+    limit or the skill's remaining budget."""
+    limit = min(rules.MAX_FILE, budget)
+    chunks, total = [], 0
+    with archive.open(info) as stream:
+        while chunk := stream.read(64 * 1024):
+            total += len(chunk)
+            if total > limit:
+                raise ImportRefused(rules.FILE_TOO_LARGE if total > rules.MAX_FILE else rules.FOLDER_TOO_LARGE)
+            chunks.append(chunk)
+    return b''.join(chunks)
 
 
 def skills_in_zip(data: bytes) -> list[dict]:
     """The skills in an archive, by name: SKILL.md at its root, in its only top-level folder, or one skill per
-    top-level folder holding a SKILL.md (in the only top-level folder, too). Raises ImportRefused."""
+    top-level folder holding a SKILL.md (in the only top-level folder, too). Paths and the declared sizes (per skill,
+    and 50 MB for the archive) are checked before anything is read. Raises ImportRefused."""
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -75,21 +100,27 @@ def skills_in_zip(data: bytes) -> list[dict]:
         if refusal := rules.check_paths([{'path': i.filename, 'type': _entry_type(i)} for i in infos]):
             raise ImportRefused(refusal)
         infos = [info for info in infos if not info.is_dir()]
-        if refusal := rules.check_limits([info.file_size for info in infos][: rules.MAX_FILES + 1]):
-            if refusal != rules.FOLDER_TOO_LARGE:  # an archive of several skills may hold more than one folder's worth
+        prefixes = _skill_prefixes([info.filename for info in infos])
+        if not prefixes:
+            raise ImportRefused(NO_SKILL)
+        groups = {prefix: [info for info in infos if info.filename.startswith(prefix)] for prefix in prefixes}
+        for members in groups.values():
+            if refusal := rules.check_limits([info.file_size for info in members]):
                 raise ImportRefused(refusal)
-        files: Files = {}
-        for info in infos:
-            with archive.open(info) as stream:
-                content = stream.read(rules.MAX_FILE + 1)
-            files[info.filename] = (content, bool((info.external_attr >> 16) & 0o100))
-    if 'SKILL.md' not in files and len(_top_folders(files)) == 1 and not any('/' not in p for p in files):
-        files = _under(files, _top_folders(files)[0] + '/')
-    if 'SKILL.md' in files:
-        return [_skill(files)]
-    found = [_skill(_under(files, f'{top}/')) for top in _top_folders(files) if f'{top}/SKILL.md' in files]
-    if not found:
-        raise ImportRefused(NO_SKILL)
+        if sum(info.file_size for members in groups.values() for info in members) > MAX_ARCHIVE:
+            raise ImportRefused(ARCHIVE_TOO_LARGE)
+        found = []
+        try:
+            for prefix, members in groups.items():
+                files: Files = {}
+                budget = rules.MAX_FOLDER
+                for info in members:
+                    content = _read(archive, info, budget)
+                    budget -= len(content)
+                    files[info.filename.removeprefix(prefix)] = (content, bool((info.external_attr >> 16) & 0o100))
+                found.append(_skill(files))
+        except (zipfile.BadZipFile, RuntimeError, NotImplementedError, zlib.error, EOFError, OSError):
+            raise ImportRefused(UNREADABLE) from None
     names = [skill['name'] for skill in found]
     if duplicate := next((name for name in names if names.count(name) > 1), None):
         raise ImportRefused(f'The archive holds two skills named {duplicate}.')

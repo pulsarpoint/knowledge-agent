@@ -23,6 +23,7 @@ dependencies = [
     "regex>=2026.9.3",
     "networkx==3.5",
     "jsonschema>=4.26.0",
+    "pyyaml>=6.0.3",
 ]
 
 [project.scripts]

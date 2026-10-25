@@ -390,7 +390,11 @@ name the folder (`store.pinned_folders`). Cleanup runs after every update of tha
 admin-api startup, which also removes deleted skills' folders that were pinned when they were deleted.
 
 **Limits.** A folder holds at most 500 files, 5 MB per file and 10 MB in all. Paths are relative, without `..`, empty or
-`.` segments or backslashes; symbolic links and special files are refused. A refused import writes nothing.
+`.` segments or backslashes; names that differ only in case, a file that is also a folder of other files, symbolic
+links and special files are refused. A zip's declared sizes are checked per skill, and against 50 MB for the whole
+archive, before any entry is read; entries are then read with a running count, so an understated size cannot get past
+the limits. A damaged, encrypted or unsupported archive is refused. A refused import writes nothing, and an update
+that fails after writing its new folder deletes that folder.
 
 **Import.**
 
@@ -405,7 +409,7 @@ admin-api startup, which also removes deleted skills' folders that were pinned w
   and a saved token, that token is used.
 - A name that exists is refused: `A skill named <name> exists; update it instead.` Importing into the skill itself
   (`POST /api/skills/{id}/update/upload` with one skill in the zip, or `POST /api/skills/{id}/update/source`, which
-  re-imports a git skill from its URL, ref and path) writes a new folder and returns the changed files (`added`,
+  re-imports a git skill from its URL, ref and path; the clone runs before the row is locked) writes a new folder and returns the changed files (`added`,
   `removed`, `modified`).
 
 **Editor.** `POST /api/skills` (`name`, `description`, optional `instructions`) creates a skill from a `SKILL.md`
@@ -413,7 +417,8 @@ template. `GET /api/skills/{id}` returns the skill with its files (path, size, e
 (`versions`: version, when, source, current); `GET /api/skills/{id}/files/<path>` returns one file (`text` is null for a
 binary file). `PUT /api/skills/{id}/files` (`revision`, `changes`: write a file from `text` or `content_base64`, with
 `executable`; `delete` a file or folder; `rename_to` a file or folder) saves a new folder from the current one plus the
-changes, after the same checks as an import. `POST /api/skills/{id}/restore` (`version`), `PATCH
+changes, after the same checks as an import. Every change of a skill takes its `revision` (a stale one is refused
+with 409). `POST /api/skills/{id}/restore` (`version`), `PATCH
 /api/skills/{id}/status` and `DELETE /api/skills/{id}` (the row, and its folders a running run has not pinned) complete
 the API. Each change is audited (`skill.created`, `skill.updated`, `skill.saved`, `skill.restored`, `skill.deleted`,
 `skill.enabled`, `skill.disabled`).
