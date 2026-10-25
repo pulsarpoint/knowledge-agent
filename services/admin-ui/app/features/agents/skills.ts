@@ -89,6 +89,11 @@ export const updateFromSource = (skill: SkillSummary) =>
     `${skillUrl(skill.id)}/update/source`,
     json("POST", { revision: skill.revision }),
   );
+export const updateFromUpload = (skill: SkillSummary, file: File) =>
+  request<{ skill: Skill; changed: Changed[] }>(
+    `${skillUrl(skill.id)}/update/upload?file=${encodeURIComponent(file.name)}&revision=${skill.revision}`,
+    zip(file),
+  );
 export const readSkillFile = (id: string, path: string) =>
   request<{ path: string; size: number; executable: boolean; text: string | null }>(
     `${skillUrl(id)}/files/${path.split("/").map(encodeURIComponent).join("/")}`,
@@ -103,6 +108,17 @@ export const restoreSkill = (skill: SkillSummary, version: string) =>
 export const deleteSkill = (id: string) => request<void>(skillUrl(id), { method: "DELETE" });
 export const setSkillEnabled = (skill: SkillSummary, enabled: boolean) =>
   request<SkillSummary>(`${skillUrl(skill.id)}/status`, json("PATCH", { enabled, revision: skill.revision }));
+
+/** A pasted `https://github.com/<owner>/<repo>/tree/<ref>/<path>` as URL, ref and path; null for any other text. */
+export function githubTree(value: string): GitInput | null {
+  const match = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/tree\/([^/\s]+)(?:\/(.*))?$/.exec(value.trim());
+  if (!match) return null;
+  return {
+    url: `https://github.com/${match[1]}/${match[2]}`,
+    ref: match[3],
+    path: (match[4] ?? "").replace(/^\/+|\/+$/g, ""),
+  };
+}
 
 export function sourceLabel(source: SkillSource | null): string {
   if (source?.kind === "git")

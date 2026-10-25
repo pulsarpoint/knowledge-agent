@@ -435,6 +435,22 @@ the scratch working directory). The path is the same everywhere because every co
 out of the roots and the shell mounts, and `load_skill` for that skill answers "This skill's files are unavailable.";
 the run's other folders and skills keep working. Debug lists the run's skills with their folder.
 
+**Running `test_shell_worker.py` in the container.** The sandbox tests skip where there is no bwrap (macOS). They need
+the shell-worker image (rebuilt by `make up`) with bwrap, `/work/agent-workspaces` and its seccomp setting; the image has
+no pytest, so run from the repository root:
+
+```bash
+docker compose --env-file .env -f deploy/compose.yaml run --rm --no-deps -T \
+  -v "$PWD/services/admin-api/tests:/services/admin-api/tests:ro" \
+  -e UV_CACHE_DIR=/tmp/uv -e PYTHONDONTWRITEBYTECODE=1 \
+  --entrypoint /bin/sh shell-worker -c \
+  'cd /services/admin-api && uv run --no-sync --with pytest pytest -q -p no:cacheprovider tests/test_shell_worker.py'
+```
+
+`run` keeps the service's user, read-only root, dropped capabilities, seccomp and `agent-workspaces` volume. All tests
+should pass, including `test_a_skill_script_runs_at_its_listed_path_and_cannot_write_there`. If uv cannot write its
+cache, add `--tmpfs /tmp/uv`.
+
 ## Output schemas
 
 An **output schema** is a named JSON Schema a run can be asked to answer with. Schemas live in a library (**Agents** ->

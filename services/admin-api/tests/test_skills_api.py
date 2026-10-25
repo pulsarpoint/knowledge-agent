@@ -293,3 +293,25 @@ def test_a_chunked_upload_past_the_limit_is_refused_while_it_streams(client, mon
     assert refused.status_code == 413
     assert refused.json()['error']['message'] == 'An upload can be at most 25 MB.'
     assert len(sent) < 50  # it stopped reading past the limit
+
+
+def test_a_github_tree_url_is_split_into_url_ref_and_path(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        imports,
+        'from_git',
+        lambda url, ref, path, **_: (
+            seen.append((url, ref, path)) or ({'name': 'x', 'description': 'd', 'files': {}}, 'c')
+        ),
+    )
+    for body in (
+        {'url': 'https://github.com/acme/skills/tree/main/skills/pdf-forms'},
+        {'url': 'https://github.com/acme/skills/tree/main/skills/pdf-forms/', 'path': 'other'},
+        {'url': 'https://github.com/acme/skills', 'ref': 'v1', 'path': 'p'},
+    ):
+        client.post('/api/skills/import/git', headers=HEADERS, json={**body, 'preview': True})
+    assert seen == [
+        ('https://github.com/acme/skills', 'main', 'skills/pdf-forms'),
+        ('https://github.com/acme/skills', 'main', 'other'),  # an explicit path wins
+        ('https://github.com/acme/skills', 'v1', 'p'),
+    ]

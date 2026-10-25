@@ -137,6 +137,9 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
               {view.skills.map((skill) => (
                 <li key={skill.name} className="rounded border px-2 py-0.5">
                   {skill.name}
+                  {skill.folder && (
+                    <span className="ml-1.5 font-mono text-muted-foreground">{skill.folder.split("/").pop()}</span>
+                  )}
                 </li>
               ))}
             </ul>

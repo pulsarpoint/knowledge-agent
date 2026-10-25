@@ -511,14 +511,18 @@ marketplaces work as they are.
   optional path such as `skills/pdf-forms`; public repositories, or one whose code project has a git credential).
   **Check** lists the skills found with their file counts; **Import** creates them. A zip may hold one skill (`SKILL.md`
   at its root or in its only folder) or a folder per skill. A name that exists is refused with "A skill named <name>
-  exists; update it instead."
+  exists; update it instead." A pasted GitHub tree URL (`https://github.com/<owner>/<repo>/tree/<ref>/<path>`) is split
+  into URL, Ref and Path (a ref with slashes goes in Ref by hand).
 - **Update from source** (skills imported from git) imports the same URL, ref and path again as a new version and lists
-  the files that changed.
+  the files that changed. **Update from upload** (any skill) takes a zip of the one skill as a new version and lists the
+  files that changed.
 - **The editor** (`/skills/<id>`): a file tree with **Add file**, **Add folder**, **Upload files**, **Rename** and
   **Delete** (asks first, naming the file or the folder and its file count), and a text editor for text files. Binary
   files show their name and size; upload a file with the same name to replace one. The `SKILL.md` frontmatter is checked
   as you type. **Save** writes the whole skill as a new folder, then switches to it, and shows the new version, its
   source and the files that changed. Empty folders are not saved. Leaving with unsaved changes asks first.
+- **Scripts.** Files added in the editor are not executable, so run them with their interpreter (`python path/x.py`,
+  `bash path/x.sh`), not as `./path/x.sh`. Zip and git imports keep their executable bits.
 - **Previous versions** (a side sheet) lists the kept folders (the last three) with when they were written and their
   source; **Restore** asks first, then makes that version the current files again.
 - Limits: 10 MB and 500 files per skill, 5 MB per file; relative paths only, no `..`, no symbolic links.
@@ -1242,7 +1246,6 @@ before exposing it beyond localhost.
 ## 7. Current limitations
 
 - **Document search is full text only** (title, description and content; no embeddings).
-- The `api-analysis` skill is in the Skills library but is not used by any documentation flow.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects and LLM models cannot be deleted (disable/leave unused).
@@ -1292,4 +1295,3 @@ and always save trusted host keys.
 | docs/documentation.md | 16,384-token output limit for all runs | Not applied to per-endpoint API analysis |
 | docs/code-processing.md | Choose a service's "source folders" | You choose code projects; folders are mapped in Code projects |
 | docs/architecture.md | Worker serializes jobs per project | The repository worker processes one job at a time overall |
-| Skills (migration 0059) | `api-analysis` skill for API documentation | Not wired into any documentation flow |

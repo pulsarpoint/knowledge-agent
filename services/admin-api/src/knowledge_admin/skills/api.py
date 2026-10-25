@@ -3,6 +3,7 @@ complete new folder, then switches the row to it; the last three folders are kep
 
 import base64
 import binascii
+import re
 from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -12,7 +13,7 @@ import psycopg
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.identity import request_actor
@@ -42,6 +43,17 @@ class GitSource(BaseModel):
     ref: str = Field(default='', max_length=200)
     path: str = Field(default='', max_length=500)
     preview: bool = False
+
+    @model_validator(mode='after')
+    def split_github_tree(self):
+        """A pasted `https://github.com/<owner>/<repo>/tree/<ref>/<path>` is URL, ref and path (a ref with slashes
+        goes in Ref); a ref or path given in the form wins."""
+        match = re.fullmatch(r'(https://github\.com/[^/\s]+/[^/\s]+)/tree/([^/\s]+)(?:/(.*))?', self.url.strip())
+        if match:
+            self.url = match[1]
+            self.ref = self.ref or match[2]
+            self.path = self.path or (match[3] or '').strip('/')
+        return self
 
 
 class Revision(BaseModel):

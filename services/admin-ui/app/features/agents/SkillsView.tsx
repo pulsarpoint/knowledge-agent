@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { BookOpen, Download, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { BookOpen, Download, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   changedLabel,
@@ -9,6 +9,7 @@ import {
   setSkillEnabled,
   sourceLabel,
   updateFromSource,
+  updateFromUpload,
   type SkillSummary,
 } from "./skills";
 import { ImportSkillsSheet, NewSkillSheet } from "./SkillImport";
@@ -83,6 +84,15 @@ export default function SkillsView() {
         return `${updated.name} updated to version ${updated.version}. ${changedLabel(changed)}`;
       },
       "Could not update this skill from its source.",
+    );
+  const uploadUpdate = (skill: SkillSummary, file: File) =>
+    act(
+      skill,
+      async () => {
+        const { skill: updated, changed } = await updateFromUpload(skill, file);
+        return `${updated.name} updated to version ${updated.version}. ${changedLabel(changed)}`;
+      },
+      "Could not update this skill from this zip.",
     );
   const toggle = (skill: SkillSummary, enabled: boolean) =>
     act(
@@ -225,6 +235,24 @@ export default function SkillsView() {
                             Update from source
                           </Button>
                         )}
+                        <Button size="sm" variant="outline" disabled={blocked} asChild>
+                          <label>
+                            <Upload data-icon="inline-start" />
+                            Update from upload
+                            <input
+                              type="file"
+                              accept=".zip,application/zip"
+                              className="sr-only"
+                              aria-label={`Zip for ${skill.name}`}
+                              disabled={blocked}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                if (file) void uploadUpdate(skill, file);
+                              }}
+                            />
+                          </label>
+                        </Button>
                         <Link
                           to={`/skills/${encodeURIComponent(skill.id)}`}
                           aria-label={`Edit ${skill.name}`}

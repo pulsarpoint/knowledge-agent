@@ -1,7 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "~/lib/api";
-import { createSkill, importGit, importZip, previewGit, previewZip, type FoundSkill, type GitInput } from "./skills";
+import {
+  createSkill,
+  githubTree,
+  importGit,
+  importZip,
+  previewGit,
+  previewZip,
+  type FoundSkill,
+  type GitInput,
+} from "./skills";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
@@ -220,7 +229,7 @@ export function ImportSkillsSheet({
                       placeholder="https://github.com/acme/skills"
                       value={git.url}
                       onChange={(event) => {
-                        setGit({ ...git, url: event.target.value });
+                        setGit({ ...git, ...(githubTree(event.target.value) ?? { url: event.target.value }) });
                         reset();
                       }}
                     />

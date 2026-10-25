@@ -270,7 +270,8 @@ export interface SessionDebug {
   /** The library prompt and its version (null: the text was edited before the start); null: no library prompt. */
   prompt: { id: string; name: string; version: number | null } | null;
   agent_instructions: string;
-  skills: { name: string }[];
+  /** `folder`: the skill folder this run uses (its last part is the version: a commit or a timestamp). */
+  skills: { name: string; folder: string | null }[];
   tools: { name: string; description: string }[];
   /** What the run may use: each resource with its source (`given`, or `via <type> <id>` of the resource it came with) and
    * the roles. */

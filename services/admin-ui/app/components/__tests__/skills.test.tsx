@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import SkillsView from "~/features/agents/SkillsView";
-import { checkSkillMd, fileChanges, sourceLabel, treeRows, type SkillSummary } from "~/features/agents/skills";
+import {
+  checkSkillMd,
+  fileChanges,
+  githubTree,
+  sourceLabel,
+  treeRows,
+  type SkillSummary,
+} from "~/features/agents/skills";
 
 const NativeRequest = globalThis.Request;
 beforeEach(() =>
@@ -268,4 +275,54 @@ test("fileChanges turns the working copy into the save's changes", () => {
     { path: "up.bin", content_base64: "AAE=" },
   ]);
   expect(fileChanges(["SKILL.md"], { "SKILL.md": { origin: "SKILL.md", size: 3, text: "x", saved: "x" } })).toEqual([]);
+});
+
+test("Update from upload is offered for every skill: it sends the zip and shows the new version", async () => {
+  const calls = api({
+    "GET /api/skills": () => [200, { skills: [notes, pdf] }],
+    "POST /api/skills/s2/update/upload?file=notes2.zip&revision=1": () => [
+      200,
+      {
+        skill: { ...notes, version: "20261026T100000Z", revision: 2, files: [], versions: [] },
+        changed: [{ path: "SKILL.md", change: "modified" }],
+      },
+    ],
+  });
+  show();
+  const row = (await screen.findByText("notes")).closest("tr")!;
+  expect(within(screen.getByText("pdf-forms").closest("tr")!).getByLabelText("Zip for pdf-forms")).toBeInTheDocument();
+  const zip = new File(["zip"], "notes2.zip", { type: "application/zip" });
+  fireEvent.change(within(row).getByLabelText("Zip for notes"), { target: { files: [zip] } });
+  await screen.findByText("notes updated to version 20261026T100000Z. Changed: SKILL.md (modified).");
+  const call = calls.find((item) => item.key.startsWith("POST /api/skills/s2/update/upload"))!;
+  expect(call.body).toBe(zip);
+});
+
+test("githubTree splits a pasted GitHub tree URL into URL, ref and path", () => {
+  expect(githubTree("https://github.com/acme/skills/tree/main/skills/pdf-forms")).toEqual({
+    url: "https://github.com/acme/skills",
+    ref: "main",
+    path: "skills/pdf-forms",
+  });
+  expect(githubTree(" https://github.com/acme/skills/tree/v1/ ")).toEqual({
+    url: "https://github.com/acme/skills",
+    ref: "v1",
+    path: "",
+  });
+  expect(githubTree("https://github.com/acme/skills")).toBeNull();
+  expect(githubTree("https://gitlab.com/acme/skills/tree/main/x")).toBeNull();
+});
+
+test("pasting a GitHub tree URL fills the URL, Ref and Path fields", async () => {
+  api({ "GET /api/skills": () => [200, { skills: [] }] });
+  show();
+  await screen.findByText("No skills yet");
+  fireEvent.click(screen.getByRole("button", { name: "Import" }));
+  fireEvent.mouseDown(await screen.findByRole("tab", { name: "From git" }));
+  fireEvent.change(screen.getByLabelText("Repository URL"), {
+    target: { value: "https://github.com/acme/skills/tree/main/skills/pdf-forms" },
+  });
+  expect(screen.getByLabelText("Repository URL")).toHaveValue("https://github.com/acme/skills");
+  expect(screen.getByLabelText("Ref")).toHaveValue("main");
+  expect(screen.getByLabelText("Path")).toHaveValue("skills/pdf-forms");
 });

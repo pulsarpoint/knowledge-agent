@@ -138,7 +138,12 @@ test("the agent's instructions and skills are labelled", async () => {
   api({
     "GET /api/sessions/r1/debug": () => [
       200,
-      { ...view, prompt: null, agent_instructions: "Be careful.", skills: [{ name: "Linux" }] },
+      {
+        ...view,
+        prompt: null,
+        agent_instructions: "Be careful.",
+        skills: [{ name: "Linux", folder: "skills/s1/abc123def456" }],
+      },
     ],
   });
   render(
@@ -151,6 +156,7 @@ test("the agent's instructions and skills are labelled", async () => {
   expect(within(prompt).getByText("Be careful.")).toBeInTheDocument();
   expect(within(prompt).getByText("Skills")).toBeInTheDocument();
   expect(within(prompt).getByText("Linux")).toBeInTheDocument();
+  expect(within(prompt).getByText("abc123def456")).toBeInTheDocument(); // the folder's version
 });
 
 function chat(initialRunId: string | null) {
