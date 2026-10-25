@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import CodeProjectsView from "~/features/codeProjects/CodeProjectsView";
 import type { CodeProject } from "~/features/codeProjects/api";
 
@@ -71,6 +72,14 @@ function api(projects: CodeProject[] = []) {
   return fetch;
 }
 
+/** The list in a router (each name links to its page). */
+const show = () =>
+  render(
+    <MemoryRouter>
+      <CodeProjectsView />
+    </MemoryRouter>,
+  );
+
 async function action(project: string, item: string) {
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: `Actions for ${project}` }));
@@ -79,7 +88,7 @@ async function action(project: string, item: string) {
 
 test("maps multiple existing folders into a local code project", async () => {
   const fetch = api();
-  render(<CodeProjectsView />);
+  show();
   await screen.findByText("/host/code → /work/code");
   fireEvent.click(screen.getByRole("button", { name: "Add project" }));
   fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Local code" } });
@@ -101,7 +110,7 @@ test("maps multiple existing folders into a local code project", async () => {
 test("Git source asks for clone folder, cloning choice and automatic pull interval", async () => {
   const user = userEvent.setup();
   const fetch = api();
-  render(<CodeProjectsView />);
+  show();
   await user.click(screen.getByRole("button", { name: "Add project" }));
   await user.type(screen.getByLabelText("Project name"), "Remote code");
   await user.click(screen.getByRole("combobox", { name: "Source" }));
@@ -131,7 +140,7 @@ test("Git source asks for clone folder, cloning choice and automatic pull interv
 test("can save a Git project without cloning it", async () => {
   const user = userEvent.setup();
   const fetch = api();
-  render(<CodeProjectsView />);
+  show();
   await user.click(screen.getByRole("button", { name: "Add project" }));
   fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Later" } });
   await user.click(screen.getByRole("combobox", { name: "Source" }));
@@ -148,7 +157,7 @@ test("can save a Git project without cloning it", async () => {
 
 test("browses folders and previews file contents without following symlinks", async () => {
   const fetch = api();
-  render(<CodeProjectsView />);
+  show();
   expect(await screen.findByRole("button", { name: "escape" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "api" }));
   fireEvent.click(await screen.findByRole("button", { name: "app.py" }));
@@ -161,7 +170,7 @@ test("browses folders and previews file contents without following symlinks", as
 
 test("editing preserves hidden credentials unless removal is explicit and sends the revision", async () => {
   const fetch = api([project]);
-  render(<CodeProjectsView />);
+  show();
   await action("Payments", "Edit");
   expect(screen.getByLabelText("Git repository URL")).toBeDisabled();
   expect(screen.getByLabelText("Clone folder")).toBeDisabled();
@@ -195,7 +204,7 @@ test("editing preserves hidden credentials unless removal is explicit and sends 
 test("new private repositories require credentials and submit them separately from the URL", async () => {
   const user = userEvent.setup();
   const fetch = api();
-  render(<CodeProjectsView />);
+  show();
   await user.click(screen.getByRole("button", { name: "Add project" }));
   fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Private code" } });
   await user.click(screen.getByRole("combobox", { name: "Source" }));
@@ -225,7 +234,7 @@ test("new private repositories require credentials and submit them separately fr
 
 test("replacing only the token does not send a blank username", async () => {
   const fetch = api([project]);
-  render(<CodeProjectsView />);
+  show();
   await action("Payments", "Edit");
   fireEvent.change(screen.getByLabelText("Access token"), { target: { value: "new-private-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Save project" }));
@@ -238,7 +247,7 @@ test("replacing only the token does not send a blank username", async () => {
 test("selects nested folders across branches and keeps selections when collapsed and reopened", async () => {
   const user = userEvent.setup();
   const fetch = api();
-  render(<CodeProjectsView />);
+  show();
   await user.click(screen.getByRole("button", { name: "Add project" }));
   await user.type(screen.getByLabelText("Project name"), "Billing");
   await screen.findByRole("checkbox", { name: "Select folder api" });
@@ -270,7 +279,7 @@ test("editing expands selected folder ancestors and allows removing a nested map
       has_token: false,
     },
   ]);
-  render(<CodeProjectsView />);
+  show();
   await action("Payments", "Edit");
   expect(await screen.findByRole("checkbox", { name: "Select folder api/src/billing" })).toBeChecked();
   fireEvent.click(screen.getByRole("checkbox", { name: "Select folder api/src/billing" }));
@@ -283,7 +292,7 @@ test("editing expands selected folder ancestors and allows removing a nested map
 
 test("code projects have no Searchable switch or search field", async () => {
   api([project]);
-  render(<CodeProjectsView />);
+  show();
   expect((await screen.findAllByText("Payments")).length).toBeGreaterThan(0);
   expect(screen.queryByRole("switch", { name: /Searchable/ })).toBeNull();
 });
@@ -291,7 +300,7 @@ test("code projects have no Searchable switch or search field", async () => {
 test("Remove asks for confirmation, keeps files by default and drops the project from the list", async () => {
   const user = userEvent.setup();
   const fetch = api([project]);
-  render(<CodeProjectsView />);
+  show();
   await action("Payments", "Remove");
   const dialog = await screen.findByRole("alertdialog");
   expect(dialog).toHaveTextContent("code/payments");
@@ -321,7 +330,7 @@ test("Remove with the delete box sends delete_files and reports what was deleted
       );
     return base(raw, init);
   });
-  render(<CodeProjectsView />);
+  show();
   await action("Payments", "Remove");
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole("button", { name: "Remove project" }));
@@ -348,7 +357,7 @@ test("a refused Remove shows the reason and keeps the project", async () => {
       );
     return base(raw, init);
   });
-  render(<CodeProjectsView />);
+  show();
   await action("Payments", "Remove");
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole("button", { name: "Remove project" }));
@@ -359,7 +368,7 @@ test("a refused Remove shows the reason and keeps the project", async () => {
 test("each project row has one actions menu instead of separate buttons", async () => {
   const user = userEvent.setup();
   api([project]);
-  render(<CodeProjectsView />);
+  show();
   const trigger = await screen.findByRole("button", { name: "Actions for Payments" });
   for (const name of ["Edit Payments", "Remove Payments", "Pull Payments", "Generate graph for Payments"])
     expect(screen.queryByRole("button", { name })).toBeNull();
@@ -386,7 +395,7 @@ test("the actions menu offers View graph when a graph exists and Clone before th
     },
   };
   api([indexed]);
-  render(<CodeProjectsView />);
+  show();
   await user.click(await screen.findByRole("button", { name: "Actions for Payments" }));
   expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
     "View graph",

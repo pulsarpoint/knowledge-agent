@@ -244,6 +244,30 @@ removed and the page names the folder left behind. The API is
 
 Projects cannot be edited or removed while a job runs.
 
+#### The code project page
+
+Each project's name in the list opens its page, `/code-projects/<id>`. The header shows the name, the Git URL, the
+branch or tag, the current commit and when it was synced, and the sync and code graph status, with **Chat**,
+**Discover…** (only when the prompt library has prompts tagged `code-project`, such as the seeded **Code project
+overview**), **Sync now** (a Git pull; Git projects only) and **Edit** (the list's form, in a sheet on the right). Tabs:
+
+- **Overview** — the repository details, the checkout folders (`code/…`), the code graph (status, files, symbols,
+  relationships, languages, last processed) with **Re-index** (**Generate graph** before the first one), the recent
+  syncs (status, time and error of each pull, newest first) and **Built into**: the services built from the project,
+  each linked to its page.
+- **Documents** — the documents linked to the project, with **New document** (a document built for the project; the New
+  page links it to the project), **Edit** and **Delete** (asks first).
+
+**Chat** works as on a server, service or environment page ([Chats and Discover](#chats-and-discover)): the run holds
+the code project (its folders for the file tools and `shell_run`, its code graph for `code_graph`) and is tagged
+`code_projects/<id>`, so **Conversations** lists the chats about it. A chat on a code project offers the prompts tagged
+`code-project`; it has no seeded assistant prompt of its own, so the first of them is its default prompt. **Discover…**
+with **Code project overview** reads the repository and drafts an overview document (purpose, structure, how to run and
+build, configuration, dependencies, deployment, where to look first) with `new_document`, or revises the existing one
+with `update_document`. The draft appears on the **Documents** tab, marked "Draft — not published", until you publish
+it. The page's data comes from `GET /api/code-projects/{id}` (the project as the list has it, plus `built_into`,
+`sync_jobs` and the code graph state).
+
 ### 4.4 Servers
 
 `/servers` — inventory of hosts. **Register server**: name, IP or hostname (no
@@ -314,7 +338,7 @@ instructions and skills), **Tools** (each name and description as the model sees
 are never shown.
 
 **Discover…** starts a run that explores the resource from a library prompt. The sheet offers the prompts (the seeded
-**Server discovery** is chosen when the library has it) and shows the prompt's text, which you may edit; the chat
+**Server discovery**, or **Code project overview** on a code project, is chosen when the library has it) and shows the prompt's text, which you may edit; the chat
 settings of the resource give the model and resources. **Start** starts the run and opens it as the page's chat, so you
 can watch it and write to it while it works. The run saves what it finds as drafts: services, deployments,
 connections and relations in the inventory (`save_inventory_draft`), documents with `new_document` (linked to the

@@ -7,10 +7,10 @@ import {
   getDocument,
   getDocumentResources,
   getDocumentVersion,
-  INVENTORY_TYPES,
+  BUILT_FOR_TYPES,
   isBuiltForRefusal,
   saveDocumentLinks,
-  type InventoryType,
+  type BuiltForType,
   type DocumentDetail,
   type DocumentIds,
   type DocumentInput,
@@ -151,10 +151,11 @@ function Editor({
   const [params] = useSearchParams();
   // The New page opened by a resource's New document (?resource=server&resource_id=…): built for that resource.
   const [resourceFor] = useState(() => {
-    const type = params.get("resource") as InventoryType | null;
+    const type = params.get("resource") as BuiltForType | null;
     const id = params.get("resource_id");
-    if (document || !type || !INVENTORY_TYPES.includes(type) || !id) return null;
-    const name = resources[`${type}s`]?.find((item) => item.id === id)?.name ?? id;
+    if (document || !type || !BUILT_FOR_TYPES.includes(type) || !id) return null;
+    const list = type === "code_project" ? resources.code_projects : resources[`${type}s`];
+    const name = list?.find((item) => item.id === id)?.name ?? id;
     return { type, id, name };
   });
   const [initial] = useState<DocumentInput>(() =>
@@ -559,7 +560,7 @@ function Editor({
       )}
       {resourceFor && (
         <Alert role="status">
-          <AlertDescription>{`New document for ${resourceFor.type} ${resourceFor.name}.`}</AlertDescription>
+          <AlertDescription>{`New document for ${resourceFor.type.replace("_", " ")} ${resourceFor.name}.`}</AlertDescription>
         </Alert>
       )}
       {editingDraft && (
@@ -1033,9 +1034,9 @@ export default function DocumentEditorView() {
   const [params, setParams] = useSearchParams();
   // A resource's New document (?resource=server&resource_id=…): Write with an agent writes a document built for it.
   const [resourceFor] = useState(() => {
-    const type = params.get("resource") as InventoryType | null;
+    const type = params.get("resource") as BuiltForType | null;
     const id = params.get("resource_id");
-    return documentId === undefined && type && INVENTORY_TYPES.includes(type) && id ? { type, id } : null;
+    return documentId === undefined && type && BUILT_FOR_TYPES.includes(type) && id ? { type, id } : null;
   });
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState("");

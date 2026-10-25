@@ -185,7 +185,12 @@ export function pickReason(options: AgentOptions, settings: AgentSettings): stri
   return has && !picked ? "Pick at least one resource" : null;
 }
 
-const SCOPE_FIELD = { server: "server_ids", service: "service_ids", environment: "environment_ids" } as const;
+const SCOPE_FIELD = {
+  server: "server_ids",
+  service: "service_ids",
+  environment: "environment_ids",
+  code_project: "code_project_ids",
+} as const;
 /** A server, service or environment scope always has its resource chosen (the run is about it); so does a new
  * document's resource (Start adds it too), a server only when the run can use it (one without usable SSH is left out,
  * and the start says so). */
@@ -231,14 +236,16 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (isResourceScope(scope)) {
-    // a chat on a server, service or environment: the resource is always among its resources
+    // a chat on a server, service, environment or code project: the resource is always among its resources
     return {
       started_from:
         scope.kind === "server"
           ? { server_id: scope.id }
           : scope.kind === "service"
             ? { service_id: scope.id }
-            : { environment_id: scope.id },
+            : scope.kind === "environment"
+              ? { environment_id: scope.id }
+              : { code_project_id: scope.id },
       message: message.trim(),
       model_id: settings.modelId,
       prompt_id: settings.promptKey === OWN ? null : settings.promptKey,
@@ -338,7 +345,9 @@ export function useAgentSettings(scope: ChatScope | null, revision?: number) {
               ? { serviceId: id! }
               : kind === "environment"
                 ? { environmentId: id! }
-                : { agentId: id! };
+                : kind === "code_project"
+                  ? { codeProjectId: id! }
+                  : { agentId: id! };
     // a catalog that cannot be read leaves the saved tool names as they are
     const catalog = getTools()
       .then((value) => value.tools.map((tool) => tool.name))

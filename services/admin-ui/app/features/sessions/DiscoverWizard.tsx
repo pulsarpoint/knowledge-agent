@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { Sparkles } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { startSession, type AgentOptions, type ResourceType } from "./api";
+import { resourceWord, startSession, type AgentOptions, type ResourceType } from "./api";
 import { OWN, startInput, useAgentSettings } from "./agentSettings";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -12,9 +12,11 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
-/** The library prompt a discovery run starts from: "Server discovery" when the library has it, else the chat's default. */
+/** The library prompts a discovery run prefers, by name: the seeded Server discovery and Code project overview. */
+const DISCOVERY_PROMPTS = ["Server discovery", "Code project overview"];
+/** The library prompt a discovery run starts from: a preferred one when the library has it, else the chat's default. */
 const discoveryPrompt = (options: AgentOptions, fallback: string) =>
-  options.prompts.find((item) => item.name === "Server discovery")?.id ?? fallback;
+  options.prompts.find((item) => DISCOVERY_PROMPTS.includes(item.name))?.id ?? fallback;
 
 /** Discover…: a run on the resource from a library prompt (its text can be edited first), which saves what it finds as
  * drafts (inventory entries and documents) for a person to confirm. Start starts it and opens it as the page's chat
@@ -43,7 +45,7 @@ export default function DiscoverWizard({
           { kind: resource.type, id: resource.id, name: resource.name },
           options,
           { ...settings, promptKey: key, systemPrompt: text },
-          `Discover this ${resource.type}.`,
+          `Discover this ${resourceWord(resource.type)}.`,
         )
       : null;
 
@@ -92,7 +94,7 @@ export default function DiscoverWizard({
           <SheetHeader>
             <SheetTitle>Discover {resource.name}</SheetTitle>
             <SheetDescription>
-              {`A run that explores the ${resource.type} and saves what it finds as drafts: inventory entries and documents. You confirm or discard them.`}
+              {`A run that explores the ${resourceWord(resource.type)} and saves what it finds as drafts: inventory entries and documents. You confirm or discard them.`}
             </SheetDescription>
           </SheetHeader>
           <FieldGroup className="mt-4">
@@ -134,8 +136,8 @@ export default function DiscoverWizard({
                     onChange={(e) => setChoice({ key: choice?.key ?? key, text: e.target.value })}
                   />
                   <FieldDescription>
-                    The run's system prompt. Edit it as you like. The chat settings of this {resource.type} give the
-                    rest (model, resources).
+                    The run's system prompt. Edit it as you like. The chat settings of this{" "}
+                    {resourceWord(resource.type)} give the rest (model, resources).
                   </FieldDescription>
                 </Field>
               </>

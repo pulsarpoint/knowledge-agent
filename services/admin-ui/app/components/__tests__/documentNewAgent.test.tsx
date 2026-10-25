@@ -243,6 +243,30 @@ test("on a resource's New document page the run writes a document built for the 
   expect(calls.find((c) => c.key === "POST /api/sessions")?.body.started_from.new_document.tags).toBeUndefined();
 });
 
+test("on a code project's New document page the run writes a document built for the code project", async () => {
+  const calls = api({
+    ...base,
+    "POST /api/sessions": () => {
+      live.sessions.r1 = detail();
+      return [201, detail()];
+    },
+  });
+  show("/documents/new?resource=code_project&resource_id=c1");
+  const pane = await openPane();
+  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Shop overview" } });
+  fireEvent.change(screen.getByLabelText("Folder"), { target: { value: "shop" } });
+  await waitFor(() => expect(within(pane).queryByText("Give the document a title and folder first.")).toBeNull());
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
+  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
+  const written = { folder: "shop", name: "Shop overview", code_project_id: "c1" };
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
+      started_from: { new_document: written },
+      resources: { code_project_ids: ["c1"], documents: [{ new: written }] },
+    }),
+  );
+});
+
 test("the agent draft shows above the editor; Promote opens the new document", async () => {
   const calls = api({
     ...base,

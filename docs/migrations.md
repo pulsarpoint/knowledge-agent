@@ -607,3 +607,14 @@ where `output IS NOT NULL`) serves the lookup of a handler's last valid output. 
 `ka.event_handler_runs` (also for a deleted handler), `schedule_id` from the root of their event's chain (or the
 `root_id` the run pinned when the event is gone). The down migration drops the flag, the index and `schedule_id`, and
 restores the `handler_id` foreign key (`ON DELETE SET NULL`), clearing the ids of handlers that no longer exist.
+
+## 0140_code_project_prompt
+
+A built-in prompt, **Code project overview**, in the prompt library of every workspace (seeded like Server discovery:
+`seed_code_project_overview_prompt`, run for the existing workspaces and by the `seed_code_project_overview` trigger for
+new ones; one version, tags `code-project` and `overview`, input kind `code`). A run started from a code project reads
+the repository (structure, entry points, configuration, deployment files) and drafts its overview document with
+`new_document` (or `update_document` of an existing overview): purpose, structure, how to run and build,
+configuration, dependencies, deployment, where to look first. Chats on a code project and its **Discover…** offer the
+prompts tagged `code-project`. The down migration removes the prompt only where it is unchanged (its one version,
+never saved again) and drops the trigger and functions.

@@ -30,10 +30,12 @@ export interface SessionReview {
   changes?: unknown;
   memory_notes?: { name: string }[] | null;
 }
-/** A server, service or environment: the resources whose pages have chats. */
-export type ResourceType = "server" | "service" | "environment";
-export const RESOURCE_TYPES: ResourceType[] = ["server", "service", "environment"];
-/** The tag of a resource's chats: servers/<id>, services/<id>, environments/<id>. */
+/** A server, service, environment or code project: the resources whose pages have chats. */
+export type ResourceType = "server" | "service" | "environment" | "code_project";
+export const RESOURCE_TYPES: ResourceType[] = ["server", "service", "environment", "code_project"];
+/** A resource type in words: "code project" for code_project. */
+export const resourceWord = (type: ResourceType) => type.replace("_", " ");
+/** The tag of a resource's chats: servers/<id>, services/<id>, environments/<id>, code_projects/<id>. */
 export const resourceTag = (resource: { type: ResourceType; id: string }) => `${resource.type}s/${resource.id}`;
 /** The resource a run's tags name (its first resource tag), or null. */
 export function resourceOf(tags: readonly string[] | undefined): { type: ResourceType; id: string } | null {
@@ -46,7 +48,9 @@ export function resourceOf(tags: readonly string[] | undefined): { type: Resourc
 }
 /** A resource's page, with one of its chats open (`?chat=`) or none. */
 export const resourceChatPath = (resource: { type: ResourceType; id: string }, chatId?: string | null) =>
-  `/${resource.type}s/${encodeURIComponent(resource.id)}${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
+  `/${resource.type === "code_project" ? "code-projects" : `${resource.type}s`}/${encodeURIComponent(resource.id)}${
+    chatId ? `?chat=${encodeURIComponent(chatId)}` : ""
+  }`;
 
 /** What a chat is about: a document (Ask agent), a saved agent (its Test tab), a new document (Documents → New: the
  * Title and Folder the editor holds now; `resourceFor`: from a resource's New document, the resource it is built for) or
@@ -234,6 +238,7 @@ export const getSessionOptions = (
     serverId?: string;
     serviceId?: string;
     environmentId?: string;
+    codeProjectId?: string;
     newDocument?: boolean;
   },
   signal?: AbortSignal,
@@ -245,6 +250,7 @@ export const getSessionOptions = (
       server_id: scope.serverId,
       service_id: scope.serviceId,
       environment_id: scope.environmentId,
+      code_project_id: scope.codeProjectId,
       new_document: scope.newDocument ? 1 : undefined,
     })}`,
     { signal },
@@ -339,6 +345,7 @@ export interface NewDocument {
   server_id?: string;
   service_id?: string;
   environment_id?: string;
+  code_project_id?: string;
 }
 export interface StartInput {
   started_from?:
@@ -346,7 +353,8 @@ export interface StartInput {
     | { new_document: NewDocument }
     | { server_id: string }
     | { service_id: string }
-    | { environment_id: string };
+    | { environment_id: string }
+    | { code_project_id: string };
   /** Tags the run gets besides its resource's (the backend adds that one). */
   tags?: string[];
   agent_id?: string;

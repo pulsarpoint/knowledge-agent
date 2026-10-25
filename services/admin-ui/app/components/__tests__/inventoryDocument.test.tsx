@@ -392,6 +392,24 @@ describe("New document for a resource", () => {
     });
   });
 
+  test("a code project's New page is built for the code project", async () => {
+    const calls = api({
+      "GET /api/documentation/resources": () => [200, resources],
+      "POST /api/documentation/drafts": () => [201, { id: "d6" }],
+      "GET /api/documentation/documents/d6": () => [200, { ...document, id: "d6", is_draft: true, published: false }],
+    });
+    const router = show("/documents/new?resource=code_project&resource_id=repo-1");
+    expect(await screen.findByText("New document for code project Payments code.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments overview" } });
+    fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Payments" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d6"));
+    expect(calls.find((c) => c.key === "POST /api/documentation/drafts")!.body.resource_ids).toEqual({
+      ...noIds,
+      code_project_ids: ["repo-1"],
+    });
+  });
+
   test("a plain New page starts with no tags", async () => {
     api({ "GET /api/documentation/resources": () => [200, resources] });
     show("/documents/new");

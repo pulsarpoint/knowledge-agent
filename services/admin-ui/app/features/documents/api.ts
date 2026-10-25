@@ -155,6 +155,10 @@ export const saveDocumentLinks = (id: string, revision: number, ids: DocumentIds
 /** The kinds of resource an inventory document can be built for. */
 export const INVENTORY_TYPES = ["server", "service", "environment"] as const;
 export type InventoryType = (typeof INVENTORY_TYPES)[number];
+/** The kinds of resource a new document can be built for (a resource page's New document): an inventory kind or a
+ * code project. */
+export const BUILT_FOR_TYPES = [...INVENTORY_TYPES, "code_project"] as const;
+export type BuiltForType = (typeof BUILT_FOR_TYPES)[number];
 /** The tag of an inventory document: a resource's inventory document is the one tagged so that is built for it. */
 export const INVENTORY_TAG = "inventory";
 /** The Documents list filtered by one tag (what every tag badge links to). */

@@ -114,3 +114,20 @@ export const getCodeFolders = (path: string, offset: number, signal?: AbortSigna
   });
 export const getCodeFile = (path: string, signal?: AbortSignal) =>
   request<{ path: string; text: string }>(`/api/code/file?path=${encodeURIComponent(path)}`, { signal });
+
+/** One sync (Git pull) job of a code project. */
+export interface SyncJob {
+  id: string;
+  status: string;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+/** A code project's page: the project as the list has it, the services built from it and its recent syncs. */
+export interface CodeProjectDetail extends CodeProject {
+  built_into: { id: string; name: string }[];
+  sync_jobs: SyncJob[];
+}
+export const getCodeProject = (id: string, signal?: AbortSignal) =>
+  request<CodeProjectDetail>(`/api/code-projects/${encodeURIComponent(id)}`, { signal });

@@ -3,6 +3,8 @@ import { index, route, type RouteConfig } from "@react-router/dev/routes";
 export default [
   index("./routes/home.tsx"),
   route("code-projects", "./routes/codeProjects.tsx"),
+  // A resource page's chat is in its query (?chat=<id>): changing it keeps the page mounted.
+  route("code-projects/:codeProjectId", "./routes/codeProject.tsx"),
   route("code-graphs", "./routes/codeGraphs.tsx"),
   route("storage", "./routes/storage.tsx"),
   route("documents", "./routes/documents.tsx"),
