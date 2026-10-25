@@ -96,6 +96,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const agentPage = pathname === "/agents" || pathname.startsWith("/agents/");
   const docsPage = pathname.startsWith("/documents") || pathname.startsWith("/documentation/");
   const promptsPage = pathname === "/prompts" || pathname.startsWith("/prompts/");
+  const skillsPage = pathname === "/skills" || pathname.startsWith("/skills/");
   const sessionPage = pathname.startsWith("/sessions/") || pathname.startsWith("/servers/"); // its own heading is the session or server title
   const docsFolders = pathname.startsWith("/documentation/folders");
   const runsPage = pathname.startsWith("/activity/runs");
@@ -130,7 +131,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         ? "MCP servers"
                         : pathname === "/llm-settings"
                           ? "LLM Settings"
-                          : pathname === "/skills"
+                          : skillsPage
                             ? "Skills"
                             : agentPage
                               ? "Agents"
@@ -173,8 +174,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         ? "Manage external tools for Code search and SSH agents."
                         : pathname === "/llm-settings"
                           ? "Manage model providers, credentials, and connection tests."
-                          : pathname === "/skills"
-                            ? "Manage reusable instructions for your agents."
+                          : skillsPage
+                            ? "Folders of instructions, references and scripts your agents load when a task needs them."
                             : agentPage
                               ? "Create agents with their own models, instructions, resources, and test conversations."
                               : repositories
@@ -223,7 +224,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/skills"}>
+                <SidebarMenuButton asChild isActive={skillsPage}>
                   <Link to="/skills">
                     <BookOpen />
                     <span>Skills</span>

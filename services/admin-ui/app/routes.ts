@@ -30,6 +30,7 @@ export default [
   route("output-schemas/:schemaId", "./routes/outputSchemaEditor.tsx"),
   route("mcp-servers", "./routes/mcpServers.tsx"),
   route("skills", "./routes/skills.tsx"),
+  route("skills/:skillId", "./routes/skill.tsx"),
   route("llm-settings", "./routes/llmSettings.tsx"),
   route("servers", "./routes/servers.tsx"),
   // A resource page's chat is in its query (?chat=<id>): changing it keeps the page mounted.

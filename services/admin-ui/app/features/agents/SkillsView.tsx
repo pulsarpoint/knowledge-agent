@@ -1,18 +1,37 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Pencil, Plus, RefreshCw } from "lucide-react";
+import { Link } from "react-router";
+import { BookOpen, Download, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { getSkill, getSkills, setSkillEnabled, type Skill, type SkillSummary } from "./skills";
-import SkillForm from "./SkillForm";
+import {
+  changedLabel,
+  deleteSkill,
+  getSkills,
+  setSkillEnabled,
+  sourceLabel,
+  updateFromSource,
+  type SkillSummary,
+} from "./skills";
+import { ImportSkillsSheet, NewSkillSheet } from "./SkillImport";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
+import { Button, buttonVariants } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
-import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Field, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Switch } from "~/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+
+const message = (error: unknown, fallback: string) => (error instanceof ApiError ? error.message : fallback);
 
 export default function SkillsView() {
   const [skills, setSkills] = useState<SkillSummary[] | null>(null);
@@ -21,23 +40,21 @@ export default function SkillsView() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [form, setForm] = useState<{ skill: Skill | null } | null>(null);
+  const [sheet, setSheet] = useState<"new" | "import" | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<SkillSummary | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     getSkills(controller.signal)
       .then((data) => {
-        if (!controller.signal.aborted) {
-          setSkills(data.skills);
-          setError(null);
-        }
+        if (controller.signal.aborted) return;
+        setSkills(data.skills);
+        setError(null);
       })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setError(error instanceof ApiError ? error.message : "Could not load skills. Try refreshing.");
+      .catch((reason) => {
+        if (!controller.signal.aborted) setError(message(reason, "Could not load skills. Try refreshing."));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -45,36 +62,52 @@ export default function SkillsView() {
     return () => controller.abort();
   }, [refresh]);
 
-  async function edit(skill: SkillSummary) {
+  async function act(skill: SkillSummary, run: () => Promise<string>, fallback: string) {
     setPending(skill.id);
     setNotice(null);
     try {
-      setForm({ skill: await getSkill(skill.id) });
-    } catch (error) {
-      setError(error instanceof ApiError ? error.message : "Could not open this skill. Try refreshing.");
+      setNotice(await run());
+      setError(null);
+      setRefresh((value) => value + 1);
+    } catch (reason) {
+      setError(message(reason, fallback));
     } finally {
       setPending(null);
     }
   }
-  async function toggle(skill: SkillSummary, enabled: boolean) {
-    setPending(skill.id);
-    setNotice(null);
-    try {
-      const saved = await setSkillEnabled(skill, enabled);
-      setSkills((rows) => rows?.map((row) => (row.id === saved.id ? saved : row)) ?? null);
-      setNotice(`Skill “${saved.name}” ${saved.enabled ? "enabled" : "disabled"}.`);
-    } catch (error) {
-      setError(error instanceof ApiError ? error.message : "Could not change this skill. Try refreshing.");
-    } finally {
-      setPending(null);
-    }
-  }
-  const blocked = loading || pending !== null || form !== null || error !== null;
+  const update = (skill: SkillSummary) =>
+    act(
+      skill,
+      async () => {
+        const { skill: updated, changed } = await updateFromSource(skill);
+        return `${updated.name} updated to version ${updated.version}. ${changedLabel(changed)}`;
+      },
+      "Could not update this skill from its source.",
+    );
+  const toggle = (skill: SkillSummary, enabled: boolean) =>
+    act(
+      skill,
+      async () => {
+        const saved = await setSkillEnabled(skill, enabled);
+        return `${saved.name} ${saved.enabled ? "enabled" : "disabled"}.`;
+      },
+      "Could not change this skill. Try refreshing.",
+    );
+  const remove = (skill: SkillSummary) =>
+    act(
+      skill,
+      async () => {
+        await deleteSkill(skill.id);
+        return `Deleted ${skill.name}.`;
+      },
+      "Could not delete this skill.",
+    );
+
+  const blocked = loading || pending !== null;
+  const unavailable = skills === null;
   const matching =
-    skills?.filter(
-      (skill) =>
-        (status === "all" || (status === "enabled") === skill.enabled) &&
-        `${skill.name} ${skill.description}`.toLowerCase().includes(query.trim().toLowerCase()),
+    skills?.filter((skill) =>
+      `${skill.name} ${skill.description}`.toLowerCase().includes(query.trim().toLowerCase()),
     ) ?? [];
 
   return (
@@ -84,23 +117,17 @@ export default function SkillsView() {
           {skills ? `${skills.length} ${skills.length === 1 ? "skill" : "skills"}` : "Loading skills…"}
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={loading || pending !== null || form !== null}
-            onClick={() => setRefresh((value) => value + 1)}
-          >
+          <Button variant="outline" disabled={blocked} onClick={() => setRefresh((value) => value + 1)}>
             <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>
-          <Button
-            disabled={blocked || skills === null}
-            onClick={() => {
-              setForm({ skill: null });
-              setNotice(null);
-            }}
-          >
+          <Button variant="outline" disabled={blocked || unavailable} onClick={() => setSheet("import")}>
+            <Download data-icon="inline-start" />
+            Import
+          </Button>
+          <Button disabled={blocked || unavailable} onClick={() => setSheet("new")}>
             <Plus data-icon="inline-start" />
-            Add skill
+            New skill
           </Button>
         </div>
       </div>
@@ -114,25 +141,18 @@ export default function SkillsView() {
           <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
-      {form && (
-        <SkillForm
-          key={form.skill?.id ?? "new"}
-          skill={form.skill}
-          onClose={() => {
-            setForm(null);
-            setRefresh((value) => value + 1);
-          }}
-          onSaved={(saved) => {
-            setForm(null);
-            setQuery("");
-            setStatus("all");
-            setNotice(`Skill “${saved.name}” saved.`);
-            setRefresh((value) => value + 1);
-          }}
-        />
-      )}
+      <NewSkillSheet open={sheet === "new"} onClose={() => setSheet(null)} />
+      <ImportSkillsSheet
+        open={sheet === "import"}
+        onClose={() => setSheet(null)}
+        onImported={(names) => {
+          setSheet(null);
+          setNotice(`Imported ${names.join(", ")}.`);
+          setRefresh((value) => value + 1);
+        }}
+      />
       {skills === null && loading && <Skeleton className="h-48 w-full" />}
-      {skills?.length === 0 && form === null && (
+      {skills?.length === 0 && (
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -140,93 +160,96 @@ export default function SkillsView() {
             </EmptyMedia>
             <EmptyTitle>No skills yet</EmptyTitle>
             <EmptyDescription>
-              Add reusable instructions for your agents. You can update or disable them at any time.
+              A skill is a folder with a SKILL.md and the files it uses. Write one, or import it from a zip or a git
+              repository.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       )}
       {skills !== null && skills.length > 0 && (
         <>
-          <FieldGroup className="sm:flex-row sm:items-end">
-            <Field className="flex-1">
-              <FieldLabel htmlFor="filter-skills">Filter skills</FieldLabel>
-              <Input
-                id="filter-skills"
-                placeholder="Search names and descriptions…"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </Field>
-            <Field className="sm:w-48">
-              <FieldLabel htmlFor="skill-status-filter">Status</FieldLabel>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger id="skill-status-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="all">All skills</SelectItem>
-                    <SelectItem value="enabled">Enabled</SelectItem>
-                    <SelectItem value="disabled">Disabled</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-          </FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="filter-skills">Filter skills</FieldLabel>
+            <Input
+              id="filter-skills"
+              placeholder="Search names and descriptions…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </Field>
           <div className="rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Skill</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Version</TableHead>
+                  <TableHead>Source</TableHead>
                   <TableHead>Updated</TableHead>
+                  <TableHead>Enabled</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {matching.map((skill) => (
                   <TableRow key={skill.id}>
-                    <TableCell className="max-w-lg whitespace-normal">
+                    <TableCell className="max-w-md whitespace-normal">
                       <p className="break-words font-medium">{skill.name}</p>
                       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
                         {skill.description}
                       </p>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          aria-label={`${skill.name} enabled`}
-                          checked={skill.enabled}
-                          disabled={blocked}
-                          onCheckedChange={(enabled) => void toggle(skill, enabled)}
-                        />
-                        <Badge variant={skill.enabled ? "secondary" : "outline"}>
-                          {skill.enabled ? "Enabled" : "Disabled"}
-                        </Badge>
-                      </div>
+                    <TableCell className="font-mono text-xs">{skill.version}</TableCell>
+                    <TableCell className="max-w-xs whitespace-normal break-all text-sm">
+                      {sourceLabel(skill.source)}
                     </TableCell>
+                    <TableCell className="text-sm">{new Date(skill.updated_at).toLocaleString()}</TableCell>
                     <TableCell>
-                      <p>{new Date(skill.updated_at).toLocaleString()}</p>
-                      <p className="text-sm text-muted-foreground">Revision {skill.revision}</p>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
+                      <Switch
+                        aria-label={`${skill.name} enabled`}
+                        checked={skill.enabled}
                         disabled={blocked}
-                        onClick={() => void edit(skill)}
-                        aria-label={`Edit ${skill.name}`}
-                      >
-                        <Pencil data-icon="inline-start" />
-                        Edit
-                      </Button>
+                        onCheckedChange={(enabled) => void toggle(skill, enabled)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {skill.source.kind === "git" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={blocked}
+                            aria-label={`Update ${skill.name} from source`}
+                            onClick={() => void update(skill)}
+                          >
+                            <RefreshCw data-icon="inline-start" />
+                            Update from source
+                          </Button>
+                        )}
+                        <Link
+                          to={`/skills/${encodeURIComponent(skill.id)}`}
+                          aria-label={`Edit ${skill.name}`}
+                          className={buttonVariants({ size: "sm", variant: "outline" })}
+                        >
+                          <Pencil />
+                          Edit
+                        </Link>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={blocked}
+                          aria-label={`Delete ${skill.name}`}
+                          onClick={() => setRemoving(skill)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
                 {matching.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center">
-                      No skills match these filters.
+                    <TableCell colSpan={6} className="text-center">
+                      No skills match this filter.
                     </TableCell>
                   </TableRow>
                 )}
@@ -235,6 +258,29 @@ export default function SkillsView() {
           </div>
         </>
       )}
+      <AlertDialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {removing?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The skill, all its files and its previous versions are deleted, and agents that use it lose it. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              onClick={() => {
+                if (removing) void remove(removing);
+                setRemoving(null);
+              }}
+            >
+              Delete skill
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

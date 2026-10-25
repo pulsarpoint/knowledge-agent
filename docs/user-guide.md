@@ -146,8 +146,8 @@ General conventions throughout the admin app:
 - **Secrets are write-only**: API keys, tokens and SSH private keys are encrypted
   (AES-GCM with `CREDENTIAL_ENCRYPTION_KEY`) and never shown again. A blank secret
   field keeps the saved value; use the explicit **Remove saved …** control to clear it.
-- **Deletes ask for confirmation**; several records (LLM models, skills, code
-  projects) cannot be deleted at all — disable them instead.
+- **Deletes ask for confirmation**; several records (LLM models, code projects) cannot be deleted at all — disable them
+  instead.
 - Configuration changes are recorded in an internal audit table.
 
 ### 4.1 Navigation
@@ -498,11 +498,34 @@ Administration → Events), in the same transaction as the saved tickets.
 
 ### 4.8 Skills
 
-`/skills` — a library of reusable Markdown instructions that agents can be given.
-Fields: name (lowercase-with-dashes, unique), description, instructions (Markdown),
-enabled. Search and filter by status; toggle enabled inline. Skills are instructions only (never executed) and cannot
-be deleted — disable them. A run lists the skills in its access by name and description; the agent loads a skill's
-full instructions with the `load_skill` tool when it uses it.
+`/skills` — skills in the Agent Skills format: a folder with a `SKILL.md` (frontmatter `name` and `description`, then
+the instructions) and the files it uses, such as `references/`, `scripts/` and `assets/`. Skills from GitHub and skill
+marketplaces work as they are.
+
+- **The list** shows each skill's name, description, version (a git commit or a UTC timestamp), source (git, uploaded zip
+  or edited in the app) and when it was updated; toggle **Enabled** inline. **Delete** asks first and removes the skill,
+  its files and its previous versions.
+- **New skill** asks for a name (lowercase letters, digits and single hyphens, unique) and a description, writes a
+  `SKILL.md` from a template and opens the editor.
+- **Import** takes a `.zip` (up to 25 MB) or a git folder (repository URL, ref — empty for the default branch — and an
+  optional path such as `skills/pdf-forms`; public repositories, or one whose code project has a git credential).
+  **Check** lists the skills found with their file counts; **Import** creates them. A zip may hold one skill (`SKILL.md`
+  at its root or in its only folder) or a folder per skill. A name that exists is refused with "A skill named <name>
+  exists; update it instead."
+- **Update from source** (skills imported from git) imports the same URL, ref and path again as a new version and lists
+  the files that changed.
+- **The editor** (`/skills/<id>`): a file tree with **Add file**, **Add folder**, **Upload files**, **Rename** and
+  **Delete** (asks first, naming the file or the folder and its file count), and a text editor for text files. Binary
+  files show their name and size; upload a file with the same name to replace one. The `SKILL.md` frontmatter is checked
+  as you type. **Save** writes the whole skill as a new folder, then switches to it, and shows the new version, its
+  source and the files that changed. Empty folders are not saved. Leaving with unsaved changes asks first.
+- **Previous versions** (a side sheet) lists the kept folders (the last three) with when they were written and their
+  source; **Restore** asks first, then makes that version the current files again.
+- Limits: 10 MB and 500 files per skill, 5 MB per file; relative paths only, no `..`, no symbolic links.
+
+A run lists the skills in its access by name and description. `load_skill` returns a skill's instructions and its files
+with their absolute paths; the agent reads them with `read_file` and runs scripts with `shell_run` (read-only, no
+network). A run keeps the skill folders it started with, even if a skill is updated during it.
 
 ### 4.9 MCP servers
 
@@ -1222,7 +1245,7 @@ before exposing it beyond localhost.
 - The `api-analysis` skill is in the Skills library but is not used by any documentation flow.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
-- Code projects, LLM models and skills cannot be deleted (disable/leave unused).
+- Code projects and LLM models cannot be deleted (disable/leave unused).
 
 ---
 
@@ -1233,8 +1256,8 @@ resources and roles decide).
 
 | Tool | Works when | Safety limits |
 | --- | --- | --- |
-| `list_files`, `read_file`, `search_files` | The run has code projects | Only selected roots plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
-| `shell_run` | The run has code projects | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
+| `list_files`, `read_file`, `search_files` | The run has code projects or skills | Only selected roots (code projects and the run's skill folders, read-only) plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
+| `shell_run` | The run has code projects or skills | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources and skill folders mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
 | `code_graph` | The run has the code project and it has a generated graph | Indexed symbol, route and call queries on a disposable snapshot copy |
 | `code_search` | The run has code projects | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | The run has code projects | Structural code queries; 30 s timeout |
@@ -1245,13 +1268,14 @@ resources and roles decide).
 | `search_documents` | Every run | Full-text search over the published documents the run may read (given to it, or linked to a server, service, environment or code project in it); drafts are never searched. Returns each match's id, title, short description, tags, linked resources and a short snippet; read one with `get_document` |
 | `run_subagent` | Agent sessions (never inside a subagent) | Starts a helper with every tool but `run_subagent`, a subset of the run's resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
 | `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and the run did not leave it out (sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
-| `load_skill` | The skill is in the run's access and enabled | Returns the skill's instructions by name; any other name gets "This skill is not available in this run." |
+| `load_skill` | The skill is in the run's access and enabled | Returns the skill's `SKILL.md` instructions and its files with their absolute paths (read them with `read_file`, run scripts with `shell_run`); any other name gets "This skill is not available in this run." |
 
 Every tool works on the run's resources only; a kind the run has none of is refused with `This run has no ….`
 
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills are
-instructions loaded with `load_skill` and services add context; neither adds tools.
+folders loaded with `load_skill` (their scripts run only through `shell_run`) and services add context; neither adds
+tools.
 
 **Treat SSH access with care**: an agent with SSH enabled can change the server.
 Use a dedicated low-privilege user, keep **Allow sudo to root** off unless needed,

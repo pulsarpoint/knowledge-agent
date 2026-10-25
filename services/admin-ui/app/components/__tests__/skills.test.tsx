@@ -1,131 +1,271 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import SkillsView from "~/features/agents/SkillsView";
-import type { Skill } from "~/features/agents/skills";
+import { checkSkillMd, fileChanges, sourceLabel, treeRows, type SkillSummary } from "~/features/agents/skills";
 
+const NativeRequest = globalThis.Request;
+beforeEach(() =>
+  vi.stubGlobal(
+    "Request",
+    class extends NativeRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        super(input, { ...init, signal: undefined });
+      }
+    },
+  ),
+);
 afterEach(() => vi.unstubAllGlobals());
-const initial: Skill = {
-  id: "skill-1",
-  name: "inspect-logs",
-  description: "Investigate service errors",
-  instructions: "# Inspect logs\n\nRead recent errors.\n",
+
+const at = "2026-10-25T10:00:00Z";
+const pdf: SkillSummary = {
+  id: "s1",
+  name: "pdf-forms",
+  description: "Fill PDF forms.",
   enabled: true,
+  revision: 2,
+  source: {
+    kind: "git",
+    url: "https://github.com/acme/skills",
+    ref: "main",
+    path: "pdf-forms",
+    commit: "abc123def4567890",
+  },
+  folder: "skills/s1/abc123def456",
+  version: "abc123def456",
+  created_at: at,
+  updated_at: at,
+};
+const notes: SkillSummary = {
+  ...pdf,
+  id: "s2",
+  name: "notes",
+  description: "Write notes.",
   revision: 1,
-  created_at: "2026-09-09T10:00:00Z",
-  updated_at: "2026-09-09T10:00:00Z",
+  source: { kind: "upload", file: "notes.zip" },
+  folder: "skills/s2/20261025T100000Z",
+  version: "20261025T100000Z",
 };
 
-function setup(rows: Skill[] = [], conflict = false) {
-  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method) {
-      if (conflict)
-        return new Response(
-          JSON.stringify({ error: { message: "This skill changed. Cancel and reopen it before saving." } }),
-          { status: 409 },
-        );
-      const value = JSON.parse(init.body as string);
-      if (init.method === "POST") {
-        const saved = { ...initial, ...value };
-        rows.push(saved);
-        return new Response(JSON.stringify(saved), { status: 201 });
-      }
-      const saved = { ...rows[0], ...value, revision: rows[0].revision + 1 };
-      rows = [saved, ...rows.slice(1)];
-      return new Response(JSON.stringify(saved));
-    }
-    if (url === "/api/skills")
-      return new Response(JSON.stringify({ skills: rows.map(({ instructions, ...summary }) => summary) }));
-    return new Response(JSON.stringify(rows.find((row) => url.endsWith(row.id))));
-  });
-  vi.stubGlobal("fetch", fetch);
-  render(<SkillsView />);
-  return fetch;
-}
-
-test("create, preview, edit, disable and re-enable a skill", async () => {
-  const fetch = setup();
-  await screen.findByText("No skills yet");
-  fireEvent.click(screen.getByRole("button", { name: "Add skill" }));
-  fireEvent.change(screen.getByLabelText("Skill name"), { target: { value: initial.name } });
-  fireEvent.change(screen.getByLabelText("Description"), { target: { value: initial.description } });
-  fireEvent.change(screen.getByLabelText("Instructions (Markdown)"), { target: { value: initial.instructions } });
-  fireEvent.click(screen.getByRole("button", { name: "Preview instructions" }));
-  expect(screen.getByRole("heading", { name: "Inspect logs" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Create skill" }));
-  await screen.findByRole("switch", { name: "inspect-logs enabled" });
-  const create = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
-  expect(create[0]).toBe("/api/skills");
-  expect(JSON.parse(create[1]!.body as string)).toEqual({
-    name: initial.name,
-    description: initial.description,
-    instructions: initial.instructions,
-    enabled: true,
-  });
-  fireEvent.click(screen.getByRole("switch", { name: "inspect-logs enabled" }));
-  await waitFor(() => expect(screen.getByRole("switch", { name: "inspect-logs enabled" })).not.toBeChecked());
-  fireEvent.click(screen.getByRole("button", { name: "Edit inspect-logs" }));
-  expect(await screen.findByLabelText("Instructions (Markdown)")).toHaveValue(initial.instructions);
-  expect(screen.getByRole("switch", { name: "Enabled" })).not.toBeChecked();
-  fireEvent.change(screen.getByLabelText("Instructions (Markdown)"), { target: { value: "Updated steps\n" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await waitFor(() => expect(screen.queryByLabelText("Instructions (Markdown)")).not.toBeInTheDocument());
-  const update = fetch.mock.calls.find(([, init]) => init?.method === "PUT")!;
-  expect(JSON.parse(update[1]!.body as string)).toMatchObject({
-    instructions: "Updated steps\n",
-    enabled: false,
-    revision: 2,
-  });
-  fireEvent.click(screen.getByRole("switch", { name: "inspect-logs enabled" }));
-  await waitFor(() => expect(screen.getByRole("switch", { name: "inspect-logs enabled" })).toBeChecked());
-  const patches = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
-  expect(patches.map(([, init]) => JSON.parse(init!.body as string))).toEqual([
-    { enabled: false, revision: 1 },
-    { enabled: true, revision: 3 },
-  ]);
-});
-
-test("filters names and descriptions and keeps disabled skills visible", async () => {
-  setup([
-    initial,
-    { ...initial, id: "skill-2", name: "check-health", description: "Review health checks", enabled: false },
-  ]);
-  const filter = await screen.findByLabelText("Filter skills");
-  fireEvent.change(filter, { target: { value: "health checks" } });
-  expect(screen.getByRole("button", { name: "Edit check-health" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Edit inspect-logs" })).not.toBeInTheDocument();
-  expect(screen.getByRole("switch", { name: "check-health enabled" })).not.toBeChecked();
-  fireEvent.change(filter, { target: { value: "missing" } });
-  expect(screen.getByText("No skills match these filters.")).toBeInTheDocument();
-});
-
-test("a stale save keeps the edited instructions and cancel sends no additional write", async () => {
-  const fetch = setup([initial], true);
-  fireEvent.click(await screen.findByRole("button", { name: "Edit inspect-logs" }));
-  fireEvent.change(await screen.findByLabelText("Instructions (Markdown)"), { target: { value: "Unsaved changes" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await screen.findByText("This skill changed. Cancel and reopen it before saving.");
-  expect(screen.getByLabelText("Instructions (Markdown)")).toHaveValue("Unsaved changes");
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  await waitFor(() => expect(screen.queryByLabelText("Instructions (Markdown)")).not.toBeInTheDocument());
-  expect(fetch.mock.calls.filter(([, init]) => init?.method)).toHaveLength(1);
-});
-
-test("failed status changes leave the current status intact", async () => {
-  setup([initial], true);
-  fireEvent.click(await screen.findByRole("switch", { name: "inspect-logs enabled" }));
-  await screen.findByText("This skill changed. Cancel and reopen it before saving.");
-  expect(screen.getByRole("switch", { name: "inspect-logs enabled" })).toBeChecked();
-});
-
-test("unavailable skill storage shows an error and disables creation", async () => {
+type Route = (body: unknown) => [number, unknown];
+function api(routes: Record<string, Route>) {
+  const calls: { key: string; body: unknown; headers?: HeadersInit }[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(
-      async () => new Response(JSON.stringify({ error: { message: "Skill storage unavailable" } }), { status: 503 }),
-    ),
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const key = `${init?.method ?? "GET"} ${url}`;
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : (init?.body ?? null);
+      calls.push({ key, body, headers: init?.headers });
+      if (!(key in routes)) throw new Error(`unexpected ${key}`);
+      const [status, value] = routes[key](body);
+      return status === 204 ? new Response(null, { status }) : new Response(JSON.stringify(value), { status });
+    }),
   );
-  render(<SkillsView />);
-  await screen.findByText("Skill storage unavailable");
-  expect(screen.getByRole("button", { name: "Add skill" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  return calls;
+}
+function show() {
+  const router = createMemoryRouter(
+    [
+      { path: "/skills", element: <SkillsView /> },
+      { path: "/skills/:skillId", element: <p>Editor</p> },
+    ],
+    { initialEntries: ["/skills"] },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
+test("the list shows each skill's version and source; Update from source only for git skills", async () => {
+  const calls = api({
+    "GET /api/skills": () => [200, { skills: [notes, pdf] }],
+    "POST /api/skills/s1/update/source": () => [
+      200,
+      {
+        skill: { ...pdf, version: "fff000111222", revision: 3, files: [], versions: [] },
+        changed: [
+          { path: "ref.md", change: "added" },
+          { path: "SKILL.md", change: "modified" },
+        ],
+      },
+    ],
+  });
+  show();
+  const row = (await screen.findByText("pdf-forms")).closest("tr")!;
+  expect(within(row).getByText("abc123def456")).toBeInTheDocument();
+  expect(within(row).getByText("Git: https://github.com/acme/skills @ main, pdf-forms")).toBeInTheDocument();
+  const other = screen.getByText("notes").closest("tr")!;
+  expect(within(other).getByText("Uploaded notes.zip")).toBeInTheDocument();
+  expect(within(other).queryByRole("button", { name: /Update from source/ })).not.toBeInTheDocument();
+  expect(within(other).getByRole("link", { name: "Edit notes" })).toHaveAttribute("href", "/skills/s2");
+  fireEvent.click(within(row).getByRole("button", { name: "Update pdf-forms from source" }));
+  await screen.findByText("pdf-forms updated to version fff000111222. Changed: ref.md (added), SKILL.md (modified).");
+  expect(calls.find((call) => call.key === "POST /api/skills/s1/update/source")!.body).toEqual({ revision: 2 });
+});
+
+test("a zip import previews the skills it holds, then imports them on confirm", async () => {
+  const calls = api({
+    "GET /api/skills": () => [200, { skills: [] }],
+    "POST /api/skills/import/zip?file=all.zip&preview=true": () => [
+      200,
+      {
+        skills: [
+          { name: "docx", description: "Word files.", files: [{ path: "SKILL.md", size: 10 }] },
+          { name: "pdf", description: "PDF files.", files: [{ path: "SKILL.md", size: 10 }] },
+        ],
+      },
+    ],
+    "POST /api/skills/import/zip?file=all.zip": () => [
+      201,
+      {
+        skills: [
+          { ...pdf, name: "docx", files: [], versions: [] },
+          { ...pdf, name: "pdf", files: [], versions: [] },
+        ],
+      },
+    ],
+  });
+  show();
+  await screen.findByText("No skills yet");
+  fireEvent.click(screen.getByRole("button", { name: "Import" }));
+  const file = new File(["PK"], "all.zip", { type: "application/zip" });
+  fireEvent.change(await screen.findByLabelText("Zip file"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "Check archive" }));
+  expect(await screen.findByText("docx")).toBeInTheDocument();
+  expect(screen.getByText("PDF files.")).toBeInTheDocument();
+  const preview = calls.find((call) => call.key.includes("preview=true"))!;
+  expect(preview.body).toBe(file);
+  expect(preview.headers).toEqual({ "Content-Type": "application/zip" });
+  fireEvent.click(screen.getByRole("button", { name: "Import 2 skills" }));
+  await screen.findByText("Imported docx, pdf.");
+  expect(calls.map((call) => call.key)).toContain("POST /api/skills/import/zip?file=all.zip");
+});
+
+test("a git import sends the URL, ref and path, previews, then imports", async () => {
+  const calls = api({
+    "GET /api/skills": () => [200, { skills: [] }],
+    "POST /api/skills/import/git": (body) => {
+      const value = body as { preview?: boolean };
+      return value.preview
+        ? [200, { skills: [{ name: "pdf-forms", description: "Fill PDF forms.", files: [] }] }]
+        : [201, { skills: [{ ...pdf, files: [], versions: [] }] }];
+    },
+  });
+  show();
+  await screen.findByText("No skills yet");
+  fireEvent.click(screen.getByRole("button", { name: "Import" }));
+  fireEvent.mouseDown(await screen.findByRole("tab", { name: "From git" }));
+  fireEvent.change(screen.getByLabelText("Repository URL"), { target: { value: "https://github.com/acme/skills" } });
+  fireEvent.change(screen.getByLabelText("Ref"), { target: { value: "main" } });
+  fireEvent.change(screen.getByLabelText("Path"), { target: { value: "pdf-forms" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check repository" }));
+  await screen.findByText("Fill PDF forms.");
+  fireEvent.click(screen.getByRole("button", { name: "Import 1 skill" }));
+  await screen.findByText("Imported pdf-forms.");
+  expect(calls.filter((call) => call.key === "POST /api/skills/import/git").map((call) => call.body)).toEqual([
+    { url: "https://github.com/acme/skills", ref: "main", path: "pdf-forms", preview: true },
+    { url: "https://github.com/acme/skills", ref: "main", path: "pdf-forms" },
+  ]);
+});
+
+test("New skill creates SKILL.md from the template and opens the editor", async () => {
+  const calls = api({
+    "GET /api/skills": () => [200, { skills: [] }],
+    "POST /api/skills": () => [201, { ...pdf, id: "s9", files: [], versions: [] }],
+  });
+  const router = show();
+  await screen.findByText("No skills yet");
+  fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+  fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "pdf-forms" } });
+  fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Fill PDF forms." } });
+  fireEvent.click(screen.getByRole("button", { name: "Create and edit" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/skills/s9"));
+  expect(calls.find((call) => call.key === "POST /api/skills")!.body).toEqual({
+    name: "pdf-forms",
+    description: "Fill PDF forms.",
+  });
+});
+
+test("Delete asks first, naming the skill and its files", async () => {
+  const calls = api({
+    "GET /api/skills": () => [200, { skills: [pdf] }],
+    "DELETE /api/skills/s1": () => [204, null],
+  });
+  show();
+  fireEvent.click(await screen.findByRole("button", { name: "Delete pdf-forms" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(within(dialog).getByText("Delete pdf-forms?")).toBeInTheDocument();
+  expect(calls.some((call) => call.key.startsWith("DELETE"))).toBe(false);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete skill" }));
+  await screen.findByText("Deleted pdf-forms.");
+  expect(calls.map((call) => call.key)).toContain("DELETE /api/skills/s1");
+});
+
+test("unavailable skill storage shows the error and disables New skill and Import", async () => {
+  api({ "GET /api/skills": () => [503, { error: { message: "The skills folder is unavailable." } }] });
+  show();
+  await screen.findByText("The skills folder is unavailable.");
+  expect(screen.getByRole("button", { name: "New skill" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
+});
+
+test("sourceLabel names where a skill came from", () => {
+  expect(sourceLabel(pdf.source)).toBe("Git: https://github.com/acme/skills @ main, pdf-forms");
+  expect(sourceLabel({ kind: "git", url: "https://x/y", ref: "", path: "", commit: "c" })).toBe("Git: https://x/y");
+  expect(sourceLabel({ kind: "upload", file: "" })).toBe("Uploaded zip");
+  expect(sourceLabel({ kind: "editor" })).toBe("Edited in the app");
+  expect(sourceLabel(null)).toBe("Unknown");
+});
+
+test("checkSkillMd checks the frontmatter's name and description as the server does", () => {
+  expect(checkSkillMd("---\nname: pdf-forms\ndescription: Fill PDF forms.\n---\n\n# Steps\n")).toBeNull();
+  expect(checkSkillMd("---\nname: 'pdf-forms'\ndescription: \"Fill forms.\"\n---\n")).toBeNull();
+  expect(checkSkillMd("---\nname: pdf\ndescription: >-\n  Fill forms\n  of all kinds.\n---\n")).toBeNull();
+  expect(checkSkillMd("# no frontmatter")).toBe("SKILL.md must start with a frontmatter block between --- lines.");
+  expect(checkSkillMd("---\nname: pdf\n")).toBe("SKILL.md must start with a frontmatter block between --- lines.");
+  expect(checkSkillMd("---\nname: PDF Forms\ndescription: x\n---\n")).toBe(
+    "SKILL.md's name must be 1-64 lowercase letters, digits and single hyphens, such as pdf-forms.",
+  );
+  expect(checkSkillMd("---\nname: pdf\n---\n")).toBe("SKILL.md's description must be text of 1-1024 characters.");
+  expect(checkSkillMd(`---\nname: pdf\ndescription: ${"x".repeat(1025)}\n---\n`)).toBe(
+    "SKILL.md's description must be text of 1-1024 characters.",
+  );
+});
+
+test("treeRows lists folders before files, each under its parent", () => {
+  expect(treeRows(["SKILL.md", "scripts/run.sh", "a.md", "scripts/lib/x.py"], ["assets"])).toEqual([
+    { path: "assets", name: "assets", depth: 0, kind: "folder" },
+    { path: "scripts", name: "scripts", depth: 0, kind: "folder" },
+    { path: "scripts/lib", name: "lib", depth: 1, kind: "folder" },
+    { path: "scripts/lib/x.py", name: "x.py", depth: 2, kind: "file" },
+    { path: "scripts/run.sh", name: "run.sh", depth: 1, kind: "file" },
+    { path: "a.md", name: "a.md", depth: 0, kind: "file" },
+    { path: "SKILL.md", name: "SKILL.md", depth: 0, kind: "file" },
+  ]);
+});
+
+test("fileChanges turns the working copy into the save's changes", () => {
+  const saved = ["SKILL.md", "old.md", "a.md", "b.md", "logo.png"];
+  expect(
+    fileChanges(saved, {
+      "SKILL.md": { origin: "SKILL.md", size: 5, text: "new", saved: "old" },
+      // a.md and b.md swapped names; logo.png renamed without being opened; old.md deleted
+      "b.md": { origin: "a.md", size: 1 },
+      "a.md": { origin: "b.md", size: 1, text: "B2", saved: "B" },
+      "img/logo.png": { origin: "logo.png", size: 9 },
+      "new.md": { origin: null, size: 0, text: "" },
+      "up.bin": { origin: null, size: 2, base64: "AAE=" },
+    }),
+  ).toEqual([
+    { path: "old.md", delete: true },
+    { path: "a.md", rename_to: ".renaming-0" },
+    { path: "b.md", rename_to: ".renaming-1" },
+    { path: "logo.png", rename_to: ".renaming-2" },
+    { path: ".renaming-0", rename_to: "b.md" },
+    { path: ".renaming-1", rename_to: "a.md" },
+    { path: ".renaming-2", rename_to: "img/logo.png" },
+    { path: "SKILL.md", text: "new" },
+    { path: "a.md", text: "B2" },
+    { path: "new.md", text: "" },
+    { path: "up.bin", content_base64: "AAE=" },
+  ]);
+  expect(fileChanges(["SKILL.md"], { "SKILL.md": { origin: "SKILL.md", size: 3, text: "x", saved: "x" } })).toEqual([]);
 });
