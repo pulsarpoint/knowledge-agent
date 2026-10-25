@@ -5,6 +5,7 @@ the project: run start pins them in config['skills'] (run_skills), each with its
 during the run does not change what it reads. Skills are not part of the run's access object."""
 
 import json
+import os.path
 
 from knowledge_admin.capabilities.files import skill_folder
 from knowledge_admin.skills.store import absolute
@@ -45,13 +46,16 @@ def section(config: dict) -> str:
 
 def skills_used(skills: list[dict], tool_calls: list[dict]) -> list[str]:
     """The names of the skills (config['skills'] order) whose SKILL.md a run read: a read_file call
-    ({name, arguments: the JSON text}) with exactly that path. Other files of the folder do not count."""
+    ({name, arguments: the JSON text}) with that path, spelled any equivalent way (normalised). Other files of the folder
+    do not count."""
     read = set()
     for call in tool_calls:
         if call.get('name') != 'read_file':
             continue
         try:
-            read.add(json.loads(call.get('arguments') or '{}').get('path'))
+            path = json.loads(call.get('arguments') or '{}').get('path')
         except (ValueError, AttributeError):
             continue
-    return [item['name'] for item in skills if skill_md(item) in read]
+        if isinstance(path, str):
+            read.add(os.path.normpath(path))
+    return [item['name'] for item in skills if os.path.normpath(skill_md(item)) in read]

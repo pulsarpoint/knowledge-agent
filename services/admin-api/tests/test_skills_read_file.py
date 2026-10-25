@@ -86,6 +86,14 @@ def test_skills_used_are_the_skill_md_files_read_with_read_file():
     assert skills_used(skills, [{'name': 'read_file', 'arguments': 'not json'}]) == []
 
 
+def test_skills_used_matches_an_equivalent_spelling_of_the_path():
+    alpha = entry('alpha')
+    folder = str(absolute(alpha['folder']))
+    for path in (f'{folder}/./SKILL.md', f'{folder}//SKILL.md', f'{folder}/sub/../SKILL.md'):
+        call = {'name': 'read_file', 'arguments': json.dumps({'path': path})}
+        assert skills_used([alpha], [call]) == ['alpha'], path
+
+
 def test_an_agent_reads_skill_md_at_the_listed_path(store, saved_agent, tmp_path):  # noqa: F811
     skill = saved_agent[3]
     context = {
