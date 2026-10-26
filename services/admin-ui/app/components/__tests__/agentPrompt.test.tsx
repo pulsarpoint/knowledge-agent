@@ -15,7 +15,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentChatView", () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = {
   id: "custom",
@@ -67,7 +67,7 @@ const open = (path: string) =>
 test("the agent page has no Prompts or Versions tab", async () => {
   open("/agents/custom");
   await screen.findByRole("heading", { name: "Payments analyst", level: 2 });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Test"]);
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Chat"]);
 });
 
 test("General edits and saves the prompt with the agent revision", async () => {

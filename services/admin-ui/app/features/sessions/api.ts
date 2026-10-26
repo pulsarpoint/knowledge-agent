@@ -10,7 +10,7 @@ const json = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 
-export type SessionPurpose = "documents" | "test" | "event" | "resource" | "revision" | "chat";
+export type SessionPurpose = "documents" | "event" | "resource" | "revision" | "chat";
 export type SessionStatus = "starting" | "working" | "waiting" | "stopped" | "failed" | "closed";
 export const statusLabels: Record<SessionStatus, string> = {
   starting: "Starting",
@@ -52,7 +52,7 @@ export const resourceChatPath = (resource: { type: ResourceType; id: string }, c
     chatId ? `?chat=${encodeURIComponent(chatId)}` : ""
   }`;
 
-/** What a chat is about: a document (Ask agent), a saved agent (its Test tab), a new document (Documents → New: the
+/** What a chat is about: a document (Ask agent), a saved agent (its Chat tab), a new document (Documents → New: the
  * Title and Folder the editor holds now; `resourceFor`: from a resource's New document, the resource it is built for) or
  * a server, service or environment (its page's chats). */
 export type ChatScope =
@@ -88,7 +88,7 @@ export interface SessionSummary {
   reasoning_tokens: number;
   document_id: string | null;
   document_title: string | null;
-  folder: string | null; // null for a Test session
+  folder: string | null; // null for a saved agent's chat
   worker_active: boolean;
   queued: number;
   created_at: string;
@@ -149,9 +149,9 @@ export interface SessionDetail extends SessionSummary {
   /** What the run was given: what the person chose, an environment rather than what it brings (Start new chat with
    *  these settings restores it). */
   given_resources: GivenResource[];
-  /** Test sessions: the configuration pinned when the session started (credential references only). */
+  /** A saved agent's chat and event sessions: the configuration pinned when the session started (credential references only). */
   config?: Record<string, unknown>;
-  /** Test sessions: their saved suggestions, oldest first. */
+  /** A saved agent's chat and event sessions: their saved suggestions, oldest first. */
   reviews?: SessionReview[];
   /** The run's last document draft: open while it exists, else what became of it (promoted, discarded, or replaced:
    *  another draft of its document was promoted and deleted it); null: the run never had one. */
@@ -362,8 +362,6 @@ export interface StartInput {
   /** Tags the run gets besides its resource's (the backend adds that one). */
   tags?: string[];
   agent_id?: string;
-  /** A saved agent's run from Run agent on the Agents page (a chat session); omitted: a Test session. */
-  purpose?: "chat";
   message: string;
   model_id?: string;
   prompt_id?: string | null;

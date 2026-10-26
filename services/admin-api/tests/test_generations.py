@@ -13,7 +13,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.sessions import api as sessions_api
 from knowledge_admin.sessions.text import IDLE_CLOSED
 from knowledge_admin.sessions.rows import NO_MODEL
-from session_rows import add_test_session
+from session_rows import add_chat_session
 from test_api import _client
 from test_profiles import wizard_payload
 from test_repositories import HEADERS
@@ -234,7 +234,7 @@ def test_messages_stop_and_close(sessions):
             sessions.store.project(conn, 'shop'),
             sessions.store.actor(conn, 'admin-id', 'admin@example.test'),
         )
-        add_test_session(conn, project, actor, sessions.agent, sessions.claude, status='waiting')
+        add_chat_session(conn, project, actor, sessions.agent, sessions.claude, status='waiting')
     revision = client.get(f'/api/agents/{sessions.agent}', headers=HEADERS).json()['revision']
     assert (
         client.request(

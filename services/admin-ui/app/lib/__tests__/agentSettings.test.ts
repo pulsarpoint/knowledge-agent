@@ -452,5 +452,4 @@ test("a saved agent's output schema goes into its start, comes back from this br
   expect(settingsFromSession(agentOptions, following).outputSchema).toEqual(current.outputSchema);
   expect(settingsSummary(agentOptions, fixed)).toMatch(/· Output: Verdict v2$/);
   expect(settingsSummary(agentOptions, current)).toMatch(/· Output: Verdict$/);
-  expect(settingsSummary(agentOptions, fixed, { output: false })).not.toMatch(/Output/); // Run agent shows its picker
 });

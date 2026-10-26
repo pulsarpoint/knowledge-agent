@@ -261,7 +261,7 @@ export default function NotificationsView() {
                       <dd>
                         <Link
                           className="text-primary underline underline-offset-4"
-                          to={`/agents/${encodeURIComponent(selected.agent_id)}?view=test&session_id=${encodeURIComponent(selected.session_id)}`}
+                          to={`/agents/${encodeURIComponent(selected.agent_id)}?view=chat&session_id=${encodeURIComponent(selected.session_id)}`}
                         >
                           Open run
                         </Link>

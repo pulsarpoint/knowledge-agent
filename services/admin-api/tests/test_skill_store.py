@@ -9,7 +9,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.skills import store as folders
-from session_rows import a_model, add_test_session
+from session_rows import a_model, add_chat_session
 
 SKILL_MD = b'---\nname: pdf-forms\ndescription: Fill PDF forms.\n---\n\n# PDF forms\n'
 
@@ -72,7 +72,7 @@ def a_run_pinning(conn, project, folder: str, *, status: str = 'working'):
     conn.execute("INSERT INTO ka.agents(id,name,system_prompt) VALUES (%s,%s,'Be brief.')", (agent, agent))
     skill = {'id': str(uuid4()), 'name': 'inspect', 'description': 'Inspect.', 'folder': folder}
     config = {'id': agent, 'access': {'resources': []}, 'skills': [skill]}
-    return add_test_session(conn, project, actor, agent, a_model(conn, actor), config=config, status=status)
+    return add_chat_session(conn, project, actor, agent, a_model(conn, actor), config=config, status=status)
 
 
 def test_pinned_folders_are_named_by_runs_that_are_not_closed(store_db):
@@ -80,9 +80,9 @@ def test_pinned_folders_are_named_by_runs_that_are_not_closed(store_db):
     a_run_pinning(conn, project, 'skills/s/v1')
     a_run_pinning(conn, project, 'skills/s/v2', status='closed')
     actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
-    add_test_session(conn, project, actor, 'nobody', a_model(conn, actor), config={'skills': 'odd'})
+    add_chat_session(conn, project, actor, 'nobody', a_model(conn, actor), config={'skills': 'odd'})
     old = {'access': {'resources': [{'type': 'skill', 'id': 'k1', 'folder': 'skills/s/v3'}]}}  # ignored
-    add_test_session(conn, project, actor, 'nobody', a_model(conn, actor), config=old)
+    add_chat_session(conn, project, actor, 'nobody', a_model(conn, actor), config=old)
     assert folders.pinned_folders(conn) == {'skills/s/v1'}
 
 

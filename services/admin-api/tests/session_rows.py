@@ -1,4 +1,4 @@
-"""Rows for tests that need a Test session (ka.agent_sessions, purpose 'test') or a suggestion without running
+"""Rows for tests that need a saved agent's chat session (ka.agent_sessions, purpose 'chat') or a suggestion without running
 one."""
 
 from typing import Any
@@ -19,7 +19,7 @@ def a_model(conn, actor) -> UUID:
     ).fetchone()['id']
 
 
-def add_test_session(
+def add_chat_session(
     conn,
     project,
     actor,
@@ -30,9 +30,9 @@ def add_test_session(
     message: str | None = None,
     status: str = 'starting',
     turns: int = 0,
-    purpose: str = 'test',
+    purpose: str = 'chat',
 ) -> UUID:
-    """A Test session of the agent as POST /api/sessions with an agent inserts it (or, with purpose 'event', as an event
+    """A chat session of the agent as POST /api/sessions with an agent inserts it (or, with purpose 'event', as an event
     handler starts one); `message` queues input 1."""
     session = uuid4()
     conn.execute(

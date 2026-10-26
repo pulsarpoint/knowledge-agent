@@ -14,7 +14,7 @@ NO_MODEL = 'Choose an enabled model.'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
-SessionPurpose = Literal['documents', 'test', 'event', 'resource', 'revision', 'chat']
+SessionPurpose = Literal['documents', 'event', 'resource', 'revision', 'chat']
 
 SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
 
@@ -116,10 +116,12 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
             },
         ).fetchall()
     row['started_by'], row['previous_output'] = started_by(conn, session_id)
-    pinned_shown = row['purpose'] in ('test', 'event', 'chat', 'revision') or (
+    pinned_shown = row['purpose'] in ('event', 'chat', 'revision') or (
         row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {})
     )  # a new-document run
-    if pinned_shown:  # its pinned configuration (credential references only) and, for Test sessions, its suggestions
+    if (
+        pinned_shown
+    ):  # its pinned configuration (credential references only) and, for a saved agent's conversations, its suggestions
         row['config'] = conn.execute(
             'SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (session_id,)
         ).fetchone()['agent_config']

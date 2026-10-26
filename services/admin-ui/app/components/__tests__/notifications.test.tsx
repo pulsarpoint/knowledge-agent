@@ -109,7 +109,7 @@ test("a notification of a run links to the run", async () => {
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByRole("link", { name: "Open run" })).toHaveAttribute(
     "href",
-    "/agents/triage?view=test&session_id=s-1",
+    "/agents/triage?view=chat&session_id=s-1",
   );
   expect(within(sheet).getByRole("link", { name: "Open event" })).toHaveAttribute("href", "/events?event=41");
 });

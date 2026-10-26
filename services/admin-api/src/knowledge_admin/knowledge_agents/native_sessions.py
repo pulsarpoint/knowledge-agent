@@ -366,9 +366,7 @@ class NativeRunner(shared.SessionRunner):
             actor_id=str(self.session['actor_id']),
             secrets=secrets,
         )
-        kind = {'test': 'test_session', 'event': 'event_session', 'chat': 'chat_session'}.get(
-            self.session.get('purpose'), 'native_session'
-        )
+        kind = {'event': 'event_session', 'chat': 'chat_session'}.get(self.session.get('purpose'), 'native_session')
         recorder.add(
             'start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'], 'turn': number}
         )

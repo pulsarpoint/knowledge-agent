@@ -9,7 +9,7 @@ import pytest
 from agents import ModelBehaviorError
 
 from access_helpers import entry
-from knowledge_admin.sessions.review import NO_RESPONSE, NO_TURNS, NOT_A_TEST, REVIEW_BUSY
+from knowledge_admin.sessions.review import NO_RESPONSE, NO_TURNS, NOT_A_CONVERSATION, REVIEW_BUSY
 from test_generations import record
 from test_repositories import HEADERS
 from test_test_sessions import start, tester  # noqa: F401  (fixture)
@@ -201,7 +201,7 @@ def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(
             (uuid4(), chat.session),
         ).fetchone()['id']
     assert post(chat.review, {'comment': 'x'}, 409) == REVIEW_BUSY
-    assert post(f'/api/sessions/{documents}/review', {'comment': 'x'}, 400) == NOT_A_TEST
+    assert post(f'/api/sessions/{documents}/review', {'comment': 'x'}, 400) == NOT_A_CONVERSATION
     fresh = start(chat)['id']
     with chat.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (fresh,))

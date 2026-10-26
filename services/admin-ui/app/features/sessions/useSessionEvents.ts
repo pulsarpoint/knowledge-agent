@@ -192,7 +192,7 @@ export const sentNotice = (working: boolean) =>
     ? "Sent. The agent starts a new turn with your message."
     : "Queued. Your comment reaches the agent at its next step.";
 
-/** The send/Stop notice of a session page, shared by the session page and the Test tab: `stopping()` and
+/** The send/Stop notice of a session page, shared by the session page and an agent's Chat tab: `stopping()` and
  * `sent(working)` set it, `clear()` empties it (call before a new request), and the next status change
  * (the answer to Stop) clears the Stopping notice but leaves other notices alone. */
 export function useSessionNotice(status: SessionStatus | undefined) {

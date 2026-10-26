@@ -8,11 +8,11 @@ from access_helpers import of
 from knowledge_admin.agents.clones import clone_name
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from knowledge_admin.agents.profiles_api import agent_history
-from session_rows import a_model, add_test_session
+from session_rows import a_model, add_chat_session
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 
-NO_HISTORY = {'test_chats': 0, 'chats': 0, 'documentation_sessions': 0, 'run_records': 0}
+NO_HISTORY = {'conversations': 0, 'documentation_sessions': 0, 'run_records': 0}
 
 
 def comparable(config: dict) -> dict:
@@ -87,7 +87,7 @@ def test_history_stays_with_the_original_and_the_clone_outlives_it(store, saved_
     client = saved_agent[0]
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin', 'admin@test')
-        add_test_session(
+        add_chat_session(
             conn, project, actor, 'operations', a_model(conn, actor), message='Check disk', status='waiting', turns=1
         )
     created = clone(client)

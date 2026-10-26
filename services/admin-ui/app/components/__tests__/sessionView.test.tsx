@@ -619,8 +619,8 @@ test("an old run with final-answer text still offers Preview draft and opens the
   expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/x1");
 });
 
-test("a Test run is shown here, not redirected, and links to its agent", async () => {
-  serve({ ...detail, purpose: "test", agent_id: "code", draft: null });
+test("a chat is shown here, not redirected, and links to its agent", async () => {
+  serve({ ...detail, purpose: "chat", agent_id: "code", draft: null });
   render(
     <MemoryRouter>
       <SessionView sessionId="s1" />
@@ -628,7 +628,7 @@ test("a Test run is shown here, not redirected, and links to its agent", async (
   );
   expect(await screen.findByRole("link", { name: "the agent" })).toHaveAttribute(
     "href",
-    "/agents/code?view=test&session_id=s1",
+    "/agents/code?view=chat&session_id=s1",
   );
 });
 
@@ -723,7 +723,7 @@ test("a wake-up that is no longer pending shows the refusal", async () => {
 test("a run started with an output schema shows its Output beside the transcript; a normal run has none", async () => {
   const pinned = {
     ...detail,
-    purpose: "test",
+    purpose: "chat",
     status: "waiting",
     turns: 1,
     config: { output_schema: { id: "o1", name: "Verdict", version: 2, schema: {} } },
@@ -745,7 +745,7 @@ test("a run started with an output schema shows its Output beside the transcript
   expect(await within(panel).findByLabelText("Output JSON")).toHaveTextContent('"verdict": "pass"');
   expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/output", expect.anything());
   unmount();
-  serve({ ...detail, purpose: "test", config: {} });
+  serve({ ...detail, purpose: "chat", config: {} });
   render(
     <MemoryRouter>
       <SessionView sessionId="s1" />

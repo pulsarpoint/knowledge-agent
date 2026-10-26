@@ -48,6 +48,7 @@ def columns(conn) -> set[str]:
 
 def test_down_gives_back_the_0138_schema(store, at_0138):
     with store.connect() as conn:
+        run(conn, '0142_test_is_chat.down.sql')
         run(conn, '0140_code_project_prompt.down.sql')
         run(conn, DOWN)
         assert schema(conn) == at_0138
@@ -77,7 +78,7 @@ def test_up_removes_the_skills_and_the_skill_access_entries(store):
         session = uuid4()
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,purpose,agent_config,access) VALUES (%s,%s,%s,%s,%s,'Run','{}','{}','test',%s,%s)""",
+            context_snapshot,purpose,agent_config,access) VALUES (%s,%s,%s,%s,%s,'Run','{}','{}','chat',%s,%s)""",
             (
                 session,
                 project,

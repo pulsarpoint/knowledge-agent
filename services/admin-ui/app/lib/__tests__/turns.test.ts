@@ -22,7 +22,7 @@ const usage = (turn: number, input: number, output: number, reasoning = 0) =>
 
 test("a turn is your message, the work and the final answer", () => {
   const [turn] = groupTurns([
-    event(1, "start", { kind: "test_session" }),
+    event(1, "start", { kind: "chat_session" }),
     event(1, "input", { task: "How many retries?" }),
     event(1, "instructions", { text: "You are…" }),
     event(1, "reasoning", { text: "Search first." }),

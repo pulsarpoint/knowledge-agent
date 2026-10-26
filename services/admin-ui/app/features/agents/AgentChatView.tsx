@@ -4,10 +4,10 @@ import { useAgentSettings } from "~/features/sessions/agentSettings";
 import type { ChatScope } from "~/features/sessions/api";
 import AgentChat from "~/features/sessions/AgentChat";
 
-/** The agent Test tab: the shared agent chat for this saved agent, full width. The first message starts a run of the
- * agent (narrowed by the settings sheet); the run is kept in the URL (?view=test&session_id=…). Settings load only while
+/** The agent Chat tab: the shared agent chat for this saved agent, full width. The first message starts a run of the
+ * agent (narrowed by the settings sheet); the run is kept in the URL (?view=chat&session_id=…). Settings load only while
  * the tab is shown; the chat mounts the first time it is. */
-export default function AgentTestView({
+export default function AgentChatView({
   agentId,
   agentName,
   available,
@@ -38,7 +38,7 @@ export default function AgentTestView({
     if (
       !active ||
       shown.agentId !== agentId ||
-      params.get("view") !== "test" ||
+      params.get("view") !== "chat" ||
       (params.get("session_id") ?? null) === shown.id
     )
       return;

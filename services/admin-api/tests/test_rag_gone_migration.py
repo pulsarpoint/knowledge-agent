@@ -84,6 +84,7 @@ def at_0133(postgres):
 
 def test_down_gives_back_the_0133_schema(store, at_0133):
     with store.connect() as conn:
+        run(conn, '0142_test_is_chat.down.sql')
         run(conn, '0140_code_project_prompt.down.sql')
         run(conn, '0139_skill_folders.down.sql')
         run(conn, '0138_previous_output.down.sql')
@@ -146,7 +147,7 @@ def test_up_drops_the_tables_their_jobs_and_the_collection_access(store, tmp_pat
         session = uuid4()
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,purpose,agent_config,access) VALUES (%s,%s,%s,%s,%s,'Run','{}','{}','test',%s,%s)""",
+            context_snapshot,purpose,agent_config,access) VALUES (%s,%s,%s,%s,%s,'Run','{}','{}','chat',%s,%s)""",
             (
                 session,
                 project,

@@ -13,7 +13,7 @@ from knowledge_admin.capabilities import inventory_tools as tools
 from knowledge_admin.inventory import store as inventory_store
 from knowledge_admin.knowledge_agents.subagents import subagent_config
 from knowledge_admin.tools.catalog import CATALOG, INVENTORY_WRITES
-from session_rows import a_model, add_test_session
+from session_rows import a_model, add_chat_session
 from test_api import _client
 from test_repositories import HEADERS
 from test_tool_catalog import config as run_config
@@ -60,7 +60,7 @@ def world(store, monkeypatch):
         project = store.project(conn, 'shop')
         actor = store.actor(conn, 'ops', 'ops@example.test')
         conn.execute("INSERT INTO ka.agents(id,name,system_prompt) VALUES ('ops-agent','Ops agent','')")
-        sid = add_test_session(conn, project, actor, 'ops-agent', a_model(conn, actor))
+        sid = add_chat_session(conn, project, actor, 'ops-agent', a_model(conn, actor))
         by = {'actor_id': actor}
         w = {'project': project, 'actor': actor, 'sid': sid}
         for name in ('a', 'b', 'c'):
@@ -350,7 +350,7 @@ def test_create_a_server_deploy_on_it_and_connect_it_in_one_run(world):
 def test_another_session_cannot_change_what_this_one_created_outside_its_access(world):
     server = call(world['config'], 'save_server', name='cache-1', hostname='cache-1.internal')
     with world['store'].connect() as conn:
-        other = add_test_session(conn, world['project'], world['actor'], 'ops-agent', a_model(conn, world['actor']))
+        other = add_chat_session(conn, world['project'], world['actor'], 'ops-agent', a_model(conn, world['actor']))
     c = cfg(world, session_id=str(other))
     assert call(c, 'save_server', id=server['id'], revision=1, description='x') == {
         'refused': 'This server is not available in this run.'

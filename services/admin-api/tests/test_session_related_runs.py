@@ -5,7 +5,7 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.sessions.rows import session_detail
-from session_rows import a_model, add_test_session
+from session_rows import a_model, add_chat_session
 
 CONNECTION = str(uuid4())
 
@@ -28,7 +28,7 @@ def an_event(
 
 
 def a_run(conn, project, actor, model, event=None):
-    session = add_test_session(conn, project, actor, 'ops', model, purpose='event', status='waiting')
+    session = add_chat_session(conn, project, actor, 'ops', model, purpose='event', status='waiting')
     conn.execute('UPDATE ka.agent_sessions SET event_id=%s WHERE id=%s', (event, session))
     return session
 

@@ -25,7 +25,7 @@ def run(store, monkeypatch):
         ).fetchone()['id']
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,purpose,agent_config,turns) VALUES (%s,%s,%s,%s,%s,'Memory','{}','{}','test',%s,1)""",
+            context_snapshot,purpose,agent_config,turns) VALUES (%s,%s,%s,%s,%s,'Memory','{}','{}','chat',%s,1)""",
             (session, pid, agent, actor, a_model(conn, actor), Jsonb({})),
         )
     config = {'project_id': str(pid), 'session_id': str(session), 'access': {'resources': [], 'roles': {}}}

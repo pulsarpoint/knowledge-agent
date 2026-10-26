@@ -21,7 +21,7 @@ vi.mock("~/features/llm/mcp", () => ({ getMCPServers: vi.fn(async () => ({ serve
 vi.mock("../CodeSearchAgentView", () => ({
   default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div>,
 }));
-vi.mock("~/features/agents/AgentTestView", () => ({
+vi.mock("~/features/agents/AgentChatView", () => ({
   default: ({ active, agentId }: { active: boolean; agentId: string }) => {
     const [task, setTask] = useState("");
     return (
@@ -82,8 +82,7 @@ beforeEach(() => {
     mcp_server: [],
   });
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({
-    test_chats: 0,
-    chats: 0,
+    conversations: 0,
     documentation_sessions: 0,
     run_records: 0,
   });
@@ -113,10 +112,10 @@ test("catalog opens distinct agents with one model field and preserves SSH tasks
   expect(screen.getByRole("switch", { name: "Enable agent" })).toBeEnabled();
   expect(screen.getAllByRole("combobox", { name: "Model", hidden: true })).toHaveLength(1);
   expect(screen.queryByRole("button", { name: "Save model", hidden: true })).toBeNull(); // saved with the details
-  await user.click(screen.getByRole("tab", { name: "Test" }));
+  await user.click(screen.getByRole("tab", { name: "Chat" }));
   await user.type(screen.getByRole("textbox", { name: "SSH task" }), "Inspect disk usage");
   await user.click(screen.getByRole("tab", { name: "General" }));
-  await user.click(screen.getByRole("tab", { name: "Test" }));
+  await user.click(screen.getByRole("tab", { name: "Chat" }));
   expect(screen.getByRole("textbox", { name: "SSH task" })).toHaveValue("Inspect disk usage");
   await user.click(screen.getByRole("tab", { name: "General" }));
   expect(await screen.findByRole("textbox", { name: "System prompt" })).toHaveValue("operations instructions");
@@ -126,7 +125,7 @@ test("catalog opens distinct agents with one model field and preserves SSH tasks
   await user.click(await screen.findByRole("link", { name: "Payments code" }));
   await screen.findByRole("combobox", { name: "Model" });
   expect(screen.getAllByRole("combobox", { name: "Model", hidden: true })).toHaveLength(1);
-  await user.click(screen.getByRole("tab", { name: "Test" }));
+  await user.click(screen.getByRole("tab", { name: "Chat" }));
   expect(screen.getByText("SSH test custom-code")).toBeVisible();
 });
 
@@ -144,7 +143,7 @@ test("agents are created only through one New agent panel with the wizard", asyn
 test.each(["search", "operations", "code", "custom-code"])("every agent has the same tabs: %s", async (id) => {
   render(app(`/agents/${id}`));
   await screen.findByRole("combobox", { name: "Model" });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Test"]);
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Chat"]);
 });
 
 test("an unknown view such as the old Tools tab opens General", async () => {
@@ -186,8 +185,7 @@ test("agent removal requires confirmation and preserves the record on conflicts"
 test("an agent with history lists it and is deleted with it only on the destructive action", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({
-    test_chats: 2,
-    chats: 0,
+    conversations: 2,
     documentation_sessions: 1,
     run_records: 3,
   });
@@ -195,7 +193,7 @@ test("an agent with history lists it and is deleted with it only on the destruct
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   const dialog = screen.getByRole("alertdialog");
-  expect(await within(dialog).findByText("2 test chats, 1 documentation session, 3 run records")).toBeVisible();
+  expect(await within(dialog).findByText("2 conversations, 1 documentation session, 3 run records")).toBeVisible();
   expect(profiles.getAgentHistory).toHaveBeenCalledWith("custom-code");
   expect(dialog).toHaveTextContent("Saved documents are kept.");
   expect(within(dialog).queryByRole("button", { name: "Remove agent" })).toBeNull();
@@ -213,13 +211,13 @@ test("an agent with history lists it and is deleted with it only on the destruct
 test("a delete refused because history appeared meanwhile shows that history", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory)
-    .mockResolvedValueOnce({ test_chats: 0, chats: 0, documentation_sessions: 0, run_records: 0 })
-    .mockResolvedValue({ test_chats: 1, chats: 0, documentation_sessions: 0, run_records: 1 });
+    .mockResolvedValueOnce({ conversations: 0, documentation_sessions: 0, run_records: 0 })
+    .mockResolvedValue({ conversations: 1, documentation_sessions: 0, run_records: 1 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error("This agent has sessions or run history."));
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove agent" }));
-  expect(await within(screen.getByRole("alertdialog")).findByText("1 test chat, 1 run record")).toBeVisible();
+  expect(await within(screen.getByRole("alertdialog")).findByText("1 conversation, 1 run record")).toBeVisible();
   expect(
     within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete agent and history" }),
   ).toBeEnabled();
@@ -231,8 +229,7 @@ const WORKING =
 test("a delete refused because the agent is working says so and keeps the dialog open", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({
-    test_chats: 0,
-    chats: 0,
+    conversations: 0,
     documentation_sessions: 1,
     run_records: 0,
   });
@@ -250,8 +247,8 @@ test("a delete refused because the agent is working says so and keeps the dialog
 test("a working agent whose history appeared meanwhile keeps the working message next to the history", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory)
-    .mockResolvedValueOnce({ test_chats: 0, chats: 0, documentation_sessions: 0, run_records: 0 })
-    .mockResolvedValue({ test_chats: 0, chats: 0, documentation_sessions: 1, run_records: 0 });
+    .mockResolvedValueOnce({ conversations: 0, documentation_sessions: 0, run_records: 0 })
+    .mockResolvedValue({ conversations: 0, documentation_sessions: 1, run_records: 0 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   render(app("/agents"));
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));

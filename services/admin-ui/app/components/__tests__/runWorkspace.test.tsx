@@ -20,7 +20,7 @@ const detail: SessionDetail = {
   input_tokens: 1300,
   output_tokens: 300,
   cached_tokens: 20,
-  purpose: "test",
+  purpose: "chat",
   model_calls: 2,
   reasoning_tokens: 30,
   document_id: null,

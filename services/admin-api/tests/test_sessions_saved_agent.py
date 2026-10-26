@@ -87,7 +87,7 @@ def test_a_saved_agent_starts_with_its_own_configuration_narrowed(agent):
         )
         assert response.status_code in (200, 201), response.text
     session = response.json()
-    assert (session['purpose'], session['agent_id'], session['target_document_id']) == ('test', agent.id, None)
+    assert (session['purpose'], session['agent_id'], session['target_document_id']) == ('chat', agent.id, None)
     assert session['config']['experts'] == []
     given = [
         (item['type'], item['id']) for item in session['config']['access']['resources'] if item['source'] == 'given'

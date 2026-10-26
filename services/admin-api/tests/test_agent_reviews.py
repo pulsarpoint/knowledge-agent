@@ -20,7 +20,7 @@ from knowledge_admin.agents.reviews import (
 )
 from knowledge_admin.memory import store as memory
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
-from session_rows import a_model, add_review, add_test_session
+from session_rows import a_model, add_review, add_chat_session
 from test_agents import agent_mounts, saved_agent  # noqa: F401
 from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -102,7 +102,7 @@ def saved_review(store, agent_id: str, changes: dict, agent_config: dict | None 
     """A tuning suggestion saved for one of the agent's Test sessions."""
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'reviewer', 'reviewer@test')
-        session = add_test_session(conn, project, actor, agent_id, a_model(conn, actor), status='waiting', turns=1)
+        session = add_chat_session(conn, project, actor, agent_id, a_model(conn, actor), status='waiting', turns=1)
         return str(add_review(conn, session, actor, changes=changes, agent_config=agent_config, notes=notes))
 
 

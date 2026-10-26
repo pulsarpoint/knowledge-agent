@@ -6,13 +6,13 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from live_documents import live_document
-from session_rows import add_review, add_test_session
+from session_rows import add_review, add_chat_session
 from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS
 
-FULL = {'test_chats': 2, 'chats': 0, 'documentation_sessions': 1, 'run_records': 2}
-NONE = {'test_chats': 0, 'chats': 0, 'documentation_sessions': 0, 'run_records': 0}
+FULL = {'conversations': 2, 'documentation_sessions': 1, 'run_records': 2}
+NONE = {'conversations': 0, 'documentation_sessions': 0, 'run_records': 0}
 WORKING = (
     'This agent is working right now. Stop its documentation sessions and runs, '
     'or wait for them to finish, then delete it.'
@@ -25,7 +25,7 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
     actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
     ids = {'project': project, 'actor': actor}
     ids['tests'] = [
-        add_test_session(conn, project, actor, agent_id, model_id, message='Check disk', status='waiting', turns=1)
+        add_chat_session(conn, project, actor, agent_id, model_id, message='Check disk', status='waiting', turns=1)
         for _ in range(2)
     ]
     ids['review'] = add_review(conn, ids['tests'][0], actor, changes={})
@@ -91,10 +91,10 @@ def test_history_counts_what_a_delete_would_remove(agents):
     assert client.get('/api/agents/missing/history', headers=HEADERS).status_code == 404
 
 
-def test_event_sessions_count_as_test_chats(agents, store):
+def test_event_sessions_count_as_conversations(agents, store):
     client, target, _, mine, _ = agents
     with store.connect() as conn:
-        add_test_session(
+        add_chat_session(
             conn,
             mine['project'],
             mine['actor'],
@@ -107,7 +107,7 @@ def test_event_sessions_count_as_test_chats(agents, store):
             turns=1,
             purpose='event',
         )
-    assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json() == {**FULL, 'test_chats': 3}
+    assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json() == {**FULL, 'conversations': 3}
 
 
 def test_an_agent_without_history_has_none(store, tmp_path):
@@ -138,7 +138,7 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
 
         for agent_id, expected in ((target, 0), (other, 1)):
             ids = mine if agent_id == target else theirs
-            assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='test'", agent_id) == 2 * expected
+            assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='chat'", agent_id) == 2 * expected
             assert count('ka.agent_session_reviews WHERE id=%s', ids['review']) == expected
             assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='documents'", agent_id) == expected
             assert count('ka.agent_session_inputs WHERE session_id=ANY(%s)', [ids['cc'], *ids['tests']]) == 3 * expected
@@ -169,7 +169,7 @@ def test_delete_with_history_still_checks_the_revision(agents):
     [
         "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s",
         "UPDATE ka.agent_sessions SET status='starting' WHERE agent_id=%(a)s",
-        "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s AND purpose='test'",
+        "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s AND purpose='chat'",
     ],
 )
 def test_a_working_agent_is_not_deleted(agents, store, working):

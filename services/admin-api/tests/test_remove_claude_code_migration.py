@@ -11,7 +11,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from implied_tools import implied_tools
-from session_rows import a_model, add_ad_hoc_session, add_review, add_test_session
+from session_rows import a_model, add_ad_hoc_session, add_review, add_chat_session
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -117,7 +117,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
         assert 'agent_sessions_ad_hoc' in names
 
         with pytest.raises(psycopg.errors.CheckViolation, match='agent_sessions_ad_hoc'), conn.transaction():
-            add_test_session(conn, project, actor, None, model)
+            add_chat_session(conn, project, actor, None, model)
         with pytest.raises(psycopg.errors.NotNullViolation), conn.transaction():
             conn.execute('UPDATE ka.agent_sessions SET agent_config=NULL WHERE id=%s', (native,))
 
@@ -206,7 +206,7 @@ def test_a_session_pinned_with_claude_code_keys_still_loads(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
-        session = add_test_session(
+        session = add_chat_session(
             conn,
             project,
             actor,

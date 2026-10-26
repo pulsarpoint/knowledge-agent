@@ -51,7 +51,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [error, setError] = useState<string | null>(null);
   const [wide, setWide] = useState(false); // a page asked for the full width (useWidePage)
   const { pathname, search } = useLocation();
-  const chatPage = pathname.startsWith("/agents/") && new URLSearchParams(search).get("view") === "test";
+  const chatPage = pathname.startsWith("/agents/") && new URLSearchParams(search).get("view") === "chat";
   useEffect(() => {
     let active = true;
     getAdminSession()

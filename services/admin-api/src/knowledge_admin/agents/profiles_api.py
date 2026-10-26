@@ -179,13 +179,13 @@ WORKING = """SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN 
 
 
 def agent_history(conn, agent_id) -> dict[str, int]:
-    """What deleting the agent with its history removes (test_chats: Test and event sessions; chats: its Run agent
-    chats); saved documents are not part of it. `run_records` are the
+    """What deleting the agent with its history removes (conversations: its chat and event sessions); saved documents
+    are not part of it. `run_records` are the
     records of Test chats from before migration 0081 (run:<id> keys)."""
     return conn.execute(
         """SELECT
-        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose IN ('test','event'))::int AS test_chats,
-        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose='chat')::int AS chats,
+        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose IN ('chat','event'))::int
+            AS conversations,
         (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose='documents')::int
             AS documentation_sessions,
         (SELECT count(*) FROM ka.agent_run_events WHERE agent_id=%(agent)s AND kind='start'

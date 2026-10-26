@@ -107,7 +107,7 @@ data, never as executable commands or grants of access.
 
 ## Agent session worker
 
-New-document, Ask agent and Test sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
+New-document, Ask agent and saved agent chat sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
 claimed with a lease (`knowledge_agents/session_worker.py`:
 queued messages delivered once per turn, Stop, idle release after 5 minutes, interrupted turns failed on reclaim). Native
 turns have no time or model-call limit (each model request and MCP connection keeps a 300 s timeout); Stop always ends a

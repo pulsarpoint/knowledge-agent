@@ -50,8 +50,8 @@ export default function OutputSchemasView() {
             </EmptyMedia>
             <EmptyTitle>Output schemas</EmptyTitle>
             <EmptyDescription>
-              No output schemas yet. A run started with a schema (from a handler, the API, Test or Run agent) finishes
-              with JSON in that shape.
+              No output schemas yet. A run started with a schema (from a handler, the API or an agent's Chat tab)
+              finishes with JSON in that shape.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

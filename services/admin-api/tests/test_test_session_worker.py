@@ -7,7 +7,7 @@ import pytest
 from fastapi.encoders import jsonable_encoder
 
 from native_fakes import FakeAgent, call, hang, llm, message, tool
-from session_rows import add_test_session
+from session_rows import add_chat_session
 from knowledge_admin.sessions import run_record
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -27,7 +27,7 @@ def tested(sessions, monkeypatch):
     with sessions.store.connect() as conn:
         project = sessions.store.project(conn, 'shop')
         actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
-        sid = add_test_session(
+        sid = add_chat_session(
             conn, project, actor, agent_id, sessions.claude, config=config, message='How many retries?'
         )
     return sessions, sid
@@ -77,7 +77,7 @@ def test_a_test_session_turn_leaves_no_draft_and_records_usage(tested):
         return first, stopped
 
     first, stopped = asyncio.run(scenario())
-    assert (first['purpose'], first['draft'], first['draft_turn']) == ('test', None, None)
+    assert (first['purpose'], first['draft'], first['draft_turn']) == ('chat', None, None)
     assert (
         first['input_tokens'],
         first['output_tokens'],
@@ -89,7 +89,7 @@ def test_a_test_session_turn_leaves_no_draft_and_records_usage(tested):
     assert fake.calls[0]['inputs'][1][-1] == {'role': 'user', 'content': native_sessions.COMMENT + 'Cite the runbook.'}
     recorded = events(store, sid)
     turn1 = [e for e in recorded if e['run_key'] == f'cc:{sid}:1']
-    assert turn1[0]['payload']['kind'] == 'test_session'
+    assert turn1[0]['payload']['kind'] == 'chat_session'
     assert [e['payload'].get('comment', False) for e in turn1 if e['kind'] == 'input'] == [False, True]
     assert [e['payload']['reasoning_tokens'] for e in turn1 if e['kind'] == 'usage'] == [6, 4]
     assert turn1[-1]['payload'] == {'status': 'completed'}
@@ -129,7 +129,7 @@ def test_an_event_session_turn_leaves_no_draft(sessions, monkeypatch):
     with sessions.store.connect() as conn:
         project = sessions.store.project(conn, 'shop')
         actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
-        sid = add_test_session(
+        sid = add_chat_session(
             conn, project, actor, agent_id, sessions.claude, config=config, message='Triage DEMO-1', purpose='event'
         )
     store = sessions.store

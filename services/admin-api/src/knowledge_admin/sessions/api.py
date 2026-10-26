@@ -95,7 +95,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 where.append('s.purpose=%s')
                 values.append(purpose)
             if agent_id is not None:
-                where.append("s.agent_id=%s AND s.purpose IN ('test','event')")
+                where.append("s.agent_id=%s AND s.purpose IN ('chat','event')")
                 values.append(agent_id)
             if tag is not None:
                 where.append('s.tags @> ARRAY[%s]::text[]')

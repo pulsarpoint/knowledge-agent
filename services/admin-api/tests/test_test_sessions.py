@@ -1,4 +1,4 @@
-"""The agent Test tab's sessions: the first message creates a Test session (purpose 'test') with the agent's current
+"""The agent Test tab's sessions: the first message creates a chat session (purpose 'chat') with the agent's current
 configuration pinned, narrowed to a per-run agent's run resources; the session API serves it like a documentation
 session, except that it has no document."""
 
@@ -79,7 +79,7 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
     t = tester
     session = start(t, '  How many retries?  ')
     assert (session['purpose'], session['status'], session['title'], session['agent_id']) == (
-        'test',
+        'chat',
         'starting',
         'How many retries?',
         t.agent,

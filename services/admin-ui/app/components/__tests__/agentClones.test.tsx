@@ -22,7 +22,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentChatView", () => ({ default: () => null }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => null }));
 
 const base: profiles.AgentProfile = {
@@ -101,8 +101,7 @@ beforeEach(() => {
     mcp_server: [],
   });
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({
-    test_chats: 2,
-    chats: 0,
+    conversations: 2,
     documentation_sessions: 0,
     run_records: 0,
   });
@@ -228,7 +227,7 @@ test("Delete this clone shows the history deleted with it", async () => {
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Apply" }));
   await user.click(await screen.findByRole("button", { name: "Delete this clone" }));
   const dialog = await screen.findByRole("alertdialog");
-  expect(await within(dialog).findByText("2 test chats")).toBeVisible();
+  expect(await within(dialog).findByText("2 conversations")).toBeVisible();
   expect(profiles.getAgentHistory).toHaveBeenCalledWith("clone-1");
   await user.click(within(dialog).getByRole("button", { name: "Delete clone" }));
   await waitFor(() => expect(profiles.deleteAgent).toHaveBeenCalledWith("clone-1", 2, true));
@@ -237,8 +236,7 @@ test("Delete this clone shows the history deleted with it", async () => {
 test("a clone without history is deleted without history", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({
-    test_chats: 0,
-    chats: 0,
+    conversations: 0,
     documentation_sessions: 0,
     run_records: 0,
   });

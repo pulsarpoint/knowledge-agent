@@ -167,7 +167,6 @@ test("run types have readable names in the filter and the list", async () => {
   expect(options.map((option) => [option.getAttribute("value"), option.textContent])).toEqual([
     ["", "All"],
     ["test", "Agent test"],
-    ["test_session", "Test session"],
     ["event_session", "Event session"],
     ["chat_session", "Chat"],
     ["event_task", "Event task"],

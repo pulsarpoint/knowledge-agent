@@ -291,13 +291,8 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
   };
 }
 
-/** "Claude · web-1, Payments": the model and up to three chosen resources (+n more), then the output schema unless
- * `output` is false (Run agent shows its own picker). */
-export function settingsSummary(
-  options: AgentOptions,
-  settings: AgentSettings,
-  { output = true }: { output?: boolean } = {},
-): string {
+/** "Claude · web-1, Payments": the model and up to three chosen resources (+n more), then the output schema. */
+export function settingsSummary(options: AgentOptions, settings: AgentSettings): string {
   const model = options.models.find((item) => item.id === settings.modelId)?.name ?? "No model";
   const names = AGENT_KINDS.flatMap(({ key, field }) =>
     options.resources[key].filter((item) => settings.chosen[field].includes(item.id)).map((item) => item.name),
@@ -306,11 +301,11 @@ export function settingsSummary(
     names.length === 0
       ? "no resources"
       : names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
-  const schema = output && settings.outputSchema ? ` · Output: ${choiceLabel(settings.outputSchema)}` : "";
+  const schema = settings.outputSchema ? ` · Output: ${choiceLabel(settings.outputSchema)}` : "";
   return `${model} · ${resources}${schema}`;
 }
 
-/** The Ask agent settings of a document, the Test settings of a saved agent, or the settings for writing a new document:
+/** The Ask agent settings of a document, the chat settings of a saved agent, or the settings for writing a new document:
  * loaded with the options, remembered in this browser per scope. Null: nothing is loaded (the pane is closed). A changed
  * revision (a saved agent's) reloads the options. A new document's options load once per page (not per typed title). */
 export function useAgentSettings(scope: ChatScope | null, revision?: number) {

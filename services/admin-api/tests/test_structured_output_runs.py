@@ -137,14 +137,14 @@ def test_a_saved_agent_run_pins_the_schema_version(tester):
     assert tester.client.get(f'/api/sessions/{plain["id"]}/debug', headers=HEADERS).json()['output_schema'] is None
 
 
-def test_a_start_may_name_a_version_and_run_agent_chats_take_a_schema(tester):
+def test_a_start_may_name_a_version_or_follow_the_current_one(tester):
     schema = created(tester.client)
     assert saved(tester.client, schema, schema=CHANGED).status_code == 200
     older = start(tester.client, agent_id=tester.agent, output_schema_id=schema['id'], output_schema_version=1)
     assert older.json()['config']['output_schema']['schema'] == SCHEMA
     assert older.json()['config']['output_schema']['follows_current'] is False  # a named version stays fixed
-    current = start(tester.client, agent_id=tester.agent, output_schema_id=schema['id'], purpose='chat')
-    assert current.status_code == 201, current.text  # Run agent (purpose chat) takes one
+    current = start(tester.client, agent_id=tester.agent, output_schema_id=schema['id'])
+    assert current.status_code == 201, current.text  # a chat takes one
     assert current.json()['config']['output_schema']['version'] == 2
 
 

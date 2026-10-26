@@ -1,11 +1,12 @@
 # Agent execution status
 
-The agent **Test** tab runs **Test sessions**: sessions in `ka.agent_sessions` with `purpose = 'test'`, run by
+The agent **Chat** tab runs a saved agent's **chat sessions**: sessions in `ka.agent_sessions` with `purpose = 'chat'`
+(0142 made the old Test sessions chats; **Run agent** on the Agents page opens the Chat tab), run by
 `agent-session-worker` exactly like Ask agent sessions (claim and lease, turns, comments delivered
 between model calls, Stop with a 30-second grace, closing after 24 hours without activity, the worker's concurrency
 limit, no per-turn time limit, no 300-second limit).
 
-- `POST /api/sessions` with `agent_id` and `message` creates a Test session: the agent's current configuration is
+- `POST /api/sessions` with `agent_id` and `message` creates a chat session (the request takes no purpose): the agent's current configuration is
   pinned in `agent_config` with credential references only, the title is the first 200 characters of the message, and
   the message is queued as input 1 (201 with the session). A disabled agent and an agent without an enabled model
   (`Select an enabled model in this agent’s General tab.`) are refused. A saved credential that cannot be decrypted
@@ -25,13 +26,14 @@ limit, no per-turn time limit, no 300-second limit).
 - `GET /api/sessions/options?agent_id=…` says what may be narrowed (the offered experts and the
   resources its access object holds) and gives the agent's model and prompt as facts. `POST /api/sessions/preview` with the
   same body shows the pinned configuration without starting a run.
-- `GET /api/sessions?agent_id=…` lists the agent's Test sessions and its event sessions (with `purpose`), newest first.
+- `GET /api/sessions?agent_id=…` lists the agent's conversations: its chat and event sessions (with `purpose`), newest
+  first. `GET /api/agents/{id}/history` counts them as `conversations`.
 - Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
   `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `tag`, `offset`; with `tag` open runs come first); every row has its `tags`. `GET /api/sessions/options` and
   `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent, a chat on a
-  server, service or environment, the Discover sheet and the agent's Test tab use it). `started_from.server_id`,
+  server, service or environment, the Discover sheet and the agent's Chat tab use it). `started_from.server_id`,
   `service_id` or `environment_id` starts a resource run (purpose `resource`) tagged `servers/<id>`, `services/<id>`
   or `environments/<id>` and pinned with `started_from` ({type, id, name}); a server run also has `server_id`. A start
   may add its own `tags` (lowercase parts separated by `/`, at most 10 with the resource tag; a resource tag must be
@@ -100,15 +102,15 @@ limit, no per-turn time limit, no 300-second limit).
   `include_previous_output`, the last valid output of the same handler and schedule (`schedule_id IS NOT DISTINCT
   FROM`) is appended to the first message as a `# Previous run` block (never the system prompt), and the pinned
   configuration records `previous_output_from`. It is titled
-  `<agent> · <event type> <subject>`, shows in the agent's Test tab under Earlier runs, and can be opened and continued.
+  `<agent> · <event type> <subject>`, shows in the agent's Chat tab under Earlier runs, and can be opened and continued.
   There are no automatic retries. When the first turn ends, agent-session-worker writes one notification
   (`ka.notifications.session_id` points at the run) with the answer or the failure; a run closed before its first
   turn gets one failed notification ("Closed."). An event run gives its worker slot back as soon as a turn ends with
   nothing queued; a later message is picked up again as usual. Agent tasks (0090, one-shot calls
   with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
-  Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
-- Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
-  `event_session` for event runs); **Full record** links to it. Its `instructions` event keeps the instructions sent
+  Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Chat tab (**Event** badge).
+- Each turn's run record is `cc:<session>:<turn>` (start kind `chat_session`, or
+  `event_session` for event runs; 0142 renamed the stored `test_session` kinds); **Full record** links to it. Its `instructions` event keeps the instructions sent
   to the model, with the Skills section when the run has skills.
 - `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and event runs;
   refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
@@ -120,7 +122,7 @@ limit, no per-turn time limit, no 300-second limit).
   (`context.changes` = `{instructions}`, `context.memory_notes`); the session detail returns each review's
   `memory_notes`; **Review and apply** reads it.
 
-The Test tab and the run page (`/sessions/:id`) share `RunWorkspace` (`services/admin-ui/app/components`):
+The Chat tab and the run page (`/sessions/:id`) share `RunWorkspace` (`services/admin-ui/app/components`):
 a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer,
 a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
 box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream (fed by the admin-api session hub, see
@@ -201,7 +203,7 @@ the project was synced after the graph was generated, the answer carries a note 
 `read_file`).
 
 Tool usage per run is recorded as counts: the **Tools** column of Agent runs (top three and `+n`, the tooltip lists
-all), the run record, the session page and the Test tab show a line such as `code_graph 12 · read_file 31 · shell_run 4`
+all), the run record, the session page and the Chat tab show a line such as `code_graph 12 · read_file 31 · shell_run 4`
 or `No tools used`. The workspace counts live: the session detail returns its counts with the id of the
 last tool call they include, and the page adds the streamed tool calls after it (a replay after a reconnect counts
 once; earlier activity loaded by scrolling up is already counted).
@@ -488,7 +490,7 @@ supported`):
 ### Runs with an output schema
 
 - A saved agent's run takes `output_schema_id` (and `output_schema_version`; none: the current one) on
-  `POST /api/sessions`: the Test tab (`test`), Run agent (`chat`) and event handlers (`event`, from
+  `POST /api/sessions`: the Chat tab (`chat`) and event handlers (`event`, from
   `event_handlers.output_schema_id` / `output_schema_version`; a handler without a version follows the current one). The
   ad-hoc runs are chats on a resource or a document (`resource`, `documents`, `revision`): 400 `Chats do not take an
   output schema.` The run pins `config.output_schema = {id, name, version, schema, follows_current}` (and

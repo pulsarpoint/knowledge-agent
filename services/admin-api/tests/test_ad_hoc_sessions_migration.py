@@ -8,7 +8,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from session_rows import a_model, add_ad_hoc_session, add_test_session
+from session_rows import a_model, add_ad_hoc_session, add_chat_session
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0082_ad_hoc_sessions.up.sql', '0082_ad_hoc_sessions.down.sql'
@@ -34,7 +34,7 @@ def test_only_documents_sessions_run_without_an_agent_and_down_removes_them(stor
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         model = a_model(conn, actor)
         ad_hoc = add_ad_hoc_session(conn, project, actor, model, message='Document it')
-        tested = add_test_session(conn, project, actor, 'search', model)
+        tested = add_chat_session(conn, project, actor, 'search', model)
         conn.commit()
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
             conn.execute(

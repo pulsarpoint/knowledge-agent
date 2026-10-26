@@ -632,3 +632,10 @@ Skills leave the access model: every run gets every enabled skill of the project
 agents (`ka.agents.access`), runs (`ka.agent_sessions.access`) and the access copy in a run's `agent_config`, as 0139
 did. Code also ignores such an entry when it reads an older object. The down migration restores nothing (the removed
 entries are test data and do not come back).
+
+## 0142_test_is_chat
+
+One way to run a saved agent: its Test sessions become chats (`UPDATE ka.agent_sessions SET purpose = 'chat' WHERE
+purpose = 'test'`), and their run records' start kind `test_session` becomes `chat_session`. `test` leaves the
+`agent_sessions_purpose` check. The agent page's Test tab is now its Chat tab, and **Run agent** opens it. The down
+migration restores the check only: chats stay chats (test data).

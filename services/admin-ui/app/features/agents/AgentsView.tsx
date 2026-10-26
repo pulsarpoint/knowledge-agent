@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react-router";
 import { ArrowRight, Copy, Play, Sparkles, Trash2 } from "lucide-react";
 import AgentWizard from "./AgentWizard";
-import RunAgentDialog from "./RunAgentDialog";
 import { toast } from "sonner";
 import { cloneAgent } from "./clones";
 import { countsSummary, deleteAgent, describeHistory, getAgentHistory, getAgents, type AgentSummary } from "./api";
@@ -12,6 +11,7 @@ import { Button, buttonVariants } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,8 +30,7 @@ export default function AgentsView() {
   const [agents, setAgents] = useState<AgentSummary[]>();
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
-  // Run agent: the agent to start a chat with ('' when picked in the dialog); null while the dialog is closed.
-  const [running, setRunning] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState(false); // Run agent: the sheet listing the enabled agents
   const [removing, setRemoving] = useState<AgentSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -74,7 +73,7 @@ export default function AgentsView() {
     return (
       <Navigate
         replace
-        to={`/agents/${encodeURIComponent(legacy)}?view=${params.get("view") === "test" ? "test" : "settings"}${hash}`}
+        to={`/agents/${encodeURIComponent(legacy)}?view=${params.get("view") === "test" ? "chat" : "settings"}${hash}`}
       />
     );
   async function remove() {
@@ -114,6 +113,7 @@ export default function AgentsView() {
       setBusy(false);
     }
   }
+  const chat = (id: string) => navigate(`/agents/${encodeURIComponent(id)}?view=chat`);
   const filtered = agents?.filter((a) =>
     `${a.name} ${a.description} ${countsSummary(a.counts)}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -128,7 +128,7 @@ export default function AgentsView() {
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setRunning("")} disabled={!agents}>
+          <Button variant="outline" onClick={() => setChoosing(true)} disabled={!agents}>
             <Play data-icon="inline-start" />
             Run agent
           </Button>
@@ -138,9 +138,29 @@ export default function AgentsView() {
           </Button>
         </div>
       </div>
-      {running !== null && agents && (
-        <RunAgentDialog agents={agents} agentId={running} onClose={() => setRunning(null)} />
-      )}
+      <Sheet open={choosing} onOpenChange={setChoosing}>
+        <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Run agent</SheetTitle>
+            <SheetDescription>Choose an agent to chat with. Its Chat tab opens.</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-1">
+            {agents
+              ?.filter((agent) => agent.enabled)
+              .map((agent) => (
+                <Button
+                  key={agent.id}
+                  variant="ghost"
+                  className="justify-start"
+                  aria-label={`Chat with ${agent.name}`}
+                  onClick={() => chat(agent.id)}
+                >
+                  {agent.name}
+                </Button>
+              ))}
+          </div>
+        </SheetContent>
+      </Sheet>
       {creating && (
         <section aria-label="New agent" className="flex flex-col gap-3">
           <AgentWizard onClose={() => setCreating(false)} onCreated={(id) => navigate(`/agents/${id}`)} />
@@ -204,7 +224,7 @@ export default function AgentsView() {
                       disabled={!a.enabled}
                       aria-label={`Run ${a.name}`}
                       title={a.enabled ? "Run" : "Enable the agent to run it"}
-                      onClick={() => setRunning(a.id)}
+                      onClick={() => chat(a.id)}
                     >
                       <Play />
                     </Button>

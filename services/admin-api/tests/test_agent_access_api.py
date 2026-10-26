@@ -9,7 +9,7 @@ from psycopg.types.json import Jsonb
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.profiles_api import AccessInput, counts, references, resolve
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from session_rows import a_model, add_review, add_test_session
+from session_rows import a_model, add_review, add_chat_session
 from test_profiles import create, wizard_payload
 from test_repositories import HEADERS
 
@@ -265,7 +265,7 @@ def test_a_review_writes_the_agents_instructions(world):
     with w.store.connect() as conn:
         give(conn, agent['id'], [('server', w.server['id'])])
         project, actor = w.project, w.store.actor(conn, 'reviewer', 'reviewer@test')
-        session = add_test_session(conn, project, actor, agent['id'], a_model(conn, actor), status='waiting', turns=1)
+        session = add_chat_session(conn, project, actor, agent['id'], a_model(conn, actor), status='waiting', turns=1)
         review = str(add_review(conn, session, actor, changes={'instructions': 'Cite.'}))
     source = w.client.get(f'/api/agents/{agent["id"]}/reviews/{review}', headers=HEADERS).json()
     assert 'servers' not in source and source['instructions'] == ''

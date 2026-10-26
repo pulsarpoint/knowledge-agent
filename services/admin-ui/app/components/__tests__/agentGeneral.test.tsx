@@ -20,7 +20,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/agents/AgentTestView", () => ({
+vi.mock("~/features/agents/AgentChatView", () => ({
   default: ({ active }: { active: boolean }) => (active ? <div>Native test chat</div> : null),
 }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => <div>Agent wizard</div> }));
@@ -110,7 +110,7 @@ const open = (path: string) =>
       <Toaster />
     </MemoryRouter>,
   );
-const TABS = ["General", "Resources", "Test"];
+const TABS = ["General", "Resources", "Chat"];
 
 test.each(["writer", "search"])("every agent shows the same tabs: %s", async (id) => {
   open(`/agents/${id}`);
@@ -149,10 +149,18 @@ test("General saves the model with the details", async () => {
   expect(profiles.saveProfileModel).not.toHaveBeenCalled();
 });
 
-test("the Test tab is the native test chat", async () => {
+test("the Chat tab is the native chat", async () => {
+  open("/agents/search?view=chat");
+  expect(await screen.findByText("Native test chat")).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.queryByRole("tab", { name: "Test" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Start a session" })).toBeNull();
+});
+
+test("an old ?view=test link opens the Chat tab", async () => {
   open("/agents/search?view=test");
   expect(await screen.findByText("Native test chat")).toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Start a session" })).toBeNull();
+  expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("All agents has no type column and New agent opens one wizard", async () => {

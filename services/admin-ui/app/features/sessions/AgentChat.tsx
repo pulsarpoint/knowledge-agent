@@ -52,7 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 
-/** The chat for every agent run: the Ask agent pane on a document page (compact) and a saved agent's Test tab. One
+/** The chat for every agent run: the Ask agent pane on a document page (compact) and a saved agent's Chat tab. One
  * conversation at a time (the latest open run, or none yet). The first message starts a run with the current settings
  * (a saved agent's narrowed); later messages go to it. Settings opens the settings sheet (read-only while a run is open);
  * New chat closes the run; Earlier runs opens another. A changed initialRunId (a run link) opens that run; onRunChange
@@ -105,7 +105,7 @@ export default function AgentChat({
   // useSessionEvents resets the session on an id change and fills it after the load: only a session of the selected run counts.
   const loaded = run.session?.id === runId ? run.session : null;
   // A run of another document (or not an Ask agent run) is not this document's: it is not shown, and its draft never reaches
-  // the page. For a saved agent: a run of another agent, or not a Test or event run. A new document's runs are only the
+  // the page. For a saved agent: a run of another agent, or not a chat or event run. A new document's runs are only the
   // ones this page started. A server's, service's or environment's: a run without its tag.
   const foreign =
     loaded !== null &&
@@ -114,7 +114,7 @@ export default function AgentChat({
       : tag !== null
         ? !(loaded.tags ?? []).includes(tag)
         : scope.kind === "agent" &&
-          (loaded.agent_id !== scope.id || (loaded.purpose !== "test" && loaded.purpose !== "event")))
+          (loaded.agent_id !== scope.id || (loaded.purpose !== "chat" && loaded.purpose !== "event")))
       ? loaded
       : null;
   const session = foreign ? null : loaded;
@@ -511,7 +511,7 @@ export default function AgentChat({
             run.setSession((current) => current && { ...current, reviews: [...(current.reviews ?? []), review] })
           }
           onApplied={(target, id) => {
-            if (target === "clone") navigate(`/agents/${encodeURIComponent(id)}?view=test`);
+            if (target === "clone") navigate(`/agents/${encodeURIComponent(id)}?view=chat`);
             else {
               setInfo("Applied to this agent. New conversations use it.");
               onAgentChanged?.();

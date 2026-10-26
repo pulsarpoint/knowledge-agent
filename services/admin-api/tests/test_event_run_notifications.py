@@ -10,7 +10,7 @@ import pytest
 from fastapi.encoders import jsonable_encoder
 
 from native_fakes import FakeAgent, llm, message
-from session_rows import add_test_session
+from session_rows import add_chat_session
 from knowledge_admin.sessions import run_record
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -32,7 +32,7 @@ def a_run(sessions, purpose='event'):
     with sessions.store.connect() as conn:
         project = sessions.store.project(conn, 'shop')
         actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
-        sid = add_test_session(
+        sid = add_chat_session(
             conn, project, actor, agent_id, sessions.claude, config=config, message='Triage DEMO-1', purpose=purpose
         )
         conn.execute(
@@ -180,7 +180,7 @@ def test_a_run_closed_idle_before_its_first_turn_writes_one_failed_notification(
 
 
 def test_a_test_run_closed_before_its_first_turn_writes_no_notification(worker):
-    sid, *_ = a_run(worker, purpose='test')
+    sid, *_ = a_run(worker, purpose='chat')
     asyncio.run(post(worker, f'/api/sessions/{sid}/close'))
     assert notifications(worker.store) == []
 
@@ -242,13 +242,13 @@ def test_an_event_run_releases_its_worker_slot_when_its_turn_ends(worker):
 
 
 def test_a_test_run_keeps_its_worker_slot_while_idle(worker):
-    sid, *_ = a_run(worker, purpose='test')
+    sid, *_ = a_run(worker, purpose='chat')
     row = serve_one(worker, sid, FakeAgent([{'steps': [llm(message('Hi.'))], 'answer': 'Hi.'}]))
     assert (row['status'], row['worker_id']) == ('waiting', 'native-1')
 
 
 def test_a_test_run_writes_no_notification(worker):
-    sid, *_ = a_run(worker, purpose='test')
+    sid, *_ = a_run(worker, purpose='chat')
     fake = FakeAgent([{'steps': [llm(message('Hi.'))], 'answer': 'Hi.'}])
     play(worker, sid, fake)
     assert notifications(worker.store) == []

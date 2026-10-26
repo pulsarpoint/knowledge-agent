@@ -17,7 +17,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentChatView", () => ({ default: () => null }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = {

@@ -34,7 +34,7 @@ Create example:
 Updates use the same fields plus `revision`. Status changes use `{"enabled": false, "revision": 1}`. Successful changes return the updated record and revision. Metadata changes are recorded in `ka.audit_events`; full instructions are not copied into audit messages. Migration `0011_agent_skills.up.sql` creates `ka.agent_skills` with uniqueness and content constraints.
 
 **Every agent sees every enabled skill.** Skills are not chosen per agent and are not part of the access model: every
-run (saved agents, ad-hoc chats, event and schedule runs, Test, Run agent, documents, reviews) gets all enabled skills
+run (saved agents, ad-hoc chats, event and schedule runs, agent chats, documents, reviews) gets all enabled skills
 of the project, read once at run start and pinned in its configuration as `skills` (`[{id, name, description,
 folder}]`, in name order; a skill whose folder is missing on disk is left out). To hide a skill from agents, disable
 it; the Skills page says "Every agent sees every enabled skill; disable a skill to hide it." A skill enabled, disabled

@@ -186,7 +186,7 @@ def test_migration_0141_strips_skill_entries(store):
         session = uuid4()
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,purpose,agent_config,access) VALUES (%s,%s,%s,%s,%s,'Run','{}','{}','test',%s,%s)""",
+            context_snapshot,purpose,agent_config,access) VALUES (%s,%s,%s,%s,%s,'Run','{}','{}','chat',%s,%s)""",
             (
                 session,
                 project,

@@ -9,11 +9,12 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from session_rows import a_model, add_review, add_test_session
+from session_rows import a_model, add_review, add_chat_session
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0081_test_sessions.up.sql', '0081_test_sessions.down.sql'
 LATER = '0084_remove_claude_code.down.sql'
+TEST_IS_CHAT_DOWN = '0142_test_is_chat.down.sql'
 OLD = ('agent_sessions', 'operations_runs', 'operations_commands')
 NEW_COLUMNS = {'purpose', 'model_calls', 'reasoning_tokens'}
 
@@ -72,7 +73,7 @@ def test_purpose_checks_keep_documents_and_test_sessions_apart(store):
     with store.connect() as conn:
         project, actor, model = people(store, conn)
         documents = documents_session(conn, project, actor, model)
-        tested = add_test_session(conn, project, actor, 'search', model)
+        tested = add_chat_session(conn, project, actor, 'search', model)
         conn.commit()
         rows = {
             row['id']: row
@@ -85,7 +86,7 @@ def test_purpose_checks_keep_documents_and_test_sessions_apart(store):
             0,
             0,
         )
-        assert (rows[tested]['purpose'], rows[tested]['document_name'], rows[tested]['folder']) == ('test', None, None)
+        assert (rows[tested]['purpose'], rows[tested]['document_name'], rows[tested]['folder']) == ('chat', None, None)
         for statement, session in (
             ('UPDATE ka.agent_sessions SET folder=NULL WHERE id=%s', documents),
             ('UPDATE ka.agent_sessions SET document_name=NULL WHERE id=%s', documents),
@@ -166,7 +167,10 @@ def test_down_deletes_test_sessions_and_restores_the_old_tables_empty(store):
     with store.connect() as conn:
         project, actor, model = people(store, conn)
         documents = documents_session(conn, project, actor, model)
-        tested = add_test_session(conn, project, actor, 'search', model, message='Hi', status='waiting', turns=1)
+        run(conn, TEST_IS_CHAT_DOWN)  # 0142 down allows Test sessions again
+        tested = add_chat_session(
+            conn, project, actor, 'search', model, message='Hi', status='waiting', turns=1, purpose='test'
+        )
         add_review(conn, tested, actor, changes={})
         conn.execute(
             """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)

@@ -212,7 +212,7 @@ def test_a_run_of_an_agent_with_a_removed_tool_stored_starts(agent, ask):
     preview = start(agent.client, '/preview', agent_id=agent.id, disabled_tools=['read_file'])
     assert preview.status_code == 200, preview.text
     assert preview.json()['config']['disabled_tools'] == ['read_file', 'ssh_run']
-    created = start(agent.client, agent_id=agent.id, purpose='chat')
+    created = start(agent.client, agent_id=agent.id)
     assert created.status_code == 201, created.text
     detail = agent.client.get(f'/api/sessions/{created.json()["id"]}', headers=HEADERS).json()
     assert detail['disabled_tools'] == ['ssh_run']
@@ -242,12 +242,12 @@ def test_a_chat_cannot_switch_an_agents_off_tool_back_on(agent):
     """Review Focus 2: the request omits ssh_run; it stays off. The request switches read_file off too."""
     switch_off(agent.client, agent.id, ['ssh_run'])
     for path in ('/preview', ''):
-        response = start(agent.client, path, agent_id=agent.id, purpose='chat', disabled_tools=['read_file'])
+        response = start(agent.client, path, agent_id=agent.id, disabled_tools=['read_file'])
         assert response.status_code in (200, 201), response.text
     preview = start(agent.client, '/preview', agent_id=agent.id, disabled_tools=['read_file']).json()
     assert preview['config']['disabled_tools'] == ['read_file', 'ssh_run']
     assert not {'ssh_run', 'read_file'} & {tool['name'] for tool in preview['tools']}
-    created = start(agent.client, agent_id=agent.id, purpose='chat', disabled_tools=[]).json()
+    created = start(agent.client, agent_id=agent.id, disabled_tools=[]).json()
     detail = agent.client.get(f'/api/sessions/{created["id"]}', headers=HEADERS).json()
     assert detail['disabled_tools'] == ['ssh_run'] and detail['config']['disabled_tools'] == ['ssh_run']
     debug = agent.client.get(f'/api/sessions/{created["id"]}/debug', headers=HEADERS).json()

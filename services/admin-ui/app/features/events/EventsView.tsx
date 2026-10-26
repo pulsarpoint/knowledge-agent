@@ -535,7 +535,7 @@ export default function EventsView() {
                               </Badge>
                               <Link
                                 className="text-primary underline underline-offset-4"
-                                to={`/agents/${encodeURIComponent(run.run.agent_id)}?view=test&session_id=${encodeURIComponent(run.run.id)}`}
+                                to={`/agents/${encodeURIComponent(run.run.agent_id)}?view=chat&session_id=${encodeURIComponent(run.run.id)}`}
                               >
                                 Open run
                               </Link>
@@ -552,7 +552,7 @@ export default function EventsView() {
                           {!run.run && run.agent_session_id && run.agent_id && (
                             <Link
                               className="text-primary underline underline-offset-4"
-                              to={`/agents/${encodeURIComponent(run.agent_id)}?view=test&session_id=${encodeURIComponent(run.agent_session_id)}`}
+                              to={`/agents/${encodeURIComponent(run.agent_id)}?view=chat&session_id=${encodeURIComponent(run.agent_session_id)}`}
                             >
                               Open agent session
                             </Link>

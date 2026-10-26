@@ -223,7 +223,7 @@ test("the sheet shows the chain and the handler runs with their links", async ()
   expect(within(sheet).getByText("Template error: x")).toBeInTheDocument();
   expect(within(sheet).getByRole("link", { name: "Open agent session" })).toHaveAttribute(
     "href",
-    "/agents/tester?view=test&session_id=s-1",
+    "/agents/tester?view=chat&session_id=s-1",
   );
   await user.click(within(sheet).getByRole("button", { name: "Open event #8" }));
   expect(await screen.findByRole("heading", { name: "T-8 · triage.requested" })).toBeInTheDocument();
@@ -268,7 +268,7 @@ test("a run shows its status, Open run and Open notification; an older task keep
   expect(within(sheet).getByText("Waiting for you")).toBeInTheDocument();
   expect(within(sheet).getByRole("link", { name: "Open run" })).toHaveAttribute(
     "href",
-    "/agents/tester?view=test&session_id=s-9",
+    "/agents/tester?view=chat&session_id=s-9",
   );
   const links = within(sheet).getAllByRole("link", { name: "Open notification" });
   expect(links.map((link) => link.getAttribute("href"))).toEqual(["/notifications?id=12", "/notifications?id=4"]);

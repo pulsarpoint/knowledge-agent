@@ -9,16 +9,27 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import AgentProfileSettings from "./AgentProfileSettings";
 import AgentResources from "./AgentResources";
-import AgentTestView from "./AgentTestView";
+import AgentChatView from "./AgentChatView";
 import AgentPromptCard from "./AgentPromptCard";
 import AgentActions from "./AgentActions";
 
 export default function AgentDetailView({ agentId }: { agentId: string }) {
   const [params, setParams] = useSearchParams();
   const [profile, setProfile] = useState<AgentProfile>();
-  const sections = ["general", "resources", "test"];
+  const sections = ["general", "resources", "chat"];
   const selected = params.get("view") ?? "";
   const view = sections.includes(selected) ? selected : "general";
+  // An old link to the Test tab (?view=test) opens the Chat tab.
+  useEffect(() => {
+    if (selected === "test")
+      setParams(
+        (current) => {
+          current.set("view", "chat");
+          return current;
+        },
+        { replace: true },
+      );
+  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState("");
   const [profileDirty, setProfileDirty] = useState(false);
   const [resourcesDirty, setResourcesDirty] = useState(false);
@@ -71,7 +82,7 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
               </div>
               <AgentActions profile={profile} onChanged={() => setReload((n) => n + 1)} />
             </div>
-            {profile.description && view !== "test" && (
+            {profile.description && view !== "chat" && (
               <p className="text-sm text-muted-foreground">{profile.description}</p>
             )}
           </div>
@@ -118,13 +129,13 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
               <div hidden={view !== "resources"}>
                 <AgentResources key={reload} profile={profile} onSaved={setProfile} onDirtyChange={setResourcesDirty} />
               </div>
-              <div hidden={view !== "test"}>
-                <AgentTestView
+              <div hidden={view !== "chat"}>
+                <AgentChatView
                   agentId={agentId}
                   agentName={profile.name}
                   available={profile.enabled}
                   dirty={profileDirty || promptDirty || resourcesDirty}
-                  active={view === "test"}
+                  active={view === "chat"}
                   revision={profile.revision}
                   onAgentChanged={() => setReload((n) => n + 1)}
                 />

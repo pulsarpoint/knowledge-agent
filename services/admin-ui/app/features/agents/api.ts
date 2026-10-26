@@ -102,23 +102,20 @@ export const deleteAgent = (id: string, revision: number, withHistory = false) =
     path(id),
     json("DELETE", { revision, confirmed: true, ...(withHistory ? { with_history: true } : {}) }),
   );
-/** What deleting an agent with its history removes; saved documents are kept. `run_records`: Test chats from before
- * the Test tab ran sessions. */
+/** What deleting an agent with its history removes; saved documents are kept. `conversations`: its chat and event
+ * sessions; `run_records`: Test chats from before they ran as sessions. */
 export interface AgentHistory {
-  test_chats: number;
-  /** Chats started with Run agent on the Agents page. */
-  chats: number;
+  conversations: number;
   documentation_sessions: number;
   run_records: number;
 }
 export const getAgentHistory = (id: string) => request<AgentHistory>(path(id) + "/history");
 const HISTORY_LABELS: [keyof AgentHistory, string, string][] = [
-  ["test_chats", "test chat", "test chats"],
-  ["chats", "chat", "chats"],
+  ["conversations", "conversation", "conversations"],
   ["documentation_sessions", "documentation session", "documentation sessions"],
   ["run_records", "run record", "run records"],
 ];
-/** "2 test chats, 1 documentation session, 3 run records"; empty when the agent has no history. */
+/** "2 conversations, 1 documentation session, 3 run records"; empty when the agent has no history. */
 export const describeHistory = (history: AgentHistory) =>
   HISTORY_LABELS.filter(([key]) => history[key] > 0)
     .map(([key, one, many]) => `${history[key]} ${history[key] === 1 ? one : many}`)

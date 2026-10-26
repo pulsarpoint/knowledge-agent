@@ -1,6 +1,6 @@
 """Live session pages without polling. Postgres announces session changes on the channel `ka_sessions` (migration
 0083's triggers, delivered on commit); one listener per API process receives them, and the hub reads the new rows once
-and hands them to every subscriber of that session (the event stream of the Test tab and Generate documents)."""
+and hands them to every subscriber of that session (the event stream of an agent chat and Generate documents)."""
 
 import asyncio
 import json

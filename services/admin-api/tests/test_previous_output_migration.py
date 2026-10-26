@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
-from session_rows import a_model, add_test_session
+from session_rows import a_model, add_chat_session
 from test_output_schemas_migration import a_handler
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
@@ -55,7 +55,7 @@ def test_the_columns_have_no_foreign_keys_and_the_flag_defaults_off(store):
         handler = a_handler(conn, project)
         assert handler['include_previous_output'] is False
         actor = handler['created_by']
-        session = add_test_session(conn, project, actor, an_agent(conn), a_model(conn, actor), purpose='event')
+        session = add_chat_session(conn, project, actor, an_agent(conn), a_model(conn, actor), purpose='event')
         conn.execute(
             'UPDATE ka.agent_sessions SET handler_id=%s,schedule_id=%s WHERE id=%s', (handler['id'], uuid4(), session)
         )
@@ -91,9 +91,9 @@ def test_backfill_from_handler_runs_and_the_chain_root_and_down(store):
         run(conn, DOWN)
         assert 'schedule_id' not in columns(conn, 'agent_sessions')
         assert 'include_previous_output' not in columns(conn, 'event_handlers')
-        scheduled = add_test_session(conn, project, actor, agent, model, purpose='event')
-        by_hand = add_test_session(conn, project, actor, agent, model, purpose='event')
-        plain = add_test_session(conn, project, actor, agent, model)
+        scheduled = add_chat_session(conn, project, actor, agent, model, purpose='event')
+        by_hand = add_chat_session(conn, project, actor, agent, model, purpose='event')
+        plain = add_chat_session(conn, project, actor, agent, model)
         for event, session in ((emitted, scheduled), (manual, by_hand)):
             conn.execute('UPDATE ka.agent_sessions SET event_id=%s WHERE id=%s', (event['id'], session))
             conn.execute(
@@ -101,14 +101,14 @@ def test_backfill_from_handler_runs_and_the_chain_root_and_down(store):
                 VALUES (%s,%s,'Check','succeeded',%s)""",
                 (event['id'], handler['id'], session),
             )
-        gone_handler = add_test_session(conn, project, actor, agent, model, purpose='event')
+        gone_handler = add_chat_session(conn, project, actor, agent, model, purpose='event')
         deleted = uuid4()  # a handler deleted before 0138 (its runs lost handler_id; its handler run keeps it)
         conn.execute(
             """INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,agent_session_id)
             VALUES (%s,%s,'Gone','succeeded',%s)""",
             (manual['id'], deleted, gone_handler),
         )
-        gone_event = add_test_session(
+        gone_event = add_chat_session(
             conn, project, actor, agent, model, purpose='event', config={'id': agent, 'event': {'root_id': fired['id']}}
         )  # its event was deleted (event_id NULL): the pinned root says which schedule
         run(conn, UP)

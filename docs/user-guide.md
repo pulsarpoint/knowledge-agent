@@ -64,7 +64,7 @@ What you can actually do today:
 - **Write documents with an agent**: on Documents → New, chat with an agent that has the code,
   documents, servers and services you allow; it saves its work as a draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
-  and MCP tools, and run them interactively (agent **Test** chat).
+  and MCP tools, and run them interactively (agent **Chat** tab).
 - **Import Jira tickets** into the database, on demand or on a schedule.
 
 ### Architecture at a glance
@@ -74,10 +74,10 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  repository-worker (git clone/pull, code graph)
-               agent-session-worker (document, Test, Ask agent and event-handler sessions)
+               agent-session-worker (document, agent chat, Ask agent and event-handler sessions)
 ```
 
-`agent-session-worker` runs document, Test and Ask agent sessions, and the agent runs that event handlers start. Like `admin-api` it reaches
+`agent-session-worker` runs document, agent chat and Ask agent sessions, and the agent runs that event handlers start. Like `admin-api` it reaches
 PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
 
@@ -332,7 +332,7 @@ Prompts**; a chat offers the prompts tagged `assistant` and the type: `server`, 
 chat needs SSH to be set up and allowed for the server. A plain chat only drafts: documents it writes
 and inventory it saves are drafts for you to confirm.
 
-Every chat (here, Ask agent beside a document, Documents → New and an agent's Test tab) has a **Debug** tab beside the
+Every chat (here, Ask agent beside a document, Documents → New and an agent's Chat tab) has a **Debug** tab beside the
 **Conversation**. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
 system prompt, with **Copy**), **Prompt** (the library prompt and version it came from, linked; the agent's
 instructions and skills), **Tools** (each name and description as the model sees it),
@@ -592,22 +592,19 @@ saved but runs only after you choose one with **Model** on its General tab.
 | --- | --- |
 | **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; under **Advanced**, **Tools** (the built-in tools grouped as Documents, Inventory, Code, Servers, Memory and Agents; untick the ones this agent must never get, **All** / **None** per group, "N of M tools on"; tools added later are on); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
-| **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
+| **Chat** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
 
-**Run an agent.** **Run** (the play button) on an agent's row, or **Run agent** next to **New agent**, opens the *Run
-agent* dialog: the agent (preselected from the row; from the top button choose one of the enabled agents — a disabled
-agent's **Run** is off), the **First message** (required) and its resources — every resource of the agent unless you
-narrow them with **Choose resources**, the same settings sheet as the Test tab's (without its Output schema) — and an
-optional **Output schema** in the dialog itself (4.22). **Start** starts a chat session and
-opens its session page (`/sessions/<id>`), where you send further messages, **Stop** a turn and **Close session**. A
-chat is not listed on the agent's Test tab; its turns are **Chat** runs in Agent runs (4.14), and it can be reviewed
-with **Suggest improvements** through the API like a Test session.
+**Run an agent.** There is one way to run a saved agent: its **Chat** tab. **Run** (the play button) on an agent's row
+opens that agent's Chat tab (`/agents/<id>?view=chat`); **Run agent** next to **New agent** opens a sheet listing the
+enabled agents, and choosing one opens its Chat tab. A disabled agent's **Run** is off. Its turns are **Chat** runs in
+Agent runs (4.14).
 
-**Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the test chats and other history deleted with it), or keep it as an alternative.
+**Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the conversations and other history deleted with it), or keep it as an alternative.
 
-**Test tab.** The Test tab is the same chat as **Ask agent**. Type a message and send it: it starts a Test run, which the
+**Chat tab.** The Chat tab (`?view=chat`; an old `?view=test` link opens it too) is the same chat as **Ask agent**. Type
+a message and send it: it starts a chat run, which the
 agent session worker runs (the URL keeps `session_id`). The workspace shows your message, a collapsed **Worked** block
 (thinking, tool calls with their results, comments you sent while it worked) and the answer; the
 header shows the tokens, model calls and tools used, and the sidebar **Agents in this run** the agent's status (on a
@@ -622,7 +619,7 @@ configuration the run would use. **Output schema** (none, or a schema of the lib
 version) makes the next run finish with JSON in that schema (4.22); the current settings line under the heading then
 ends with *Output: <schema>*. **Start new chat with these settings** keeps **Current** for a run started with Current
 (not the version it pinned). Settings are remembered per agent in this browser and reset when the agent is saved.
-**New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
+**New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's chats and event runs (**Event**
 badge) to reopen them. A Jira event run's page also lists **Earlier runs on <KEY>**: the other runs on the same
 ticket. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
 **Suggest improvements**, which runs a reviewer that proposes instruction changes and memory notes (never system
@@ -654,12 +651,12 @@ title already used there is refused with the existing document's id), the whole 
 (`update_document`, which can also link the document to another of its resources once published) or one passage
 (`edit_document`). Each draft waits on the document's page (**Draft — not published**) until a person publishes or
 discards it; nothing needs a role. **Agent runs**, run
-records, session pages and Test chats show how often each tool was used.
+records, session pages and agent chats show how often each tool was used.
 
 **Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except
 `run_subagent`, and some or all of the run's resources, but not the conversation (helpers only read: no document or inventory
 writes). Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
-default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. In the Test tab and on the
+default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. In the Chat tab and on the
 session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
 answer (**Main agent** goes back). The header and the main agent's entry count the whole run including helpers, while
@@ -672,13 +669,13 @@ experts in its chat **Settings**. An expert works on
 its own resources, or on those the caller passes, which must be the caller's own and in the expert's resources. An expert starts without the
 conversation, may start its own subagents, uses its own model and keys, and returns its final
 answer. The helpers of one turn (subagents and expert calls together) are limited to 16; sessions started before an
-expert was added do not see it. In the Test tab and on the session page an expert call appears in the Worked block as
+expert was added do not see it. In the Chat tab and on the session page an expert call appears in the Worked block as
 `Asked <name> · <task>` with **Open**, and under **Agents in this run** as `Expert · <name>` once it has started
 (selecting it shows its history; **Main agent** goes back); a call refused before it started shows as a failed tool
 line. In **Agent runs**, filtering by the expert's agent lists the calls made to it as "Called as expert by <caller>";
 opening one shows that call's record, including the expert's own subagents.
 
-**Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Test** tab **Settings**
+**Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Chat** tab **Settings**
 lists the agent's resources by type and you pick from them (the choice is kept for the session and shown in the header
 and in **Preview**); chat settings, event handlers and expert calls narrow the same way. A run never gets more than the
 agent has: a pick outside its resources is refused (`server <id> is not in the agent's access`). What a run was given brings its direct children: an environment its services and
@@ -687,7 +684,7 @@ servers, a service its code projects and the servers it is deployed on, a server
 has none of is refused (`This run has no code projects.`). Example: a **Code analyst** with several code projects,
 tested with `payments-api` in one conversation and `helpers` in the next.
 
-Limits: message ≤ 20,000 characters; a Test session's turns have no time
+Limits: message ≤ 20,000 characters; a chat session's turns have no time
 limit (they end with the answer, **Stop**, **New chat** (it closes the open run) or a lost worker), and a session closes after 24 hours
 without activity. A message is blocked if the agent is disabled, has no enabled model, or other tabs have unsaved
 changes.
@@ -696,11 +693,11 @@ Saving the agent's settings changes what runs next. Migration 0133 removed **Ans
 documents with `search_documents` and read them with `get_document`).
 
 
-Removing an agent that has history (test chats, chats started with **Run agent**, documentation sessions or run records
+Removing an agent that has history (conversations — its chats and event runs —, documentation sessions or run records
 of earlier test chats) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
 documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
-(a Test or document session that is starting or working) cannot be removed; stop that work or wait for
+(a chat or document session that is starting or working) cannot be removed; stop that work or wait for
 it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
@@ -729,9 +726,9 @@ with `edit_document`, and never say the document is published. If you write your
 `update_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
 JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) are offered only when you tick them. The run gets
 every tool, including `run_subagent`; what each may reach follows the resources you chose (for example `ssh_run` only
-on the chosen servers), as in an agent's Test tab.
+on the chosen servers), as in an agent's Chat tab.
 
-**The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Test tab: the
+**The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Chat tab: the
 main pane shows each turn (your message, a collapsed **Worked** block with thinking, tool calls and results, and the answer)
 and scrolls on its own; the message box is always visible. After you scroll up it stops following new events and shows
 **Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up. The header shows tokens
@@ -864,7 +861,7 @@ container paths, availability, and a file browser with text preview.
 
 ### 4.14 Agent runs
 
-`/activity/runs` — a complete record of every agent run: agent Test
+`/activity/runs` — a complete record of every agent run: agent chat
 sessions, earlier test chats, document runs and the earlier Generate documents sessions. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
@@ -875,13 +872,13 @@ sessions, earlier test chats, document runs and the earlier Generate documents s
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Test session** (Test tab turns), **Chat** (turns of chats started with **Run agent**
-on the Agents page), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
+characters. The run type filter offers **Chat** (turns of an agent's chats, from its Chat tab), **Event session** (event run
+turns), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
 can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
 finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
 started) and by user (part of the email, press Enter).
 Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
-/ **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Test tab and from each
+/ **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat tab and from each
 document run turn.
 Records are kept until deleted; only administrators can see them.
 
@@ -989,7 +986,7 @@ A handler does one thing:
   event is processed like any other, so handlers can build chains — at most 5 levels deep.
 - **Send to agent** starts an ordinary agent run of the chosen agent for every matching event. The **Prompt** template
   is the run's first message, the run uses all of the agent's resources and every tool, and the handler's
-  creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Test** tab
+  creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Chat** tab
   under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
   notification is written with the answer, or why it failed (4.18). With **Also post the answer as a comment on the Jira
   ticket**, the answer to a Jira event is also posted on its ticket as the Jira connection's user (see the Jira docs for
@@ -1042,7 +1039,7 @@ Administration → **Notifications** lists what agents answered when a handler s
 Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the answer
 (taken from its first 200 characters, cut off when long). Everyone sees the same list. Filter by status or search the
 title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
-failed), the agent, **Open run**, which opens the run in the agent's Test tab, and **Open event**, which opens the event that
+failed), the agent, **Open run**, which opens the run in the agent's Chat tab, and **Open event**, which opens the event that
 triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
 A notification whose answer goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
 being posted or retried, or **Not posted to KEY** with the reason. A handler that gives the ticket back adds
@@ -1163,8 +1160,7 @@ editor.
   output.
 
 **Choosing a schema for a run.** The schema belongs to the run, not to the agent: the same agent answers normally or
-with JSON depending on how it is started. Choose **Output schema** in the Test tab's **Settings**, in **Run agent**
-(4.10), in a **Send to agent** handler (4.17), or send `output_schema_id` (and optionally `output_schema_version`)
+with JSON depending on how it is started. Choose **Output schema** in the Chat tab's **Settings** (4.10), in a **Send to agent** handler (4.17), or send `output_schema_id` (and optionally `output_schema_version`)
 when starting a run through the API. **Current** uses the schema's current version when the run starts; the run keeps
 that exact version, so later edits do not change it. Chats on a document, a resource or Documents → New never take a
 schema ("Chats do not take an output schema.").
@@ -1175,7 +1171,7 @@ errors. Still invalid, the run fails with "Output did not match the schema", kee
 valid answer is stored on the run (up to 256 KB) and recorded as a `run.output` event that handlers can react to (a
 run a handler started records it in that event's chain, so handler loops stop at 5 levels; 4.17).
 
-**Reading the output.** The run page (and the Test tab) shows **Output** beside the transcript: the formatted JSON with
+**Reading the output.** The run page (and the Chat tab) shows **Output** beside the transcript: the formatted JSON with
 **Copy**, or the errors and raw answer of a failed run. Over the API, `GET /api/sessions/<id>/output` returns
 `{schema, output, valid, error?, errors?, raw?}`, `GET /api/sessions/<id>/status` a light status for polling, and
 `POST /api/sessions?wait=<1–120>` starts a run and waits for its result.
@@ -1206,7 +1202,7 @@ run a handler started records it in that event's chain, so handler loops stop at
 
 1. **Agents → New agent → Generic agent** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
-3. **Test**: run a task such as "Check disk usage on the app servers"; inspect the **Worked** block.
+3. **Chat**: run a task such as "Check disk usage on the app servers"; inspect the **Worked** block.
 4. Use **Add feedback → Suggest improvements**, then **Review and apply → Apply to this agent** (or **Apply to a new clone** to try it first).
 
 ### D. Write documentation interactively with an agent

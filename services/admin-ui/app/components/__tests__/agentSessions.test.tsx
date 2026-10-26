@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import AgentTestView from "~/features/agents/AgentTestView";
+import AgentChatView from "~/features/agents/AgentChatView";
 import * as reviews from "~/features/agents/reviews";
 import type { RunSummary, SessionDetail } from "~/features/sessions/api";
 import { agentOptions } from "../../lib/__tests__/agentScopeFixture";
@@ -20,7 +20,7 @@ const at = "2026-10-13T10:00:00Z";
 const finishedRun = {
   id: "r1",
   title: "Check disk",
-  purpose: "test",
+  purpose: "chat",
   agent_id: "ops",
   agent_name: "Operations",
   model_name: "GPT",
@@ -114,7 +114,7 @@ function Page(props: Props) {
   return (
     <>
       <output aria-label="URL">{location.search}</output>
-      <AgentTestView
+      <AgentChatView
         agentId="ops"
         agentName="Operations"
         available={props.available ?? true}
@@ -126,9 +126,9 @@ function Page(props: Props) {
     </>
   );
 }
-const renderTestTab = (props: Props = {}) =>
+const renderChatTab = (props: Props = {}) =>
   render(
-    <MemoryRouter initialEntries={[props.sessionId ? `?view=test&session_id=${props.sessionId}` : "?view=test"]}>
+    <MemoryRouter initialEntries={[props.sessionId ? `?view=chat&session_id=${props.sessionId}` : "?view=chat"]}>
       <Page {...props} />
     </MemoryRouter>,
   );
@@ -151,7 +151,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 test("the first message starts a run of the saved agent with the narrowed settings", async () => {
   const calls = serve();
-  renderTestTab();
+  renderChatTab();
   expect(await screen.findByText("Send a message to test the agent.")).toBeVisible();
   await sendWhenReady("Check disk");
   await waitFor(() =>
@@ -172,7 +172,7 @@ test("the first message starts a run of the saved agent with the narrowed settin
 
 test("the test tab cannot start while the configuration tabs have unsaved changes", async () => {
   serve();
-  renderTestTab({ dirty: true });
+  renderChatTab({ dirty: true });
   expect(
     await screen.findByText("Save or discard changes in the configuration tabs before starting a task."),
   ).toBeInTheDocument();
@@ -180,7 +180,7 @@ test("the test tab cannot start while the configuration tabs have unsaved change
 
 test("the other cannot-start reason: a disabled agent", async () => {
   serve();
-  renderTestTab({ available: false });
+  renderChatTab({ available: false });
   expect(await screen.findByText("This agent is disabled. Enable it in General to run a task.")).toBeInTheDocument();
 });
 
@@ -196,7 +196,7 @@ test("a saved agent with resources cannot start with none of them picked", async
       settings: { modelId: "m1", promptKey: "own", systemPrompt: "x", chosen: none, documents: [], off: [] },
     }),
   );
-  renderTestTab();
+  renderChatTab();
   expect(await screen.findByText("Pick at least one resource")).toBeInTheDocument();
   fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Go" } });
   expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
@@ -206,7 +206,7 @@ test("a saved agent with resources cannot start with none of them picked", async
 test("feedback on an answer asks for suggestions and they can be reviewed and applied", async () => {
   vi.mocked(reviews.getReviewSource).mockReturnValue(new Promise(() => {}));
   const calls = serve({ run: finishedRun });
-  renderTestTab({ sessionId: "r1" });
+  renderChatTab({ sessionId: "r1" });
   expect(await screen.findByRole("button", { name: "Suggestions (0)" })).toBeDisabled();
   fireEvent.click(await screen.findByRole("button", { name: "Add feedback" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Your feedback" }), { target: { value: "Be shorter" } });
@@ -236,7 +236,7 @@ test("applying a suggestion to the agent says so and reloads the agent", async (
   vi.mocked(reviews.applyReview).mockResolvedValue({ agent_id: "ops", saved: [], refused: [] } as never);
   serve({ run: { ...finishedRun, reviews: [review] } as SessionDetail });
   const onAgentChanged = vi.fn();
-  renderTestTab({ sessionId: "r1", onAgentChanged });
+  renderChatTab({ sessionId: "r1", onAgentChanged });
   fireEvent.click(await screen.findByRole("button", { name: "Suggestions (1)" }));
   fireEvent.click(await screen.findByRole("button", { name: "Review and apply" }));
   const sheet = within(await screen.findByRole("dialog", { name: "Apply suggestions" }));
@@ -249,36 +249,36 @@ test("applying a suggestion to the agent says so and reloads the agent", async (
 test("a saved suggestion lists the memory notes it proposes", async () => {
   const notes = [{ name: "disk/thresholds", content: "Alert at 90%.", metadata: {} }];
   serve({ run: { ...finishedRun, reviews: [{ ...review, memory_notes: notes }] } as SessionDetail });
-  renderTestTab({ sessionId: "r1" });
+  renderChatTab({ sessionId: "r1" });
   fireEvent.click(await screen.findByRole("button", { name: "Suggestions (1)" }));
   expect(await screen.findByText("Proposed memory notes: disk/thresholds")).toBeVisible();
 });
 
 test("earlier runs replace History", async () => {
   serve({ runs: [closedRun] });
-  renderTestTab();
+  renderChatTab();
   await waitFor(() => expect(screen.getByRole("button", { name: "Earlier runs" })).toBeEnabled());
   expect(screen.queryByRole("button", { name: "History" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Show config" })).toBeNull();
 });
 
-test("an event run of this agent opens in the Test tab", async () => {
+test("an event run of this agent opens in the Chat tab", async () => {
   serve({ run: { ...finishedRun, purpose: "event", title: "jira.ticket.created DEMO-1" } as SessionDetail });
-  renderTestTab({ sessionId: "r1" });
+  renderChatTab({ sessionId: "r1" });
   expect(await screen.findByText("Disk is 40% full.")).toBeVisible();
   expect(screen.queryByText("This run belongs to another agent.")).toBeNull();
 });
 
 test("a run of another agent is not opened here", async () => {
   serve({ run: { ...finishedRun, agent_id: "other" } as SessionDetail });
-  renderTestTab({ sessionId: "r1" });
+  renderChatTab({ sessionId: "r1" });
   expect(await screen.findByText("This run belongs to another agent.")).toBeVisible();
   expect(screen.queryByText("Disk is 40% full.")).toBeNull();
 });
 
 test("New chat closes the open run and starts an empty conversation", async () => {
   const calls = serve({ runs: [{ ...finishedRun, started_by: null, draft_id: null } as RunSummary] });
-  renderTestTab({ sessionId: "r1" });
+  renderChatTab({ sessionId: "r1" });
   await screen.findByText("Disk is 40% full.");
   fireEvent.click(screen.getByRole("button", { name: "New chat" }));
   await waitFor(() => expect(calls.map((c) => c.key)).toContain("POST /api/sessions/r1/close"));
@@ -294,13 +294,13 @@ test("a new revision of the agent loads its options again and drops the remember
   );
   let revision = 3;
   const calls = serve({ options: () => ({ ...agentOptions, agent: { ...agentOptions.agent!, revision } }) });
-  const view = renderTestTab();
+  const view = renderChatTab();
   await waitFor(() =>
     expect(JSON.parse(localStorage.getItem(stored)!)).toMatchObject({ revision: 3, settings: { experts: [] } }),
   );
   revision = 4;
   view.rerender(
-    <MemoryRouter initialEntries={["?view=test"]}>
+    <MemoryRouter initialEntries={["?view=chat"]}>
       <Page revision={4} />
     </MemoryRouter>,
   );
