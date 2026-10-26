@@ -251,7 +251,7 @@ If a folder cannot be deleted afterwards (for example, permissions), the project
 removed and the page names the folder left behind. The API is
 `POST /api/code-projects/{id}/archive` with an optional body `{"delete_files": true}`.
 
-Projects cannot be removed while a job runs.
+Projects cannot be edited or removed while a job runs: **Settings → Save** waits ("A sync or code graph job is running; settings can be saved when it finishes.") and turns on by itself when the job ends, and **Delete** is off.
 
 #### The code project page
 
@@ -270,7 +270,7 @@ link with `?view=documents` opens Documents:
   document built for the project; the New page links it to the project), **Edit** and **Delete** (asks first).
 - **Settings** (`/code-projects/<id>/settings`) — the project form edited in place: name, description, clone folder,
   branch or tag, authentication, automatic pulls and mapped folders (the source and Git URL are fixed). **Save** and
-  **Discard** turn on once something changed; leaving with unsaved changes asks first (**Leave** / **Stay**).
+  **Discard** turn on once something changed (Save waits while a sync or code graph job runs); leaving with unsaved changes asks first (**Leave** / **Stay**).
 
 **Chat** works as on a server, service or environment page ([Chats and Discover](#chats-and-discover)): the run holds
 the code project (its folders for the file tools and `shell_run`, its code graph for `code_graph`) and is tagged

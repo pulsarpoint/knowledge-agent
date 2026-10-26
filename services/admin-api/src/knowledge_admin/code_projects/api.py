@@ -76,11 +76,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         """The code projects, each with its code graph state and how many services are built from it."""
         projects = repository_store().list(app_name)
         with repository_store().connect() as conn:
-            rows = conn.execute(
-                """SELECT to_code_project_id AS id,count(*) AS n FROM ka.service_relations
-                WHERE kind='built_from' AND to_code_project_id = ANY(%s) GROUP BY to_code_project_id""",
-                ([project['id'] for project in projects],),
-            ).fetchall()
+            rows = (
+                conn.execute(
+                    """SELECT to_code_project_id AS id,count(*) AS n FROM ka.service_relations
+                    WHERE kind='built_from' AND to_code_project_id = ANY(%s) GROUP BY to_code_project_id""",
+                    ([project['id'] for project in projects],),
+                ).fetchall()
+                if projects
+                else []
+            )
             counts = {row['id']: row['n'] for row in rows}
             for project in projects:
                 with_graph(conn, project)

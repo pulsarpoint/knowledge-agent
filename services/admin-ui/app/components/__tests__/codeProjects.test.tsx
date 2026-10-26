@@ -519,3 +519,38 @@ test("code projects have no Searchable switch", async () => {
   expect((await screen.findAllByText("Payments")).length).toBeGreaterThan(0);
   expect(screen.queryByRole("switch", { name: /Searchable/ })).toBeNull();
 });
+
+test("Settings: Save waits while a sync or code graph job runs", async () => {
+  const user = userEvent.setup();
+  api([{ ...project, sync_status: "running" }]);
+  await settings();
+  await user.type(screen.getByLabelText("Branch, tag, or commit (optional)"), "main");
+  expect(
+    screen.getByText("A sync or code graph job is running; settings can be saved when it finishes."),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+});
+
+test("the table goes back a page when its last page empties", async () => {
+  const user = userEvent.setup();
+  const projects = Array.from({ length: 21 }, (_, n) => ({
+    ...project,
+    id: `p${n}`,
+    name: `Project ${String(n + 1).padStart(2, "0")}`,
+  }));
+  const fetch = api(projects);
+  const base = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (raw: string, init?: RequestInit) => {
+    if (String(raw).endsWith("/archive")) projects.pop();
+    return base(raw, init);
+  });
+  show();
+  await screen.findByRole("link", { name: "Project 01" });
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  await user.click(screen.getByRole("button", { name: "Delete Project 21" }));
+  await user.click(await screen.findByRole("button", { name: "Remove project" }));
+  await screen.findByText("Project 21 removed. Files on disk were kept.");
+  await waitFor(() => expect(rows()).toHaveLength(20));
+  expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+});

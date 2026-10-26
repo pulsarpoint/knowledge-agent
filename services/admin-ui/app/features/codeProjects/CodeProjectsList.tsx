@@ -249,7 +249,12 @@ export default function CodeProjectsList() {
   ];
 
   const shown = visibleProjects(projects, view);
-  const options = (status: (project: CodeProject) => string) => [...new Set(projects.map(status))].sort();
+  // A delete or a reload can empty the last page: show the last page there is.
+  const lastPage = Math.max(1, Math.ceil(shown.length / pageSize));
+  if (page > lastPage) setPage(lastPage);
+  /** A filter's statuses: those in the list, and the chosen one even when no project has it any more. */
+  const options = (status: (project: CodeProject) => string, chosen: string) =>
+    [...new Set([...projects.map(status), ...(chosen === ALL ? [] : [chosen])])].sort();
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <Input
@@ -267,7 +272,7 @@ export default function CodeProjectsList() {
         <SelectContent>
           <SelectGroup>
             <SelectItem value={ALL}>All sync statuses</SelectItem>
-            {options(syncStatus).map((status) => (
+            {options(syncStatus, view.sync).map((status) => (
               <SelectItem key={status} value={status}>
                 {status}
               </SelectItem>
@@ -282,7 +287,7 @@ export default function CodeProjectsList() {
         <SelectContent>
           <SelectGroup>
             <SelectItem value={ALL}>All code graphs</SelectItem>
-            {options(graphStatus).map((status) => (
+            {options(graphStatus, view.graph).map((status) => (
               <SelectItem key={status} value={status}>
                 {status}
               </SelectItem>

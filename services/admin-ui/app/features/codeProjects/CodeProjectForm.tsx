@@ -19,17 +19,20 @@ const errorMessage = (reason: unknown) =>
 /** The code project form: New project on the list (in a sheet; Cancel) and a project's Settings (edited in place: Save
  * and Discard, enabled once something changed; onDirtyChange reports it): its name, description, source (existing
  * folders or a Git repository: URL, clone folder, ref, authentication, automatic pulls) and mapped folders. Save calls
- * onSaved with the notice to show. */
+ * onSaved with the notice to show; with `saveBlocked`, Save waits and the reason is shown. */
 export default function CodeProjectForm({
   project,
   onSaved,
   onCancel,
   onDirtyChange,
+  saveBlocked = null,
 }: {
   project: CodeProject | null;
   onSaved: (notice: string) => void;
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Why Save must wait (shown beside it), e.g. a job is running. */
+  saveBlocked?: string | null;
 }) {
   const editing = project;
   const [git, setGit] = useState(project?.remote_url != null);
@@ -341,8 +344,13 @@ export default function CodeProjectForm({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      {saveBlocked && <p className="text-sm text-muted-foreground">{saveBlocked}</p>}
       <div className="flex flex-wrap gap-3">
-        <Button disabled={busy || (!git && draft.folder_paths.length === 0) || (editing !== null && !dirty)}>
+        <Button
+          disabled={
+            busy || saveBlocked !== null || (!git && draft.folder_paths.length === 0) || (editing !== null && !dirty)
+          }
+        >
           {busy && <Spinner />}
           {editing ? "Save" : git && draft.clone_now ? "Save and clone" : "Save project"}
         </Button>

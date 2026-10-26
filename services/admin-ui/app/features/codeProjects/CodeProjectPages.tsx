@@ -32,7 +32,7 @@ export function CodeProjectOverviewPage() {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <section aria-label="Repository" className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Repository</h2>
+        <h3 className="text-lg font-semibold">Repository</h3>
         {project.description && <p className="text-muted-foreground">{project.description}</p>}
         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
           <dt className="text-muted-foreground">Source</dt>
@@ -58,7 +58,7 @@ export function CodeProjectOverviewPage() {
         {project.sync_error && <p className="text-destructive">{project.sync_error}</p>}
       </section>
       <section aria-label="Checkout folders" className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Checkout folders</h2>
+        <h3 className="text-lg font-semibold">Checkout folders</h3>
         {project.folder_paths.length === 0 ? (
           <p className="text-muted-foreground">Not cloned yet.</p>
         ) : (
@@ -71,7 +71,7 @@ export function CodeProjectOverviewPage() {
       </section>
       <section aria-label="Code graph" className="flex flex-col gap-2 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">Code graph</h2>
+          <h3 className="text-lg font-semibold">Code graph</h3>
           <Button
             type="button"
             size="sm"
@@ -104,7 +104,7 @@ export function CodeProjectOverviewPage() {
         {project.processing?.error && <p className="text-destructive">{project.processing.error}</p>}
       </section>
       <section aria-label="Recent syncs" className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Recent syncs</h2>
+        <h3 className="text-lg font-semibold">Recent syncs</h3>
         {project.sync_jobs.length === 0 ? (
           <p className="text-muted-foreground">No syncs yet.</p>
         ) : (
@@ -124,7 +124,7 @@ export function CodeProjectOverviewPage() {
         )}
       </section>
       <section aria-label="Built into" className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Built into</h2>
+        <h3 className="text-lg font-semibold">Built into</h3>
         {project.built_into.length === 0 ? (
           <p className="text-muted-foreground">No service is recorded as built from this code project.</p>
         ) : (
@@ -163,14 +163,17 @@ export function CodeProjectSettingsPage() {
   const [started, setStarted] = useState(0);
   return (
     <>
-      {/* Save and Discard start the form afresh, and again when the reloaded project comes with its new revision. */}
+      {/* Discard starts the form afresh; a save does when the reloaded project comes with its new revision. (A change
+          made by the chat's agent bumps the revision too, and starts it afresh, dropping unsaved edits.) */}
       <CodeProjectForm
         key={`${project.revision}:${started}`}
         project={project}
         onDirtyChange={setDirty}
         onCancel={() => setStarted((n) => n + 1)}
+        saveBlocked={
+          syncing(project) ? "A sync or code graph job is running; settings can be saved when it finishes." : null
+        }
         onSaved={(saved) => {
-          setStarted((n) => n + 1);
           setNotice(saved);
           reload();
         }}
