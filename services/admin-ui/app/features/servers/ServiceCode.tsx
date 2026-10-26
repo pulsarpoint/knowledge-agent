@@ -42,10 +42,11 @@ export default function ServiceCode() {
     return { item, id, project: known.get(id) };
   });
   const linked = new Set(rows.map((row) => row.id));
-  const choices =
-    repositories
-      ?.filter((item) => !linked.has(item.id))
-      .map((item) => ({ id: item.id, name: item.name, detail: source(item) })) ?? null;
+  const choices = loadError
+    ? []
+    : (repositories
+        ?.filter((item) => !linked.has(item.id))
+        .map((item) => ({ id: item.id, name: item.name, detail: source(item) })) ?? null);
 
   return (
     <section aria-label="Built from" className="flex min-w-0 flex-col gap-3">

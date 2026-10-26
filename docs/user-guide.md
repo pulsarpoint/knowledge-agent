@@ -128,8 +128,8 @@ Most features depend on earlier ones. A sensible order in the Administration app
 4. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
 5. **Environments** → group servers and services (e.g. `production`, `staging`).
-6. **Services** → **New service**: describe applications; on the service page link code projects and record
-   relations. Deployments are added in an environment's workspace (**Add service** on a server).
+6. **Services** → **New service**: describe applications; on the service page link code projects, record
+   relations and add deployments.
 7. **Docs → Documents** → **New** → **Write with an agent**: give a title and folder, then tell the agent what to write.
 8. **Agents** → create agents, assign a model, enable capabilities, test them.
 
@@ -481,8 +481,9 @@ and keep an open chat open):
 
 - **View** (`/services/:id/view`): description, owner and address; **Where it runs**: its environments (links to
   their workspaces) and every deployment (environment / server, runtime, name, port, version) with **Edit** and
-  **Remove** (removing a deployment also removes its connections; a deployment is added from an environment's
-  workspace: **Add service** on a server); **Related**: how many code projects, relations and connections it has,
+  **Remove** (removing a deployment also removes its connections), and **Add deployment**: a side sheet with the
+  environment, the server (that environment's servers first, then any server: a server that is not in it yet is added
+  to it with the deployment), runtime, runtime name, port, version and log location; **Related**: how many code projects, relations and connections it has,
   each a link to its tab; and **Access and code**: **Agent context (JSON)** (`/api/services/{id}/context`, a
   read-only, credential-free JSON view of the service for agents), each code project's folder in the code folder and
   each deployment's SSH status. A draft service shows its Draft badge with **Confirm** / **Discard**.

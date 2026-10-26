@@ -23,7 +23,7 @@ export default function ServiceEdit() {
   return (
     // Discard starts the form afresh; a save does when the reloaded service comes with its new revision (so does a
     // change by the chat's agent, dropping unsaved edits).
-    <ServiceForm
+    <ServiceFieldsForm
       key={`${service.revision}:${started}`}
       service={service}
       save={(value) => updateItem("services", service.id, service.revision, value)}
@@ -51,7 +51,7 @@ export function ServiceNew() {
         <AllServices />
         <h2 className="text-xl font-semibold">New service</h2>
       </div>
-      <ServiceForm
+      <ServiceFieldsForm
         service={null}
         saved={created !== null}
         save={(value) => createItem<ServiceAsset>("services", value)}
@@ -61,7 +61,7 @@ export function ServiceNew() {
   );
 }
 
-function ServiceForm({
+function ServiceFieldsForm({
   service,
   saved = false,
   save,

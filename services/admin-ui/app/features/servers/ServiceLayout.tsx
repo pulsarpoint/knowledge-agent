@@ -92,7 +92,7 @@ export default function ServiceLayout() {
 }
 
 function ServicePage({ serviceId }: { serviceId: string }) {
-  const { search } = useLocation();
+  const { pathname, search } = useLocation();
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +100,8 @@ function ServicePage({ serviceId }: { serviceId: string }) {
   const [version, setVersion] = useState(0);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const reload = () => setVersion((value) => value + 1);
+  // A notice belongs to the tab it was given on.
+  useEffect(() => setNotice(""), [pathname]);
 
   useEffect(() => {
     const controller = new AbortController();

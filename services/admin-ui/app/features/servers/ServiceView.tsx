@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { FileJson } from "lucide-react";
+import { FileJson, Plus } from "lucide-react";
+import AddDeploymentSheet from "./AddDeploymentSheet";
 import type { Deployment } from "./inventory";
 import type { ServiceAsset, ServiceDeployment } from "./services";
 import { builtFrom, RELATION_TABS, tabRelations, useServicePage, type RelationTab } from "./ServiceLayout";
@@ -50,6 +51,7 @@ export default function ServiceView() {
   const { service, services, relations, deployments, connections, changed, conflict, ask } = useServicePage();
   const { search } = useLocation();
   const [editing, setEditing] = useState<Deployment | null>(null);
+  const [adding, setAdding] = useState(false);
   const places = new Map(service.deployments.map((item) => [item.id, `${item.environment} / ${item.server.name}`]));
   const tab = (page: string) => ({ pathname: servicePath(service.id, page), search });
   const counts = [
@@ -99,7 +101,13 @@ export default function ServiceView() {
         </dl>
       </section>
       <section aria-label="Where it runs" className="flex flex-col gap-2 text-sm">
-        <h3 className="text-lg font-semibold">Where it runs</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold">Where it runs</h3>
+          <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <Plus data-icon="inline-start" />
+            Add deployment
+          </Button>
+        </div>
         {service.environments.length > 0 && (
           <p className="flex flex-wrap gap-x-3 gap-y-1">
             {service.environments.map((environment) => (
@@ -114,9 +122,7 @@ export default function ServiceView() {
           </p>
         )}
         {deployments.length === 0 ? (
-          <p className="text-muted-foreground">
-            No deployment recorded. Add one from an environment's workspace (Add service on a server).
-          </p>
+          <p className="text-muted-foreground">No deployment recorded.</p>
         ) : (
           <List>
             {deployments.map((item) => {
@@ -152,6 +158,17 @@ export default function ServiceView() {
         </ul>
       </section>
       <AccessAndCode service={service} />
+      {adding && (
+        <AddDeploymentSheet
+          serviceId={service.id}
+          serviceName={service.name}
+          onSaved={() => {
+            setAdding(false);
+            changed();
+          }}
+          onClose={() => setAdding(false)}
+        />
+      )}
       {editing && (
         <DeploymentSheet
           deployment={editing}

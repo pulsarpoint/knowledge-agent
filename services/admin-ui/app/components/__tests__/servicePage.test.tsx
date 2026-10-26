@@ -16,6 +16,42 @@ import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 import type { Connection, Deployment, Relation } from "~/features/servers/inventory";
 
 vi.mock("~/components/Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
+vi.mock("~/features/sessions/useSessionEvents", async () => {
+  const { useState } = await import("react");
+  return {
+    useSessionEvents: () => {
+      const [error, setError] = useState("");
+      return {
+        session: null,
+        setSession: vi.fn(),
+        error,
+        setError,
+        events: [],
+        older: "start",
+        loadOlder: vi.fn(),
+        toolCounts: undefined,
+        reconnecting: false,
+      };
+    },
+    useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
+  };
+});
+vi.mock("~/features/sessions/RunWorkspace", () => ({
+  default: ({ heading, headerActions, empty, composer }: Record<string, any>) => (
+    <div>
+      {heading}
+      {headerActions}
+      {empty}
+      <label>
+        Message
+        <textarea value={composer.value} onChange={(e) => composer.onChange(e.target.value)} />
+      </label>
+      <button type="button" onClick={composer.onSend}>
+        Send message
+      </button>
+    </div>
+  ),
+}));
 
 /** The service routes as routes.ts declares them. */
 const serviceRoutes: RouteObject[] = [
@@ -129,6 +165,23 @@ const relations = [
   relation("rel4", "v1", "depends_on", { to_service_id: "v2", description: "stores payments" }),
   relation("rel5", "v5", "part_of", { to_service_id: "v1" }),
 ];
+const environments = [
+  {
+    id: "e-prod",
+    name: "prod",
+    servers: [
+      { id: "s-app-1", name: "app-1" },
+      { id: "s-db-1", name: "db-1" },
+    ],
+  },
+  { id: "e-staging", name: "staging", servers: [{ id: "s-app-2", name: "app-2" }] },
+];
+const servers = [
+  { id: "s-app-1", name: "app-1", hostname: "10.0.0.1" },
+  { id: "s-app-2", name: "app-2", hostname: "10.0.0.2" },
+  { id: "s-db-1", name: "db-1", hostname: "10.0.0.3" },
+  { id: "s-new", name: "new-1", hostname: "10.0.0.9" },
+];
 type Route = (body: any) => [number, unknown];
 function api(extra: Record<string, Route> = {}, list = services, rels = relations) {
   return stubApi({
@@ -143,6 +196,9 @@ function api(extra: Record<string, Route> = {}, list = services, rels = relation
       { repositories: [repository("r1", "payments-repo"), repository("r2", "shared-lib")] },
     ],
     "GET /api/storage": () => [200, { locations: [] }],
+    "GET /api/sessions?tag=services%2Fv1": () => [200, { sessions: [] }],
+    "GET /api/environments": () => [200, { environments }],
+    "GET /api/servers": () => [200, { servers }],
     "POST /api/relations": (body) => [201, { ...body, id: "rel-new", status: "confirmed", revision: 1 }],
     ...extra,
   });
@@ -463,4 +519,125 @@ test("New service: the Edit page empty; Save creates the service and opens its V
     ],
   ]);
   expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+test("View: Add deployment picks an environment and a server (members first), creates the deployment and reloads", async () => {
+  const calls = api({
+    "POST /api/deployments": (body) => [201, { ...body, id: "d9", status: "confirmed", revision: 1 }],
+  });
+  show("/services/v1/view");
+  await userEvent.click(await screen.findByRole("button", { name: "Add deployment" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Add deployment" }));
+  expect(sheet.getByRole("button", { name: "Save" })).toBeDisabled();
+  await userEvent.click(sheet.getByRole("combobox", { name: "Environment" }));
+  await userEvent.click(await screen.findByRole("option", { name: "prod" }));
+  await userEvent.click(sheet.getByRole("combobox", { name: "Server" }));
+  const members = within(await screen.findByRole("group", { name: "In prod" }));
+  expect(members.getAllByRole("option").map((item) => item.textContent)).toEqual(["app-1", "db-1"]);
+  const others = within(screen.getByRole("group", { name: "Other servers" }));
+  expect(others.getAllByRole("option").map((item) => item.textContent)).toEqual(["app-2", "new-1"]);
+  await userEvent.click(others.getByRole("option", { name: "new-1" }));
+  expect(sheet.getByText("Saving adds new-1 to prod.")).toBeInTheDocument();
+  await userEvent.type(sheet.getByLabelText("Runtime"), "docker");
+  await userEvent.type(sheet.getByLabelText("Runtime name"), "payments");
+  await userEvent.type(sheet.getByLabelText("Port"), "9000");
+  await userEvent.type(sheet.getByLabelText("Version"), "2.0");
+  await userEvent.type(sheet.getByLabelText("Log location"), "stdout");
+  const loads = () => calls.filter((call) => call.key === "GET /api/services/v1/deployments").length;
+  expect(loads()).toBe(1);
+  await userEvent.click(sheet.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(writes(calls)).toEqual([
+      [
+        "POST /api/deployments",
+        {
+          service_id: "v1",
+          environment_id: "e-prod",
+          server_id: "s-new",
+          runtime: "docker",
+          runtime_name: "payments",
+          port: 9000,
+          deployed_version: "2.0",
+          log_location: "stdout",
+        },
+      ],
+    ]),
+  );
+  await waitFor(() => expect(loads()).toBe(2));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add deployment" })).toBeNull());
+});
+
+test("View: a refused Add deployment keeps the sheet open with the API's message", async () => {
+  api({ "POST /api/deployments": () => [409, { error: { message: "This service already runs there" } }] });
+  show("/services/v1/view");
+  await userEvent.click(await screen.findByRole("button", { name: "Add deployment" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Add deployment" }));
+  await userEvent.click(sheet.getByRole("combobox", { name: "Environment" }));
+  await userEvent.click(await screen.findByRole("option", { name: "prod" }));
+  await userEvent.click(sheet.getByRole("combobox", { name: "Server" }));
+  await userEvent.click(await screen.findByRole("option", { name: "app-1" }));
+  expect(sheet.queryByText(/Saving adds/)).toBeNull();
+  await userEvent.click(sheet.getByRole("button", { name: "Save" }));
+  expect(await sheet.findByText("This service already runs there")).toBeInTheDocument();
+});
+
+test("Chat on a sub-page opens the chat panel with Conversations; a new chat starts from the service", async () => {
+  const calls = api({
+    "POST /api/sessions": () => [201, { id: "r9", title: "Chat r9", status: "starting", tags: ["services/v1"] }],
+  });
+  show("/services/v1/code");
+  await userEvent.click(await screen.findByRole("button", { name: "Chat" }));
+  const panel = within(await screen.findByTestId("resource-chat"));
+  expect(panel.getByRole("button", { name: "Conversations" })).toBeInTheDocument();
+  const pane = within(await screen.findByRole("region", { name: "Ask agent" }));
+  await waitFor(() => expect(pane.getByRole("button", { name: "Settings" })).toBeEnabled());
+  await userEvent.type(pane.getByLabelText("Message"), "What does it need?");
+  await userEvent.click(pane.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(calls.some((call) => call.key === "POST /api/sessions")).toBe(true));
+  expect(calls.find((call) => call.key === "POST /api/sessions")!.body.started_from).toEqual({ service_id: "v1" });
+  expect(screen.getByRole("region", { name: "Built from" })).toBeInTheDocument();
+});
+
+test("Edit: type External shows Address and sends it; another type clears it", async () => {
+  const calls = api({ "PUT /api/services/v1": (body) => [200, { ...services[0], ...body, revision: 2 }] });
+  show("/services/v1/edit");
+  await userEvent.click(await screen.findByRole("combobox", { name: "Type" }));
+  await userEvent.click(await screen.findByRole("option", { name: "External service" }));
+  await userEvent.type(screen.getByLabelText("Address"), " pay.example.com ");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(writes(calls)).toHaveLength(1));
+  expect(writes(calls)[0][1]).toMatchObject({ service_type: "external", address: "pay.example.com" });
+});
+
+test("Edit: a stale save says the service changed meanwhile and reloads", async () => {
+  const calls = api({
+    "PUT /api/services/v1": () => [409, { error: { message: "stale", code: "STALE_REVISION" } }],
+  });
+  show("/services/v1/edit");
+  await userEvent.type(await screen.findByLabelText("Owner"), " B");
+  const loads = () => calls.filter((call) => call.key === "GET /api/services").length;
+  expect(loads()).toBe(1);
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("This was changed meanwhile. Reload to see the latest.")).toBeInTheDocument();
+  await waitFor(() => expect(loads()).toBe(2));
+});
+
+test("a notice does not follow to another tab", async () => {
+  const list = [...services];
+  api(
+    {
+      "PUT /api/services/v1": (body) => {
+        list[0] = { ...list[0], ...body, revision: 2 };
+        return [200, list[0]];
+      },
+    },
+    list,
+  );
+  show("/services/v1/edit");
+  await userEvent.type(await screen.findByLabelText("Owner"), " B");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Service saved.")).toBeInTheDocument();
+  await userEvent.click(nav().getByRole("link", { name: "Code (1)" }));
+  await screen.findByRole("region", { name: "Built from" });
+  expect(screen.queryByText("Service saved.")).toBeNull();
 });

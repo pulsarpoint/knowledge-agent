@@ -420,7 +420,7 @@ export default function ServicePanel({
   );
 }
 
-export function Part({
+function Part({
   title,
   add,
   addLabel,
