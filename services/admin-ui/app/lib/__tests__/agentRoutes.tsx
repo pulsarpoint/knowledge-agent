@@ -16,7 +16,8 @@ export const agentRoute: RouteObject = {
   ],
 };
 
-/** Renders the agent routes (and `routes`) in a data router at `path`, inside `wrap` (e.g. AdminLayout). */
+/** Renders the agent routes (and `routes`) in a data router at `path`, inside `wrap` (e.g. AdminLayout). It stubs the
+ * global Request: the test file restores it with `vi.unstubAllGlobals()` in an afterEach. */
 export function renderAgentApp(
   path: string,
   { routes = [], wrap = (outlet) => outlet }: { routes?: RouteObject[]; wrap?: (outlet: ReactNode) => ReactNode } = {},

@@ -53,6 +53,27 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 
+/** A saved agent's unsent message, kept in this browser tab per conversation (`draft:agent:<id>:<run id>`; none open
+ * yet: `draft:agent:<id>`), so leaving the Chat page and coming back keeps it. Storage that fails keeps nothing. */
+const draftKey = (scope: ChatScope, runId: string | null) =>
+  scope.kind === "agent" ? `draft:agent:${scope.id}${runId ? `:${runId}` : ""}` : null;
+function readDraft(key: string | null): string {
+  try {
+    return (key && sessionStorage.getItem(key)) || "";
+  } catch {
+    return "";
+  }
+}
+function writeDraft(key: string | null, text: string) {
+  if (!key) return;
+  try {
+    if (text) sessionStorage.setItem(key, text);
+    else sessionStorage.removeItem(key);
+  } catch {
+    /* storage off */
+  }
+}
+
 /** The chat for every agent run: the Ask agent pane on a document page (compact) and a saved agent's Chat tab. One
  * conversation at a time (the latest open run, or none yet). The first message starts a run with the current settings
  * (a saved agent's narrowed); later messages go to it. Settings opens the settings sheet (read-only while a run is open);
@@ -119,7 +140,15 @@ export default function AgentChat({
       ? loaded
       : null;
   const session = foreign ? null : loaded;
-  const [message, setMessage] = useState("");
+  const [message, setText] = useState(() => readDraft(draftKey(scope, initialRunId)));
+  const setMessage = (text: string) => {
+    setText(text);
+    writeDraft(draftKey(scope, runId), text);
+  };
+  // Another conversation (also one the run list opens) shows its own unsent message.
+  useEffect(() => {
+    setText(readDraft(draftKey(scope, runId)));
+  }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState("");
   const [sheet, setSheet] = useState(false);
@@ -172,7 +201,7 @@ export default function AgentChat({
   function pick(id: string | null) {
     setChosen(true);
     setRunId(id);
-    setMessage("");
+    setText(readDraft(draftKey(scope, id))); // that conversation's unsent message
     setRefused("");
     setInfo("");
     setSuggestions({ open: false, turn: null });
@@ -219,6 +248,7 @@ export default function AgentChat({
         setRefused("");
         try {
           const started = await startSession(startInput(scope, options, current, text));
+          writeDraft(draftKey(scope, null), ""); // sent: the new conversation starts without a draft
           pick(started.id);
           setListed((n) => n + 1);
         } catch (e) {

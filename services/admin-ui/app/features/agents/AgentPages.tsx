@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, Navigate, useBeforeUnload, useBlocker, useLocation, useSearchParams } from "react-router";
 import {
   AlertDialog,
@@ -37,8 +37,10 @@ function LeaveGuard({ dirty }: { dirty: boolean }) {
   useBeforeUnload((event) => {
     if (dirty) event.preventDefault();
   });
+  // Leave closes the dialog too: its close must not reset the navigation it just let through.
+  const leaving = useRef(false);
   const stay = () => {
-    if (blocker.state === "blocked") blocker.reset();
+    if (!leaving.current && blocker.state === "blocked") blocker.reset();
   };
   return (
     <AlertDialog open={blocker.state === "blocked"} onOpenChange={(open) => !open && stay()}>
@@ -51,7 +53,9 @@ function LeaveGuard({ dirty }: { dirty: boolean }) {
           <AlertDialogCancel onClick={stay}>Stay</AlertDialogCancel>
           <AlertDialogAction
             onClick={() => {
-              if (blocker.state === "blocked") blocker.proceed();
+              if (blocker.state !== "blocked") return;
+              leaving.current = true;
+              blocker.proceed();
             }}
           >
             Leave

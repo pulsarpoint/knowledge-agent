@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import AgentChatView from "~/features/agents/AgentChatView";
 import * as reviews from "~/features/agents/reviews";
@@ -142,11 +142,73 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", Stream);
   try {
     localStorage.clear();
+    sessionStorage.clear();
   } catch {
     /* none */
   }
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+/** The Chat page and General as sibling routes: leaving Chat unmounts it, as on the agent page. */
+const renderWithGeneral = () =>
+  render(
+    <MemoryRouter initialEntries={["/agents/ops/chat"]}>
+      <Routes>
+        <Route
+          path="/agents/ops/chat"
+          element={
+            <>
+              <Link to="/agents/ops/general">General</Link>
+              <Page />
+            </>
+          }
+        />
+        <Route path="/agents/ops/general" element={<Link to="/agents/ops/chat">Chat</Link>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+test("an unsent message survives a visit to General; sending clears it", async () => {
+  const calls = serve();
+  renderWithGeneral();
+  fireEvent.change(await screen.findByRole("textbox", { name: "Message" }), { target: { value: "Check disk" } });
+  fireEvent.click(screen.getByRole("link", { name: "General" }));
+  expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+  fireEvent.click(screen.getByRole("link", { name: "Chat" }));
+  expect(await screen.findByRole("textbox", { name: "Message" })).toHaveValue("Check disk");
+  expect(sessionStorage.getItem("draft:agent:ops")).toBe("Check disk");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(calls.find((c) => c.key === "POST /api/sessions")).toBeDefined());
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue(""));
+  expect(sessionStorage.getItem("draft:agent:ops")).toBeNull();
+  // an open conversation keeps its own draft
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "And memory?" } });
+  expect(sessionStorage.getItem("draft:agent:ops:r1")).toBe("And memory?");
+  expect(sessionStorage.getItem("draft:agent:ops")).toBeNull();
+});
+
+test("the chat works when storage throws", async () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new Error("storage off");
+  });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("storage off");
+  });
+  vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+    throw new Error("storage off");
+  });
+  const calls = serve();
+  renderChatTab();
+  await sendWhenReady("Check disk");
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({ message: "Check disk" }),
+  );
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue(""));
+});
 
 test("the first message starts a run of the saved agent with the narrowed settings", async () => {
   const calls = serve();

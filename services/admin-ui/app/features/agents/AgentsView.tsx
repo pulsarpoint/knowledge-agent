@@ -76,9 +76,14 @@ export default function AgentsView() {
       live = false;
     };
   }, [removing]);
+  // An old link (/agents?agent=<id>&view=…): the agent's page maps the view to its sub-page.
   const legacy = params.get("agent");
-  if (legacy)
-    return <Navigate replace to={`${agentPath(legacy, params.get("view") === "test" ? "chat" : "general")}${hash}`} />;
+  if (legacy) {
+    const rest = new URLSearchParams(params);
+    rest.delete("agent");
+    const query = rest.toString();
+    return <Navigate replace to={`/agents/${encodeURIComponent(legacy)}${query ? `?${query}` : ""}${hash}`} />;
+  }
   async function remove() {
     if (!removing) return;
     setBusy(true);

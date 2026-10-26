@@ -74,6 +74,7 @@ beforeEach(() => {
     run_records: 0,
   });
 });
+afterEach(() => vi.unstubAllGlobals());
 const app = (path: string) =>
   renderAgentApp(path, {
     routes: [{ path: "/agents", element: <AgentsView /> }],

@@ -4,6 +4,7 @@ import { useLocation } from "react-router";
 import * as profiles from "~/features/agents/api";
 import { renderAgentApp } from "~/lib/__tests__/agentRoutes";
 import AdminLayout from "../AdminLayout";
+import AgentsView from "~/features/agents/AgentsView";
 
 vi.mock("~/features/agents/api", async () => ({
   ...(await vi.importActual("~/features/agents/api")),
@@ -141,4 +142,21 @@ test("without unsaved changes the sections switch without asking", async () => {
   await user.click(section("Chat"));
   expect(await screen.findByText("Chat with ops on")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+test.each([
+  ["?agent=ops&view=resources", "/agents/ops/resources"],
+  ["?agent=ops&view=test&session_id=r1", "/agents/ops/chat?session_id=r1"],
+  ["?agent=ops", "/agents/ops/general"],
+])("an old All agents link %s opens the agent's sub-page", async (query, target) => {
+  renderAgentApp(`/agents${query}`, {
+    wrap: (outlet) => (
+      <>
+        {outlet}
+        <Where />
+      </>
+    ),
+    routes: [{ path: "/agents", element: <AgentsView /> }],
+  });
+  await waitFor(() => expect(where()).toBe(target));
 });
