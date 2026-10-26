@@ -448,7 +448,7 @@ function Part({
 
 /** The Confirm / Discard target of a draft item; undefined when it is confirmed. */
 export const draftOf = (
-  kind: "deployment" | "connection" | "relation",
+  kind: "deployment" | "connection" | "relation" | "code_dependency",
   item: { id: string; revision: number; status: string },
 ): DraftTarget | undefined => (item.status === "draft" ? { kind, id: item.id, revision: item.revision } : undefined);
 

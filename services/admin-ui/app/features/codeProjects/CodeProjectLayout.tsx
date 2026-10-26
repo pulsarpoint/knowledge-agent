@@ -27,6 +27,7 @@ export const useCodeProjectPage = () => useOutletContext<CodeProjectPageContext>
 
 const SECTIONS = [
   { page: "overview", label: "Overview" },
+  { page: "dependencies", label: "Dependencies" },
   { page: "documents", label: "Documents" },
   { page: "settings", label: "Settings" },
 ];
@@ -36,7 +37,7 @@ const message = (reason: unknown, fallback: string) =>
 
 /** One code project (`/code-projects/:codeProjectId`): a header (All code projects, name, Git source, ref, current
  * commit and when it was synced, sync and code graph status; Chat, Discover… when the library has discovery prompts for
- * code projects, Sync now), the sub-pages Overview, Documents and Settings as links (they keep the query, so an open
+ * code projects, Sync now), the sub-pages Overview, Dependencies, Documents and Settings as links (they keep the query, so an open
  * chat stays open) and the open sub-page. Chat opens the resource chat beside it. Reloads every 2 seconds while a sync
  * or indexing runs. */
 export default function CodeProjectLayout() {

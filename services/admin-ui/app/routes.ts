@@ -12,6 +12,7 @@ export default [
   route("code-projects/:codeProjectId", "./routes/codeProject.tsx", [
     index("./routes/codeProjectIndex.tsx"),
     route("overview", "./routes/codeProjectOverview.tsx"),
+    route("dependencies", "./routes/codeProjectDependencies.tsx"),
     route("documents", "./routes/codeProjectDocuments.tsx"),
     route("settings", "./routes/codeProjectSettings.tsx"),
   ]),

@@ -4,7 +4,8 @@ import type { ServiceAsset } from "./services";
 /** The inventory's one REST API (admin-api inventory/api.py): create, update and delete each item; the lists the pages
  * read. Updates and deletes send the revision that was read; a stale one is a 409 with the code STALE_REVISION (other
  * 409s, such as a duplicate, have no code and their own message). */
-export type ItemKind = "servers" | "services" | "environments" | "deployments" | "connections" | "relations";
+export type ItemKind =
+  "servers" | "services" | "environments" | "deployments" | "connections" | "relations" | "code-dependencies";
 export type RelationKind = "depends_on" | "part_of" | "built_from";
 /** Every inventory entry is confirmed or a draft (written by an agent; a person confirms or discards it). */
 export type Status = "draft" | "confirmed";
@@ -75,7 +76,8 @@ export const getServiceConnections = (id: string, signal?: AbortSignal) =>
   request<{ connections: Connection[] }>(`${at("services", id)}/connections`, { signal });
 
 /** What Confirm and Discard act on; a membership's id is `<environment id>:<server id>`. */
-export type DraftKind = "environment" | "server" | "service" | "deployment" | "connection" | "relation" | "membership";
+export type DraftKind =
+  "environment" | "server" | "service" | "deployment" | "connection" | "relation" | "membership" | "code_dependency";
 /** An entry Confirm or Discard reached, named as people read it ("cache on app-1 in prod", "app-1 in prod"). */
 export interface Reached {
   kind: DraftKind;

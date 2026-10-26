@@ -206,7 +206,13 @@ test("a code project chat's path and tag", () => {
   const children = (path: string) =>
     routes.find((item) => item.path === path)?.children?.map((item) => (item.index ? "(index)" : item.path));
   expect(children("code-projects")).toEqual(["(index)", "folder"]);
-  expect(children("code-projects/:codeProjectId")).toEqual(["(index)", "overview", "documents", "settings"]);
+  expect(children("code-projects/:codeProjectId")).toEqual([
+    "(index)",
+    "overview",
+    "dependencies",
+    "documents",
+    "settings",
+  ]);
 });
 
 test("the code projects list links each name to its page", async () => {

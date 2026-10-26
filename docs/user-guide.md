@@ -267,6 +267,10 @@ link with `?view=documents` opens Documents:
   relationships, languages, last processed) with **Re-index** (**Generate graph** before the first one), the recent
   syncs (status, time and error of each pull, newest first) and **Built into**: the services built from the project,
   each linked to its page.
+- **Dependencies** (`/code-projects/<id>/dependencies`) — **Depends on**: the code projects (libraries) this one
+  imports, each a link with its description; **Add** picks a code project in a side sheet with search (and an optional
+  description), **Remove** asks first, and a dependency an agent drafted shows a **Draft** badge with **Confirm** /
+  **Discard**. **Used by**: the code projects that depend on it and the services built from them (read-only links).
 - **Documents** (`/code-projects/<id>/documents`) — the documents linked to the project, with **New document** (a
   document built for the project; the New page links it to the project), **Edit** and **Delete** (asks first).
 - **Settings** (`/code-projects/<id>/settings`) — the project form edited in place: name, description, clone folder,
@@ -492,7 +496,8 @@ and keep an open chat open):
   Database, Cache, Message broker, Worker, Other), owner, description — edited in place: **Save** or **Discard**.
   Leaving with unsaved changes asks **Leave** / **Stay**.
 - **Code**: the code projects it is built from (*built from*), each a link to its page; **Add** picks a code project
-  in a side sheet with search (and an optional description).
+  in a side sheet with search (and an optional description). Under each, its **Libraries**: the code projects it
+  depends on, as links (edit them on the code project's Dependencies page).
 - **Depends on**, **Used by**, **Part of**, **Parts**: one list each of related services with their descriptions,
   each a link to its page. **Add** picks a service in a side sheet with search, with an optional "why". Depends on
   and Part of record this service's relation to the chosen one; **Used by** records that the chosen service depends

@@ -133,3 +133,22 @@ export interface CodeProjectDetail extends CodeProject {
 }
 export const getCodeProject = (id: string, signal?: AbortSignal) =>
   request<CodeProjectDetail>(`/api/code-projects/${encodeURIComponent(id)}`, { signal });
+
+/** A dependency as the code project reads it: the other end, with the dependency's own id and revision. */
+export interface CodeDependency {
+  id: string;
+  revision: number;
+  status: "draft" | "confirmed";
+  description: string;
+  code_project: { id: string; name: string };
+}
+/** What a code project depends on and what uses it (the services built from its dependents, `via` those). */
+export interface CodeDependencies {
+  depends_on: CodeDependency[];
+  used_by: {
+    code_projects: CodeDependency[];
+    services: { id: string; name: string; status: "draft" | "confirmed"; via: { id: string; name: string }[] }[];
+  };
+}
+export const getCodeDependencies = (id: string, signal?: AbortSignal) =>
+  request<CodeDependencies>(`/api/code-projects/${encodeURIComponent(id)}/dependencies`, { signal });

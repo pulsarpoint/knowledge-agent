@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Plus } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { getRepositories, type Repository } from "~/features/codeProjects/api";
+import { getCodeDependencies, getRepositories, type Repository } from "~/features/codeProjects/api";
 import { createItem, draftsUsed } from "./inventory";
 import { builtFrom, useServicePage } from "./ServiceLayout";
 import { draftOf, List, Row } from "./ServicePanel";
@@ -9,14 +10,16 @@ import PickSheet from "./PickSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 
+type Lib = { id: string; name: string };
+
 /** Where a code project's source is: its Git remote, or its local folders. */
 const source = (repository: { remote_url: string | null }) =>
   repository.remote_url?.replace(/\.git$/, "") ?? "Local folders";
 
-/** The code projects the service is built from: each links to its page, with Remove (asked first) and, for a draft, its
+/** The code projects the service is built from: each links to its page (its libraries, read-only, under it), with Remove (asked first) and, for a draft, its
  * badge with Confirm / Discard; Add picks a code project in a sheet with search. */
 export default function ServiceCode() {
-  const { service, services, relations, changed, ask } = useServicePage();
+  const { service, services, relations, version, changed, ask } = useServicePage();
   const [repositories, setRepositories] = useState<Repository[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -33,6 +36,28 @@ export default function ServiceCode() {
       });
     return () => controller.abort();
   }, []);
+
+  // The libraries (what each code project depends on), by code project id; a failed load shows none.
+  const [libraries, setLibraries] = useState<Map<string, Lib[]>>(new Map());
+  const ids = builtFrom(service.id, relations)
+    .map((item) => item.to_code_project_id ?? "")
+    .join(",");
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all(
+      ids
+        .split(",")
+        .filter(Boolean)
+        .map((id) =>
+          getCodeDependencies(id, controller.signal)
+            .then((value) => [id, value.depends_on.map((item) => item.code_project)] as [string, Lib[]])
+            .catch(() => [id, []] as [string, Lib[]]),
+        ),
+    ).then((entries) => {
+      if (!controller.signal.aborted) setLibraries(new Map(entries));
+    });
+    return () => controller.abort();
+  }, [ids, version]);
 
   const known = new Map<string, { name: string; remote_url: string | null }>(
     [...(repositories ?? []), ...service.repositories].map((item) => [item.id, item]),
@@ -68,24 +93,40 @@ export default function ServiceCode() {
         <List>
           {rows.map(({ item, id, project }) => {
             const name = project?.name ?? "an unknown code project";
+            const libs = libraries.get(id) ?? [];
             return (
-              <Row
-                key={item.id}
-                text={name}
-                href={`/code-projects/${encodeURIComponent(id)}`}
-                detail={project ? source(project) : undefined}
-                name={name}
-                draft={draftOf("relation", item)}
-                onDone={changed}
-                onRemove={() =>
-                  ask(
-                    "relations",
-                    item,
-                    `code project ${name} from ${service.name}`,
-                    "The code project stays; only the link goes.",
-                  )
-                }
-              />
+              <Fragment key={item.id}>
+                <Row
+                  text={name}
+                  href={`/code-projects/${encodeURIComponent(id)}`}
+                  detail={project ? source(project) : undefined}
+                  name={name}
+                  draft={draftOf("relation", item)}
+                  onDone={changed}
+                  onRemove={() =>
+                    ask(
+                      "relations",
+                      item,
+                      `code project ${name} from ${service.name}`,
+                      "The code project stays; only the link goes.",
+                    )
+                  }
+                />
+                {libs.length > 0 && (
+                  <li className="flex flex-wrap gap-x-2 pl-4 text-sm text-muted-foreground">
+                    <span>Libraries</span>
+                    {libs.map((lib) => (
+                      <Link
+                        key={lib.id}
+                        className="underline-offset-4 hover:underline"
+                        to={`/code-projects/${encodeURIComponent(lib.id)}`}
+                      >
+                        {lib.name}
+                      </Link>
+                    ))}
+                  </li>
+                )}
+              </Fragment>
             );
           })}
         </List>

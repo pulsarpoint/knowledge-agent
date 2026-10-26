@@ -8,6 +8,7 @@ import {
   CodeProjectOverviewPage,
   CodeProjectSettingsPage,
 } from "~/features/codeProjects/CodeProjectPages";
+import { CodeProjectDependenciesPage } from "~/features/codeProjects/CodeProjectDependencies";
 import CodeProjectsLayout from "~/features/codeProjects/CodeProjectsLayout";
 import CodeProjectsList from "~/features/codeProjects/CodeProjectsList";
 
@@ -27,6 +28,7 @@ export const codeProjectRoutes: RouteObject[] = [
     children: [
       { index: true, element: <CodeProjectIndex /> },
       { path: "overview", element: <CodeProjectOverviewPage /> },
+      { path: "dependencies", element: <CodeProjectDependenciesPage /> },
       { path: "documents", element: <CodeProjectDocumentsPage /> },
       { path: "settings", element: <CodeProjectSettingsPage /> },
     ],

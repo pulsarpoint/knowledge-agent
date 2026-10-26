@@ -422,6 +422,31 @@ test("Code lists the code projects it is built from; Add picks one in a sheet; R
   await waitFor(() => expect(writes(calls).at(-1)).toEqual(["DELETE /api/relations/rel3?revision=5", null]));
 });
 
+test("Code lists each code project's libraries under it, read-only and linked", async () => {
+  api({
+    "GET /api/code-projects/r1/dependencies": () => [
+      200,
+      {
+        depends_on: [
+          {
+            id: "d1",
+            revision: 1,
+            status: "confirmed",
+            description: "",
+            code_project: { id: "r2", name: "shared-lib" },
+          },
+        ],
+        used_by: { code_projects: [], services: [] },
+      },
+    ],
+  });
+  show("/services/v1/code");
+  const list = within(await screen.findByRole("region", { name: "Built from" }));
+  expect(await list.findByRole("link", { name: "shared-lib" })).toHaveAttribute("href", "/code-projects/r2");
+  expect(list.getByText("Libraries")).toBeInTheDocument();
+  expect(list.queryByRole("button", { name: /shared-lib/ })).toBeNull();
+});
+
 test("Connections lists connections out and in, each linking to the other service, with Add connection", async () => {
   api();
   show("/services/v1/connections");
