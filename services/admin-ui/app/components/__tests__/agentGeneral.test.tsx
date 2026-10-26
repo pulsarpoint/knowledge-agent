@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router";
-import AgentDetailView from "~/features/agents/AgentDetailView";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { renderAgentApp, section, sectionNames } from "~/lib/__tests__/agentRoutes";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
 import * as llm from "~/features/llm/api";
@@ -21,7 +21,7 @@ vi.mock("~/features/llm/api", async () => ({
   getLlmSettings: vi.fn(),
 }));
 vi.mock("~/features/agents/AgentChatView", () => ({
-  default: ({ active }: { active: boolean }) => (active ? <div>Native test chat</div> : null),
+  default: () => <div>Native test chat</div>,
 }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => <div>Agent wizard</div> }));
 
@@ -97,32 +97,29 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
-function Detail() {
-  const { id } = useParams();
-  return <AgentDetailView key={id} agentId={id!} />;
-}
 const open = (path: string) =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/agents/:id" element={<Detail />} />
-      </Routes>
-      <Toaster />
-    </MemoryRouter>,
-  );
+  renderAgentApp(path, {
+    wrap: (outlet) => (
+      <>
+        {outlet}
+        <Toaster />
+      </>
+    ),
+  });
 const TABS = ["General", "Resources", "Chat"];
 
 test.each(["writer", "search"])("every agent shows the same tabs: %s", async (id) => {
   open(`/agents/${id}`);
   await screen.findByRole("heading", { name: "Technical writer", level: 2 });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(TABS);
+  expect(sectionNames()).toEqual(TABS);
 });
 
 test.each(["ssh", "skills", "documents", "git", "mcp", "services", "nonsense"])(
   "a removed or unknown tab opens General: %s",
   async (view) => {
     open(`/agents/writer?view=${view}`);
-    expect(await screen.findByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
+    await screen.findByRole("textbox", { name: "Name" });
+    expect(section("General")).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("textbox", { name: "Name" })).toBeVisible();
   },
 );
@@ -149,18 +146,18 @@ test("General saves the model with the details", async () => {
   expect(profiles.saveProfileModel).not.toHaveBeenCalled();
 });
 
-test("the Chat tab is the native chat", async () => {
-  open("/agents/search?view=chat");
+test("the Chat page is the native chat", async () => {
+  open("/agents/search/chat");
   expect(await screen.findByText("Native test chat")).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
-  expect(screen.queryByRole("tab", { name: "Test" })).toBeNull();
+  expect(section("Chat")).toHaveAttribute("aria-current", "page");
+  expect(sectionNames()).not.toContain("Test");
   expect(screen.queryByRole("link", { name: "Start a session" })).toBeNull();
 });
 
-test("an old ?view=test link opens the Chat tab", async () => {
+test("an old ?view=test link opens the Chat page", async () => {
   open("/agents/search?view=test");
   expect(await screen.findByText("Native test chat")).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+  expect(section("Chat")).toHaveAttribute("aria-current", "page");
 });
 
 test("All agents has no type column and New agent opens one wizard", async () => {
@@ -218,7 +215,7 @@ test("General has no inventory role: every agent writes inventory drafts", async
   expect(screen.queryByText(/add and change servers, services/)).not.toBeInTheDocument();
 });
 
-test("General keeps resources saved on the Resources tab meanwhile", async () => {
+test("General saves with the resources saved on the Resources page", async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
     server: [{ type: "server", id: "s1", name: "web-1", description_short: "Web" }],
@@ -228,13 +225,12 @@ test("General keeps resources saved on the Resources tab meanwhile", async () =>
     document: [],
     mcp_server: [],
   });
-  open("/agents/search");
-  await user.type(await screen.findByRole("textbox", { name: "Instructions" }), "x");
-  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  open("/agents/search/resources");
   await user.click(await screen.findByRole("switch", { name: "web-1" }));
   await user.click(screen.getByRole("button", { name: "Save resources" }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
-  await user.click(screen.getByRole("tab", { name: "General" }));
+  await user.click(section("General"));
+  await user.type(await screen.findByRole("textbox", { name: "Instructions" }), "x");
   await user.click(screen.getByRole("button", { name: "Save details" }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(2));
   expect(vi.mocked(profiles.saveAgent).mock.calls[1][0]).toEqual(

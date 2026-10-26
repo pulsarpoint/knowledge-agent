@@ -1,7 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router";
-import AgentDetailView from "~/features/agents/AgentDetailView";
+import { renderAgentApp, sectionNames } from "~/lib/__tests__/agentRoutes";
 import * as profiles from "~/features/agents/api";
 import * as llm from "~/features/llm/api";
 
@@ -51,23 +50,12 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
-function Detail() {
-  const { id } = useParams();
-  return <AgentDetailView key={id} agentId={id!} />;
-}
-const open = (path: string) =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/agents/:id" element={<Detail />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+const open = (path: string) => renderAgentApp(path);
 
 test("the agent page has no Prompts or Versions tab", async () => {
   open("/agents/custom");
   await screen.findByRole("heading", { name: "Payments analyst", level: 2 });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Chat"]);
+  expect(sectionNames()).toEqual(["General", "Resources", "Chat"]);
 });
 
 test("General edits and saves the prompt with the agent revision", async () => {

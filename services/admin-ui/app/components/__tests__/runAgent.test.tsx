@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation, useParams } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
 
@@ -43,31 +43,25 @@ beforeEach(() => {
 });
 
 function Agent() {
-  const { search } = useLocation();
-  return (
-    <p>
-      Agent {useParams().id}
-      {search}
-    </p>
-  );
+  return <p>Agent at {useLocation().pathname}</p>;
 }
 const open = () =>
   render(
     <MemoryRouter initialEntries={["/agents"]}>
       <Routes>
         <Route path="/agents" element={<AgentsView />} />
-        <Route path="/agents/:id" element={<Agent />} />
+        <Route path="/agents/:id/*" element={<Agent />} />
       </Routes>
     </MemoryRouter>,
   );
 
-test("Run on a row opens the agent's Chat tab", async () => {
+test("Run on a row opens the agent's Chat page", async () => {
   open();
   fireEvent.click(await screen.findByRole("button", { name: "Run Operations" }));
-  expect(await screen.findByText("Agent ops?view=chat")).toBeInTheDocument();
+  expect(await screen.findByText("Agent at /agents/ops/chat")).toBeInTheDocument();
 });
 
-test("Run agent in the top bar lists the enabled agents in a sheet and opens the chosen one's Chat tab", async () => {
+test("Run agent in the top bar lists the enabled agents in a sheet and opens the chosen one's Chat page", async () => {
   open();
   expect(await screen.findByRole("button", { name: "Run Old agent" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Run agent" }));
@@ -78,5 +72,5 @@ test("Run agent in the top bar lists the enabled agents in a sheet and opens the
       .map((item) => item.textContent),
   ).toEqual(["Operations", "Triage"]);
   fireEvent.click(within(sheet).getByRole("button", { name: "Chat with Triage" }));
-  expect(await screen.findByText("Agent triage?view=chat")).toBeInTheDocument();
+  expect(await screen.findByText("Agent at /agents/triage/chat")).toBeInTheDocument();
 });

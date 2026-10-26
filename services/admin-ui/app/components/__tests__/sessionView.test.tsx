@@ -628,7 +628,7 @@ test("a chat is shown here, not redirected, and links to its agent", async () =>
   );
   expect(await screen.findByRole("link", { name: "the agent" })).toHaveAttribute(
     "href",
-    "/agents/code?view=chat&session_id=s1",
+    "/agents/code/chat?session_id=s1",
   );
 });
 

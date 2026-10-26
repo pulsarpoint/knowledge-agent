@@ -61,6 +61,9 @@ const json = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 const path = (id: string) => `/api/agents/${encodeURIComponent(id)}`;
+/** An agent's page: its General, Resources or Chat sub-page; a chat with one of its runs open (`sessionId`). */
+export const agentPath = (id: string, page: "general" | "resources" | "chat" = "general", sessionId?: string | null) =>
+  `/agents/${encodeURIComponent(id)}/${page}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`;
 export const getAgents = () => request<{ agents: AgentSummary[] }>("/api/agents");
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string) => request<Record<string, unknown>>(path(id) + "/config");

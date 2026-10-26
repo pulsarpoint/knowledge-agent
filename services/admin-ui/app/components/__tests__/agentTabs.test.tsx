@@ -1,9 +1,7 @@
-import { useState } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import AgentsView from "~/features/agents/AgentsView";
-import AgentDetailView from "~/features/agents/AgentDetailView";
+import { renderAgentApp, section, sectionNames } from "~/lib/__tests__/agentRoutes";
 import AdminLayout from "../AdminLayout";
 import * as llm from "~/features/llm/api";
 import * as profiles from "~/features/agents/api";
@@ -22,18 +20,7 @@ vi.mock("../CodeSearchAgentView", () => ({
   default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div>,
 }));
 vi.mock("~/features/agents/AgentChatView", () => ({
-  default: ({ active, agentId }: { active: boolean; agentId: string }) => {
-    const [task, setTask] = useState("");
-    return (
-      <div hidden={!active}>
-        <span>SSH test {agentId}</span>
-        <label>
-          SSH task
-          <input value={task} onChange={(event) => setTask(event.target.value)} />
-        </label>
-      </div>
-    );
-  },
+  default: ({ agentId }: { agentId: string }) => <span>SSH test {agentId}</span>,
 }));
 vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
@@ -87,37 +74,23 @@ beforeEach(() => {
     run_records: 0,
   });
 });
-function Detail() {
-  const { id } = useParams();
-  return <AgentDetailView key={id} agentId={id!} />;
-}
-function app(path: string) {
-  return (
-    <MemoryRouter initialEntries={[path]}>
-      <AdminLayout>
-        <Routes>
-          <Route path="/agents" element={<AgentsView />} />
-          <Route path="/agents/:id" element={<Detail />} />
-        </Routes>
-      </AdminLayout>
-    </MemoryRouter>
-  );
-}
+const app = (path: string) =>
+  renderAgentApp(path, {
+    routes: [{ path: "/agents", element: <AgentsView /> }],
+    wrap: (outlet) => <AdminLayout>{outlet}</AdminLayout>,
+  });
 
-test("catalog opens distinct agents with one model field and preserves SSH tasks across sections", async () => {
+test("catalog opens distinct agents with one model field; the sections are sub-pages", async () => {
   const user = userEvent.setup();
-  render(app("/agents"));
+  app("/agents");
   await user.click(await screen.findByRole("link", { name: "SSH agent" }));
   await screen.findByRole("combobox", { name: "Model" });
   expect(screen.getByRole("switch", { name: "Enable agent" })).toBeEnabled();
   expect(screen.getAllByRole("combobox", { name: "Model", hidden: true })).toHaveLength(1);
   expect(screen.queryByRole("button", { name: "Save model", hidden: true })).toBeNull(); // saved with the details
-  await user.click(screen.getByRole("tab", { name: "Chat" }));
-  await user.type(screen.getByRole("textbox", { name: "SSH task" }), "Inspect disk usage");
-  await user.click(screen.getByRole("tab", { name: "General" }));
-  await user.click(screen.getByRole("tab", { name: "Chat" }));
-  expect(screen.getByRole("textbox", { name: "SSH task" })).toHaveValue("Inspect disk usage");
-  await user.click(screen.getByRole("tab", { name: "General" }));
+  await user.click(section("Chat"));
+  expect(await screen.findByText("SSH test operations")).toBeVisible();
+  await user.click(section("General"));
   expect(await screen.findByRole("textbox", { name: "System prompt" })).toHaveValue("operations instructions");
   await user.click(
     within(screen.getByRole("region", { name: "Agent details" })).getByRole("link", { name: "All agents" }),
@@ -125,12 +98,12 @@ test("catalog opens distinct agents with one model field and preserves SSH tasks
   await user.click(await screen.findByRole("link", { name: "Payments code" }));
   await screen.findByRole("combobox", { name: "Model" });
   expect(screen.getAllByRole("combobox", { name: "Model", hidden: true })).toHaveLength(1);
-  await user.click(screen.getByRole("tab", { name: "Chat" }));
-  expect(screen.getByText("SSH test custom-code")).toBeVisible();
+  await user.click(section("Chat"));
+  expect(await screen.findByText("SSH test custom-code")).toBeVisible();
 });
 
 test("agents are created only through one New agent panel with the wizard", async () => {
-  render(app("/agents"));
+  app("/agents");
   const button = await screen.findByRole("button", { name: "New agent" });
   expect(screen.queryByRole("button", { name: "New Agent Wizard" })).toBeNull();
   expect(screen.queryByLabelText("System prompt")).toBeNull();
@@ -141,20 +114,20 @@ test("agents are created only through one New agent panel with the wizard", asyn
 });
 
 test.each(["search", "operations", "code", "custom-code"])("every agent has the same tabs: %s", async (id) => {
-  render(app(`/agents/${id}`));
+  app(`/agents/${id}`);
   await screen.findByRole("combobox", { name: "Model" });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Chat"]);
+  expect(sectionNames()).toEqual(["General", "Resources", "Chat"]);
 });
 
 test("an unknown view such as the old Tools tab opens General", async () => {
-  render(app("/agents/custom-code?view=tools"));
+  app("/agents/custom-code?view=tools");
   await screen.findByRole("combobox", { name: "Model" });
-  expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
-  expect(screen.queryByRole("tab", { name: "Tools" })).toBeNull();
+  expect(section("General")).toHaveAttribute("aria-current", "page");
+  expect(sectionNames()).not.toContain("Tools");
 });
 
 test("the agents list has no Tools column", async () => {
-  render(app("/agents"));
+  app("/agents");
   await screen.findByRole("link", { name: "Payments code" });
   expect(screen.queryByRole("columnheader", { name: "Tools" })).toBeNull();
 });
@@ -164,7 +137,7 @@ test("agent removal requires confirmation and preserves the record on conflicts"
   vi.mocked(profiles.deleteAgent)
     .mockRejectedValueOnce(new Error("Agent has retained run history."))
     .mockResolvedValue(undefined);
-  render(app("/agents"));
+  app("/agents");
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   expect(screen.getByRole("alertdialog")).toHaveTextContent(
     "Shared servers, code projects, skills, models, and documents will be kept.",
@@ -190,7 +163,7 @@ test("an agent with history lists it and is deleted with it only on the destruct
     run_records: 3,
   });
   vi.mocked(profiles.deleteAgent).mockResolvedValue(undefined);
-  render(app("/agents"));
+  app("/agents");
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   const dialog = screen.getByRole("alertdialog");
   expect(await within(dialog).findByText("2 conversations, 1 documentation session, 3 run records")).toBeVisible();
@@ -214,7 +187,7 @@ test("a delete refused because history appeared meanwhile shows that history", a
     .mockResolvedValueOnce({ conversations: 0, documentation_sessions: 0, run_records: 0 })
     .mockResolvedValue({ conversations: 1, documentation_sessions: 0, run_records: 1 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error("This agent has sessions or run history."));
-  render(app("/agents"));
+  app("/agents");
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove agent" }));
   expect(await within(screen.getByRole("alertdialog")).findByText("1 conversation, 1 run record")).toBeVisible();
@@ -234,7 +207,7 @@ test("a delete refused because the agent is working says so and keeps the dialog
     run_records: 0,
   });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
-  render(app("/agents"));
+  app("/agents");
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   await user.click(
     await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Delete agent and history" }),
@@ -250,7 +223,7 @@ test("a working agent whose history appeared meanwhile keeps the working message
     .mockResolvedValueOnce({ conversations: 0, documentation_sessions: 0, run_records: 0 })
     .mockResolvedValue({ conversations: 0, documentation_sessions: 1, run_records: 0 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
-  render(app("/agents"));
+  app("/agents");
   await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
   await user.click(await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Remove agent" }));
   const dialog = screen.getByRole("alertdialog");

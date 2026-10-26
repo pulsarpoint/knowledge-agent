@@ -200,7 +200,7 @@ test("an agent's Chat tab keeps the Agents title and description visible", async
     vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))),
   );
   render(
-    <MemoryRouter initialEntries={["/agents/code?view=chat"]}>
+    <MemoryRouter initialEntries={["/agents/code/chat"]}>
       <AdminLayout>
         <div>Agent chat</div>
       </AdminLayout>

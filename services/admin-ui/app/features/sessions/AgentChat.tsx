@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { agentPath } from "~/features/agents/api";
 import { Link, useNavigate } from "react-router";
 import { MessageSquarePlus, Settings2 } from "lucide-react";
 import {
@@ -511,7 +512,7 @@ export default function AgentChat({
             run.setSession((current) => current && { ...current, reviews: [...(current.reviews ?? []), review] })
           }
           onApplied={(target, id) => {
-            if (target === "clone") navigate(`/agents/${encodeURIComponent(id)}?view=chat`);
+            if (target === "clone") navigate(agentPath(id, "chat"));
             else {
               setInfo("Applied to this agent. New conversations use it.");
               onAgentChanged?.();

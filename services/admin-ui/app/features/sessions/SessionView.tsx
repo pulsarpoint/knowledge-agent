@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { agentPath } from "~/features/agents/api";
 import { Link } from "react-router";
 import { draftPath } from "~/features/documents/drafts";
 import {
@@ -96,10 +97,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         the {resourceWord(resource.type)}
       </Link>
     ) : session.agent_id ? (
-      <Link
-        className="underline"
-        to={`/agents/${encodeURIComponent(session.agent_id)}?view=chat&session_id=${encodeURIComponent(session.id)}`}
-      >
+      <Link className="underline" to={agentPath(session.agent_id, "chat", session.id)}>
         the agent
       </Link>
     ) : null;

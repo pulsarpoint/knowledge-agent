@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { agentPath } from "~/features/agents/api";
 import { Link, useSearchParams } from "react-router";
 import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Inbox, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -535,7 +536,7 @@ export default function EventsView() {
                               </Badge>
                               <Link
                                 className="text-primary underline underline-offset-4"
-                                to={`/agents/${encodeURIComponent(run.run.agent_id)}?view=chat&session_id=${encodeURIComponent(run.run.id)}`}
+                                to={agentPath(run.run.agent_id, "chat", run.run.id)}
                               >
                                 Open run
                               </Link>
@@ -552,7 +553,7 @@ export default function EventsView() {
                           {!run.run && run.agent_session_id && run.agent_id && (
                             <Link
                               className="text-primary underline underline-offset-4"
-                              to={`/agents/${encodeURIComponent(run.agent_id)}?view=chat&session_id=${encodeURIComponent(run.agent_session_id)}`}
+                              to={agentPath(run.agent_id, "chat", run.agent_session_id)}
                             >
                               Open agent session
                             </Link>

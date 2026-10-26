@@ -1,11 +1,11 @@
-import { useParams } from "react-router";
 import AdminLayout from "../components/AdminLayout";
-import AgentDetailView from "~/features/agents/AgentDetailView";
+import AgentLayout from "~/features/agents/AgentLayout";
+
+/** The agent page: its header and sections; the open section (General, Resources or Chat) is a child route. */
 export default function AgentDetailPage() {
-  const { agentId } = useParams();
   return (
     <AdminLayout>
-      <AgentDetailView key={agentId} agentId={agentId!} />
+      <AgentLayout />
     </AdminLayout>
   );
 }

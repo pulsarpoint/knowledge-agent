@@ -4,7 +4,15 @@ import { ArrowRight, Copy, Play, Sparkles, Trash2 } from "lucide-react";
 import AgentWizard from "./AgentWizard";
 import { toast } from "sonner";
 import { cloneAgent } from "./clones";
-import { countsSummary, deleteAgent, describeHistory, getAgentHistory, getAgents, type AgentSummary } from "./api";
+import {
+  agentPath,
+  countsSummary,
+  deleteAgent,
+  describeHistory,
+  getAgentHistory,
+  getAgents,
+  type AgentSummary,
+} from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button, buttonVariants } from "~/components/ui/button";
@@ -70,12 +78,7 @@ export default function AgentsView() {
   }, [removing]);
   const legacy = params.get("agent");
   if (legacy)
-    return (
-      <Navigate
-        replace
-        to={`/agents/${encodeURIComponent(legacy)}?view=${params.get("view") === "test" ? "chat" : "settings"}${hash}`}
-      />
-    );
+    return <Navigate replace to={`${agentPath(legacy, params.get("view") === "test" ? "chat" : "general")}${hash}`} />;
   async function remove() {
     if (!removing) return;
     setBusy(true);
@@ -113,7 +116,7 @@ export default function AgentsView() {
       setBusy(false);
     }
   }
-  const chat = (id: string) => navigate(`/agents/${encodeURIComponent(id)}?view=chat`);
+  const chat = (id: string) => navigate(agentPath(id, "chat"));
   const filtered = agents?.filter((a) =>
     `${a.name} ${a.description} ${countsSummary(a.counts)}`.toLowerCase().includes(query.toLowerCase()),
   );

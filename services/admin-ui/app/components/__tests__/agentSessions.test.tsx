@@ -104,7 +104,6 @@ function serve({
 }
 type Props = {
   available?: boolean;
-  dirty?: boolean;
   sessionId?: string;
   revision?: number;
   onAgentChanged?: () => void;
@@ -118,8 +117,6 @@ function Page(props: Props) {
         agentId="ops"
         agentName="Operations"
         available={props.available ?? true}
-        dirty={props.dirty ?? false}
-        active
         revision={props.revision ?? 3}
         onAgentChanged={props.onAgentChanged}
       />
@@ -128,7 +125,9 @@ function Page(props: Props) {
 }
 const renderChatTab = (props: Props = {}) =>
   render(
-    <MemoryRouter initialEntries={[props.sessionId ? `?view=chat&session_id=${props.sessionId}` : "?view=chat"]}>
+    <MemoryRouter
+      initialEntries={[props.sessionId ? `/agents/ops/chat?session_id=${props.sessionId}` : "/agents/ops/chat"]}
+    >
       <Page {...props} />
     </MemoryRouter>,
   );
@@ -170,15 +169,7 @@ test("the first message starts a run of the saved agent with the narrowed settin
   expect(calls.filter((c) => c.key === "POST /api/sessions")).toHaveLength(1);
 });
 
-test("the test tab cannot start while the configuration tabs have unsaved changes", async () => {
-  serve();
-  renderChatTab({ dirty: true });
-  expect(
-    await screen.findByText("Save or discard changes in the configuration tabs before starting a task."),
-  ).toBeInTheDocument();
-});
-
-test("the other cannot-start reason: a disabled agent", async () => {
+test("the cannot-start reason: a disabled agent", async () => {
   serve();
   renderChatTab({ available: false });
   expect(await screen.findByText("This agent is disabled. Enable it in General to run a task.")).toBeInTheDocument();
@@ -300,7 +291,7 @@ test("a new revision of the agent loads its options again and drops the remember
   );
   revision = 4;
   view.rerender(
-    <MemoryRouter initialEntries={["?view=chat"]}>
+    <MemoryRouter initialEntries={["/agents/ops/chat"]}>
       <Page revision={4} />
     </MemoryRouter>,
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { agentPath } from "~/features/agents/api";
 import { Link, useSearchParams } from "react-router";
 import { Bell, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -261,7 +262,7 @@ export default function NotificationsView() {
                       <dd>
                         <Link
                           className="text-primary underline underline-offset-4"
-                          to={`/agents/${encodeURIComponent(selected.agent_id)}?view=chat&session_id=${encodeURIComponent(selected.session_id)}`}
+                          to={agentPath(selected.agent_id, "chat", selected.session_id)}
                         >
                           Open run
                         </Link>

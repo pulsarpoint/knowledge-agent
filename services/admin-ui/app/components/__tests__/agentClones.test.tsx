@@ -1,7 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router";
-import AgentDetailView from "~/features/agents/AgentDetailView";
+import { renderAgentApp } from "~/lib/__tests__/agentRoutes";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
 import * as clones from "~/features/agents/clones";
@@ -114,20 +113,16 @@ beforeEach(() => {
   vi.mocked(clones.applyToOriginal).mockResolvedValue({ id: "operations", revision: 4 });
 });
 afterEach(() => vi.unstubAllGlobals());
-function Detail() {
-  const { id } = useParams();
-  return <AgentDetailView key={id} agentId={id!} />;
-}
 const open = (path: string) =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/agents" element={<AgentsView />} />
-        <Route path="/agents/:id" element={<Detail />} />
-      </Routes>
-      <Toaster />
-    </MemoryRouter>,
-  );
+  renderAgentApp(path, {
+    routes: [{ path: "/agents", element: <AgentsView /> }],
+    wrap: (outlet) => (
+      <>
+        {outlet}
+        <Toaster />
+      </>
+    ),
+  });
 
 test("Clone agent in the header menu opens the new clone", async () => {
   const user = userEvent.setup();

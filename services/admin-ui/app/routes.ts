@@ -25,7 +25,13 @@ export default [
   route("environments", "./routes/environments.tsx"),
   route("environments/:environmentId", "./routes/environment.tsx"),
   route("system-map", "./routes/systemMap.tsx"),
-  route("agents/:agentId", "./routes/agentDetail.tsx"),
+  // The agent page holds its header; each section is a sub-page (an old ?view= link redirects from the index).
+  route("agents/:agentId", "./routes/agentDetail.tsx", [
+    index("./routes/agentIndex.tsx"),
+    route("general", "./routes/agentGeneral.tsx"),
+    route("resources", "./routes/agentResources.tsx"),
+    route("chat", "./routes/agentChat.tsx"),
+  ]),
   route("agents", "./routes/agents.tsx"),
   route("output-schemas", "./routes/outputSchemas.tsx"),
   route("output-schemas/new", "./routes/outputSchemaEditor.tsx", { id: "output-schema-new" }),

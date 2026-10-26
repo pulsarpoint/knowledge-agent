@@ -5,15 +5,15 @@ the same way; none is protected.
 
 Create a specialist with a required name and system prompt, plus optional purpose
 and “when to use” description. Every agent owns one configuration; nothing is
-inherited from another agent. Agents share these tabs:
+inherited from another agent. An agent's page (`/agents/{id}`) has a header and three sub-pages:
 
-| Tab | Configuration |
+| Page | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
-| Resources | The agent's resources grouped by type (servers, services, environments, code projects, documents, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
-| Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
+| General (`/agents/{id}/general`) | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
+| Resources (`/agents/{id}/resources`) | A tab per type (servers, services, environments, code projects, documents, MCP servers) with its count, listing every resource of the project (from `GET /api/agents/{id}/options`; an environment also lists the `server_ids` and `service_ids` it brings to runs, shown as *via environment*) with a switch, a filter and **All**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
+| Chat (`/agents/{id}/chat`) | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
-Other `?view=` values (including the former `tools`) open General.
+An old `/agents/{id}?view=general|resources|chat|test` link redirects to its sub-page (`test`: Chat), keeping the rest of the query; other `?view=` values (including the former `tools`) open General. Leaving General or Resources with unsaved changes asks first.
 
 **Access.** What an agent may use is one access object, `ka.agents.access`:
 `{"resources": [{"type", "id"}]}`. Types are `server`, `service`,
@@ -31,7 +31,7 @@ skipped at run start and shown as missing in the editor; saving drops it. Nothin
 no per-kind switches, per-server instructions, skill or MCP overrides, or per-agent SSH connections; a server's own SSH
 settings and its SSH-enabled flag always apply.
 
-An agent's Chat tab runs chat sessions of the agent with its saved configuration, pinned when the session starts.
+An agent's Chat page runs chat sessions of the agent with its saved configuration, pinned when the session starts.
 The first message creates a session and adds `session_id` to the URL. Follow-ups
 retain context until the session is closed, or closed after 24 hours without activity. Reloading
 restores history and running turns. New turns keep the session’s pinned configuration; use a new session after changing the agent, or test a change on a clone.

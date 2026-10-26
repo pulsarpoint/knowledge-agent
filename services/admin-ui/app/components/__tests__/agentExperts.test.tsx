@@ -1,7 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router";
-import AgentDetailView from "~/features/agents/AgentDetailView";
+import { renderAgentApp } from "~/lib/__tests__/agentRoutes";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
 import * as llm from "~/features/llm/api";
@@ -55,19 +54,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
-function Detail() {
-  const { id } = useParams();
-  return <AgentDetailView key={id} agentId={id!} />;
-}
-const open = (path: string) =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/agents" element={<AgentsView />} />
-        <Route path="/agents/:id" element={<Detail />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+const open = (path: string) => renderAgentApp(path, { routes: [{ path: "/agents", element: <AgentsView /> }] });
 
 test("Offer as an expert needs When to use and is saved", async () => {
   const user = userEvent.setup();

@@ -332,7 +332,7 @@ Prompts**; a chat offers the prompts tagged `assistant` and the type: `server`, 
 chat needs SSH to be set up and allowed for the server. A plain chat only drafts: documents it writes
 and inventory it saves are drafts for you to confirm.
 
-Every chat (here, Ask agent beside a document, Documents → New and an agent's Chat tab) has a **Debug** tab beside the
+Every chat (here, Ask agent beside a document, Documents → New and an agent's Chat page) has a **Debug** tab beside the
 **Conversation**. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
 system prompt, with **Copy**), **Prompt** (the library prompt and version it came from, linked; the agent's
 instructions and skills), **Tools** (each name and description as the model sees it),
@@ -586,24 +586,30 @@ Review and edit the tabs (General, Prompt, Resources), then **Create agent** (en
 filled in). The agent model is optional — an agent without a model is
 saved but runs only after you choose one with **Model** on its General tab.
 
-**Agent detail tabs** (`/agents/:id`):
+**Agent page** (`/agents/:id`): a header (**All agents**, the name with its *Expert* / *Disabled* badges, the actions
+menu and the description) above three sections, each its own page: **General** (`/agents/:id/general`, where
+`/agents/:id` opens), **Resources** (`/agents/:id/resources`) and **Chat** (`/agents/:id/chat`). Switching sections keeps
+the query, so a chat's open run (`?session_id=`) is there again when you come back to Chat. Leaving General or
+Resources with unsaved changes (another section, back, any link) asks first: "You have unsaved changes. Leave without
+saving?" (**Leave** / **Stay**). An old link `/agents/:id?view=<general|resources|chat>` (and `?view=test`) opens the
+matching page, keeping the rest of its query; another `view` opens General.
 
-| Tab | What you do there |
+| Page | What you do there |
 | --- | --- |
 | **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; under **Advanced**, **Tools** (the built-in tools grouped as Documents, Inventory, Code, Servers, Memory and Agents; untick the ones this agent must never get, **All** / **None** per group, "N of M tools on"; tools added later are on); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
-| **Resources** | What the agent may use: a tab per type (Servers, Services, Environments, Code projects, Documents, MCP servers) with its count, e.g. *Servers 3/12*. Each tab lists every resource of that type with a switch (on: the agent has it); **Filter** narrows the list and **All** switches every listed one on or off (only the filtered ones while the filter has text). A server or service that a chosen environment brings to runs says *via environment <name>*. A resource that no longer exists shows first as **missing** and is dropped when you save. Switching tabs keeps your changes; **Save resources** writes them all, **Discard changes** goes back. On a narrow screen the tabs become sections you open one by one |
+| **Resources** | What the agent may use: a tab per type (Servers, Services, Environments, Code projects, Documents, MCP servers) with its count, e.g. *Servers 3/12*. Each tab lists every resource of that type with a switch (on: the agent has it); **Filter** narrows the list and **All** switches every listed one on or off (only the filtered ones while the filter has text). A server or service that a chosen environment brings to runs says *via environment <name>*. A resource that no longer exists shows first as **missing** and is dropped when you save. Switching type tabs keeps your changes; **Save resources** writes them all, **Discard changes** goes back. On a narrow screen the tabs become sections you open one by one |
 | **Chat** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
-An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
+An agent has one configuration: what its pages show is what runs. A conversation keeps the configuration it started with.
 
-**Run an agent.** There is one way to run a saved agent: its **Chat** tab. **Run** (the play button) on an agent's row
-opens that agent's Chat tab (`/agents/<id>?view=chat`); **Run agent** next to **New agent** opens a sheet listing the
-enabled agents, and choosing one opens its Chat tab. A disabled agent's **Run** is off. Its turns are **Chat** runs in
+**Run an agent.** There is one way to run a saved agent: its **Chat** page. **Run** (the play button) on an agent's row
+opens that agent's Chat page (`/agents/<id>/chat`); **Run agent** next to **New agent** opens a sheet listing the
+enabled agents, and choosing one opens its Chat page. A disabled agent's **Run** is off. Its turns are **Chat** runs in
 Agent runs (4.14).
 
 **Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the conversations and other history deleted with it), or keep it as an alternative.
 
-**Chat tab.** The Chat tab (`?view=chat`; an old `?view=test` link opens it too) is the same chat as **Ask agent**. Type
+**Chat page.** The Chat page (`/agents/<id>/chat`; an old `?view=chat` or `?view=test` link opens it too) is the same chat as **Ask agent**. Type
 a message and send it: it starts a chat run, which the
 agent session worker runs (the URL keeps `session_id`). The workspace shows your message, a collapsed **Worked** block
 (thinking, tool calls with their results, comments you sent while it worked) and the answer; the
@@ -656,7 +662,7 @@ records, session pages and agent chats show how often each tool was used.
 **Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except
 `run_subagent`, and some or all of the run's resources, but not the conversation (helpers only read: no document or inventory
 writes). Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
-default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. In the Chat tab and on the
+default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. On the Chat page and on the
 session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
 answer (**Main agent** goes back). The header and the main agent's entry count the whole run including helpers, while
@@ -669,7 +675,7 @@ experts in its chat **Settings**. An expert works on
 its own resources, or on those the caller passes, which must be the caller's own and in the expert's resources. An expert starts without the
 conversation, may start its own subagents, uses its own model and keys, and returns its final
 answer. The helpers of one turn (subagents and expert calls together) are limited to 16; sessions started before an
-expert was added do not see it. In the Chat tab and on the session page an expert call appears in the Worked block as
+expert was added do not see it. On the Chat page and on the session page an expert call appears in the Worked block as
 `Asked <name> · <task>` with **Open**, and under **Agents in this run** as `Expert · <name>` once it has started
 (selecting it shows its history; **Main agent** goes back); a call refused before it started shows as a failed tool
 line. In **Agent runs**, filtering by the expert's agent lists the calls made to it as "Called as expert by <caller>";
@@ -687,8 +693,7 @@ tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: message ≤ 20,000 characters; a chat session's turns have no time
 limit (they end with the answer, **Stop**, **New chat** (it closes the open run) or a lost worker), and a session closes after 24 hours
-without activity. A message is blocked if the agent is disabled, has no enabled model, or other tabs have unsaved
-changes.
+without activity. A message is blocked if the agent is disabled or has no enabled model.
 
 Saving the agent's settings changes what runs next. Migration 0133 removed **Answer only from documents** (agents find
 documents with `search_documents` and read them with `get_document`).
@@ -727,9 +732,9 @@ with `edit_document`, and never say the document is published. If you write your
 `update_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
 JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) are offered only when you tick them. The run gets
 every tool, including `run_subagent`; what each may reach follows the resources you chose (for example `ssh_run` only
-on the chosen servers), as in an agent's Chat tab.
+on the chosen servers), as in an agent's Chat page.
 
-**The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Chat tab: the
+**The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Chat page: the
 main pane shows each turn (your message, a collapsed **Worked** block with thinking, tool calls and results, and the answer)
 and scrolls on its own; the message box is always visible. After you scroll up it stops following new events and shows
 **Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up. The header shows tokens
@@ -874,13 +879,13 @@ sessions, earlier test chats, document runs and the earlier Generate documents s
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Chat** (turns of an agent's chats, from its Chat tab), **Event session** (event run
+characters. The run type filter offers **Chat** (turns of an agent's chats, from its Chat page), **Event session** (event run
 turns), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
 can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
 finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
 started) and by user (part of the email, press Enter).
 Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
-/ **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat tab and from each
+/ **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat page and from each
 document run turn.
 Records are kept until deleted; only administrators can see them.
 
@@ -1041,7 +1046,7 @@ Administration → **Notifications** lists what agents answered when a handler s
 Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the answer
 (taken from its first 200 characters, cut off when long). Everyone sees the same list. Filter by status or search the
 title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
-failed), the agent, **Open run**, which opens the run in the agent's Chat tab, and **Open event**, which opens the event that
+failed), the agent, **Open run**, which opens the run in the agent's Chat page, and **Open event**, which opens the event that
 triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
 A notification whose answer goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
 being posted or retried, or **Not posted to KEY** with the reason. A handler that gives the ticket back adds
@@ -1162,7 +1167,7 @@ editor.
   output.
 
 **Choosing a schema for a run.** The schema belongs to the run, not to the agent: the same agent answers normally or
-with JSON depending on how it is started. Choose **Output schema** in the Chat tab's **Settings** (4.10), in a **Send to agent** handler (4.17), or send `output_schema_id` (and optionally `output_schema_version`)
+with JSON depending on how it is started. Choose **Output schema** in the Chat page's **Settings** (4.10), in a **Send to agent** handler (4.17), or send `output_schema_id` (and optionally `output_schema_version`)
 when starting a run through the API. **Current** uses the schema's current version when the run starts; the run keeps
 that exact version, so later edits do not change it. Chats on a document, a resource or Documents → New never take a
 schema ("Chats do not take an output schema.").
@@ -1173,7 +1178,7 @@ errors. Still invalid, the run fails with "Output did not match the schema", kee
 valid answer is stored on the run (up to 256 KB) and recorded as a `run.output` event that handlers can react to (a
 run a handler started records it in that event's chain, so handler loops stop at 5 levels; 4.17).
 
-**Reading the output.** The run page (and the Chat tab) shows **Output** beside the transcript: the formatted JSON with
+**Reading the output.** The run page (and the Chat page) shows **Output** beside the transcript: the formatted JSON with
 **Copy**, or the errors and raw answer of a failed run. Over the API, `GET /api/sessions/<id>/output` returns
 `{schema, output, valid, error?, errors?, raw?}`, `GET /api/sessions/<id>/status` a light status for polling, and
 `POST /api/sessions?wait=<1–120>` starts a run and waits for its result.
