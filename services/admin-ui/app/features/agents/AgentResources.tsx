@@ -1,24 +1,16 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  ACCESS_TYPES,
-  getAgentOptions,
-  saveAgent,
-  type AccessEntry,
-  type AgentOptions,
-  type AgentProfile,
-} from "./api";
+import { ACCESS_TYPES, getAgentOptions, saveAgent, type AccessType, type AgentOptions, type AgentProfile } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";
-import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "~/components/ui/field";
+import ResourceTabs from "./ResourceTabs";
 
-const same = (a: AccessEntry, b: { type: string; id: string }) => a.type === b.type && a.id === b.id;
+const same = (a: { type: string; id: string }, b: { type: string; id: string }) => a.type === b.type && a.id === b.id;
 
-/** The agent's Resources tab: what its access references, grouped by type. Add from the project's resources (or all of a
- * type) or remove; a reference to a resource that no longer exists shows as missing and is
- * dropped on save. One Save writes the agent with its access object. */
+/** The agent's Resources tab: a tab per type listing every resource of the project with a switch (on: in the agent's
+ * access). A reference to a resource that no longer exists shows as missing and is dropped on save. One Save writes the
+ * agent with its access object. */
 export default function AgentResources({
   profile,
   onSaved,
@@ -30,7 +22,6 @@ export default function AgentResources({
 }) {
   const [draft, setDraft] = useState(profile.access.resources);
   const [options, setOptions] = useState<AgentOptions>();
-  const [adding, setAdding] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -54,12 +45,49 @@ export default function AgentResources({
   useEffect(() => {
     if (!dirty) setDraft(profile.access.resources);
   }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
-  function change(next: AccessEntry[]) {
+  function change(next: AgentProfile["access"]["resources"]) {
     setDraft(next);
     setDirty(true);
   }
-  const add = (items: AccessEntry[]) =>
-    change([...draft, ...items.filter((item) => !draft.some((held) => same(held, item)))]);
+  /** One type's switches changed: entries switched off leave the draft, switched on ones join it at the end. */
+  function pick(type: AccessType, ids: string[]) {
+    const kept = draft.filter((item) => item.type !== type || ids.includes(item.id));
+    const added = (options?.[type] ?? [])
+      .filter((item) => ids.includes(item.id) && !kept.some((held) => same(held, item)))
+      .map(({ id, name, description_short }) => ({ type, id, name, description_short }));
+    change([...kept, ...added]);
+  }
+  // A server or service that a selected environment brings to runs: "via environment Production".
+  const environments = (options?.environment ?? []).filter((item) => draft.some((held) => same(held, item)));
+  const via = (type: AccessType, id: string) => {
+    const names = environments
+      .filter((item) =>
+        (type === "server" ? item.server_ids : type === "service" ? item.service_ids : [])?.includes(id),
+      )
+      .map((item) => item.name);
+    return names.length ? `via environment ${names.join(", ")}` : null;
+  };
+  // Each type lists its missing entries first, then what the draft holds that the options do not (yet), then the options.
+  const groups = ACCESS_TYPES.map(({ type, label, one, many }) => {
+    const offered = options?.[type] ?? [];
+    const held = draft.filter((item) => item.type === type && !offered.some((entry) => same(item, entry)));
+    return {
+      key: type,
+      label,
+      many,
+      items: [...held.filter((item) => item.missing), ...held.filter((item) => !item.missing), ...offered].map(
+        (item) =>
+          item.missing
+            ? {
+                id: item.id,
+                name: `Missing ${one} (${item.id})`,
+                description: "This resource no longer exists. It is dropped when you save.",
+                missing: true,
+              }
+            : { id: item.id, name: item.name, description: item.description_short, note: via(type, item.id) },
+      ),
+    };
+  });
   async function save() {
     setBusy(true);
     setError("");
@@ -83,108 +111,20 @@ export default function AgentResources({
           What this agent may use. Its runs get these resources, or a subset picked for one run.
         </CardDescription>
       </CardHeader>
-      <CardContent className="pb-6">
-        <FieldGroup>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+      <CardContent className="flex flex-col gap-4 pb-6">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <ResourceTabs
+          groups={groups}
+          value={Object.fromEntries(
+            ACCESS_TYPES.map(({ type }) => [type, draft.filter((item) => item.type === type).map((item) => item.id)]),
           )}
-          {ACCESS_TYPES.map(({ type, label, one, many }) => {
-            const held = draft.filter((item) => item.type === type);
-            const offered = (options?.[type] ?? []).filter((item) => !held.some((entry) => same(entry, item)));
-            return (
-              <FieldSet key={type}>
-                <FieldLegend>{label}</FieldLegend>
-                {held.length === 0 && <FieldDescription>No {many}.</FieldDescription>}
-                {held.length > 0 && (
-                  <div className="divide-y rounded-md border">
-                    {held.map((item) => {
-                      const name = item.missing ? `Missing ${one} (${item.id})` : item.name;
-                      return (
-                        <div key={item.id} className="flex flex-wrap items-start gap-3 p-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                              {name}
-                              {item.missing && <Badge variant="outline">missing</Badge>}
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              {item.missing
-                                ? "This resource no longer exists. It is dropped when you save."
-                                : item.description_short}
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={busy}
-                            aria-label={`Remove ${name}`}
-                            onClick={() => change(draft.filter((entry) => !same(entry, item)))}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !options}
-                    aria-label={`Add ${many}`}
-                    aria-expanded={adding === type}
-                    onClick={() => setAdding(adding === type ? null : type)}
-                  >
-                    Add
-                  </Button>
-                </div>
-                {adding === type && (
-                  <div className="flex flex-col gap-2 rounded-md border p-3">
-                    {offered.length === 0 ? (
-                      <FieldDescription>Every {one} of the project is already here.</FieldDescription>
-                    ) : (
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="self-start"
-                          disabled={busy}
-                          aria-label={`Select all ${many}`}
-                          onClick={() => add(offered)}
-                        >
-                          Select all
-                        </Button>
-                        {offered.map((item) => (
-                          <div key={item.id} className="flex items-start gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium">{item.name}</p>
-                              <p className="text-sm text-muted-foreground">{item.description_short}</p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              disabled={busy}
-                              aria-label={`Add ${item.name}`}
-                              onClick={() => add([item])}
-                            >
-                              Add
-                            </Button>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-              </FieldSet>
-            );
-          })}
-        </FieldGroup>
+          onChange={(type, ids) => pick(type as AccessType, ids)}
+          disabled={busy}
+        />
       </CardContent>
       <CardFooter className="flex-wrap gap-2">
         <Button disabled={busy || !dirty} onClick={() => void save()}>

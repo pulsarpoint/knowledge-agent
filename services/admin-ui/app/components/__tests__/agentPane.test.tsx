@@ -276,10 +276,13 @@ test("while a run is open, Settings shows the run's saved configuration, read-on
   fireEvent.click(within(pane).getByRole("button", { name: "Settings" }));
   const sheet = await screen.findByRole("dialog");
   // the page's defaults check web-1 and Payments; the run's configuration has Shop only
-  expect(within(sheet).getByRole("checkbox", { name: "Shop" })).toBeChecked();
-  expect(within(sheet).getByRole("checkbox", { name: "web-1" })).not.toBeChecked();
-  expect(within(sheet).getByRole("checkbox", { name: "Payments" })).not.toBeChecked();
-  expect(within(sheet).getByRole("checkbox", { name: "web-1" })).toBeDisabled();
+  const tabs = within(sheet)
+    .getAllByRole("tab")
+    .map((item) => item.textContent);
+  expect(tabs).toEqual(expect.arrayContaining(["Code projects 1/1", "Servers 0/2", "Services 0/1"]));
+  fireEvent.mouseDown(within(sheet).getByRole("tab", { name: /^Servers/ }));
+  expect(within(sheet).getByRole("switch", { name: "web-1" })).not.toBeChecked();
+  expect(within(sheet).getByRole("switch", { name: "web-1" })).toBeDisabled();
 });
 
 test("while a started run is still loading, another Send starts nothing", async () => {

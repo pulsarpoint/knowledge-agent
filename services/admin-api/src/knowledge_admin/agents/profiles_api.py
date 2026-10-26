@@ -62,6 +62,26 @@ def project_resources(conn, project) -> dict[str, list[dict]]:
     }
 
 
+# What each environment brings to a run (sessions.run_access.bring): the services deployed in it and its servers that
+# allow SSH. The Resources picker shows them as "via environment".
+ENVIRONMENT_MEMBERS = """SELECT d.environment_id, 'service_ids' AS field, d.service_id AS id FROM ka.service_deployments d
+    JOIN ka.services s ON s.id=d.service_id WHERE s.project_id=%(project)s AND d.environment_id IS NOT NULL
+    UNION SELECT m.environment_id, 'server_ids', m.server_id FROM ka.environment_servers m
+    JOIN ka.servers h ON h.id=m.server_id WHERE h.project_id=%(project)s AND h.ssh_allowed ORDER BY 1,2,3"""
+
+
+def with_members(conn, project, found: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    """The resources with each environment's server_ids and service_ids (what it brings to a run)."""
+    members: dict[str, dict[str, list[str]]] = {}
+    for row in conn.execute(ENVIRONMENT_MEMBERS, {'project': project}):
+        entry = members.setdefault(str(row['environment_id']), {'server_ids': [], 'service_ids': []})
+        entry[row['field']].append(str(row['id']))
+    environments = [
+        {**item, **members.get(item['id'], {'server_ids': [], 'service_ids': []})} for item in found['environment']
+    ]
+    return {**found, 'environment': environments}
+
+
 def _index(found: dict[str, list[dict]]) -> dict[tuple[str, str], dict]:
     return {(item['type'], item['id']): item for items in found.values() for item in items}
 
@@ -266,7 +286,8 @@ def build_api(app_name, store):
         with database().connect() as conn:
             if conn.execute('SELECT 1 FROM ka.agents WHERE id=%s', (agent_id,)).fetchone() is None:
                 raise HTTPException(404, 'Agent not found')
-            return project_resources(conn, store.project(conn, app_name))
+            project = store.project(conn, app_name)
+            return with_members(conn, project, project_resources(conn, project))
 
     @router.put('/{agent_id}')
     def update(agent_id: str, value: ProfileInput, request: Request):

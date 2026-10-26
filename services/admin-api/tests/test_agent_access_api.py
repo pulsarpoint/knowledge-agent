@@ -187,6 +187,17 @@ def test_options_list_every_project_resource_by_type_and_the_list_counts_access(
     assert found['service'] == [
         {'type': 'service', 'id': str(w.nginx), 'name': 'nginx', 'description_short': 'Front proxy for the shop'}
     ]
+    # an environment lists what it brings to a run: its usable servers and the services deployed in it
+    assert found['environment'] == [
+        {
+            'type': 'environment',
+            'id': str(w.environment),
+            'name': 'Production',
+            'description_short': 'Live',
+            'server_ids': [w.server['id']],
+            'service_ids': [str(w.nginx)],
+        }
+    ]
     assert [d['name'] for d in found['document']] == ['nginx runbook', 'web-1 overview']
     assert found['code_project'][0]['id'] == str(w.shop) and found['mcp_server'] == []
     with w.store.connect() as conn:

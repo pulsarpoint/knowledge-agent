@@ -10,7 +10,12 @@ vi.mock("~/features/agents/api", async () => ({
   saveAgent: vi.fn(),
 }));
 
-const entry = (type: profiles.AccessType, id: string, name: string, extra: Partial<profiles.AccessEntry> = {}) => ({
+const entry = (
+  type: profiles.AccessType,
+  id: string,
+  name: string,
+  extra: Partial<profiles.AgentOptions[profiles.AccessType][number]> = {},
+) => ({
   type,
   id,
   name,
@@ -38,7 +43,7 @@ const agent: profiles.AgentProfile = {
 const options: profiles.AgentOptions = {
   server: [entry("server", "s1", "web-1"), entry("server", "s2", "db-1"), entry("server", "s3", "cache-1")],
   service: [entry("service", "v1", "Payments")],
-  environment: [],
+  environment: [entry("environment", "e1", "Production", { server_ids: ["s2"], service_ids: ["v1"] })],
   code_project: [],
   document: [entry("document", "d1", "Runbook"), entry("document", "d2", "Guide")],
   mcp_server: [],
@@ -59,46 +64,49 @@ const show = (onSaved = vi.fn(), onDirtyChange = vi.fn()) =>
       <AgentResources profile={structuredClone(agent)} onSaved={onSaved} onDirtyChange={onDirtyChange} />
     </MemoryRouter>,
   );
-const group = (name: string) => screen.getByRole("group", { name });
+const tab = (name: RegExp) => screen.findByRole("tab", { name });
 
-test("lists the agent's resources by type with names, short descriptions and missing ones", async () => {
+test("a tab per type with counts; every resource of the project with a switch; missing ones first", async () => {
+  const user = userEvent.setup();
   show();
-  const servers = await screen.findByRole("group", { name: "Servers" });
-  expect(within(servers).getByText("web-1")).toBeVisible();
-  expect(within(servers).getByText("web-1 description")).toBeVisible();
-  expect(within(group("Documents")).queryByRole("switch")).toBeNull(); // no per-document editable pick
-  const services = group("Services");
-  expect(within(services).getByText("missing")).toBeVisible();
-  expect(within(services).getByText("Missing service (v-gone)")).toBeVisible();
-  expect(within(services).getByRole("button", { name: "Remove Missing service (v-gone)" })).toBeEnabled();
-  expect(within(services).getByText(/dropped when you save/)).toBeVisible();
-  expect(screen.queryByRole("group", { name: "Skills" })).toBeNull(); // every agent sees every enabled skill
-  expect(screen.queryByText(/skill/i)).toBeNull();
+  await screen.findByRole("switch", { name: "db-1" });
+  expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
+    "Servers 1/3",
+    "Services 1/2",
+    "Environments 0/1",
+    "Code projects 0/0",
+    "Documents 1/2",
+    "MCP servers 0/0",
+  ]);
+  expect(screen.getByRole("switch", { name: "web-1" })).toBeChecked();
+  expect(screen.getByRole("switch", { name: "db-1" })).not.toBeChecked();
+  expect(screen.getByText("web-1 description")).toBeVisible();
+  await user.click(await tab(/^Services/));
+  const services = screen.getAllByRole("switch").map((item) => item.getAttribute("aria-label"));
+  expect(services).toEqual(["All services", "Missing service (v-gone)", "Payments"]);
+  expect(screen.getByText("missing")).toBeVisible();
+  expect(screen.getByText(/dropped when you save/)).toBeVisible();
+  expect(screen.queryByText(/skill/i)).toBeNull(); // every agent sees every enabled skill
 });
 
-test("add, select all and remove make one PUT with the access object; missing ones are dropped", async () => {
+test("switches and All make one PUT with the access object; tabs keep unsaved changes; missing ones are dropped", async () => {
   const user = userEvent.setup();
   const onSaved = vi.fn();
   const onDirty = vi.fn();
   show(onSaved, onDirty);
-  await user.click(await screen.findByRole("button", { name: "Add servers" }));
-  // only what the agent does not have yet is offered
-  expect(screen.queryByRole("button", { name: "Add web-1" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Add db-1" }));
-  expect(within(group("Servers")).getByText("db-1")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Add documents" }));
-  await user.click(screen.getByRole("button", { name: "Select all documents" }));
-  expect(within(group("Documents")).getByText("Guide")).toBeVisible();
-  expect(screen.queryByRole("switch", { name: "Editable Guide" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Remove web-1" }));
-  expect(within(group("Servers")).queryByText("web-1")).toBeNull();
+  await user.click(await screen.findByRole("switch", { name: "db-1" }));
+  await user.click(screen.getByRole("switch", { name: "web-1" }));
   expect(onDirty).toHaveBeenLastCalledWith(true);
+  await user.click(await tab(/^Documents/));
+  await user.click(screen.getByRole("switch", { name: "All documents" }));
+  expect(screen.getByRole("tab", { name: "Documents 2/2" })).toBeInTheDocument();
+  await user.click(await tab(/^Servers/));
+  expect(screen.getByRole("switch", { name: "db-1" })).toBeChecked();
   await user.click(screen.getByRole("button", { name: "Save resources" }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
   const saved = vi.mocked(profiles.saveAgent).mock.calls[0][0];
   expect(saved.revision).toBe(4);
   expect(saved.instructions).toBe("Notes");
-  expect(saved.access).not.toHaveProperty("roles");
   expect(saved.access.resources.map(({ type, id }) => ({ type, id }))).toEqual([
     { type: "document", id: "d1" },
     { type: "service", id: "v-gone" }, // dropped by saveAgent
@@ -107,22 +115,43 @@ test("add, select all and remove make one PUT with the access object; missing on
   ]);
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ revision: 5 })));
   expect(onDirty).toHaveBeenLastCalledWith(false);
+  await user.click(await tab(/^Services/));
   expect(screen.queryByText("missing")).toBeNull();
 });
 
-test("select all adds every resource of a type once", async () => {
+test("a server or service a selected environment brings shows via environment", async () => {
   const user = userEvent.setup();
   show();
-  await user.click(await screen.findByRole("button", { name: "Add servers" }));
-  await user.click(screen.getByRole("button", { name: "Select all servers" }));
-  expect(within(group("Servers")).getAllByRole("button", { name: /^Remove / })).toHaveLength(3);
+  await screen.findByRole("switch", { name: "db-1" });
+  expect(screen.queryByText("via environment Production")).toBeNull();
+  await user.click(await tab(/^Environments/));
+  await user.click(screen.getByRole("switch", { name: "Production" }));
+  await user.click(await tab(/^Servers/));
+  expect(screen.getByText("via environment Production")).toBeVisible(); // db-1, a member of Production
+  await user.click(await tab(/^Services/));
+  expect(screen.getByText("via environment Production")).toBeVisible(); // Payments, deployed in it
 });
 
 test("discard restores the saved list", async () => {
   const user = userEvent.setup();
   show();
-  await user.click(await screen.findByRole("button", { name: "Remove web-1" }));
+  await user.click(await screen.findByRole("switch", { name: "web-1" }));
+  expect(screen.getByRole("switch", { name: "web-1" })).not.toBeChecked();
   await user.click(screen.getByRole("button", { name: "Discard changes" }));
-  expect(within(group("Servers")).getByText("web-1")).toBeVisible();
+  expect(screen.getByRole("switch", { name: "web-1" })).toBeChecked();
   expect(screen.getByRole("button", { name: "Save resources" })).toBeDisabled();
+});
+
+test("narrow screens show an accordion section per type", async () => {
+  const user = userEvent.setup();
+  const width = window.innerWidth;
+  window.innerWidth = 500;
+  try {
+    show();
+    await user.click(await screen.findByRole("button", { name: "Servers 1/3" }));
+    expect(await screen.findByRole("switch", { name: "db-1" })).toBeVisible();
+    expect(screen.queryByRole("tab")).toBeNull();
+  } finally {
+    window.innerWidth = width;
+  }
 });

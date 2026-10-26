@@ -11,6 +11,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 const docScope: ChatScope = { kind: "document", id: "doc-1", title: "Runbook" };
 const agentScope: ChatScope = { kind: "agent", id: "ops", name: "Operations" };
+/** Radix tabs switch on mouse down. */
+const openTab = (name: RegExp) => fireEvent.mouseDown(screen.getByRole("tab", { name }));
+const tabs = () => screen.getAllByRole("tab").map((item) => item.textContent);
 
 function Harness({
   session = null,
@@ -48,12 +51,17 @@ test("before a conversation: linked resources ticked, unusable server disabled; 
   render(<Harness />);
   expect(screen.getByRole("heading", { name: "Agent settings" })).toBeInTheDocument();
   expect(screen.getByText("What the agent may use in the next conversation on “Runbook”.")).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: "web-1" })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "prod-1" })).toBeDisabled();
+  // an ad-hoc chat lists every resource (a type with none is left out)
+  expect(tabs()).toEqual(["Documents 1/1", "Servers 1/2", "Services 1/1", "Code projects 0/1"]);
+  openTab(/^Servers/);
+  expect(screen.getByRole("switch", { name: "web-1" })).toBeChecked();
+  expect(screen.getByRole("switch", { name: "prod-1" })).toBeDisabled();
   expect(screen.getByText("SSH is not set up for this server.")).toBeInTheDocument();
   expect(screen.queryByText("Tools")).toBeNull();
   expect(screen.queryByRole("switch", { name: "Allow subagents" })).toBeNull();
-  fireEvent.click(screen.getByRole("checkbox", { name: "Shop" }));
+  openTab(/^Code projects/);
+  fireEvent.click(screen.getByRole("switch", { name: "Shop" }));
+  expect(tabs()).toContain("Code projects 1/1");
   const state = JSON.parse(screen.getByLabelText("Settings state").textContent!);
   expect(state.chosen.code_project_ids).toEqual(["c1"]);
   expect(state).not.toHaveProperty("off");
@@ -63,8 +71,8 @@ test("before a conversation: linked resources ticked, unusable server disabled; 
 
 test("the document is a checked, disabled resource, and the prompt list ends with Own prompt", () => {
   render(<Harness />);
-  expect(screen.getByRole("checkbox", { name: "Runbook" })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "Runbook" })).toBeDisabled();
+  expect(screen.getByRole("switch", { name: "Runbook" })).toBeChecked();
+  expect(screen.getByRole("switch", { name: "Runbook" })).toBeDisabled();
   expect(screen.getByText("The agent may change it (as a draft).")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
   fireEvent.click(screen.getByRole("combobox", { name: "Prompt" }));
@@ -100,7 +108,9 @@ test("read-only for an open run: its saved configuration, and Start new chat wit
   const session = { id: "r1", status: "waiting", config: { model: { name: "GPT" } } } as unknown as SessionDetail;
   render(<Harness session={session} onStartNew={onStartNew} />);
   expect(screen.getByText("This conversation's settings. They cannot change while it is open.")).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: "web-1" })).toBeDisabled();
+  openTab(/^Servers/); // the tabs still switch
+  expect(screen.getByRole("switch", { name: "web-1" })).toBeDisabled();
+  expect(screen.getByRole("textbox", { name: "Filter servers" })).toBeEnabled();
   expect(screen.getByLabelText("Run configuration").textContent).toContain('"name": "GPT"');
   expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Start new chat with these settings" }));
@@ -129,7 +139,8 @@ test("a saved agent shows its model and prompt read-only and offers only narrowi
   expect(screen.getByText("You operate servers.")).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "System prompt" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Prompt" })).toBeNull();
-  expect(screen.getByRole("checkbox", { name: "web-1" })).toBeChecked(); // everything it has, by default
+  expect(tabs()).toEqual(["Servers 1/1"]); // only its own resources
+  expect(screen.getByRole("switch", { name: "web-1" })).toBeChecked(); // everything it has, by default
   expect(screen.queryByRole("switch", { name: "Allow subagents" })).toBeNull();
   expect(screen.getByRole("checkbox", { name: "Payments expert" })).toBeChecked();
 });
@@ -150,19 +161,43 @@ test("a saved agent's run picks a subset of its documents and servers; each may 
     },
   };
   render(<Harness scope={agentScope} opts={fuller} />);
-  const guide = screen.getByRole("checkbox", { name: "Guide" });
+  const guide = screen.getByRole("switch", { name: "Guide" });
   expect(guide).toBeChecked();
   expect(guide).toBeEnabled();
   expect(screen.queryByText("Read only.")).toBeNull();
   expect(screen.getAllByText("The agent may change it (as a draft).")).toHaveLength(2);
   fireEvent.click(guide);
-  expect(screen.getByRole("checkbox", { name: "Guide" })).not.toBeChecked();
-  const db = screen.getByRole("checkbox", { name: "db-1" }); // given without SSH: it can still be left out
+  expect(screen.getByRole("switch", { name: "Guide" })).not.toBeChecked();
+  openTab(/^Servers/);
+  const db = screen.getByRole("switch", { name: "db-1" }); // given without SSH: it can still be left out
   expect(db).toBeChecked();
   fireEvent.click(db);
   const state = JSON.parse(screen.getByLabelText("Settings state").textContent!);
   expect(state.documents).toEqual(["d1"]);
   expect(state.chosen.server_ids).toEqual(["s1"]);
+});
+
+test("a saved agent's chat lists only its resources: All and the filter work within them, nothing can be added", () => {
+  const fuller: AgentOptions = {
+    ...agentOptions,
+    resources: {
+      ...agentOptions.resources,
+      servers: [
+        { id: "s1", name: "web-1", linked: false, usable: true, reason: null },
+        { id: "s2", name: "db-1", linked: false, usable: true, reason: null },
+      ],
+    },
+  };
+  render(<Harness scope={agentScope} opts={fuller} />);
+  expect(tabs()).toEqual(["Servers 2/2"]);
+  expect(screen.queryByRole("switch", { name: "prod-1" })).toBeNull(); // not the agent's: not offered
+  fireEvent.click(screen.getByRole("switch", { name: "All servers" }));
+  expect(JSON.parse(screen.getByLabelText("Settings state").textContent!).chosen.server_ids).toEqual([]);
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter servers" }), { target: { value: "db" } });
+  expect(screen.queryByRole("switch", { name: "web-1" })).toBeNull();
+  fireEvent.click(screen.getByRole("switch", { name: "All servers" }));
+  expect(JSON.parse(screen.getByLabelText("Settings state").textContent!).chosen.server_ids).toEqual(["s2"]);
+  expect(tabs()).toEqual(["Servers 1/2"]);
 });
 
 test("an open agent run shows the run's model and prompt, not the agent's current ones", () => {

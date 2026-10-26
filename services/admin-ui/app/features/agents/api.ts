@@ -52,7 +52,9 @@ export interface AgentSummary extends AgentProfile {
   original_name?: string | null;
 }
 /** Every resource of the project an agent's access may reference, by type. */
-export type AgentOptions = Record<AccessType, AccessEntry[]>;
+/** Every resource of the project by type; an environment also lists what it brings to a run (its usable servers and
+ * the services deployed in it). */
+export type AgentOptions = Record<AccessType, (AccessEntry & { server_ids?: string[]; service_ids?: string[] })[]>;
 const json = (method: string, value: unknown) => ({
   method,
   headers: { "Content-Type": "application/json" },

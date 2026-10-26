@@ -591,7 +591,7 @@ saved but runs only after you choose one with **Model** on its General tab.
 | Tab | What you do there |
 | --- | --- |
 | **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Enable agent**; under **Advanced**, **Tools** (the built-in tools grouped as Documents, Inventory, Code, Servers, Memory and Agents; untick the ones this agent must never get, **All** / **None** per group, "N of M tools on"; tools added later are on); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
-| **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**. A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
+| **Resources** | What the agent may use: a tab per type (Servers, Services, Environments, Code projects, Documents, MCP servers) with its count, e.g. *Servers 3/12*. Each tab lists every resource of that type with a switch (on: the agent has it); **Filter** narrows the list and **All** switches every listed one on or off (only the filtered ones while the filter has text). A server or service that a chosen environment brings to runs says *via environment <name>*. A resource that no longer exists shows first as **missing** and is dropped when you save. Switching tabs keeps your changes; **Save resources** writes them all, **Discard changes** goes back. On a narrow screen the tabs become sections you open one by one |
 | **Chat** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
@@ -676,8 +676,9 @@ line. In **Agent runs**, filtering by the expert's agent lists the calls made to
 opening one shows that call's record, including the expert's own subagents.
 
 **Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Chat** tab **Settings**
-lists the agent's resources by type and you pick from them (the choice is kept for the session and shown in the header
-and in **Preview**); chat settings, event handlers and expert calls narrow the same way. A run never gets more than the
+lists only the agent's resources, a tab per type, all on; switch off what the run should not get (**All** and the
+filter work within that list; nothing else can be added). The choice is kept for the session and shown in the header
+and in **Preview**; chat settings, event handlers and expert calls narrow the same way. A run never gets more than the
 agent has: a pick outside its resources is refused (`server <id> is not in the agent's access`). What a run was given brings its direct children: an environment its services and
 servers, a service its code projects and the servers it is deployed on, a server the services deployed on it
 (`get_available_resources` marks them `via <type> <id>`). The tools reach exactly the run's resources; a kind the run
@@ -835,9 +836,10 @@ without a save says so. If you edit, promote or discard the draft meanwhile, the
 How the agent works on the document is the **Revise a document** prompt (Administration → Prompts); change it there, or
 pick another prompt under Advanced.
 
-**Settings** in the chat opens what the agent may use: the model, the servers and other resources (the ones linked to
-the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the document (listed under
-Resources; the agent may change it as a draft) and the experts (none unless you tick them), and under **Advanced** the
+**Settings** in the chat opens what the agent may use: the model, the servers and other resources (a tab per type with
+every resource of the project, each with a switch, a filter and **All**; the ones linked to the document are on; a server
+whose SSH is not set up or not allowed cannot be switched on), the document (the Documents tab, always on; the agent may
+change it as a draft) and the experts (none unless you tick them), and under **Advanced** the
 prompt (**Revise a document** by default, any other saved prompt, or **Own prompt**) and the **Tools** (every tool is on; untick the ones this conversation must not get. A saved agent's own off tools show as *Off for this agent* and cannot be switched on). **Preview** shows exactly what the
 next message will start with, as JSON. Your choices are remembered for the document in this browser. While a
 conversation is open its settings are fixed: Settings shows them, and **Start new chat with these settings** closes it

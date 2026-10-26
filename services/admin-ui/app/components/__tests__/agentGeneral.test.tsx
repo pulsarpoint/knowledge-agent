@@ -231,8 +231,7 @@ test("General keeps resources saved on the Resources tab meanwhile", async () =>
   open("/agents/search");
   await user.type(await screen.findByRole("textbox", { name: "Instructions" }), "x");
   await user.click(screen.getByRole("tab", { name: "Resources" }));
-  await user.click(await screen.findByRole("button", { name: "Add servers" }));
-  await user.click(screen.getByRole("button", { name: "Add web-1" }));
+  await user.click(await screen.findByRole("switch", { name: "web-1" }));
   await user.click(screen.getByRole("button", { name: "Save resources" }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
   await user.click(screen.getByRole("tab", { name: "General" }));
