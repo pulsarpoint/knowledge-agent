@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
@@ -61,16 +61,9 @@ test("Run on a row opens the agent's Chat page", async () => {
   expect(await screen.findByText("Agent at /agents/ops/chat")).toBeInTheDocument();
 });
 
-test("Run agent in the top bar lists the enabled agents in a sheet and opens the chosen one's Chat page", async () => {
+test("the Agents page has no separate Run agent button; each row has Run", async () => {
   open();
-  expect(await screen.findByRole("button", { name: "Run Old agent" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Run agent" }));
-  const sheet = await screen.findByRole("dialog", { name: "Run agent" });
-  expect(
-    within(sheet)
-      .getAllByRole("button", { name: /^Chat with / })
-      .map((item) => item.textContent),
-  ).toEqual(["Operations", "Triage"]);
-  fireEvent.click(within(sheet).getByRole("button", { name: "Chat with Triage" }));
-  expect(await screen.findByText("Agent at /agents/triage/chat")).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Run Operations" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Run Old agent" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Run agent" })).toBeNull();
 });

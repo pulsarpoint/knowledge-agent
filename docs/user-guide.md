@@ -603,8 +603,7 @@ matching page, keeping the rest of its query; another `view` opens General.
 An agent has one configuration: what its pages show is what runs. A conversation keeps the configuration it started with.
 
 **Run an agent.** There is one way to run a saved agent: its **Chat** page. **Run** (the play button) on an agent's row
-opens that agent's Chat page (`/agents/<id>/chat`); **Run agent** next to **New agent** opens a sheet listing the
-enabled agents, and choosing one opens its Chat page. A disabled agent's **Run** is off. Its turns are **Chat** runs in
+opens that agent's Chat page (`/agents/<id>/chat`). A disabled agent's **Run** is off. Its turns are **Chat** runs in
 Agent runs (4.14).
 
 **Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the conversations and other history deleted with it), or keep it as an alternative.
