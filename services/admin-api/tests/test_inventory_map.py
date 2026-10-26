@@ -25,11 +25,19 @@ DEPLOYMENTS = {
 
 
 def inventory(
-    deployments=None, connections=(), relations=(), documents=None, members=(), external=(), drafts=()
+    deployments=None,
+    connections=(),
+    relations=(),
+    documents=None,
+    members=(),
+    external=(),
+    drafts=(),
+    code_dependencies=(),
 ) -> dict:
     """What load_project_models returns for these rows: production and staging, servers prod-1 and spare, services
     api, worker and db, code projects api-code and old-code (archived). `drafts`: the ids (and (environment, server)
-    memberships) that are drafts; everything else is confirmed."""
+    memberships) that are drafts; everything else is confirmed. `code_dependencies`: rows {id, from_code_project_id,
+    to_code_project_id, status}."""
     deployments = DEPLOYMENTS if deployments is None else deployments
 
     def item(name: str, **fields) -> dict:
@@ -106,6 +114,7 @@ def inventory(
         **build_project(environments, **rows),
         'code_projects': [{'id': E['code'], 'name': 'api-code', 'description': ''}],  # old-code is archived
         'documents': documents or {},
+        'code_dependencies': list(code_dependencies),
     }
 
 
@@ -353,3 +362,34 @@ def test_a_service_node_is_confirmed_when_one_of_its_deployments_is():
 
     assert drafts(D['api-prod']) == set()
     assert drafts(second, D['api-prod']) == {api}
+
+
+def test_services_view_draws_code_project_dependencies_between_code_projects():
+    """A fixture of its own (the captured views have no dependencies): api-code depends on lib (a draft) and on
+    old-code (archived: not drawn)."""
+    lib = uuid4()
+    draft, archived = uuid4(), uuid4()
+    found = inventory(
+        code_dependencies=[
+            {'id': draft, 'from_code_project_id': E['code'], 'to_code_project_id': lib, 'status': 'draft'},
+            {
+                'id': archived,
+                'from_code_project_id': E['code'],
+                'to_code_project_id': E['old-code'],
+                'status': 'confirmed',
+            },
+        ]
+    )
+    found['code_projects'].append({'id': lib, 'name': 'lib', 'description': ''})
+    view = build_view(found, 'services', None, 1)
+    assert view['edges'] == [
+        {
+            'from': f'code_project:{E["code"]}',
+            'to': f'code_project:{lib}',
+            'type': 'depends_on',
+            'count': 1,
+            'ids': [draft],
+            'draft': True,
+        }
+    ]
+    assert build_view(found, 'infrastructure', None, 3)['edges'] == []

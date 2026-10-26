@@ -1,6 +1,6 @@
 """The one write path for the inventory: servers, services, environments, deployments, connections, service
-relations and which servers are in which environment (membership). Every function works in the caller's transaction
-(the caller commits), scoped to one project, and returns plain dicts. Writes lock the project row first (every
+relations, code project dependencies and which servers are in which environment (membership). Every function works
+in the caller's transaction (the caller commits), scoped to one project, and returns plain dicts. Writes lock the project row first (every
 inventory writer takes that lock first, so concurrent writers serialize instead of deadlocking), validate with
 rules.py, check that referenced items exist in the project, check the revision on update and delete, and record an
 audit event with the person and, for agent runs, the agent and session.
@@ -53,6 +53,7 @@ DEPLOYMENT = """SELECT x.id,x.project_id,x.service_id,x.server_id,x.environment_
     x.log_location,x.deployed_version,x.status,x.revision FROM ka.service_deployments x"""
 CONNECTION = 'SELECT x.* FROM ka.connections x'
 RELATION = 'SELECT x.* FROM ka.service_relations x'
+CODE_DEPENDENCY = 'SELECT x.* FROM ka.code_project_dependencies x'
 
 KINDS = {
     'server': {
@@ -97,7 +98,15 @@ KINDS = {
         'fields': rules.RELATION_FIELDS,
         'duplicate': 'This relation already exists',
     },
+    'code_dependency': {
+        'table': 'ka.code_project_dependencies',
+        'read': CODE_DEPENDENCY,
+        'rule': rules.code_dependency,
+        'fields': rules.CODE_DEPENDENCY_FIELDS,
+        'duplicate': 'This dependency already exists',  # _references names the code project first
+    },
 }
+AUTHORED = ('connection', 'relation', 'code_dependency')  # kinds that record who created them
 STATUSES = ('draft', 'confirmed')
 
 
@@ -174,6 +183,47 @@ def list_relations(conn, project_id: UUID, service_id: UUID | None = None) -> li
     ).fetchall()
 
 
+def list_code_dependencies(conn, project_id: UUID) -> list[dict]:
+    return conn.execute(f'{CODE_DEPENDENCY} WHERE x.project_id=%s ORDER BY x.created_at,x.id', (project_id,)).fetchall()
+
+
+def code_project_dependencies(conn, project_id: UUID, code_project_id: UUID) -> dict:
+    """What the code project depends on and what uses it, archived code projects left out: {depends_on: [...],
+    used_by: {code_projects: [...], services: [...]}}. A dependency is {id, revision, status, description,
+    code_project: {id, name}} (the other end); used_by.services are the services built from the code projects that
+    depend on it (direct dependents only), each {id, name, status, via: [{id, name}]}."""
+    rows = conn.execute(
+        """SELECT d.id,d.revision,d.status,d.description,d.from_code_project_id=%(c)s AS outgoing,r.id AS other_id,
+        r.name AS other_name FROM ka.code_project_dependencies d
+        JOIN ka.repositories r ON r.id=CASE WHEN d.from_code_project_id=%(c)s THEN d.to_code_project_id
+            ELSE d.from_code_project_id END
+        WHERE d.project_id=%(p)s AND %(c)s IN (d.from_code_project_id,d.to_code_project_id) AND r.archived_at IS NULL
+        ORDER BY lower(r.name),r.id""",
+        {'p': project_id, 'c': code_project_id},
+    ).fetchall()
+
+    def shown(row: dict) -> dict:
+        fields = ('id', 'revision', 'status', 'description')
+        return {**{f: row[f] for f in fields}, 'code_project': {'id': row['other_id'], 'name': row['other_name']}}
+
+    dependents = [row for row in rows if not row['outgoing']]
+    services: dict = {}
+    for row in conn.execute(
+        """SELECT s.id,s.name,s.status,r.id AS via_id,r.name AS via_name FROM ka.service_relations l
+        JOIN ka.services s ON s.id=l.from_service_id JOIN ka.repositories r ON r.id=l.to_code_project_id
+        WHERE l.kind='built_from' AND l.to_code_project_id=ANY(%s) ORDER BY lower(s.name),s.id,lower(r.name),r.id""",
+        ([row['other_id'] for row in dependents],),
+    ):
+        service = services.setdefault(
+            row['id'], {'id': row['id'], 'name': row['name'], 'status': row['status'], 'via': []}
+        )
+        service['via'].append({'id': row['via_id'], 'name': row['via_name']})
+    return {
+        'depends_on': [shown(row) for row in rows if row['outgoing']],
+        'used_by': {'code_projects': [shown(row) for row in dependents], 'services': list(services.values())},
+    }
+
+
 def _project_rows(conn, project_id: UUID) -> dict:
     """The project's servers, services, deployments (with their environment's name), connections, relations, code
     projects (archived ones too, with archived_at) and memberships {environment_id, server_id}."""
@@ -207,10 +257,16 @@ def load_model_rows(conn, project_id: UUID, environment_id: UUID) -> dict:
 def load_project_models(conn, project_id: UUID, drafts: bool = True) -> dict:
     """model.build_project over the project's rows ({models, unplaced}), plus its code projects that are not archived
     {id, name, description} and the live documents linked to each entry: {(entry kind, entry id): [{id, slug, title}]}
-    (links to a deployment left out). drafts=False leaves every draft out (a confirmed entry never needs a draft, so
-    what is left is whole). One consistent read when the caller's transaction is REPEATABLE READ."""
+    (links to a deployment left out), and the code project dependencies (code_dependencies: {id, from_code_project_id,
+    to_code_project_id, status}; an end may be archived). drafts=False leaves every draft out (a confirmed entry never
+    needs a draft, so what is left is whole). One consistent read when the caller's transaction is REPEATABLE READ."""
     rows = _project_rows(conn, project_id)
     environments = list_environments(conn, project_id)
+    dependencies = [
+        {key: row[key] for key in ('id', 'from_code_project_id', 'to_code_project_id', 'status')}
+        for row in list_code_dependencies(conn, project_id)
+        if drafts or row['status'] == 'confirmed'
+    ]
     if not drafts:
         environments = [row for row in environments if row['status'] == 'confirmed']
         rows = {
@@ -235,16 +291,17 @@ def load_project_models(conn, project_id: UUID, drafts: bool = True) -> dict:
             if c['archived_at'] is None
         ],
         'documents': documents,
+        'code_dependencies': dependencies,
     }
 
 
 def created_in_session(conn, project_id: UUID, session_id: UUID) -> set[tuple[str, str]]:
-    """(kind, id) of the environments, servers, services, deployments, connections and relations an agent session
-    created (the audit's '<kind>.created' events with that session_id)."""
+    """(kind, id) of the environments, servers, services, deployments, connections, relations and code dependencies an
+    agent session created (the audit's '<kind>.created' events with that session_id)."""
     rows = conn.execute(
         """SELECT resource_type,resource_id FROM ka.audit_events WHERE project_id=%s AND details->>'session_id'=%s
         AND action IN ('environment.created','server.created','service.created','deployment.created',
-        'connection.created','relation.created')""",
+        'connection.created','relation.created','code_dependency.created')""",
         (project_id, str(session_id)),
     ).fetchall()
     return {(row['resource_type'], str(row['resource_id'])) for row in rows}
@@ -315,7 +372,26 @@ def _references(conn, project_id: UUID, kind: str, item: dict, saved: dict | Non
         kept = saved is not None and saved['to_code_project_id'] == item['to_code_project_id']
         if code_project is not None and code_project['archived_at'] is not None and not kept:
             raise Invalid('Choose a code project that is not archived')
+    if kind == 'code_dependency':
+        _code_dependency_ends(conn, project_id, item, saved)
     return {}
+
+
+def _code_dependency_ends(conn, project_id: UUID, item: dict, saved: dict | None) -> None:
+    """Both code projects exist in the project and are not archived (an end it already has stays); the pair is new
+    (Conflict naming the code project depended on; the project lock makes the check safe)."""
+    for field, label in (('from_code_project_id', 'code project'), ('to_code_project_id', 'code project to depend on')):
+        code_project = _require(conn, 'ka.repositories', project_id, item[field], label)
+        kept = saved is not None and saved[field] == item[field]
+        if code_project['archived_at'] is not None and not kept:
+            raise Invalid('Choose a code project that is not archived')
+    found = conn.execute(
+        """SELECT r.name FROM ka.code_project_dependencies d JOIN ka.repositories r ON r.id=d.to_code_project_id
+        WHERE d.from_code_project_id=%s AND d.to_code_project_id=%s AND d.id IS DISTINCT FROM %s""",
+        (item['from_code_project_id'], item['to_code_project_id'], None if saved is None else saved['id']),
+    ).fetchone()
+    if found is not None:
+        raise Conflict(rules.duplicate_dependency(found['name']))
 
 
 def _write(conn, kind: str, sql: str, params: list) -> UUID:
@@ -351,7 +427,7 @@ def _create(conn, project_id: UUID, kind: str, values: dict, author: dict, statu
     columns = {**item, **_references(conn, project_id, kind, item), 'status': status}
     if kind == 'server':
         columns['enabled'] = False  # SSH access is set up separately
-    if kind in ('connection', 'relation'):
+    if kind in AUTHORED:
         columns |= {
             'created_by': author.get('actor_id'),
             'created_by_agent': author.get('agent_id'),
@@ -472,7 +548,16 @@ def _add_member(conn, project_id: UUID, environment_id: UUID, server_id: UUID, a
 # Drafts: confirm and discard (rules.confirm_reach and rules.discard_reach say what they reach)
 
 TABLES = {kind: spec['table'] for kind, spec in KINDS.items()}
-DISCARD_ORDER = ('connection', 'relation', 'deployment', 'membership', 'service', 'server', 'environment')
+DISCARD_ORDER = (
+    'code_dependency',
+    'connection',
+    'relation',
+    'deployment',
+    'membership',
+    'service',
+    'server',
+    'environment',
+)
 
 
 def _reach_rows(conn, project_id: UUID) -> dict:
@@ -496,6 +581,9 @@ def _reach_rows(conn, project_id: UUID) -> dict:
     rows['relation'] = by_id(
         """SELECT id,from_service_id,kind,to_service_id,to_code_project_id,status FROM ka.service_relations
         WHERE project_id=%s"""
+    )
+    rows['code_dependency'] = by_id(
+        'SELECT id,from_code_project_id,to_code_project_id,status FROM ka.code_project_dependencies WHERE project_id=%s'
     )
     rows['code_project'] = by_id('SELECT id,name FROM ka.repositories WHERE project_id=%s')
     rows['membership'] = {
@@ -742,3 +830,18 @@ def update_relation(
 
 def delete_relation(conn, project_id: UUID, relation_id: UUID, revision: int, author: dict) -> dict:
     return _delete(conn, project_id, 'relation', relation_id, revision, author)
+
+
+def create_code_dependency(conn, project_id: UUID, values: dict, author: dict, status: str = 'confirmed') -> dict:
+    """Refused (Conflict) when the code project already depends on that one."""
+    return _create(conn, project_id, 'code_dependency', values, author, status)
+
+
+def update_code_dependency(
+    conn, project_id: UUID, dependency_id: UUID, revision: int, changes: dict, author: dict, status: str = 'confirmed'
+) -> dict:
+    return _update(conn, project_id, 'code_dependency', dependency_id, revision, changes, author, status)
+
+
+def delete_code_dependency(conn, project_id: UUID, dependency_id: UUID, revision: int, author: dict) -> dict:
+    return _delete(conn, project_id, 'code_dependency', dependency_id, revision, author)

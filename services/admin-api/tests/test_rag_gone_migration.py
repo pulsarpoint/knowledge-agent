@@ -84,6 +84,7 @@ def at_0133(postgres):
 
 def test_down_gives_back_the_0133_schema(store, at_0133):
     with store.connect() as conn:
+        run(conn, '0143_code_project_dependencies.down.sql')
         run(conn, '0142_test_is_chat.down.sql')
         run(conn, '0140_code_project_prompt.down.sql')
         run(conn, '0139_skill_folders.down.sql')

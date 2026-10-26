@@ -4,7 +4,8 @@ documents on each entry) — nothing about the map is stored. Two views:
 infrastructure (environment › server › service, from deployments: a server sits in the environments of its
 deployments, a service node is its deployments on one server in one environment) and services (services and code
 projects, flat). Infrastructure edges are connections between the deployment nodes; the services view draws service
-relations and the connections rolled up to the services. A connection to an external host ends on a boundary node for
+relations, the connections rolled up to the services and the code project dependencies (depends_on between code
+projects). A connection to an external host ends on a boundary node for
 that host, one to an external service on a boundary node named for the service (the services view draws the service's
 own node). Each node lists the live documents linked to its entry (ka.document_resources). A view shows one node's
 inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every edge up to the
@@ -122,7 +123,8 @@ def placements(inventory: dict, view: str) -> nx.DiGraph:
 
 def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
     """The view's edges {id, from_id, to_id, type, draft}: infrastructure, each connection between the nodes of its
-    deployments; services, each relation and each connection between the services of its deployments. A connection
+    deployments; services, each relation, each connection between the services of its deployments and each code
+    project dependency (depends_on; an archived end is not in the tree, so not drawn). A connection
     to an external host ends on that host's node, one to an external service on the service's node (infrastructure
     view; not in the tree)."""
     places = deployment_places(inventory)
@@ -172,6 +174,19 @@ def view_edges(inventory: dict, view: str, tree: nx.DiGraph) -> list[dict]:
                         'to_id': end,
                         'type': relation['kind'],
                         'draft': relation['status'] == 'draft',
+                    }
+                )
+        for dependency in inventory['code_dependencies']:
+            start = node_id('code_project', dependency['from_code_project_id'])
+            end = node_id('code_project', dependency['to_code_project_id'])
+            if start in tree and end in tree:
+                edges.append(
+                    {
+                        'id': dependency['id'],
+                        'from_id': start,
+                        'to_id': end,
+                        'type': 'depends_on',
+                        'draft': dependency['status'] == 'draft',
                     }
                 )
     return edges

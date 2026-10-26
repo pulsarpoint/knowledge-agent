@@ -247,3 +247,20 @@ def test_a_subagent_given_all_of_its_parents_resources_is_allowed():
     assert check_run_subagent(ACCESS['empty'], resources=None) is None
     assert check_run_subagent(ACCESS['code'], resources={'code_project_ids': ['c1']}) is None
     assert check_run_subagent(ACCESS['code'], resources={'code_project_ids': ['c9']}) == NOT_CODE
+
+
+def test_a_code_dependency_needs_both_code_projects_in_the_list():
+    """save_relation kind code_depends_on and remove_inventory_item kind code_dependency: code projects are never
+    created by a run, so both ends (a removal: its from-code project) must be in the access."""
+    from knowledge_admin.capabilities.inventory_tools import check_remove_inventory_item, check_save_relation
+
+    code = {'kind': 'code_depends_on', 'from_code_project_id': 'c1'}
+    found = {name: check_save_relation(access, to_code_project_id='c1', **code) for name, access in ACCESS.items()}
+    assert found == row(NOT_CODE, code=None)
+    assert check_save_relation(ACCESS['code'], to_code_project_id='c9', **code) == NOT_CODE
+    rows = {('code_dependency', 'k1'): {'from_code_project_id': 'c1', 'to_code_project_id': 'c9', 'status': 'draft'}}
+    removed = {
+        name: check_remove_inventory_item(access, kind='code_dependency', id='k1', rows=rows)
+        for name, access in ACCESS.items()
+    }
+    assert removed == row('This code dependency is not available in this run.', code=None)

@@ -1,5 +1,6 @@
-"""The inventory's one REST API: servers, services, environments, deployments, connections and service relations, each
-created, updated and deleted through inventory/store.py (the one write path), plus the lists the pages read and an
+"""The inventory's one REST API: servers, services, environments, deployments, connections, service relations and code
+project dependencies (code-dependencies), each created, updated and deleted through inventory/store.py (the one write
+path), plus the lists the pages read (a code project's dependencies: GET /code-projects/{id}/dependencies) and an
 inventory entry's documents.
 
 Writes: POST /<kind>s with the item's fields (201, the saved item); PUT /<kind>s/{id} with `revision` and the fields to
@@ -40,9 +41,12 @@ WRITERS = {
     'deployments': (store.create_deployment, store.update_deployment, store.delete_deployment),
     'connections': (store.create_connection, store.update_connection, store.delete_connection),
     'relations': (store.create_relation, store.update_relation, store.delete_relation),
+    'code-dependencies': (store.create_code_dependency, store.update_code_dependency, store.delete_code_dependency),
 }
 EntryKind = Literal['service', 'server', 'environment', 'code_project']
-DraftKind = Literal['environment', 'server', 'service', 'deployment', 'connection', 'relation', 'membership']
+DraftKind = Literal[
+    'environment', 'server', 'service', 'deployment', 'connection', 'relation', 'membership', 'code_dependency'
+]
 ENTRY_TABLES = {
     'service': 'services',
     'server': 'servers',
@@ -282,6 +286,15 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
             lambda conn, project_id: {'relations': store.list_relations(conn, project_id, service_id=service_id)},
             ('service', service_id),
         )
+
+    @router.get('/code-projects/{code_project_id}/dependencies')
+    def code_project_dependencies(code_project_id: UUID) -> dict:
+        """What the code project depends on and what uses it: {depends_on, used_by: {code_projects, services}}
+        (store.code_project_dependencies); an archived code project is a 404."""
+        db = database()
+        with workspace(db, app_name) as (conn, project_id):
+            find_entry(conn, project_id, 'code_project', code_project_id)
+            return store.code_project_dependencies(conn, project_id, code_project_id)
 
     @router.get('/services/{service_id}/context')
     def service_context(service_id: UUID) -> dict:

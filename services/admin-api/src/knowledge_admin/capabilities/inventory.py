@@ -1,9 +1,10 @@
 """Read the inventory for an agent: get_resource answers with everything recorded about one server, service,
 environment or code project, with links to related resources the model follows by their type and id (deployments,
 service relations and connections with their port and protocol; a service's connections to external hosts apart, under
-external). Every entry and link carries its status: draft (an agent's, waiting for a person) or confirmed (for a
-link: the deployment, membership, relation or connection behind it, or where none is (an environment a service is
-deployed in, a service an environment contains) the linked entry's own). Read-only.
+external; a code project's dependencies, depends_on and used_by, with the dependency's id and revision). Every entry
+and link carries its status: draft (an agent's, waiting for a person) or confirmed (for a link: the deployment,
+membership, relation, connection or code dependency behind it, or where none is (an environment a service is deployed
+in, a service an environment contains) the linked entry's own). Read-only.
 The tool runs where agents run (agent-session-worker, admin-api); configure() gives it that process's database.
 The workspace is the run's (a resource run pins config['project_id']) or the single application's. It answers only
 about a resource in the run's access object (check_get_resource); anything else, a linked resource too, reads as
@@ -131,6 +132,14 @@ CODE_PROJECT_LINKS = (
     """SELECT 'service' AS type,s.id,s.name,'builds' AS relation,l.status FROM ka.service_relations l
     JOIN ka.services s ON s.id=l.from_service_id WHERE l.kind='built_from' AND l.to_code_project_id=%s
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
+    # code project dependencies, from the other side used_by: dependency_id and revision to update or remove a draft
+    """SELECT 'code_project' AS type,r.id,r.name,
+    CASE WHEN d.from_code_project_id=%(id)s THEN 'depends_on' ELSE 'used_by' END AS relation,d.description,d.status,
+    d.id AS dependency_id,d.revision FROM ka.code_project_dependencies d
+    JOIN ka.repositories r ON r.id=CASE WHEN d.from_code_project_id=%(id)s THEN d.to_code_project_id
+        ELSE d.from_code_project_id END
+    WHERE %(id)s IN (d.from_code_project_id,d.to_code_project_id) AND r.archived_at IS NULL
+    ORDER BY d.from_code_project_id<>%(id)s,lower(r.name),r.id LIMIT {limit}""",
 )
 READS = {
     'server': (SERVER, SERVER_LINKS),

@@ -288,7 +288,14 @@ drafts (its own and others') and does not repeat them.
 **Every agent write is a draft.** Writes: `save_environment`, `save_server`, `save_service`, `save_deployment`,
 `save_connection`, `save_relation` (without `id` they create a draft; with `id` and the `revision` read they update a
 draft, which stays a draft, and omitted fields keep their values), `remove_inventory_item(kind, id, revision)` (a draft
-environment, server, service, deployment, connection or relation) and `save_inventory_draft` (below). An existing
+environment, server, service, deployment, connection, relation or `code_dependency`) and `save_inventory_draft`
+(below). `save_relation(kind="code_depends_on", from_code_project_id, to_code_project_id, description)` drafts a code
+project dependency (`ka.code_project_dependencies`, 0143: a repository that imports a library repository, recorded when
+the agent reads package.json, go.mod, pyproject.toml …); both code projects must be in the run's access (a run never
+creates a code project); a code project never depends on itself ("A code project cannot depend on itself.") and a pair
+is recorded once ("This code project already depends on <name>."). An update gives `kind="code_depends_on"` with the
+`id`; `get_resource` on a code project lists its `depends_on` and `used_by` code projects, each link with
+`dependency_id` and `revision`. An existing
 confirmed entry is refused: `This <type> is confirmed; only a person can change it. Add a new draft instead, or describe
 the change in your answer.` Only a person confirms or discards a draft (the environment workspace; `POST
 /api/inventory/{kind}/{id}/confirm` and `/discard`). `save_server(environment_id)` puts the server (new or existing,

@@ -48,6 +48,7 @@ def columns(conn) -> set[str]:
 
 def test_down_gives_back_the_0138_schema(store, at_0138):
     with store.connect() as conn:
+        run(conn, '0143_code_project_dependencies.down.sql')
         run(conn, '0142_test_is_chat.down.sql')
         run(conn, '0140_code_project_prompt.down.sql')
         run(conn, DOWN)

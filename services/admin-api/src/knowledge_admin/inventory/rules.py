@@ -44,10 +44,12 @@ CONNECTION_FIELDS = (
     'description',
 )
 RELATION_FIELDS = ('from_service_id', 'kind', 'to_service_id', 'to_code_project_id', 'description')
+CODE_DEPENDENCY_FIELDS = ('from_code_project_id', 'to_code_project_id', 'description')
 
 
 NOT_EXTERNAL_TARGET = 'Connect to an external service, or to a deployment of this service.'
 TARGETED_TYPE = 'This service is the target of connections; remove them or keep the type external.'
+SELF_DEPENDENCY = 'A code project cannot depend on itself.'
 
 
 class Invalid(ValueError):
@@ -251,19 +253,46 @@ def relation(values: dict) -> dict:
     }
 
 
+def code_dependency(values: dict) -> dict:
+    """A code project depends on another code project (a library it imports); never on itself. A cycle is allowed."""
+    _fields(values, CODE_DEPENDENCY_FIELDS)
+    source = _id(values, 'from_code_project_id')
+    target = _id(values, 'to_code_project_id')
+    if source == target:
+        raise Invalid(SELF_DEPENDENCY)
+    return {
+        'from_code_project_id': source,
+        'to_code_project_id': target,
+        'description': _text(values, 'description', 4000),
+    }
+
+
+def duplicate_dependency(name: str) -> str:
+    return f'This code project already depends on {name}.'
+
+
 # Drafts. An agent writes drafts; a person confirms a draft (with every draft it needs) or discards it (with every draft
 # that needs it). The functions below work over the project's rows keyed by kind, then id: environment, server,
-# service, deployment, connection and relation by id, membership by membership_id(environment, server), and
-# code_project (names only). Each row has its status ('draft' or 'confirmed') and the ids it refers to.
+# service, deployment, connection, relation and code_dependency by id, membership by membership_id(environment, server),
+# and code_project (names only). Each row has its status ('draft' or 'confirmed') and the ids it refers to.
 
-DRAFT_KINDS = ('environment', 'server', 'service', 'deployment', 'connection', 'relation', 'membership')
+DRAFT_KINDS = (
+    'environment',
+    'server',
+    'service',
+    'deployment',
+    'connection',
+    'relation',
+    'membership',
+    'code_dependency',
+)
 
 
 def confirmed_refusal(kind: str) -> str:
     """Why an agent cannot change a confirmed entry."""
     return (
-        f'This {kind} is confirmed; only a person can change it. Add a new draft instead, or describe the change in '
-        'your answer.'
+        f'This {kind.replace("_", " ")} is confirmed; only a person can change it. Add a new draft instead, or '
+        'describe the change in your answer.'
     )
 
 
@@ -285,7 +314,8 @@ def _needs(kind: str, row: dict) -> list[tuple[str, object]]:
     if kind == 'connection':
         ends = [('deployment', row['from_deployment_id']), ('deployment', row['to_deployment_id'])]
         return [end for end in [*ends, ('service', row['to_service_id'])] if end[1] is not None]
-    if kind == 'relation':  # a code project is never a draft
+    # a code project is never a draft: a code dependency needs nothing
+    if kind == 'relation':
         ends = [('service', row['from_service_id']), ('service', row['to_service_id'])]
         return [end for end in ends if end[1] is not None]
     return []
@@ -402,4 +432,7 @@ def entry_name(kind: str, key, rows: dict) -> str:
         end = row['to_service_id']
         target = name('service', end) if end is not None else name('code_project', row['to_code_project_id'])
         return f'{name("service", row["from_service_id"])} {row["kind"]} {target}'
+    if kind == 'code_dependency':
+        start, end = name('code_project', row['from_code_project_id']), name('code_project', row['to_code_project_id'])
+        return f'{start} depends on {end}'
     return row['name']

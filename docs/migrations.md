@@ -639,3 +639,15 @@ One way to run a saved agent: its Test sessions become chats (`UPDATE ka.agent_s
 purpose = 'test'`), and their run records' start kind `test_session` becomes `chat_session`. `test` leaves the
 `agent_sessions_purpose` check. The agent page's Test tab is now its Chat tab, and **Run agent** opens it. The down
 migration restores the check only: chats stay chats (test data).
+
+## 0143_code_project_dependencies
+
+`ka.code_project_dependencies`: a code project depends on another code project (a library it imports).
+`from_code_project_id` and `to_code_project_id` reference `ka.repositories` (with the project, `ON DELETE CASCADE`),
+`description` (at most 4000 characters), `status` draft/confirmed like the other inventory tables (an agent's row is a
+draft), `revision`, `created_by`, `created_by_agent`, `session_id` and timestamps. A pair is unique
+(`code_project_dependencies_once`) and a code project never depends on itself (`code_project_dependencies_not_self`);
+cycles are allowed and no transitive closure is stored. Services still relate to code only through `built_from`: the
+services a library affects are derived (the services built from the code projects that depend on it). Written through
+`inventory/store.py` (kind `code_dependency`: create, update, delete, confirm and discard; a draft needs nothing else and
+nothing needs it). The down migration drops the table (test data).

@@ -7,9 +7,10 @@ every entry with its status.
 
 Access (each tool's pure check_<tool>): an item is usable when it is in the run's access object, or this session
 created it (store.created_in_session); a deployment when its server, service or environment is usable (for a write:
-all three, as for a new one); a connection when its from-deployment is; a relation when its from-service is. Reads need
-the item usable. Writes need a session (its person, agent and session are the author) and every item they name usable
-(a save_server environment_id and a save_connection to_service_id included); a new environment, server or service
+all three, as for a new one); a connection when its from-deployment is; a relation when its from-service is; a code
+dependency when its from-code project is (code projects are never created by a run: they must be in the access).
+Reads need the item usable. Writes need a session (its person, agent and session are the author) and every item they
+name usable (a save_server environment_id and a save_connection to_service_id included); a new environment, server or service
 needs only some inventory resource (an environment, a server or a service) in the access. save_inventory_draft names entries instead of ids: resolve_draft (pure) turns
 its payload into a plan over the rows the run may name (_recorded), and apply_draft writes the plan in one transaction.
 The write tools are offered only in a session turn (tools/catalog.INVENTORY_WRITES): never to a subagent or an
@@ -40,7 +41,14 @@ DRAFTED = (
     'These entries are drafts: a person confirms or discards them in the environment workspace. Used entries were '
     'named, not changed (a confirmed entry is changed only by people).'
 )
-WORDS = {**access_rules.TYPE_WORDS, 'deployment': 'deployment', 'connection': 'connection', 'relation': 'relation'}
+WORDS = {
+    **access_rules.TYPE_WORDS,
+    'deployment': 'deployment',
+    'connection': 'connection',
+    'relation': 'relation',
+    'code_dependency': 'code dependency',
+}
+CODE_DEPENDS_ON = 'code_depends_on'  # save_relation's kind for a code dependency (store kind code_dependency)
 # A field naming another item → that item's kind.
 REFERENCES = {
     'environment_id': 'environment',
@@ -52,6 +60,7 @@ REFERENCES = {
     'from_service_id': 'service',
     'to_service_id': 'service',
     'to_code_project_id': 'code_project',
+    'from_code_project_id': 'code_project',
 }
 WRITERS = {
     'environment': (store.create_environment, store.update_environment, store.delete_environment),
@@ -60,8 +69,9 @@ WRITERS = {
     'deployment': (store.create_deployment, store.update_deployment, store.delete_deployment),
     'connection': (store.create_connection, store.update_connection, store.delete_connection),
     'relation': (store.create_relation, store.update_relation, store.delete_relation),
+    'code_dependency': (store.create_code_dependency, store.update_code_dependency, store.delete_code_dependency),
 }
-Kind = Literal['environment', 'server', 'service', 'deployment', 'connection', 'relation']
+Kind = Literal['environment', 'server', 'service', 'deployment', 'connection', 'relation', 'code_dependency']
 
 
 def refuse(kind: str) -> str:
@@ -69,8 +79,9 @@ def refuse(kind: str) -> str:
 
 
 def usable(access: dict, kind: str, item_id, created=frozenset(), rows=None, strict: bool = False) -> bool:
-    """In the access, created by this session, or (deployment, connection, relation) reached through its row: a
-    deployment through any of its server, service and environment, or with strict (writes) through all three."""
+    """In the access, created by this session, or (deployment, connection, relation, code dependency) reached through
+    its row: a deployment through any of its server, service and environment, or with strict (writes) through all
+    three."""
     if (kind, str(item_id)) in created:
         return True
     if kind in access_rules.TYPES:
@@ -83,6 +94,8 @@ def usable(access: dict, kind: str, item_id, created=frozenset(), rows=None, str
         return all(ends) if strict else any(ends)
     if kind == 'connection':
         return usable(access, 'deployment', row['from_deployment_id'], created, rows, strict)
+    if kind == 'code_dependency':
+        return usable(access, 'code_project', row['from_code_project_id'], created, rows)
     return usable(access, 'service', row['from_service_id'], created, rows)  # a relation
 
 
@@ -174,7 +187,15 @@ def check_save_connection(access: dict, id=None, revision=None, created=frozense
 
 
 def check_save_relation(access: dict, id=None, revision=None, created=frozenset(), rows=None, **values) -> str | None:
+    """kind code_depends_on: a code dependency (both code projects in the access)."""
+    if values.get('kind') == CODE_DEPENDS_ON:
+        values = {k: v for k, v in values.items() if k != 'kind'}
+        return check_code_dependency(access, id, revision, created, rows, **values)
     return _write(access, 'relation', id, values, created, rows)
+
+
+def check_code_dependency(access: dict, id=None, revision=None, created=frozenset(), rows=None, **values) -> str | None:
+    return _write(access, 'code_dependency', id, values, created, rows)
 
 
 def check_remove_inventory_item(access: dict, kind: str, id=None, created=frozenset(), rows=None, **_) -> str | None:
@@ -759,6 +780,18 @@ RELATION_TEXT = (
     'depends_on (needs another service to work), part_of (a component of another service) or built_from (built from '
     'a code project)'
 )
+SAVE_RELATION_TEXT = (
+    'depends_on (needs another service to work), part_of (a component of another service), built_from (built from '
+    'a code project) or code_depends_on (a code project depends on another code project: a library it imports)'
+)
+CODE_DEPENDENCY_TEXT = (
+    'code_depends_on records that a repository imports a library repository: record it when you read its dependency '
+    'files (package.json, go.mod, pyproject.toml, requirements.txt, pom.xml, Cargo.toml, …) and the library is a code '
+    'project of this run. Give from_code_project_id (the code project that uses the library) and to_code_project_id '
+    '(the library); both must be in this run. A code project never depends on itself, and each pair is recorded once. '
+    'To update or remove one, read its id and revision with get_resource on the code project (a depends_on link has '
+    'dependency_id and revision); an update gives kind code_depends_on with the id.'
+)
 WHEN = 'Use save_inventory_draft to draft several entries that refer to each other in one call.'
 NEW_ENTRY = 'a new {0} needs an environment, server or service in this run'
 
@@ -1040,10 +1073,13 @@ async def save_connection(
 
 @tool(
     usage=_usage(
-        f'Draft how a service relates to another service or a code project, or update a draft relation. {SAVE} {WHEN}',
-        f'Fields: from_service_id (required to create), kind (required to create): {RELATION_TEXT}; to_service_id '
-        '(for depends_on and part_of) or to_code_project_id (for built_from), description (free text). Every id must '
-        'be in this run or drafted by this session.',
+        'Draft how a service relates to another service or a code project, or how a code project depends on another '
+        f'code project; or update a draft relation. {SAVE} {WHEN}',
+        'Fields: from_service_id (required to create a service relation), kind (required to create): '
+        f'{SAVE_RELATION_TEXT}; '
+        'to_service_id (for depends_on and part_of) or to_code_project_id (for built_from and code_depends_on), '
+        'from_code_project_id (for code_depends_on), description (free text). Every id must be in this run or drafted '
+        f'by this session. {CODE_DEPENDENCY_TEXT}',
         '{"from_service_id": "<clickhouse-backup id>", "kind": "depends_on", "to_service_id": "<clickhouse id>"}',
     )
 )
@@ -1051,10 +1087,19 @@ async def save_relation(
     context,
     id: ItemId = None,
     revision: Revision = None,
-    from_service_id: Annotated[OptionalId, Field(description='The service; required to create.')] = None,
-    kind: Annotated[Literal[RELATION_KINDS] | None, Field(description=f'One of: {RELATION_TEXT}.')] = None,
+    from_service_id: Annotated[
+        OptionalId, Field(description='The service; required to create a service relation.')
+    ] = None,
+    kind: Annotated[
+        Literal[(*RELATION_KINDS, CODE_DEPENDS_ON)] | None, Field(description=f'One of: {SAVE_RELATION_TEXT}.')
+    ] = None,
     to_service_id: Annotated[OptionalId, Field(description='The other service (depends_on, part_of).')] = None,
-    to_code_project_id: Annotated[OptionalId, Field(description='The code project (built_from).')] = None,
+    to_code_project_id: Annotated[
+        OptionalId, Field(description='The code project (built_from), or the library (code_depends_on).')
+    ] = None,
+    from_code_project_id: Annotated[
+        OptionalId, Field(description='The code project that uses the library (code_depends_on).')
+    ] = None,
     description: Text = None,
 ) -> str:
     values = _given(
@@ -1062,17 +1107,25 @@ async def save_relation(
         kind=kind,
         to_service_id=to_service_id,
         to_code_project_id=to_code_project_id,
+        from_code_project_id=from_code_project_id,
         description=description,
     )
+    if kind == CODE_DEPENDS_ON:  # a code dependency: its own store kind, without a kind field
+        values.pop('kind')
+        return await asyncio.to_thread(
+            _change, context['config'], 'code_dependency', id, revision, values, check_code_dependency
+        )
     return await asyncio.to_thread(_change, context['config'], 'relation', id, revision, values, check_save_relation)
 
 
 @tool(
     usage=_usage(
-        'Remove a draft environment, server, service, deployment, connection or relation (a mistake, or one that is '
-        'not true). A deployment takes its connections with it; an environment, server or service is refused while '
-        'deployments use it. A confirmed entry is never removed by an agent. Returns {"removed": id}.',
-        'Fields: kind (environment, server, service, deployment, connection or relation), id, revision (the revision '
+        'Remove a draft environment, server, service, deployment, connection, relation or code dependency (a '
+        'mistake, or one that is not true). A deployment takes its connections with it; an environment, server or '
+        'service is refused while deployments use it. A confirmed entry is never removed by an agent. Returns '
+        '{"removed": id}.',
+        'Fields: kind (environment, server, service, deployment, connection, relation or code_dependency: a code '
+        'project depends on another, its id is the dependency_id of a get_resource link), id, revision (the revision '
         'you read).',
         '{"kind": "connection", "id": "<connection id>", "revision": 1}',
     )

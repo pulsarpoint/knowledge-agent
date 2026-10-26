@@ -8,8 +8,9 @@ GET_RESOURCE = (
     'Everything recorded about one server, service, environment or code project, as JSON: its fields, its documents '
     '(id and title; read one with get_document) and links to related resources (a connection with its port and '
     'protocol). Follow a link by passing its type and id to get_resource. A service lists its connections to external '
-    'hosts under external. The resource and every link carry a status: draft (added by an agent, waiting for a person '
-    'to confirm it) or confirmed.\n\n' + INVENTORY
+    'hosts under external. A code project lists the code projects it depends on (depends_on) and those that use it '
+    '(used_by), each with dependency_id and revision. The resource and every link carry a status: draft (added by an '
+    'agent, waiting for a person to confirm it) or confirmed.\n\n' + INVENTORY
 )
 RESOURCE = (
     'resource: {"type": "server" | "service" | "environment" | "code_project", "id": "<id>"}, or with "name" '
