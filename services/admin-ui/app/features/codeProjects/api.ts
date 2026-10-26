@@ -48,6 +48,8 @@ export interface CodeProject {
   sync_interval_minutes: number | null;
   next_sync_at: string | null;
   revision: number;
+  /** How many services are built from it (the list has it). */
+  built_into_count?: number;
   processing?: { status: string; error: string | null } | null;
   code_index?: {
     status: string;

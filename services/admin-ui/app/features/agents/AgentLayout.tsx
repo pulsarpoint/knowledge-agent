@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation, useOutletContext, useParams } from "react-router";
+import { Link, Outlet, useLocation, useOutletContext, useParams } from "react-router";
 import { ArrowLeft } from "lucide-react";
 import { getAgent, type AgentProfile } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { cn } from "~/lib/utils";
+import SectionLinks from "~/components/SectionLinks";
 import AgentActions from "./AgentActions";
 
 /** What the agent's sub-pages get from the layout: the agent (loaded once), a setter for a saved one, and a reload
@@ -88,24 +88,10 @@ function AgentPage({ agentId }: { agentId: string }) {
             {profile.description && <p className="text-sm text-muted-foreground">{profile.description}</p>}
           </div>
           {/* The links keep the query: a chat's open run (?session_id=) is there again when coming back to Chat. */}
-          <nav aria-label="Agent sections" className="overflow-x-auto">
-            <div className="inline-flex h-10 w-max items-center rounded-md bg-muted p-1 text-muted-foreground">
-              {SECTIONS.map(({ page, label }) => (
-                <NavLink
-                  key={page}
-                  to={{ pathname: page, search }}
-                  className={({ isActive }) =>
-                    cn(
-                      "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      isActive && "bg-background text-foreground shadow-sm",
-                    )
-                  }
-                >
-                  {label}
-                </NavLink>
-              ))}
-            </div>
-          </nav>
+          <SectionLinks
+            label="Agent sections"
+            sections={SECTIONS.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
+          />
           <Outlet context={{ profile, setProfile, reload, reloaded } satisfies AgentPageContext} />
         </>
       )}

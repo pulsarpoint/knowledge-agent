@@ -130,6 +130,16 @@ def test_the_page_data_has_the_services_built_from_it_recent_syncs_and_its_graph
     assert world.client.get(f'/api/code-projects/{world.shop}', headers=HEADERS).status_code == 404
 
 
+def test_the_list_counts_the_services_built_from_each_project(world):
+    listed = world.client.get('/api/code-projects', headers=HEADERS)
+    assert listed.status_code == 200, listed.text
+    counts = {project['id']: project['built_into_count'] for project in listed.json()['projects']}
+    assert counts[str(world.shop)] == 1
+    assert all(
+        project['processing'] is None or 'status' in project['processing'] for project in listed.json()['projects']
+    )
+
+
 def run(conn, name: str) -> None:
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 

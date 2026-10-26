@@ -95,7 +95,10 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
           {service.repositories.map((repo) => (
             <div key={repo.id} className="flex flex-col gap-1 text-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <Link className="font-medium underline underline-offset-4" to="/code-projects">
+                <Link
+                  className="font-medium underline underline-offset-4"
+                  to={`/code-projects/${encodeURIComponent(repo.id)}`}
+                >
                   {repo.name}
                 </Link>
                 {repo.archived && <Badge variant="outline">Archived</Badge>}

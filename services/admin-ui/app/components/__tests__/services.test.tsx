@@ -495,7 +495,7 @@ test("service details support code projects without a Git remote", async () => {
   setup([{ ...service, repositories: [{ ...service.repositories[0], remote_url: null }] }]);
   fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(screen.getByText("Local folders")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "API" })).toHaveAttribute("href", "/code-projects");
+  expect(screen.getByRole("link", { name: "API" })).toHaveAttribute("href", "/code-projects/repo-0");
   expect(screen.queryByText("Not pulled")).not.toBeInTheDocument();
 });
 

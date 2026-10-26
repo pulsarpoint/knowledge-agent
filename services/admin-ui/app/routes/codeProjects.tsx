@@ -1,10 +1,11 @@
 import AdminLayout from "../components/AdminLayout";
-import CodeProjectsView from "~/features/codeProjects/CodeProjectsView";
+import CodeProjectsLayout from "~/features/codeProjects/CodeProjectsLayout";
 
+/** Code projects: the open sub-page (Projects or Code folder) is a child route. */
 export default function CodeProjectsPage() {
   return (
     <AdminLayout>
-      <CodeProjectsView />
+      <CodeProjectsLayout />
     </AdminLayout>
   );
 }

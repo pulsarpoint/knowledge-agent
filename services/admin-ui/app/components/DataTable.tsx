@@ -5,7 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
-export const PAGE_SIZES = [10, 25, 50, 100];
+export const PAGE_SIZES = [10, 20, 50, 100];
 
 /** shadcn-style data table for server-side paging: the caller owns data, filters and the current page. */
 export default function DataTable<T>({

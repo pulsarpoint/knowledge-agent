@@ -124,7 +124,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
 1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
    embeddings model (AWS Bedrock Titan v2) for memory vector search.
 2. **Memory** → select the embeddings model if you added one.
-3. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
+3. **Code projects** → **New project**: map local folders or clone Git repositories; then **Code graphs → Generate graph**.
 4. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
 5. **Environments** → group servers and services (e.g. `production`, `staging`).
@@ -198,10 +198,19 @@ no delete — disable a model instead.
 `DATA_ROOT/<CODE_FOLDER>` on the host (default `code`), mounted read-only under
 `/work/data` (only the repository worker and admin API have it writable).
 
-**Folder browser** — navigate the code root, preview text files (up to 512 KB).
-Symbolic links are listed but never followed.
+The page has two sub-pages, shown as links under the title:
 
-**Add project**
+- **Projects** (`/code-projects`) — a table of the code projects: **Name** (opens the project's page), **Source** (the
+  Git URL, or *local folder*), **Ref**, **Commit** (short, with when it was last synced), **Sync status**, **Code graph**
+  (its status), **Built into** (how many services are built from it) and the row's actions **Sync now** (a Git pull;
+  Git projects only) and **Delete**. **Search** looks in the name and the source; the **Sync status** and **Code graph**
+  filters keep one status; a click on **Name**, **Commit** (last synced) or **Sync status** sorts by it (again: the
+  other way round). 20 projects a page. **New project** opens the project form in a sheet on the right. The list's
+  data comes from `GET /api/code-projects` (each project with its code graph state and `built_into_count`).
+- **Code folder** (`/code-projects/folder`) — navigate the code root, preview text files (up to 512 KB). Symbolic links
+  are listed but never followed.
+
+**New project**
 
 | Field | Notes |
 | --- | --- |
@@ -212,10 +221,10 @@ Symbolic links are listed but never followed.
 | Branch, tag, or commit | Optional; empty = default branch |
 | Private repository | Git username + access token (encrypted; turning the switch off deletes them) |
 | Automatic pulls + interval | 5 minutes – 7 days (default 60 minutes) |
-| Clone repository after saving | Clone immediately, or later with **Clone** |
+| Clone repository after saving | Clone immediately, or later with **Sync now** |
 | Mapped folders | Tree with checkboxes; select existing folders at any depth (max 100). Local projects need at least one |
 
-**Pull / Clone** queues a job for the repository worker (shallow fetch, no hooks,
+**Sync now** (a pull, or the first clone) queues a job for the repository worker (shallow fetch, no hooks,
 submodules or LFS; 10-minute limit). A pull refuses to run if the clone has local
 modifications, untracked files or a changed origin — clean the folder first. Errors
 are shown as a safe summary ("Check the URL, branch, token permissions…").
@@ -223,16 +232,16 @@ are shown as a safe summary ("Check the URL, branch, token permissions…").
 **Generate graph** builds a code graph with CodeGraph (no LLM, 15-minute limit):
 symbols, relationships, routes, languages and parse errors. It skips `.env*`, keys,
 dependency/build folders, binaries and files over 1 MiB, and reuses unchanged files.
-**View graph** opens an explorer (files → symbols, filter, paging). **Code → Code graphs**
-lists every project's graph (status, files, symbols, relationships, languages, last
-generated) with **View graph** and **Generate graph**; `/code-graphs?project=<id>` opens one
+**Code → Code graphs** lists every project's graph (status, files, symbols, relationships, languages, last
+generated) with **View graph** (an explorer: files → symbols, filter, paging) and **Generate graph**; on a project's page,
+**Overview → Re-index** generates it again. `/code-graphs?project=<id>` opens one
 directly. The graph is a
 prerequisite for code documentation phases ([4.11](#411-write-a-new-document-with-an-agent)).
 
 Code projects only clone and pull into `code/…`. Agents read a project's folders with their
 file and code tools.
 
-**Remove** (in the project's row) asks for confirmation and lists the project's folders. The
+**Delete** (in the project's row) asks for confirmation and lists the project's folders. The
 project disappears from Code projects, services and agents, its
 scheduled pulls stop, and its folders and Git URL can be used by a new project. Files on disk
 are kept unless you tick **Also delete these folders and the code graph from disk** (off by
@@ -242,21 +251,26 @@ If a folder cannot be deleted afterwards (for example, permissions), the project
 removed and the page names the folder left behind. The API is
 `POST /api/code-projects/{id}/archive` with an optional body `{"delete_files": true}`.
 
-Projects cannot be edited or removed while a job runs.
+Projects cannot be removed while a job runs.
 
 #### The code project page
 
-Each project's name in the list opens its page, `/code-projects/<id>`. The header shows the name, the Git URL, the
-branch or tag, the current commit and when it was synced, and the sync and code graph status, with **Chat**,
-**Discover…** (only when the prompt library has discovery prompts for code projects, tagged
-`code-project-discovery`, such as the seeded **Code project overview**), **Sync now** (a Git pull; Git projects only) and **Edit** (the list's form, in a sheet on the right). Tabs:
+Each project's name in the list opens its page, `/code-projects/<id>`. The header shows **All code projects** (back to
+the list), the name, the Git URL, the branch or tag, the current commit and when it was synced, and the sync and code
+graph status, with **Chat**, **Discover…** (only when the prompt library has discovery prompts for code projects, tagged
+`code-project-discovery`, such as the seeded **Code project overview**) and **Sync now** (a Git pull; Git projects
+only). Under it, the sub-pages as links (they keep an open chat open); `/code-projects/<id>` opens Overview, and an old
+link with `?view=documents` opens Documents:
 
-- **Overview** — the repository details, the checkout folders (`code/…`), the code graph (status, files, symbols,
+- **Overview** (`/code-projects/<id>/overview`) — the repository details, the checkout folders (`code/…`), the code graph (status, files, symbols,
   relationships, languages, last processed) with **Re-index** (**Generate graph** before the first one), the recent
   syncs (status, time and error of each pull, newest first) and **Built into**: the services built from the project,
   each linked to its page.
-- **Documents** — the documents linked to the project, with **New document** (a document built for the project; the New
-  page links it to the project), **Edit** and **Delete** (asks first).
+- **Documents** (`/code-projects/<id>/documents`) — the documents linked to the project, with **New document** (a
+  document built for the project; the New page links it to the project), **Edit** and **Delete** (asks first).
+- **Settings** (`/code-projects/<id>/settings`) — the project form edited in place: name, description, clone folder,
+  branch or tag, authentication, automatic pulls and mapped folders (the source and Git URL are fixed). **Save** and
+  **Discard** turn on once something changed; leaving with unsaved changes asks first (**Leave** / **Stay**).
 
 **Chat** works as on a server, service or environment page ([Chats and Discover](#chats-and-discover)): the run holds
 the code project (its folders for the file tools and `shell_run`, its code graph for `code_graph`) and is tagged
@@ -265,7 +279,7 @@ assistant** (tagged `assistant` and `code-project`): it answers questions about 
 that answers them (file tools, `code_graph`, read-only `shell_run`) and drafts a document only when you ask.
 **Discover…** with **Code project overview** reads the repository and drafts an overview document (purpose, structure, how to run and
 build, configuration, dependencies, deployment, where to look first) with `new_document`, or revises the existing one
-with `update_document`. The draft appears on the **Documents** tab, marked "Draft — not published", until you publish
+with `update_document`. The draft appears on **Documents**, marked "Draft — not published", until you publish
 it. The page's data comes from `GET /api/code-projects/{id}` (the project as the list has it, plus `built_into`,
 `sync_jobs` and the code graph state).
 

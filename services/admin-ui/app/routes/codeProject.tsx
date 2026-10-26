@@ -1,12 +1,11 @@
-import { useParams } from "react-router";
 import AdminLayout from "../components/AdminLayout";
-import CodeProjectPage from "~/features/codeProjects/CodeProjectPage";
+import CodeProjectLayout from "~/features/codeProjects/CodeProjectLayout";
 
-export default function Page() {
-  const { codeProjectId } = useParams();
+/** A code project's page: its header and sub-pages; the open one (Overview, Documents or Settings) is a child route. */
+export default function CodeProjectPage() {
   return (
     <AdminLayout>
-      <CodeProjectPage key={codeProjectId} codeProjectId={codeProjectId!} />
+      <CodeProjectLayout />
     </AdminLayout>
   );
 }

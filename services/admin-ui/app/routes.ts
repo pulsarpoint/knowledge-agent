@@ -2,9 +2,19 @@ import { index, route, type RouteConfig } from "@react-router/dev/routes";
 
 export default [
   index("./routes/home.tsx"),
-  route("code-projects", "./routes/codeProjects.tsx"),
+  // Code projects: Projects and Code folder are sub-pages (folder is static, so it is never taken as a project id).
+  route("code-projects", "./routes/codeProjects.tsx", [
+    index("./routes/codeProjectsList.tsx"),
+    route("folder", "./routes/codeFolder.tsx"),
+  ]),
+  // A code project's page holds its header; each section is a sub-page (an old ?view= link redirects from the index).
   // A resource page's chat is in its query (?chat=<id>): changing it keeps the page mounted.
-  route("code-projects/:codeProjectId", "./routes/codeProject.tsx"),
+  route("code-projects/:codeProjectId", "./routes/codeProject.tsx", [
+    index("./routes/codeProjectIndex.tsx"),
+    route("overview", "./routes/codeProjectOverview.tsx"),
+    route("documents", "./routes/codeProjectDocuments.tsx"),
+    route("settings", "./routes/codeProjectSettings.tsx"),
+  ]),
   route("code-graphs", "./routes/codeGraphs.tsx"),
   route("storage", "./routes/storage.tsx"),
   route("documents", "./routes/documents.tsx"),

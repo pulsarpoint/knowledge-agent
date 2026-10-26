@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { X } from "lucide-react";
 import { saveCodeProject, type CodeProject, type CodeProjectInput } from "./api";
 import CodeFolderTree from "./CodeFolderTree";
@@ -16,17 +16,20 @@ import { Textarea } from "~/components/ui/textarea";
 const errorMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : "Could not reach administration.";
 
-/** The Add / Edit code project form (the Code projects list and a code project's page share it): its name,
- * description, source (existing folders or a Git repository: URL, clone folder, ref, authentication, automatic pulls)
- * and mapped folders. Save calls onSaved with the notice to show. */
+/** The code project form: New project on the list (in a sheet; Cancel) and a project's Settings (edited in place: Save
+ * and Discard, enabled once something changed; onDirtyChange reports it): its name, description, source (existing
+ * folders or a Git repository: URL, clone folder, ref, authentication, automatic pulls) and mapped folders. Save calls
+ * onSaved with the notice to show. */
 export default function CodeProjectForm({
   project,
   onSaved,
   onCancel,
+  onDirtyChange,
 }: {
   project: CodeProject | null;
   onSaved: (notice: string) => void;
   onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const editing = project;
   const [git, setGit] = useState(project?.remote_url != null);
@@ -36,7 +39,7 @@ export default function CodeProjectForm({
   const [privateRepo, setPrivateRepo] = useState(project?.has_token ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [draft, setDraft] = useState<CodeProjectInput>(() => ({
+  const [initial] = useState<CodeProjectInput>(() => ({
     name: project?.name ?? "",
     description: project?.description ?? "",
     remote_url: project?.remote_url ?? null,
@@ -47,6 +50,16 @@ export default function CodeProjectForm({
     clone_now: false,
     ...(project ? { revision: project.revision } : {}),
   }));
+  const [draft, setDraft] = useState(initial);
+  const dirty =
+    git !== (project?.remote_url != null) ||
+    privateRepo !== (project?.has_token ?? false) ||
+    token !== "" ||
+    username !== "" ||
+    JSON.stringify(draft) !== JSON.stringify(initial);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -329,12 +342,12 @@ export default function CodeProjectForm({
         </Alert>
       )}
       <div className="flex flex-wrap gap-3">
-        <Button disabled={busy || (!git && draft.folder_paths.length === 0)}>
+        <Button disabled={busy || (!git && draft.folder_paths.length === 0) || (editing !== null && !dirty)}>
           {busy && <Spinner />}
-          {git && draft.clone_now ? "Save and clone" : "Save project"}
+          {editing ? "Save" : git && draft.clone_now ? "Save and clone" : "Save project"}
         </Button>
-        <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-          Cancel
+        <Button type="button" variant="outline" disabled={busy || (editing !== null && !dirty)} onClick={onCancel}>
+          {editing ? "Discard" : "Cancel"}
         </Button>
       </div>
     </form>

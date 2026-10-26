@@ -1,15 +1,6 @@
-import { useRef, useState } from "react";
-import { Link, Navigate, useBeforeUnload, useBlocker, useLocation, useSearchParams } from "react-router";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import { useState } from "react";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import LeaveGuard from "~/components/LeaveGuard";
 import AgentChatView from "./AgentChatView";
 import { useAgentPage } from "./AgentLayout";
 import AgentProfileSettings from "./AgentProfileSettings";
@@ -27,43 +18,6 @@ export function AgentIndex() {
   const page = view === "chat" || view === "test" ? "chat" : view === "resources" ? "resources" : "general";
   const query = params.toString();
   return <Navigate replace to={`${page}${query ? `?${query}` : ""}${hash}`} />;
-}
-
-/** Leaving the page (another section, back, any link) while it has unsaved changes asks first. */
-function LeaveGuard({ dirty }: { dirty: boolean }) {
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
-  );
-  useBeforeUnload((event) => {
-    if (dirty) event.preventDefault();
-  });
-  // Leave closes the dialog too: its close must not reset the navigation it just let through.
-  const leaving = useRef(false);
-  const stay = () => {
-    if (!leaving.current && blocker.state === "blocked") blocker.reset();
-  };
-  return (
-    <AlertDialog open={blocker.state === "blocked"} onOpenChange={(open) => !open && stay()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
-          <AlertDialogDescription>You have unsaved changes. Leave without saving?</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={stay}>Stay</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              if (blocker.state !== "blocked") return;
-              leaving.current = true;
-              blocker.proceed();
-            }}
-          >
-            Leave
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
 }
 
 /** The agent's details, model and instructions, and its prompt. */

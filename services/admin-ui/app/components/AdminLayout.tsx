@@ -84,7 +84,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <Skeleton className="h-32 w-full" />
       </main>
     );
-  const repositories = pathname === `/code-projects`;
+  const repositories = pathname === "/code-projects" || pathname.startsWith("/code-projects/");
   const codeGraphs = pathname === "/code-graphs";
   const services = pathname === `/services`;
   const environments = pathname === "/environments";

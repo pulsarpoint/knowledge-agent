@@ -31,7 +31,8 @@ export interface ChatResource {
  * The chat panel is hidden until Chat is clicked; `?chat=<id>` opens that chat (a chat of another resource is refused by the
  * chat itself) and follows the shown chat. At 2xl the Info is on the left and the chat on the right; below that, tabs
  * Info / Chat. With `pages`, the page is laid out in tabs of the given pages; `?view=<value>` keeps the open tab (none or
- * unknown: the first). `onSessionChange` is called when the
+ * unknown: the first). With `children` (a page made of sub-pages: its section links and the open sub-page), they are
+ * shown under the Info instead. `onSessionChange` is called when the
  * shown chat's turns or status change (a page reloads what the chat's agent may have changed). */
 export default function ResourceChats({
   resource,
@@ -40,6 +41,7 @@ export default function ResourceChats({
   blockedReason = null,
   wide = false,
   pages,
+  children,
   onSessionChange,
 }: {
   resource: ChatResource;
@@ -49,6 +51,7 @@ export default function ResourceChats({
   /** The page needs the full width even with the chat closed (the environment workspace). */
   wide?: boolean;
   pages?: ResourcePage[];
+  children?: ReactNode;
   onSessionChange?: () => void;
 }) {
   const [params, setParams] = useSearchParams();
@@ -240,6 +243,7 @@ export default function ResourceChats({
               ))}
             </Tabs>
           )}
+          {children}
         </div>
         {open && (
           <div
