@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider, type RouteObject } from "react-router";
 import routes from "~/routes";
@@ -674,4 +674,27 @@ test("a notice does not follow to another tab", async () => {
   await userEvent.click(nav().getByRole("link", { name: "Code (1)" }));
   await screen.findByRole("region", { name: "Built from" });
   expect(screen.queryByText("Service saved.")).toBeNull();
+});
+
+test("each tab explains what it means under the tab links", async () => {
+  const pages: [string, string][] = [
+    ["view", "A summary of the service: what it is, who owns it and where it runs."],
+    ["edit", "Change the service's own details. Relations and deployments are managed on their own tabs."],
+    ["code", "The code projects this service is built from, and the libraries those projects use."],
+    ["depends-on", "Services this service needs to work. If one of them is down, this service is affected."],
+    ["used-by", "Services that depend on this one. They are affected when this service is down or changes."],
+    ["part-of", "Larger services this service belongs to, for example a component of a platform."],
+    ["parts", "Services that are components of this one."],
+    [
+      "connections",
+      "Network traffic to and from this service's deployments: which host and port it talks to, and who talks to it.",
+    ],
+    ["documents", "Documents about this service, including its inventory document and drafts waiting to be published."],
+  ];
+  for (const [page, help] of pages) {
+    api();
+    show(`/services/v1/${page}`);
+    expect(await screen.findByText(help)).toBeInTheDocument();
+    cleanup();
+  }
 });

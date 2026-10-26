@@ -28,6 +28,20 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
+/** What each sub-page means, shown under the tab links. */
+const SECTION_HELP: Record<string, string> = {
+  view: "A summary of the service: what it is, who owns it and where it runs.",
+  edit: "Change the service's own details. Relations and deployments are managed on their own tabs.",
+  code: "The code projects this service is built from, and the libraries those projects use.",
+  "depends-on": "Services this service needs to work. If one of them is down, this service is affected.",
+  "used-by": "Services that depend on this one. They are affected when this service is down or changes.",
+  "part-of": "Larger services this service belongs to, for example a component of a platform.",
+  parts: "Services that are components of this one.",
+  connections:
+    "Network traffic to and from this service's deployments: which host and port it talks to, and who talks to it.",
+  documents: "Documents about this service, including its inventory document and drafts waiting to be published.",
+};
+
 /** The four relation tabs: which relations each lists, and whether this service is their "from" end. */
 export const RELATION_TABS = {
   "depends-on": { label: "Depends on", kind: "depends_on", outgoing: true },
@@ -157,6 +171,7 @@ function ServicePage({ serviceId }: { serviceId: string }) {
     new Set(data.deployments.map((item) => item.id)),
     serviceId,
   );
+  const page = pathname.split("/").filter(Boolean)[2] ?? "view";
   const sections = [
     { page: "view", label: "View" },
     { page: "edit", label: "Edit" },
@@ -192,6 +207,7 @@ function ServicePage({ serviceId }: { serviceId: string }) {
         label="Service sections"
         sections={sections.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
       />
+      {SECTION_HELP[page] && <p className="text-sm text-muted-foreground">{SECTION_HELP[page]}</p>}
       {notice && (
         <Alert>
           <AlertDescription role="status">{notice}</AlertDescription>

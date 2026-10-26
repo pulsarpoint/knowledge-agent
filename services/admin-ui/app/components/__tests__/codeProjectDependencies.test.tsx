@@ -193,3 +193,14 @@ test("Remove asks first, then deletes the dependency with its revision", async (
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/code-dependencies/d1?revision=4", null]]));
 });
+
+test("Dependencies explains both lists", async () => {
+  api();
+  renderCodeProjects("/code-projects/c1/dependencies");
+  expect(await screen.findByText("Code projects this one uses as libraries.")).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      "Code projects that use this one, and the services built from them: they are affected when it changes.",
+    ),
+  ).toBeInTheDocument();
+});
