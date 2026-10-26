@@ -160,7 +160,7 @@ history, or disable it to keep the history.") unless the body also has
 `"with_history": true`.
 
 `GET /api/agents/{id}/history` returns what that would delete:
-`{"test_chats", "documentation_sessions", "run_records"}`. With
+`{"conversations", "documentation_sessions", "run_records"}` (conversations: its chat and event sessions). With
 `with_history` the same transaction first deletes the agent's run records
 (`agent_run_events` with keys `run:<run id>` and `cc:<session id>:<turn>` of those rows only), its runs and their SSH
 commands, its sessions (Test and document runs) with their queued inputs and reviews. Saved documents are
