@@ -58,7 +58,11 @@ const dependencies = {
   ],
   used_by: {
     code_projects: [dependency("d3", "Admin")],
-    services: [{ id: "v9", name: "storefront", status: "confirmed", via: [{ id: "admin", name: "Admin" }] }],
+    services: [
+      { id: "v9", name: "storefront", status: "confirmed", via: [{ id: "admin", name: "Admin", status: "confirmed" }] },
+      { id: "v8", name: "beta", status: "confirmed", via: [{ id: "admin", name: "Admin", status: "draft" }] },
+      { id: "v7", name: "gamma", status: "draft", via: [{ id: "admin", name: "Admin", status: "confirmed" }] },
+    ],
   },
 };
 const writes = (calls: { key: string; body: any }[]) =>
@@ -90,10 +94,10 @@ test("Dependencies lists what it depends on and what uses it, all linked; used b
   api();
   renderCodeProjects("/code-projects/c1/dependencies");
   const depends = within(await screen.findByRole("region", { name: "Depends on" }));
-  expect(depends.getByRole("link", { name: "Ui-kit" })).toHaveAttribute("href", "/code-projects/ui-kit");
+  expect(await depends.findByRole("link", { name: "Ui-kit" })).toHaveAttribute("href", "/code-projects/ui-kit");
   expect(depends.getByText("buttons and forms")).toBeInTheDocument();
   const used = within(screen.getByRole("region", { name: "Used by" }));
-  expect(used.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/code-projects/admin");
+  expect(await used.findByRole("link", { name: "Admin" })).toHaveAttribute("href", "/code-projects/admin");
   expect(used.getByRole("link", { name: "storefront" })).toHaveAttribute("href", "/services/v9/view");
   expect(used.queryByRole("button")).toBeNull();
   expect(sectionLink("Code project sections", "Dependencies")).toHaveAttribute(
@@ -106,10 +110,60 @@ test("an agent-drafted dependency shows as a draft with Confirm and Discard", as
   api();
   renderCodeProjects("/code-projects/c1/dependencies");
   const depends = within(await screen.findByRole("region", { name: "Depends on" }));
+  expect(await depends.findByRole("button", { name: "Confirm Money" })).toBeInTheDocument();
   expect(depends.getAllByText("Draft")).toHaveLength(1);
-  expect(depends.getByRole("button", { name: "Confirm Money" })).toBeInTheDocument();
   expect(depends.getByRole("button", { name: "Discard Money" })).toBeInTheDocument();
   expect(depends.queryByRole("button", { name: "Confirm Ui-kit" })).toBeNull();
+});
+
+test("Used by marks drafts: a draft service and one reached through a draft built-from link", async () => {
+  api();
+  renderCodeProjects("/code-projects/c1/dependencies");
+  const used = within(await screen.findByRole("region", { name: "Used by" }));
+  const row = async (name: string) => (await used.findByRole("link", { name })).closest("li") as HTMLElement;
+  expect(within(await row("storefront")).queryByText("Draft")).toBeNull();
+  expect(within(await row("beta")).getByText("Draft")).toBeInTheDocument();
+  expect(within(await row("gamma")).getByText("Draft")).toBeInTheDocument();
+});
+
+test("Confirm checks first (dry run), then confirms the draft dependency with its revision", async () => {
+  const reached = { confirmed: [{ kind: "code_dependency", id: "d2", name: "Shop depends on Money" }] };
+  const calls = api({
+    "POST /api/inventory/code_dependency/d2/confirm?dry_run=1": () => [200, reached],
+    "POST /api/inventory/code_dependency/d2/confirm": () => [200, reached],
+  });
+  renderCodeProjects("/code-projects/c1/dependencies");
+  const depends = within(await screen.findByRole("region", { name: "Depends on" }));
+  await userEvent.click(await depends.findByRole("button", { name: "Confirm Money" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Confirm Money?" }));
+  await sheet.findByText("Nothing else is confirmed with it.");
+  await userEvent.click(sheet.getByRole("button", { name: "Confirm" }));
+  await waitFor(() =>
+    expect(writes(calls)).toEqual([
+      ["POST /api/inventory/code_dependency/d2/confirm?dry_run=1", { revision: 4 }],
+      ["POST /api/inventory/code_dependency/d2/confirm", { revision: 4 }],
+    ]),
+  );
+});
+
+test("Discard checks first (dry run), then discards the draft dependency with its revision", async () => {
+  const reached = { discarded: [] };
+  const calls = api({
+    "POST /api/inventory/code_dependency/d2/discard?dry_run=1": () => [200, reached],
+    "POST /api/inventory/code_dependency/d2/discard": () => [200, reached],
+  });
+  renderCodeProjects("/code-projects/c1/dependencies");
+  const depends = within(await screen.findByRole("region", { name: "Depends on" }));
+  await userEvent.click(await depends.findByRole("button", { name: "Discard Money" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Discard Money?" }));
+  await sheet.findByText("Nothing else is deleted with it.");
+  await userEvent.click(sheet.getByRole("button", { name: "Discard" }));
+  await waitFor(() =>
+    expect(writes(calls)).toEqual([
+      ["POST /api/inventory/code_dependency/d2/discard?dry_run=1", { revision: 4 }],
+      ["POST /api/inventory/code_dependency/d2/discard", { revision: 4 }],
+    ]),
+  );
 });
 
 test("Add picks another code project in a sheet (not itself, not one already listed)", async () => {
@@ -134,7 +188,7 @@ test("Remove asks first, then deletes the dependency with its revision", async (
   const calls = api({ "DELETE /api/code-dependencies/d1?revision=4": () => [200, { id: "d1" }] });
   renderCodeProjects("/code-projects/c1/dependencies");
   const depends = within(await screen.findByRole("region", { name: "Depends on" }));
-  await userEvent.click(depends.getByRole("button", { name: "Remove Ui-kit" }));
+  await userEvent.click(await depends.findByRole("button", { name: "Remove Ui-kit" }));
   expect(writes(calls)).toEqual([]);
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/code-dependencies/d1?revision=4", null]]));

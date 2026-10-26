@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { createItem, draftsUsed, relationText } from "./inventory";
 import { RELATION_TABS, tabRelations, useServicePage, type RelationTab } from "./ServiceLayout";
-import { draftOf, List, Row, servicePath } from "./ServicePanel";
+import { servicePath } from "./ServicePanel";
+import { draftOf, List, Row } from "./rows";
 import PickSheet from "./PickSheet";
 import { Button } from "~/components/ui/button";
 

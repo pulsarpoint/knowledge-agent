@@ -147,7 +147,12 @@ export interface CodeDependencies {
   depends_on: CodeDependency[];
   used_by: {
     code_projects: CodeDependency[];
-    services: { id: string; name: string; status: "draft" | "confirmed"; via: { id: string; name: string }[] }[];
+    services: {
+      id: string;
+      name: string;
+      status: "draft" | "confirmed";
+      via: { id: string; name: string; status: "draft" | "confirmed" }[];
+    }[];
   };
 }
 export const getCodeDependencies = (id: string, signal?: AbortSignal) =>

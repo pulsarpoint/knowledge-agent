@@ -435,6 +435,13 @@ test("Code lists each code project's libraries under it, read-only and linked", 
             description: "",
             code_project: { id: "r2", name: "shared-lib" },
           },
+          {
+            id: "d2",
+            revision: 1,
+            status: "draft",
+            description: "",
+            code_project: { id: "r3", name: "drafted-lib" },
+          },
         ],
         used_by: { code_projects: [], services: [] },
       },
@@ -444,6 +451,8 @@ test("Code lists each code project's libraries under it, read-only and linked", 
   const list = within(await screen.findByRole("region", { name: "Built from" }));
   expect(await list.findByRole("link", { name: "shared-lib" })).toHaveAttribute("href", "/code-projects/r2");
   expect(list.getByText("Libraries")).toBeInTheDocument();
+  expect(list.getByRole("link", { name: "drafted-lib" }).parentElement).toHaveTextContent("Draft");
+  expect(list.getByRole("link", { name: "shared-lib" }).parentElement).not.toHaveTextContent("Draft");
   expect(list.queryByRole("button", { name: /shared-lib/ })).toBeNull();
 });
 

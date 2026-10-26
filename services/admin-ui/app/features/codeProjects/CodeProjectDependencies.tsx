@@ -10,8 +10,8 @@ import {
   type Repository,
 } from "./api";
 import { useCodeProjectPage } from "./CodeProjectLayout";
-import { createItem, deleteItem, isStale } from "~/features/servers/inventory";
-import { CONFLICT, draftOf, List, Row } from "~/features/servers/ServicePanel";
+import { createItem } from "~/features/servers/inventory";
+import { draftOf, List, Row, removeItem } from "~/features/servers/rows";
 import ConfirmRemove, { type Removal } from "~/features/servers/ConfirmRemove";
 import PickSheet from "~/features/servers/PickSheet";
 import { DraftBadge } from "~/features/servers/ConfirmDraftSheet";
@@ -65,18 +65,7 @@ export function CodeProjectDependenciesPage() {
     return () => controller.abort();
   }, [adding]);
 
-  async function remove(item: CodeDependency) {
-    setError(null);
-    try {
-      await deleteItem("code-dependencies", item.id, item.revision);
-      changed();
-    } catch (e) {
-      if (isStale(e)) {
-        changed();
-        setError(CONFLICT);
-      } else setError(message(e, "Could not remove it. Try again."));
-    }
-  }
+  const remove = (item: CodeDependency) => removeItem("code-dependencies", item, changed, setError);
 
   const listed = new Set(data?.depends_on.map((item) => item.code_project.id));
   const choices =
@@ -150,6 +139,7 @@ export function CodeProjectDependenciesPage() {
                     {item.name}
                   </Link>
                   <span className="text-muted-foreground">{`service, via ${item.via.map((via) => via.name).join(", ")}`}</span>
+                  {(item.status === "draft" || item.via.every((via) => via.status === "draft")) && <DraftBadge />}
                 </li>
               ))}
             </ul>

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import type { Connection } from "./inventory";
 import { useServicePage } from "./ServiceLayout";
-import { connectionRows, draftOf, List, Row, servicePath } from "./ServicePanel";
+import { connectionRows, servicePath } from "./ServicePanel";
+import { draftOf, List, Row } from "./rows";
 import AddConnectionDialog from "./AddConnectionDialog";
 import { Button } from "~/components/ui/button";
 

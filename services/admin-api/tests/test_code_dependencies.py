@@ -181,15 +181,19 @@ def test_used_by_lists_the_dependent_code_projects_and_the_services_built_from_t
         inventory.create_relation(
             conn, p, {'from_service_id': world['web'], 'kind': 'built_from', 'to_code_project_id': world['lib']}, {}
         )
+        conn.execute(
+            "UPDATE ka.service_relations SET status='draft' WHERE from_service_id=%s AND to_code_project_id=%s",
+            (world['web'], world['util']),
+        )
         found = inventory.code_project_dependencies(conn, p, world['lib'])
     assert [(d['code_project']['name'], d['status']) for d in found['depends_on']] == [('util', 'confirmed')]
     assert [(d['code_project']['name'], d['status'], d['description']) for d in found['used_by']['code_projects']] == [
         ('app', 'confirmed', 'client'),
         ('util', 'draft', ''),
     ]
-    assert [(s['name'], [v['name'] for v in s['via']]) for s in found['used_by']['services']] == [
-        ('api', ['app']),
-        ('web', ['util']),
+    assert [(s['name'], [(v['name'], v['status']) for v in s['via']]) for s in found['used_by']['services']] == [
+        ('api', [('app', 'confirmed')]),
+        ('web', [('util', 'draft')]),
     ]
     assert set(found['depends_on'][0]) == {'id', 'revision', 'status', 'description', 'code_project'}
 
@@ -323,6 +327,14 @@ def test_an_agent_drafts_updates_and_removes_a_code_dependency(store, world, run
         to_code_project_id=str(world['util']),
     )
     assert outside == {'refused': 'This code project is not available in this run.'}
+    itself = call(
+        run,
+        'save_relation',
+        kind='code_depends_on',
+        from_code_project_id=str(world['app']),
+        to_code_project_id=str(world['app']),
+    )
+    assert itself == {'refused': SELF}
     updated = call(run, 'save_relation', id=saved['id'], revision=1, kind='code_depends_on', description='http client')
     assert (updated['description'], updated['revision'], updated['status']) == ('http client', 2, 'draft')
 

@@ -21,10 +21,11 @@ import { serviceRoles, serviceTypes } from "./serviceClassification";
 import ServiceFields, { serviceFields, serviceValue } from "./ServiceFields";
 import AddConnectionDialog from "./AddConnectionDialog";
 import AddRelationDialog from "./AddRelationDialog";
-import { DraftActions, DraftBadge, type DraftTarget } from "./ConfirmDraftSheet";
+import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
+import { RowAction, RowActions } from "./RowAction";
+import { CONFLICT, draftOf, List, Row, removeItem } from "./rows";
 import ConfirmRemove, { type Removal } from "./ConfirmRemove";
 import EntryDocuments from "./EntryDocuments";
-import { RowAction, RowActions } from "./RowAction";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -35,7 +36,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "~/components/ui/sh
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 
-export const CONFLICT = "This was changed meanwhile. Reload to see the latest.";
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 /** How a deployment reads: "docker · payments · :8000 · 1.4". */
@@ -154,16 +154,7 @@ export default function ServicePanel({
   /** Asks first: "Remove <what>?" with what it means, then removes. */
   const ask = (kind: ItemKind, item: { id: string; revision: number }, what: string, description: string) =>
     setRemoval({ title: `Remove ${what}?`, description, action: "Remove", run: () => void remove(kind, item) });
-  async function remove(kind: ItemKind, item: { id: string; revision: number }) {
-    setError(null);
-    try {
-      await deleteItem(kind, item.id, item.revision);
-      changed();
-    } catch (e) {
-      if (isStale(e)) conflict();
-      else setError(message(e, "Could not remove it. Try again."));
-    }
-  }
+  const remove = (kind: ItemKind, item: { id: string; revision: number }) => removeItem(kind, item, changed, setError);
 
   if (!data)
     return loadError ? (
@@ -443,65 +434,6 @@ function Part({
       </div>
       {children}
     </section>
-  );
-}
-
-/** The Confirm / Discard target of a draft item; undefined when it is confirmed. */
-export const draftOf = (
-  kind: "deployment" | "connection" | "relation" | "code_dependency",
-  item: { id: string; revision: number; status: string },
-): DraftTarget | undefined => (item.status === "draft" ? { kind, id: item.id, revision: item.revision } : undefined);
-
-export const List = ({ children }: { children: ReactNode }) => <ul className="flex flex-col gap-1">{children}</ul>;
-
-/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service), `detail`
- * is a line under it (a relation's description). A draft shows its badge and Confirm / Discard (then `onDone`). */
-export function Row({
-  text,
-  href,
-  detail,
-  name,
-  draft,
-  onDone,
-  onEdit,
-  onRemove,
-}: {
-  text: string;
-  href?: string;
-  detail?: string;
-  name: string;
-  draft?: DraftTarget;
-  onDone?: () => void;
-  onEdit?: () => void;
-  onRemove: () => void;
-}) {
-  return (
-    <li className="flex items-center justify-between gap-2 text-sm">
-      <span className="flex min-w-0 flex-col">
-        <span className="flex min-w-0 items-center gap-2">
-          {href ? (
-            <Link className="min-w-0 underline-offset-4 [overflow-wrap:anywhere] hover:underline" to={href}>
-              {text}
-            </Link>
-          ) : (
-            <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
-          )}
-          {draft && <DraftBadge />}
-        </span>
-        {detail && <span className="text-muted-foreground [overflow-wrap:anywhere]">{detail}</span>}
-      </span>
-      <RowActions>
-        {draft && <DraftActions name={name} confirm={draft} onDone={() => onDone?.()} />}
-        {onEdit && (
-          <RowAction label="Edit" name={name} onClick={onEdit}>
-            <Pencil />
-          </RowAction>
-        )}
-        <RowAction label="Remove" name={name} destructive onClick={onRemove}>
-          <Trash2 />
-        </RowAction>
-      </RowActions>
-    </li>
   );
 }
 

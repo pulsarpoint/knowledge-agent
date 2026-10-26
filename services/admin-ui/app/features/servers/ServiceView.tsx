@@ -5,16 +5,8 @@ import AddDeploymentSheet from "./AddDeploymentSheet";
 import type { Deployment } from "./inventory";
 import type { ServiceAsset, ServiceDeployment } from "./services";
 import { builtFrom, RELATION_TABS, tabRelations, useServicePage, type RelationTab } from "./ServiceLayout";
-import {
-  connectionRows,
-  DeploymentSheet,
-  deploymentText,
-  Description,
-  draftOf,
-  List,
-  Row,
-  servicePath,
-} from "./ServicePanel";
+import { connectionRows, DeploymentSheet, deploymentText, Description, servicePath } from "./ServicePanel";
+import { draftOf, List, Row } from "./rows";
 import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
 import { RowActions } from "./RowAction";
 import { getStorage } from "~/lib/storage";

@@ -16,7 +16,8 @@ import {
 } from "./inventory";
 import { getServices, type ServiceAsset } from "./services";
 import { serviceRoles, serviceTypes } from "./serviceClassification";
-import { CONFLICT, connectionRows } from "./ServicePanel";
+import { connectionRows } from "./ServicePanel";
+import { CONFLICT, removeItem } from "./rows";
 import ConfirmRemove, { type Removal } from "./ConfirmRemove";
 import { DraftBadge } from "./ConfirmDraftSheet";
 import DiscoverWizard from "~/features/sessions/DiscoverWizard";
@@ -134,16 +135,7 @@ function ServicePage({ serviceId }: { serviceId: string }) {
   };
   const ask = (kind: ItemKind, item: { id: string; revision: number }, what: string, description: string) =>
     setRemoval({ title: `Remove ${what}?`, description, action: "Remove", run: () => void remove(kind, item) });
-  async function remove(kind: ItemKind, item: { id: string; revision: number }) {
-    setError(null);
-    try {
-      await deleteItem(kind, item.id, item.revision);
-      changed();
-    } catch (e) {
-      if (isStale(e)) conflict();
-      else setError(message(e, "Could not remove it. Try again."));
-    }
-  }
+  const remove = (kind: ItemKind, item: { id: string; revision: number }) => removeItem(kind, item, changed, setError);
 
   const service = data?.services.find((item) => item.id === serviceId);
   if (!data || !service)

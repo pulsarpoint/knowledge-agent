@@ -191,7 +191,8 @@ def code_project_dependencies(conn, project_id: UUID, code_project_id: UUID) -> 
     """What the code project depends on and what uses it, archived code projects left out: {depends_on: [...],
     used_by: {code_projects: [...], services: [...]}}. A dependency is {id, revision, status, description,
     code_project: {id, name}} (the other end); used_by.services are the services built from the code projects that
-    depend on it (direct dependents only), each {id, name, status, via: [{id, name}]}."""
+    depend on it (direct dependents only), each {id, name, status, via: [{id, name, status}]}, where a via's status is
+    that of the built_from link."""
     rows = conn.execute(
         """SELECT d.id,d.revision,d.status,d.description,d.from_code_project_id=%(c)s AS outgoing,r.id AS other_id,
         r.name AS other_name FROM ka.code_project_dependencies d
@@ -209,7 +210,7 @@ def code_project_dependencies(conn, project_id: UUID, code_project_id: UUID) -> 
     dependents = [row for row in rows if not row['outgoing']]
     services: dict = {}
     for row in conn.execute(
-        """SELECT s.id,s.name,s.status,r.id AS via_id,r.name AS via_name FROM ka.service_relations l
+        """SELECT s.id,s.name,s.status,l.status AS via_status,r.id AS via_id,r.name AS via_name FROM ka.service_relations l
         JOIN ka.services s ON s.id=l.from_service_id JOIN ka.repositories r ON r.id=l.to_code_project_id
         WHERE l.kind='built_from' AND l.to_code_project_id=ANY(%s) ORDER BY lower(s.name),s.id,lower(r.name),r.id""",
         ([row['other_id'] for row in dependents],),
@@ -217,7 +218,7 @@ def code_project_dependencies(conn, project_id: UUID, code_project_id: UUID) -> 
         service = services.setdefault(
             row['id'], {'id': row['id'], 'name': row['name'], 'status': row['status'], 'via': []}
         )
-        service['via'].append({'id': row['via_id'], 'name': row['via_name']})
+        service['via'].append({'id': row['via_id'], 'name': row['via_name'], 'status': row['via_status']})
     return {
         'depends_on': [shown(row) for row in rows if row['outgoing']],
         'used_by': {'code_projects': [shown(row) for row in dependents], 'services': list(services.values())},

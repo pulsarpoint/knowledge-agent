@@ -5,12 +5,13 @@ import { ApiError } from "~/lib/api";
 import { getCodeDependencies, getRepositories, type Repository } from "~/features/codeProjects/api";
 import { createItem, draftsUsed } from "./inventory";
 import { builtFrom, useServicePage } from "./ServiceLayout";
-import { draftOf, List, Row } from "./ServicePanel";
+import { draftOf, List, Row } from "./rows";
 import PickSheet from "./PickSheet";
+import { DraftBadge } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 
-type Lib = { id: string; name: string };
+type Lib = { id: string; name: string; status: "draft" | "confirmed" };
 
 /** Where a code project's source is: its Git remote, or its local folders. */
 const source = (repository: { remote_url: string | null }) =>
@@ -50,7 +51,13 @@ export default function ServiceCode() {
         .filter(Boolean)
         .map((id) =>
           getCodeDependencies(id, controller.signal)
-            .then((value) => [id, value.depends_on.map((item) => item.code_project)] as [string, Lib[]])
+            .then(
+              (value) =>
+                [id, value.depends_on.map((item) => ({ ...item.code_project, status: item.status }))] as [
+                  string,
+                  Lib[],
+                ],
+            )
             .catch(() => [id, []] as [string, Lib[]]),
         ),
     ).then((entries) => {
@@ -116,13 +123,15 @@ export default function ServiceCode() {
                   <li className="flex flex-wrap gap-x-2 pl-4 text-sm text-muted-foreground">
                     <span>Libraries</span>
                     {libs.map((lib) => (
-                      <Link
-                        key={lib.id}
-                        className="underline-offset-4 hover:underline"
-                        to={`/code-projects/${encodeURIComponent(lib.id)}`}
-                      >
-                        {lib.name}
-                      </Link>
+                      <span key={lib.id} className="flex items-center gap-1">
+                        <Link
+                          className="underline-offset-4 hover:underline"
+                          to={`/code-projects/${encodeURIComponent(lib.id)}`}
+                        >
+                          {lib.name}
+                        </Link>
+                        {lib.status === "draft" && <DraftBadge />}
+                      </span>
                     ))}
                   </li>
                 )}
