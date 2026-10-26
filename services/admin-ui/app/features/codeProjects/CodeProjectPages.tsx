@@ -131,7 +131,7 @@ export function CodeProjectOverviewPage() {
           <ul className="flex flex-col gap-1">
             {project.built_into.map((service) => (
               <li key={service.id}>
-                <Link className="underline" to={`/services/${encodeURIComponent(service.id)}`}>
+                <Link className="underline" to={`/services/${encodeURIComponent(service.id)}/view`}>
                   {service.name}
                 </Link>
               </li>

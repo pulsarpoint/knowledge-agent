@@ -639,7 +639,10 @@ test("a resource chat links to its resource's page on that chat", async () => {
       <SessionView sessionId="s1" />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("link", { name: "the service" })).toHaveAttribute("href", "/services/srv%201?chat=s1");
+  expect(await screen.findByRole("link", { name: "the service" })).toHaveAttribute(
+    "href",
+    "/services/srv%201/view?chat=s1",
+  );
 });
 
 test("a refused tool call shows as an error on that call", async () => {

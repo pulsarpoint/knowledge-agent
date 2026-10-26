@@ -128,7 +128,8 @@ Most features depend on earlier ones. A sensible order in the Administration app
 4. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
 5. **Environments** → group servers and services (e.g. `production`, `staging`).
-6. **Services** → describe applications, link code projects, add deployments and dependencies.
+6. **Services** → **New service**: describe applications; on the service page link code projects and record
+   relations. Deployments are added in an environment's workspace (**Add service** on a server).
 7. **Docs → Documents** → **New** → **Write with an agent**: give a title and folder, then tell the agent what to write.
 8. **Agents** → create agents, assign a model, enable capabilities, test them.
 
@@ -305,8 +306,9 @@ A server cannot be deleted while service deployments reference it.
 
 A server's name opens its page (`/servers/:id`): a header (details, SSH state; **Chat** and **Discover** on
 the right) and tabs **Overview** (the services deployed on it) and **Documents**; the open tab
-is kept in the URL (`?view=documents`). Its chats are in the chat panel (see below). Services (`/services/:id`: Overview is the service panel) and
-environments (`/environments/:id`: the first tab is the Workspace) have the same kind of page. In the environment
+is kept in the URL (`?view=documents`). Its chats are in the chat panel (see below). Services (`/services/:id`, with a tab per part: see
+[Services](#46-services)) and environments (`/environments/:id`: the first tab is the Workspace) have the same kind of
+page. In the environment
 workspace, the selected service's column has its own tabs **Details** and **Documents**.
 
 A server's, service's or environment's **inventory document** is the document tagged `inventory` built for it (the
@@ -390,13 +392,12 @@ environment when one of its deployments is; a service deployed in two environmen
   - **Services on** the selected server: its deployments in this environment. **Add service** picks a recorded service
     or creates a new one (name, type, role, owner, description), plus the deployment on this server: runtime, runtime
     name, port, version, log location.
-  - The selected **service** (the service column; the service page shows the same panel):
+  - The selected **service** (the service column):
     - its fields (type, role, owner, description, and the address of an external service) with **Edit**, and a link
-      to its page. The service page also shows the agent context link, each code project's folder and each
-      deployment's SSH status;
+      to its page;
     - **Deployment here** (runtime, runtime name, port, version) with Edit and Remove (removing a deployment also
       removes its connections), and **Also runs on**: its other environments and servers, each a link to that
-      workspace. The service page lists every deployment under **Runs on** instead;
+      workspace;
     - **Connections** out (→) and in (←), each with Edit and Remove. **+** adds a connection from the deployment here
       (on the service page, from the deployment you choose) to a deployment of another service (the picker groups them
       by environment and server), to an **external service** (a recorded one, or **New external service**: name,
@@ -469,29 +470,41 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
 
 ### 4.6 Services
 
-`/services` — the application inventory that ties code, environments and servers together.
+`/services` — the application inventory that ties code, environments and servers together. Each row shows the
+service's type and role, code projects, environments and deployments, with **Documents**, **Edit** (its Edit page) and
+**Delete**; a service's name opens its page. **New service** opens `/services/new`: the Edit page, empty; **Save**
+creates the service and opens its page.
 
-**Add service**:
+**The service page** (`/services/:id`) has a header (**All services**, the name, type and role badges, the address of
+an external service; **Chat** and **Discover…**) and one tab per part, each its own page (the tabs show their counts
+and keep an open chat open):
 
-- **Application details**: name (unique), owner/team, **type** (Custom application,
-  Built-in software, External service, Unclassified), **primary role** (Application,
-  Proxy, Web server, Database, Cache, Message broker, Worker, Other), purpose.
-- **Code projects** that make up its source (each a *built from* relation).
-- **Service relationships** — logical relations, in either direction, each with an optional "why": *Depends on* /
-  *Used by* (depends on), *Part of* / *Parts* (a component or library of another service). Network traffic between
-  deployments is recorded as connections on the System map.
-- **Where it runs**: **Add deployment** — server, **environment** (required), runtime/manager, container/unit name,
-  port, deployed version, log location. **Register server** opens the server form inline. Removing a saved deployment
-  also removes its connections: Save first asks, naming each deployment and how many connections it takes with it.
+- **View** (`/services/:id/view`): description, owner and address; **Where it runs**: its environments (links to
+  their workspaces) and every deployment (environment / server, runtime, name, port, version) with **Edit** and
+  **Remove** (removing a deployment also removes its connections; a deployment is added from an environment's
+  workspace: **Add service** on a server); **Related**: how many code projects, relations and connections it has,
+  each a link to its tab; and **Access and code**: **Agent context (JSON)** (`/api/services/{id}/context`, a
+  read-only, credential-free JSON view of the service for agents), each code project's folder in the code folder and
+  each deployment's SSH status. A draft service shows its Draft badge with **Confirm** / **Discard**.
+- **Edit**: the service's own fields — name (unique), **type** (Custom application, Built-in software, External
+  service, Unclassified), the **address** of an external service, **role** (Application, Proxy, Web server,
+  Database, Cache, Message broker, Worker, Other), owner, description — edited in place: **Save** or **Discard**.
+  Leaving with unsaved changes asks **Leave** / **Stay**.
+- **Code**: the code projects it is built from (*built from*), each a link to its page; **Add** picks a code project
+  in a side sheet with search (and an optional description).
+- **Depends on**, **Used by**, **Part of**, **Parts**: one list each of related services with their descriptions,
+  each a link to its page. **Add** picks a service in a side sheet with search, with an optional "why". Depends on
+  and Part of record this service's relation to the chosen one; **Used by** records that the chosen service depends
+  on this one, and **Parts** that the chosen service is part of this one.
+- **Connections**: the network connections of its deployments, out (→) and in (←), each a link to the other
+  service, with **Edit** and **Remove**; **Add connection** starts from one of its deployments (see the environment
+  workspace for the picker).
+- **Documents**: the service's inventory document and documents, as on any resource page.
 
-**Save** writes the service, then each changed deployment and relation through the inventory API (one request each).
-If one of them is refused (for example a duplicate deployment, or someone changed the service meanwhile), the form
-stays open with the message; what was already saved stays saved, and saving again sends only the rest.
-
-**Details** shows everything above plus code commits and SSH status per deployment,
-and links to the service's documents and environments. **Agent context (JSON)**
-opens `/api/services/{id}/context`, a read-only, credential-free JSON view of the
-service for agents. Note: the *downloaded* commit is not the *deployed* version.
+Every Remove asks first in a dialog that names what goes. An entry an agent recorded shows its Draft badge with
+**Confirm** / **Discard**. Every change sends the revision it read; when someone changed it meanwhile the page says
+"This was changed meanwhile. Reload to see the latest." and reloads. An old link (`/services/:id`, `?view=documents`)
+opens the matching tab. Note: the *downloaded* commit of a code project is not the *deployed* version.
 
 **External services**: a service of type External service stands for a system outside your environments (a payment
 provider, a SaaS API). Give it an **Address** (a hostname or IP address; the field is shown for this type only; Add

@@ -114,15 +114,11 @@ function routes(extra: Record<string, (body: any) => [number, unknown]> = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 
-function panel(workspace = true) {
+function panel() {
   const onChanged = vi.fn();
   render(
     <MemoryRouter>
-      {workspace ? (
-        <ServicePanel serviceId="v1" environmentId="e-prod" serverId="s-app-1" onChanged={onChanged} />
-      ) : (
-        <ServicePanel serviceId="v1" onChanged={onChanged} />
-      )}
+      <ServicePanel serviceId="v1" environmentId="e-prod" serverId="s-app-1" onChanged={onChanged} />
     </MemoryRouter>,
   );
   return onChanged;
@@ -153,14 +149,17 @@ test("the column shows the fields, the deployment here, where else it runs, conn
     "← nginx on app-1 (prod) :8000 http",
   ]);
   const connectionsPart = within(column.getByRole("region", { name: "Connections" }));
-  expect(connectionsPart.getByRole("link", { name: "→ stripe :443 https" })).toHaveAttribute("href", "/services/v4");
+  expect(connectionsPart.getByRole("link", { name: "→ stripe :443 https" })).toHaveAttribute(
+    "href",
+    "/services/v4/view",
+  );
   expect(connectionsPart.getByRole("link", { name: "→ postgres on db-1 (prod) :5432 tcp" })).toHaveAttribute(
     "href",
-    "/services/v2",
+    "/services/v2/view",
   );
   expect(connectionsPart.getByRole("link", { name: "← nginx on app-1 (prod) :8000 http" })).toHaveAttribute(
     "href",
-    "/services/v3",
+    "/services/v3/view",
   );
   expect(connectionsPart.queryByRole("link", { name: "→ smtp.example.com :25 tcp" })).not.toBeInTheDocument();
   expect(
@@ -173,18 +172,6 @@ test("the column shows the fields, the deployment here, where else it runs, conn
   await userEvent.click(column.getByRole("tab", { name: "Documents" }));
   expect(await column.findByRole("region", { name: "Documents" })).toBeInTheDocument();
   expect(column.queryByRole("region", { name: "Code projects" })).not.toBeInTheDocument();
-});
-
-test("on the service page every deployment is listed with its environment and server, and all its connections", async () => {
-  api(routes());
-  panel(false);
-  const runs = within(await screen.findByRole("region", { name: "Runs on" }));
-  expect(runs.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-    "prod / app-1 · docker · payments · :8000 · 1.4",
-    "staging / app-2 · docker",
-  ]);
-  expect(within(screen.getByRole("region", { name: "Connections" })).getAllByRole("listitem")).toHaveLength(5);
-  expect(screen.queryByRole("heading", { level: 2, name: "payments-api" })).not.toBeInTheDocument();
 });
 
 test("remove buttons send the revision they read, then reload", async () => {
@@ -451,7 +438,7 @@ test("a new refresh number reloads the panel (the page chat's agent may have wri
   const calls = api(routes());
   const view = (refresh: number) => (
     <MemoryRouter>
-      <ServicePanel serviceId="v1" refresh={refresh} />
+      <ServicePanel serviceId="v1" environmentId="e-prod" serverId="s-app-1" refresh={refresh} />
     </MemoryRouter>
   );
   const { rerender } = render(view(0));

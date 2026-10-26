@@ -138,7 +138,7 @@ test("the page shows the code project's header and opens Overview: details, fold
   expect(syncs.getAllByRole("listitem")).toHaveLength(2);
   expect(syncs.getByText("Authentication failed")).toBeInTheDocument();
   const built = within(screen.getByRole("region", { name: "Built into" }));
-  expect(built.getByRole("link", { name: "storefront" })).toHaveAttribute("href", "/services/v1");
+  expect(built.getByRole("link", { name: "storefront" })).toHaveAttribute("href", "/services/v1/view");
 });
 
 test("an old ?view= link opens its sub-page and keeps the rest of the query", async () => {

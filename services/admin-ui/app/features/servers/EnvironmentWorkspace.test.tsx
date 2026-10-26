@@ -222,7 +222,7 @@ test("column 3 is the service panel; a change there reloads the workspace", asyn
   show("?server=s1&service=v1");
   const service = within(await screen.findByRole("region", { name: "payments-api" }));
   expect(service.getByRole("region", { name: "Connections" })).toBeInTheDocument();
-  expect(service.getByRole("link", { name: "Service page" })).toHaveAttribute("href", "/services/v1");
+  expect(service.getByRole("link", { name: "Service page" })).toHaveAttribute("href", "/services/v1/view");
   await user.click(service.getByRole("button", { name: "Remove the deployment here" }));
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2));

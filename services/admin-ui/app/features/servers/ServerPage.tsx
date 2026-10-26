@@ -107,7 +107,7 @@ export default function ServerPage({ serverId }: { serverId: string }) {
                 {deployments.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>
-                      <Link className="underline" to={`/services/${encodeURIComponent(item.service_id)}`}>
+                      <Link className="underline" to={`/services/${encodeURIComponent(item.service_id)}/view`}>
                         {item.service_name}
                       </Link>
                       {item.status === "draft" && (

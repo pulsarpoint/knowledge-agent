@@ -17,7 +17,8 @@ import {
   type RelationKind,
 } from "./inventory";
 import { getServices, type ServiceAsset } from "./services";
-import { serviceRoles, serviceTypes, type ServiceRole, type ServiceType } from "./serviceClassification";
+import { serviceRoles, serviceTypes } from "./serviceClassification";
+import ServiceFields, { serviceFields, serviceValue } from "./ServiceFields";
 import AddConnectionDialog from "./AddConnectionDialog";
 import AddRelationDialog from "./AddRelationDialog";
 import { DraftActions, DraftBadge, type DraftTarget } from "./ConfirmDraftSheet";
@@ -30,17 +31,15 @@ import { cn } from "~/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Field, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
-import { Textarea } from "~/components/ui/textarea";
 
-const CONFLICT = "This was changed meanwhile. Reload to see the latest.";
+export const CONFLICT = "This was changed meanwhile. Reload to see the latest.";
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 /** How a deployment reads: "docker · payments · :8000 · 1.4". */
-const deploymentText = (deployment: Deployment) =>
+export const deploymentText = (deployment: Deployment) =>
   [
     deployment.runtime,
     deployment.runtime_name,
@@ -62,26 +61,57 @@ type Open =
   | { kind: "connection"; connection?: Connection }
   | { kind: "relation"; relation: RelationKind };
 
-/** A service with what is around it: its fields, its deployments (in the workspace the one on `serverId` in
- * `environmentId`, and where else it runs), connections out and in, relations both ways, code projects and documents.
- * Every change sends the revision it read; a stale one shows the conflict text and reloads. `onChanged` follows each
- * change. Used by the environment workspace (column 3, with tabs Details / Documents) and the service page (whose
- * Documents tab holds the documents). A new `refresh` number reloads it (after a turn of the page chat, whose agent may
- * have written drafts). */
+/** The connections of a service's deployments `from` (ids), out (→) and in (←; an external service's connections are
+ * in, to the service itself): each with how it reads and the other service, when known. */
+export function connectionRows(
+  services: ServiceAsset[],
+  connections: Connection[],
+  from: Set<string>,
+  serviceId: string,
+): { item: Connection; text: string; to?: string }[] {
+  const labels = deploymentLabels(services);
+  const names = new Map(services.map((item) => [item.id, item.name]));
+  const tail = (connection: Connection) =>
+    `${connection.port === null ? "" : ` :${connection.port}`} ${connection.protocol}`;
+  return [
+    ...connections
+      .filter((item) => from.has(item.from_deployment_id))
+      .map((item) => {
+        const target =
+          item.to_host ??
+          (item.to_service_id ? names.get(item.to_service_id) : labels.get(item.to_deployment_id ?? "")?.label) ??
+          "an unknown target";
+        const to = item.to_service_id ?? labels.get(item.to_deployment_id ?? "")?.service_id;
+        return { item, text: `→ ${target}${tail(item)}`, to };
+      }),
+    ...connections
+      .filter((item) => from.has(item.to_deployment_id ?? "") || item.to_service_id === serviceId)
+      .map((item) => ({
+        item,
+        text: `← ${labels.get(item.from_deployment_id)?.label ?? "an unknown deployment"}${tail(item)}`,
+        to: labels.get(item.from_deployment_id)?.service_id,
+      })),
+  ];
+}
+
+/** A service's page (its View). */
+export const servicePath = (id: string, page = "view") => `/services/${encodeURIComponent(id)}/${page}`;
+
+/** The environment workspace's service column: the service's fields, its deployment on `serverId` in `environmentId`
+ * (and where else it runs), connections out and in, relations both ways, code projects, and documents in a tab beside
+ * Details. Every change sends the revision it read; a stale one shows the conflict text and reloads. `onChanged` follows
+ * each change. A new `refresh` number reloads it. */
 export default function ServicePanel({
   serviceId,
   environmentId,
   serverId,
   onChanged,
-  documents = true,
   refresh = 0,
 }: {
   serviceId: string;
-  environmentId?: string;
-  serverId?: string;
+  environmentId: string;
+  serverId: string;
   onChanged?: () => void;
-  /** Show the service's documents, in a Documents tab beside Details (false: the page shows them in its own tab). */
-  documents?: boolean;
   refresh?: number;
 }) {
   const [data, setData] = useState<Data | null>(null);
@@ -151,41 +181,12 @@ export default function ServicePanel({
       </Alert>
     );
 
-  const workspace = Boolean(environmentId && serverId);
-  const places = new Map(service.deployments.map((item) => [item.id, item]));
-  const place = (id: string) => {
-    const item = places.get(id);
-    return item ? `${item.environment} / ${item.server.name}` : "";
-  };
-  const here = data.deployments.filter(
-    (item) => !workspace || (item.environment_id === environmentId && item.server_id === serverId),
-  );
+  const here = data.deployments.filter((item) => item.environment_id === environmentId && item.server_id === serverId);
   const hereIds = new Set(here.map((item) => item.id));
-  const elsewhere = workspace ? service.deployments.filter((item) => !hereIds.has(item.id)) : [];
+  const elsewhere = service.deployments.filter((item) => !hereIds.has(item.id));
 
-  const labels = deploymentLabels(data.services);
   const names = new Map(data.services.map((item) => [item.id, item.name]));
-  const tail = (connection: Connection) =>
-    `${connection.port === null ? "" : ` :${connection.port}`} ${connection.protocol}`;
-  const connections = [
-    ...data.connections
-      .filter((item) => hereIds.has(item.from_deployment_id))
-      .map((item) => {
-        const target =
-          item.to_host ??
-          (item.to_service_id ? names.get(item.to_service_id) : labels.get(item.to_deployment_id ?? "")?.label) ??
-          "an unknown target";
-        const to = item.to_service_id ?? labels.get(item.to_deployment_id ?? "")?.service_id;
-        return { item, text: `→ ${target}${tail(item)}`, to };
-      }),
-    ...data.connections
-      .filter((item) => hereIds.has(item.to_deployment_id ?? "") || item.to_service_id === serviceId)
-      .map((item) => ({
-        item,
-        text: `← ${labels.get(item.from_deployment_id)?.label ?? "an unknown deployment"}${tail(item)}`,
-        to: labels.get(item.from_deployment_id)?.service_id,
-      })),
-  ];
+  const connections = connectionRows(data.services, data.connections, hereIds, serviceId);
   const named = (id: string | null) => (id && names.get(id)) || "an unknown service";
   const relations = [
     ...data.relations
@@ -210,7 +211,7 @@ export default function ServicePanel({
     <>
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col gap-1">
-          {workspace && <h2 className="break-words text-lg font-semibold">{service.name}</h2>}
+          <h2 className="break-words text-lg font-semibold">{service.name}</h2>
           {service.status === "draft" && (
             <span>
               <DraftBadge />
@@ -223,11 +224,9 @@ export default function ServicePanel({
           </p>
           {service.address && <p className="font-mono text-sm">{service.address}</p>}
           {service.description && <Description text={service.description} />}
-          {workspace && (
-            <Link className="self-start text-sm underline" to={`/services/${encodeURIComponent(serviceId)}`}>
-              Service page
-            </Link>
-          )}
+          <Link className="self-start text-sm underline" to={servicePath(serviceId)}>
+            Service page
+          </Link>
         </div>
         <RowActions>
           {service.status === "draft" && (
@@ -243,32 +242,29 @@ export default function ServicePanel({
         </RowActions>
       </div>
 
-      <Part title={workspace ? "Deployment here" : "Runs on"}>
+      <Part title="Deployment here">
         {here.length === 0 ? (
           <p className="text-sm text-muted-foreground">No deployment recorded.</p>
         ) : (
           <List>
-            {here.map((item) => {
-              const name = workspace ? "the deployment here" : place(item.id);
-              return (
-                <Row
-                  key={item.id}
-                  text={workspace ? deploymentText(item) : `${place(item.id)} · ${deploymentText(item)}`}
-                  name={name}
-                  draft={draftOf("deployment", item)}
-                  onDone={changed}
-                  onEdit={() => setOpen({ kind: "deployment", deployment: item })}
-                  onRemove={() =>
-                    ask(
-                      "deployments",
-                      item,
-                      workspace ? `the deployment of ${service.name} here` : `the deployment on ${place(item.id)}`,
-                      "Its connections are removed with it.",
-                    )
-                  }
-                />
-              );
-            })}
+            {here.map((item) => (
+              <Row
+                key={item.id}
+                text={deploymentText(item)}
+                name="the deployment here"
+                draft={draftOf("deployment", item)}
+                onDone={changed}
+                onEdit={() => setOpen({ kind: "deployment", deployment: item })}
+                onRemove={() =>
+                  ask(
+                    "deployments",
+                    item,
+                    `the deployment of ${service.name} here`,
+                    "Its connections are removed with it.",
+                  )
+                }
+              />
+            ))}
           </List>
         )}
       </Part>
@@ -302,7 +298,7 @@ export default function ServicePanel({
               <Row
                 key={`${item.id}${text[0]}`}
                 text={text}
-                href={to ? `/services/${encodeURIComponent(to)}` : undefined}
+                href={to ? servicePath(to) : undefined}
                 name={text}
                 draft={draftOf("connection", item)}
                 onDone={changed}
@@ -376,22 +372,18 @@ export default function ServicePanel({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {documents ? (
-        <Tabs defaultValue="details" className="flex min-w-0 flex-col gap-4">
-          <TabsList aria-label="Service">
-            <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="documents">Documents</TabsTrigger>
-          </TabsList>
-          <TabsContent value="details" className="flex min-w-0 flex-col gap-4">
-            {details}
-          </TabsContent>
-          <TabsContent value="documents" className="min-w-0">
-            <EntryDocuments entry={{ kind: "service", id: serviceId, name: service.name }} onChanged={onChanged} />
-          </TabsContent>
-        </Tabs>
-      ) : (
-        details
-      )}
+      <Tabs defaultValue="details" className="flex min-w-0 flex-col gap-4">
+        <TabsList aria-label="Service">
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
+        </TabsList>
+        <TabsContent value="details" className="flex min-w-0 flex-col gap-4">
+          {details}
+        </TabsContent>
+        <TabsContent value="documents" className="min-w-0">
+          <EntryDocuments entry={{ kind: "service", id: serviceId, name: service.name }} onChanged={onChanged} />
+        </TabsContent>
+      </Tabs>
 
       <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
       {open?.kind === "fields" && (
@@ -428,7 +420,7 @@ export default function ServicePanel({
   );
 }
 
-function Part({
+export function Part({
   title,
   add,
   addLabel,
@@ -455,18 +447,19 @@ function Part({
 }
 
 /** The Confirm / Discard target of a draft item; undefined when it is confirmed. */
-const draftOf = (
+export const draftOf = (
   kind: "deployment" | "connection" | "relation",
   item: { id: string; revision: number; status: string },
 ): DraftTarget | undefined => (item.status === "draft" ? { kind, id: item.id, revision: item.revision } : undefined);
 
-const List = ({ children }: { children: ReactNode }) => <ul className="flex flex-col gap-1">{children}</ul>;
+export const List = ({ children }: { children: ReactNode }) => <ul className="flex flex-col gap-1">{children}</ul>;
 
-/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service). A draft
- * shows its badge and Confirm / Discard (then `onDone`). */
-function Row({
+/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service), `detail`
+ * is a line under it (a relation's description). A draft shows its badge and Confirm / Discard (then `onDone`). */
+export function Row({
   text,
   href,
+  detail,
   name,
   draft,
   onDone,
@@ -475,6 +468,7 @@ function Row({
 }: {
   text: string;
   href?: string;
+  detail?: string;
   name: string;
   draft?: DraftTarget;
   onDone?: () => void;
@@ -483,15 +477,18 @@ function Row({
 }) {
   return (
     <li className="flex items-center justify-between gap-2 text-sm">
-      <span className="flex min-w-0 items-center gap-2">
-        {href ? (
-          <Link className="min-w-0 underline-offset-4 [overflow-wrap:anywhere] hover:underline" to={href}>
-            {text}
-          </Link>
-        ) : (
-          <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
-        )}
-        {draft && <DraftBadge />}
+      <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 items-center gap-2">
+          {href ? (
+            <Link className="min-w-0 underline-offset-4 [overflow-wrap:anywhere] hover:underline" to={href}>
+              {text}
+            </Link>
+          ) : (
+            <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
+          )}
+          {draft && <DraftBadge />}
+        </span>
+        {detail && <span className="text-muted-foreground [overflow-wrap:anywhere]">{detail}</span>}
       </span>
       <RowActions>
         {draft && <DraftActions name={name} confirm={draft} onDone={() => onDone?.()} />}
@@ -620,84 +617,22 @@ function ServiceFieldsSheet({
   onConflict: () => void;
   onClose: () => void;
 }) {
-  const [name, setName] = useState(service.name);
-  const [type, setType] = useState<ServiceType>(service.service_type);
-  const [role, setRole] = useState<ServiceRole>(service.service_role);
-  const [owner, setOwner] = useState(service.owner);
-  const [description, setDescription] = useState(service.description);
-  const [address, setAddress] = useState(service.address ?? "");
+  const [value, setValue] = useState(serviceFields(service));
   return (
     <EditSheet
       title="Edit service"
       button="Save service"
-      save={() =>
-        updateItem("services", service.id, service.revision, {
-          name,
-          service_type: type,
-          service_role: role,
-          owner,
-          description,
-          address: type === "external" ? address.trim() : "",
-        })
-      }
+      save={() => updateItem("services", service.id, service.revision, serviceValue(value))}
       onSaved={onSaved}
       onConflict={onConflict}
       onClose={onClose}
     >
-      <TextField id="service-fields-name" label="Name" value={name} onChange={setName} max={200} />
-      <Field>
-        <FieldLabel htmlFor="service-fields-type">Type</FieldLabel>
-        <Select value={type} onValueChange={(value) => setType(value as ServiceType)}>
-          <SelectTrigger id="service-fields-type" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {(Object.keys(serviceTypes) as ServiceType[]).map((value) => (
-                <SelectItem key={value} value={value}>
-                  {serviceTypes[value]}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </Field>
-      {type === "external" && (
-        <TextField id="service-fields-address" label="Address" value={address} onChange={setAddress} max={253} />
-      )}
-      <Field>
-        <FieldLabel htmlFor="service-fields-role">Role</FieldLabel>
-        <Select value={role} onValueChange={(value) => setRole(value as ServiceRole)}>
-          <SelectTrigger id="service-fields-role" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {(Object.keys(serviceRoles) as ServiceRole[]).map((value) => (
-                <SelectItem key={value} value={value}>
-                  {serviceRoles[value].label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </Field>
-      <TextField id="service-fields-owner" label="Owner" value={owner} onChange={setOwner} max={200} />
-      <Field>
-        <FieldLabel htmlFor="service-fields-description">Description</FieldLabel>
-        <Textarea
-          id="service-fields-description"
-          maxLength={4000}
-          rows={3}
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-      </Field>
+      <ServiceFields idPrefix="service-fields" value={value} onChange={setValue} />
     </EditSheet>
   );
 }
 
-function DeploymentSheet({
+export function DeploymentSheet({
   deployment,
   onSaved,
   onConflict,
@@ -746,7 +681,7 @@ function DeploymentSheet({
 }
 
 /** A long description shows its first lines, with Show more / Show less. */
-function Description({ text }: { text: string }) {
+export function Description({ text }: { text: string }) {
   const [full, setFull] = useState(false);
   const long = text.length > 300 || text.split("\n").length > 4;
   return (

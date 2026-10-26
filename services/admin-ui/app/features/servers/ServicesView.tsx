@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Eye, FileText, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { FileText, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteService, getServices, type ServiceAsset } from "./services";
-import { getEnvironments, type EnvironmentAsset } from "./environments";
-import { getRepositories, type Repository } from "~/features/codeProjects/api";
-import { getServers, type ServerAsset } from "./api";
 import { RowAction, RowActions } from "./RowAction";
-import ServiceForm from "./ServiceForm";
-import ServiceDetails from "./ServiceDetails";
+import { servicePath } from "./ServicePanel";
 import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import {
@@ -30,34 +26,22 @@ import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 export default function ServicesView() {
-  const [data, setData] = useState<{
-    services: ServiceAsset[];
-    repositories: Repository[];
-    servers: ServerAsset[];
-    environments: EnvironmentAsset[];
-  } | null>(null);
+  const [data, setData] = useState<{ services: ServiceAsset[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [form, setForm] = useState<{ service: ServiceAsset | null } | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ServiceAsset | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([
-      getServices(controller.signal),
-      getRepositories(controller.signal),
-      getServers(controller.signal),
-      getEnvironments(controller.signal),
-    ])
-      .then(([services, repositories, servers, environments]) => {
+    getServices(controller.signal)
+      .then((services) => {
         if (!controller.signal.aborted) {
-          setData({ ...services, ...repositories, ...servers, ...environments });
+          setData(services);
           setError(null);
         }
       })
@@ -71,11 +55,6 @@ export default function ServicesView() {
     return () => controller.abort();
   }, [refresh]);
 
-  function openForm(service: ServiceAsset | null) {
-    setForm({ service });
-    setSelected(null);
-    setNotice(null);
-  }
   async function confirmDelete() {
     if (deleteTarget === null || deleting) return;
     const target = deleteTarget;
@@ -86,7 +65,6 @@ export default function ServicesView() {
       setData((current) =>
         current ? { ...current, services: current.services.filter((service) => service.id !== target.id) } : null,
       );
-      setSelected((current) => (current === target.id ? null : current));
       setDeleteTarget(null);
       setNotice(`Service “${target.name}” deleted.`);
       setRefresh((value) => value + 1);
@@ -113,7 +91,6 @@ export default function ServicesView() {
         ]),
       ].some((value) => value.toLowerCase().includes(query.trim().toLowerCase())),
     ) ?? [];
-  const detail = data?.services.find((service) => service.id === selected);
 
   return (
     <div className="flex flex-col gap-6">
@@ -125,17 +102,15 @@ export default function ServicesView() {
           · Application assets
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={loading || form !== null}
-            onClick={() => setRefresh((value) => value + 1)}
-          >
+          <Button variant="outline" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>
             <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>
-          <Button disabled={loading || error !== null || data === null || form !== null} onClick={() => openForm(null)}>
-            <Plus data-icon="inline-start" />
-            Add service
+          <Button asChild>
+            <Link to="/services/new">
+              <Plus data-icon="inline-start" />
+              New service
+            </Link>
           </Button>
         </div>
       </div>
@@ -150,28 +125,8 @@ export default function ServicesView() {
           <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
-      {form && data && (
-        <ServiceForm
-          key={form.service?.id ?? "new"}
-          service={form.service}
-          services={data.services}
-          repositories={data.repositories}
-          servers={data.servers}
-          environments={data.environments}
-          onClose={() => {
-            setForm(null);
-            setRefresh((value) => value + 1);
-          }}
-          onSaved={(id) => {
-            setForm(null);
-            setSelected(id);
-            setNotice("Service saved. Its context is available for agent investigations.");
-            setRefresh((value) => value + 1);
-          }}
-        />
-      )}
       {data === null && loading && <Skeleton className="h-48 w-full" />}
-      {data !== null && !form && (
+      {data !== null && (
         <>
           {data.services.length === 0 ? (
             <Empty className="mt-4 border">
@@ -185,9 +140,11 @@ export default function ServicesView() {
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
-                <Button variant="outline" disabled={loading || error !== null} onClick={() => openForm(null)}>
-                  <Plus data-icon="inline-start" />
-                  Add your first service
+                <Button asChild variant="outline">
+                  <Link to="/services/new">
+                    <Plus data-icon="inline-start" />
+                    Add your first service
+                  </Link>
                 </Button>
               </EmptyContent>
             </Empty>
@@ -214,7 +171,7 @@ export default function ServicesView() {
                     {matching.map((service) => (
                       <TableRow key={service.id}>
                         <TableCell className="max-w-xs whitespace-normal align-top">
-                          <Link className="font-medium underline" to={`/services/${encodeURIComponent(service.id)}`}>
+                          <Link className="font-medium underline" to={servicePath(service.id)}>
                             {service.name}
                           </Link>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -265,18 +222,10 @@ export default function ServicesView() {
                         </TableCell>
                         <TableCell className="align-top">
                           <RowActions>
-                            <RowAction label="Details" name={service.name} onClick={() => setSelected(service.id)}>
-                              <Eye />
-                            </RowAction>
                             <RowAction label="Documents" name={service.name} to={`/documents?service_id=${service.id}`}>
                               <FileText />
                             </RowAction>
-                            <RowAction
-                              label="Edit"
-                              name={service.name}
-                              disabled={loading || error !== null}
-                              onClick={() => openForm(service)}
-                            >
+                            <RowAction label="Edit" name={service.name} to={servicePath(service.id, "edit")}>
                               <Pencil />
                             </RowAction>
                             <RowAction
@@ -310,7 +259,6 @@ export default function ServicesView() {
           )}
         </>
       )}
-      {detail && !form && <ServiceDetails service={detail} onClose={() => setSelected(null)} />}
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {

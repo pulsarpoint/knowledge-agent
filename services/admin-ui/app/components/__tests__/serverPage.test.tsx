@@ -217,7 +217,7 @@ test("shows the server, its services and documents; its chats are in the chat pa
   show();
   expect(await screen.findByRole("heading", { name: "web-1", level: 1 })).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1");
+  expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1/view");
   expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
   await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(await screen.findByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");

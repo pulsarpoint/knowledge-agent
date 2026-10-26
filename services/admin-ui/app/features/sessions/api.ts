@@ -49,7 +49,7 @@ export function resourceOf(tags: readonly string[] | undefined): { type: Resourc
 /** A resource's page, with one of its chats open (`?chat=`) or none. */
 export const resourceChatPath = (resource: { type: ResourceType; id: string }, chatId?: string | null) =>
   `/${resource.type === "code_project" ? "code-projects" : `${resource.type}s`}/${encodeURIComponent(resource.id)}${
-    resource.type === "code_project" ? "/overview" : ""
+    resource.type === "code_project" ? "/overview" : resource.type === "service" ? "/view" : ""
   }${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
 
 /** What a chat is about: a document (Ask agent), a saved agent (its Chat tab), a new document (Documents → New: the

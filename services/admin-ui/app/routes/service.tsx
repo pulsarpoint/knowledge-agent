@@ -1,12 +1,11 @@
-import { useParams } from "react-router";
 import AdminLayout from "../components/AdminLayout";
-import ServicePage from "~/features/servers/ServicePage";
+import ServiceLayout from "~/features/servers/ServiceLayout";
 
-export default function Page() {
-  const { serviceId } = useParams();
+/** A service's page: its header and sub-pages; the open one is a child route. */
+export default function ServicePage() {
   return (
     <AdminLayout>
-      <ServicePage key={serviceId} serviceId={serviceId!} />
+      <ServiceLayout />
     </AdminLayout>
   );
 }
