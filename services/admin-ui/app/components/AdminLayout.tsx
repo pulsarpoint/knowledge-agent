@@ -50,8 +50,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wide, setWide] = useState(false); // a page asked for the full width (useWidePage)
-  const { pathname, search } = useLocation();
-  const chatPage = pathname.startsWith("/agents/") && new URLSearchParams(search).get("view") === "chat";
+  const { pathname } = useLocation();
   useEffect(() => {
     let active = true;
     getAdminSession()
@@ -177,7 +176,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                           : skillsPage
                             ? "Folders of instructions, references and scripts your agents load when a task needs them."
                             : agentPage
-                              ? "Create agents with their own models, instructions, resources, and test conversations."
+                              ? "Create agents with their own models, instructions, resources, and conversations."
                               : repositories
                                 ? "Browse the mounted code folder and organize local folders and Git sources into projects."
                                 : codeGraphs
@@ -445,7 +444,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </header>
         <main className={cn("mx-auto flex w-full flex-col gap-6 p-6", !wide && "max-w-6xl")}>
           {!sessionPage && (
-            <div className={cn(chatPage && "sr-only")}>
+            <div>
               <h1 className="text-2xl font-semibold">{title}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{description}</p>
             </div>

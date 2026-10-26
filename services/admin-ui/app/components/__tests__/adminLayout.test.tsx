@@ -193,3 +193,23 @@ test("the home page opens Documents", () => {
   );
   expect(screen.getByText("Documents page")).toBeInTheDocument();
 });
+
+test("an agent's Chat tab keeps the Agents title and description visible", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))),
+  );
+  render(
+    <MemoryRouter initialEntries={["/agents/code?view=chat"]}>
+      <AdminLayout>
+        <div>Agent chat</div>
+      </AdminLayout>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("Agent chat")).toBeInTheDocument();
+  const title = screen.getByRole("heading", { level: 1, name: "Agents" });
+  expect(title.parentElement).not.toHaveClass("sr-only");
+  expect(
+    screen.getByText("Create agents with their own models, instructions, resources, and conversations."),
+  ).toBeInTheDocument();
+});
