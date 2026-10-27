@@ -4,12 +4,9 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import httpx
-import psycopg
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException
+from fastapi import FastAPI
 
+from knowledge_admin import http_errors
 from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.api import build_api
 from knowledge_admin.sessions.hub import SessionHub
@@ -44,21 +41,7 @@ def create_app(
         title='Knowledge Agent Administration', docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
 
-    @app.exception_handler(HTTPException)
-    async def http_error(request: Request, exc: HTTPException):
-        # A dict detail carries a code the UI recognises beside the message, e.g. {"message": ..., "code": "STALE_BASE"}.
-        error = exc.detail if isinstance(exc.detail, dict) else {'message': str(exc.detail)}
-        return JSONResponse(status_code=exc.status_code, content={'error': error})
-
-    @app.exception_handler(RequestValidationError)
-    async def invalid_request(request: Request, exc: RequestValidationError):
-        # Validation inputs may contain a GitHub token. Return messages only, never inputs/context.
-        message = '; '.join(error['msg'] for error in exc.errors())
-        return JSONResponse(status_code=400, content={'error': {'message': message}})
-
-    @app.exception_handler(psycopg.Error)
-    async def database_error(request: Request, exc: psycopg.Error):
-        return JSONResponse(status_code=503, content={'error': {'message': 'Administration database unavailable'}})
+    http_errors.install(app)
 
     @app.get('/health')
     def health():

@@ -51,8 +51,8 @@ def test_preview_is_exactly_what_start_pins(ask):
 def test_start_refuses_what_cannot_run(ask):
     web = [ask.web['id']]
     for change, message in (
-        ({'tools': ['read_file'], 'resources': {'server_ids': web}}, 'Extra inputs are not permitted'),
-        ({'subagents': True}, 'Extra inputs are not permitted'),
+        ({'tools': ['read_file'], 'resources': {'server_ids': web}}, 'tools: Extra inputs are not permitted'),
+        ({'subagents': True}, 'subagents: Extra inputs are not permitted'),
         (
             {'expert_ids': ['00000000-0000-0000-0000-000000000001']},
             'This expert is not available: 00000000-0000-0000-0000-000000000001.',
@@ -192,3 +192,19 @@ def test_a_draft_id_is_not_a_document_a_run_can_start_from_or_be_given(ask):
     ):
         refused = post(ask, '/preview', **change)
         assert refused.status_code == 404 and refused.json()['error']['message'] == 'Document not found', change
+
+
+def test_a_run_on_a_document_can_choose_an_expert_with_a_text_id(ask):
+    """Agent ids are text (code), not UUIDs: choosing the code expert starts the run with it pinned."""
+    with ask.s.store.connect() as conn:
+        conn.execute(  # the seeded code agent, made an expert with a model
+            """UPDATE ka.agents SET enabled=true,expert=true,when_to_use='Questions about the source code.',model_id=%s
+            WHERE id='code'""",
+            (ask.s.gpt,),
+        )
+    preview = post(ask, '/preview', expert_ids=['code'])
+    assert preview.status_code == 200, preview.text
+    started = post(ask, expert_ids=['code'])
+    assert started.status_code == 201, started.text
+    assert [entry['id'] for entry in started.json()['config']['experts']] == ['code']
+    assert started.json()['config'] == preview.json()['config']

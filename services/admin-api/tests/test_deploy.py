@@ -198,7 +198,14 @@ def test_services_compute_their_roots_from_the_folder_variables():
         env = services[name]['environment']
         assert {key: env[key] for key in expected} == expected, name
         assert not removed & set(env), name
-    assert 'environment' not in services['shell-worker']  # it reads DATA_ROOT_DIR's default, /work/data
+    # it reads DATA_ROOT_DIR's default, /work/data; LOG_LEVEL is its only setting
+    assert services['shell-worker']['environment'] == {'LOG_LEVEL': '${LOG_LEVEL:-info}'}
+
+
+def test_the_python_services_take_the_log_level():
+    services = yaml.safe_load((DEPLOY / 'compose.yaml').read_text())['services']
+    for name in ('admin-api', 'repository-worker', 'agent-session-worker', 'shell-worker'):
+        assert services[name]['environment']['LOG_LEVEL'] == '${LOG_LEVEL:-info}', name
 
 
 @pytest.mark.skipif(shutil.which('docker') is None, reason='docker compose renders the commands')

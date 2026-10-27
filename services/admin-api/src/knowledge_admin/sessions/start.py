@@ -213,7 +213,7 @@ class StartInput(BaseModel):
     system_prompt: str = Field(default='', max_length=20000)
     context: str = Field(default='', max_length=20000)
     resources: Resources = Field(default_factory=Resources)
-    expert_ids: list[UUID] | None = Field(default=None, max_length=50)  # None: every expert offered
+    expert_ids: list[str] | None = Field(default=None, max_length=50)  # agent ids are text (code); None: every one
     disabled_tools: list[str] = Field(default_factory=list, max_length=200)  # catalog tools switched off (more only)
     tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
     output_schema_id: UUID | None = None
@@ -449,15 +449,15 @@ def off_tools(value: StartInput) -> list[str]:
         raise HTTPException(400, str(exc)) from None
 
 
-def chosen_experts(offered: list[dict], expert_ids: list[UUID] | None) -> list[dict]:
+def chosen_experts(offered: list[dict], expert_ids: list[str] | None) -> list[dict]:
     """The experts a run may call: every offered one, or those the request names (each must be offered)."""
     if expert_ids is None:
         return offered
     experts = {entry['id']: entry for entry in offered}
     for expert_id in expert_ids:
-        if str(expert_id) not in experts:
+        if expert_id not in experts:
             raise HTTPException(400, NO_EXPERT.format(id=expert_id))
-    return [experts[str(expert_id)] for expert_id in expert_ids]
+    return [experts[expert_id] for expert_id in expert_ids]
 
 
 def _with(selection: Resources, kind: str, resource_id) -> Resources:

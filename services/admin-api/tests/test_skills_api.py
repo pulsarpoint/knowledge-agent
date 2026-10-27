@@ -250,13 +250,14 @@ def test_a_failed_switch_leaves_no_new_folder_and_the_kept_folders_unchanged(cli
     def broken(*_, **__):
         raise RuntimeError('the database went away')
 
-    with monkeypatch.context() as patch, pytest.raises(RuntimeError):
+    with monkeypatch.context() as patch:
         patch.setattr(store, 'switch', broken)
-        client.put(
+        failed = client.put(
             f'/api/skills/{skill["id"]}/files',
             headers=HEADERS,
             json={'revision': 3, 'changes': [{'path': 'n.md', 'text': 'lost'}]},
         )
+    assert failed.status_code == 500 and failed.json() == {'error': {'message': 'Internal error'}}  # logged
     assert client.get(f'/api/skills/{skill["id"]}', headers=HEADERS).json() == before
     assert sorted(p.name for p in (root / 'skills' / skill['id']).iterdir()) == on_disk
 

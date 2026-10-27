@@ -8,6 +8,7 @@ from pathlib import Path
 
 import uvicorn
 
+from knowledge_admin.logs import configure as configure_logging
 from knowledge_admin.config import ConfigError, load_config, load_env_file, resolve_server
 from knowledge_admin.app import create_app
 from knowledge_admin.repositories import RepositoryStore
@@ -24,7 +25,8 @@ def main() -> int:
         load_env_file(args.env_file)
         cfg = load_config(args.target)
         server = resolve_server(cfg.server)
-    except ConfigError as exc:
+        log_level = configure_logging(os.environ.get('LOG_LEVEL'))  # after the env file, which may set it
+    except (ConfigError, ValueError) as exc:  # ValueError: an invalid LOG_LEVEL
         print(f'error: {exc}', file=sys.stderr)
         return 2
     repository_store = None
@@ -37,5 +39,6 @@ def main() -> int:
         host=args.host,
         port=args.port,
         timeout_graceful_shutdown=5,
+        log_level=log_level,
     )  # open session streams reconnect; they must not block shutdown
     return 0

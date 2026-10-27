@@ -50,7 +50,9 @@ def test_capabilities_hold_the_implementations_without_the_agents_sdk():
 
 def test_the_shell_worker_imports_without_the_application_config():
     worker = imported_modules(CAPABILITIES / 'shell/worker.py')
-    assert not {name for name in worker if name.startswith('knowledge_admin')}
+    # knowledge_admin.logs (LOG_LEVEL) uses the standard library only
+    assert {name for name in worker if name.startswith('knowledge_admin')} == {'knowledge_admin.logs'}
+    assert {name for name in imported_modules(PACKAGE / 'logs.py')} == {'logging', 'os'}
 
 
 def test_tools_only_wrap_capabilities():

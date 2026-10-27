@@ -3,12 +3,22 @@
 import asyncio
 import os
 import signal
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+from knowledge_admin.logs import configure_from_env
+
+
+@asynccontextmanager
+async def lifespan(app):
+    configure_from_env()  # LOG_LEVEL; an invalid value stops the worker at start
+    yield
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 class ShellRequest(BaseModel):

@@ -76,6 +76,7 @@ services:
       - agent-workspaces:/work/agent-workspaces
     environment:
       <<: *data-env
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
       LLM_SETTINGS_SOURCE: database
@@ -130,6 +131,7 @@ services:
       - *code-index-rw
     environment:
       <<: *data-env
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
@@ -153,6 +155,7 @@ services:
       - agent-workspaces:/work/agent-workspaces
     environment:
       <<: *data-env
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
       AGENT_SESSION_MAX_SESSIONS: ${AGENT_SESSION_MAX_SESSIONS:-4}
@@ -185,6 +188,8 @@ services:
     volumes:
       - *data-root
       - agent-workspaces:/work/agent-workspaces
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     entrypoint: [/services/admin-api/.venv/bin/uvicorn, knowledge_admin.capabilities.shell.worker:app, --host, "0.0.0.0", --port, "8796", --no-access-log]
     command: []
     healthcheck:

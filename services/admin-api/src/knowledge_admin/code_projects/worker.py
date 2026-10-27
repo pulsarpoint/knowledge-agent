@@ -17,6 +17,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
+from knowledge_admin import logs
 from knowledge_admin.code_projects.paths import code_path
 from knowledge_admin.code_projects.processing import CodeProcessingError, process_code
 from knowledge_admin.events import jira_replies, scheduler
@@ -248,6 +249,7 @@ def run_once(store: RepositoryStore, code_root: Path) -> bool:
 
 
 def main() -> None:
+    logs.configure_from_env()
     key = base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY'])
     store = RepositoryStore('', key, os.environ['AUTH_ISSUER_URL'])
     code_root = Path(os.environ['CODE_ROOT']).resolve()

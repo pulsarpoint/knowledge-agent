@@ -301,7 +301,7 @@ def test_a_run_has_no_roles(world):
     }
     refused = world.client.post('/api/sessions', headers=HEADERS, json=body)
     assert refused.status_code == 400, refused.text
-    assert refused.json()['error']['message'] == 'Extra inputs are not permitted'  # the role is gone
+    assert refused.json()['error']['message'] == 'inventory_editor: Extra inputs are not permitted'  # the role is gone
     body = {**body, 'content_editor': True}
     del body['inventory_editor']
     assert world.client.post('/api/sessions', headers=HEADERS, json=body).status_code == 400

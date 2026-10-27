@@ -21,6 +21,7 @@ from agents import RunHooks
 from agents.run_config import CallModelData, ModelInputData
 from cryptography.exceptions import InvalidTag
 
+from knowledge_admin import logs
 from knowledge_admin.sessions import tracing as agent_tracing, run_record
 from knowledge_admin.sessions.activity import tool_failed
 from knowledge_admin.agents.runner import agent, load_credentials
@@ -588,7 +589,7 @@ async def supervise(name: str, make_loop: Callable[[], Any], stopped: asyncio.Ev
 def main() -> None:
     """agent-session-worker: PostgreSQL from the PG* environment, run records like admin-api, and Agents SDK tracing to
     Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api."""
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
+    logs.configure_from_env()
     store = RepositoryStore(
         '', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL']
     )

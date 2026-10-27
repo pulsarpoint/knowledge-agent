@@ -100,11 +100,11 @@ def test_a_saved_agent_starts_with_its_own_configuration_narrowed(agent):
 def test_nothing_can_be_added_to_a_saved_agent(agent):
     other_expert = '00000000-0000-0000-0000-000000000009'
     for body, message in (
-        ({'tools': ['get_resource']}, 'Extra inputs are not permitted'),
+        ({'tools': ['get_resource']}, 'tools: Extra inputs are not permitted'),
         ({'expert_ids': [other_expert]}, f'This expert is not available: {other_expert}.'),
-        ({'subagents': True}, 'Extra inputs are not permitted'),
-        ({'content_editor': True}, 'Extra inputs are not permitted'),  # roles are gone
-        ({'inventory_editor': True}, 'Extra inputs are not permitted'),
+        ({'subagents': True}, 'subagents: Extra inputs are not permitted'),
+        ({'content_editor': True}, 'content_editor: Extra inputs are not permitted'),  # roles are gone
+        ({'inventory_editor': True}, 'inventory_editor: Extra inputs are not permitted'),
         ({'model_id': agent.other_model}, 'A saved agent uses its own model and prompt.'),
         ({'system_prompt': 'Be someone else.'}, 'A saved agent uses its own model and prompt.'),
         (
