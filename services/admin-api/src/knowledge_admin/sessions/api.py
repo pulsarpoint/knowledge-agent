@@ -125,9 +125,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     ) -> dict:
         db = database()
         resources = sum(item is not None for item in (server_id, service_id, environment_id, code_project_id))
-        starts = sum((document_id is not None, new_document)) + resources
-        if starts > 1 or (agent_id is not None and (new_document or resources)):
+        if agent_id is not None and (new_document or resources):
             raise HTTPException(400, start.ONE_START)
+        if agent_id is None and (document_id is not None or new_document or resources):
+            if not start.one_start(document_id is not None, new_document, resources):
+                raise HTTPException(400, start.ONE_START)
         if agent_id is not None and document_id is not None:
             raise HTTPException(400, 'Choose a document or an agent.')
         with db.connect() as conn:

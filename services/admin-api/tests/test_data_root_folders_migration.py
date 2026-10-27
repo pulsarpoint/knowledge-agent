@@ -81,6 +81,9 @@ def at_0066(store):
     """Rolled back to 0066 with the jira folder, a look-alike, a whole rag-data folder that shares the Jira file,
     their file log rows and a saved agent version."""
     with store.connect() as conn:
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, '0144_no_document_folders.down.sql')  # 0084 down moves agent_sessions.folder
         run(conn, '0134_rag_gone.down.sql')  # the RAG tables this migration rewrites
         run(conn, '0084_remove_claude_code.down.sql')

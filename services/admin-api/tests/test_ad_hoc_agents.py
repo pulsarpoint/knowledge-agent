@@ -15,16 +15,14 @@ from test_generations import sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 from test_repositories import HEADERS
 
-NEW = {'name': 'Payments – API reference'}
-
 
 def preview(s, prompt='You document.', **resources):
     body = {
-        'started_from': {'new_document': NEW},
+        'started_from': {'new_document': True},
         'message': 'Write it.',
         'model_id': s.gpt,
         'system_prompt': prompt,
-        'resources': {**resources, 'documents': [{'new': NEW}]},
+        'resources': resources,
     }
     return s.client.post('/api/sessions/preview', headers=HEADERS, json=body)
 
@@ -53,7 +51,6 @@ def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
     assert config['model']['id'] == s.gpt
     assert [(item['type'], item['name'], item['source']) for item in config['access']['resources']] == [
         ('code_project', 'Payments API', 'given'),
-        ('document', NEW['name'], 'given'),
     ]
     for key in ('code', 'documents', 'ssh', 'services', 'mcp', 'run_resources', 'chosen_resources', 'tools'):
         assert key not in config

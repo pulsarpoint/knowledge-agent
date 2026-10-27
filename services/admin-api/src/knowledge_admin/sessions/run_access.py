@@ -59,7 +59,6 @@ SERVICE_CODE = """SELECT r.id FROM ka.service_relations l JOIN ka.repositories r
 DEPLOYED_SERVICES = 'SELECT DISTINCT service_id AS id FROM ka.service_deployments WHERE server_id=%s'
 SERVICE_SERVERS = """SELECT h.id FROM ka.service_deployments d JOIN ka.servers h ON h.id=d.server_id
     WHERE h.project_id=%s AND d.service_id=ANY(%s) AND h.ssh_allowed ORDER BY lower(h.name),h.id"""
-BUILT_FOR = ('code_project', 'environment', 'service', 'server')
 
 
 def picks(resources: Mapping[str, list] | None) -> list[dict[str, str]]:
@@ -70,14 +69,6 @@ def picks(resources: Mapping[str, list] | None) -> list[dict[str, str]]:
         for kind in KINDS
         for item in dict.fromkeys(str(item) for item in (resources or {}).get(kind.key) or [])
     ]
-
-
-def built_for(given: Iterable[Mapping[str, Any]]) -> list[list[str]]:
-    """What a new document of the run is built for and links on promote, [type, id]: the code projects,
-    environments, services and servers of what the run was given (its picks, or its access entries with source
-    'given'): what the person chose, an environment rather than what it brings."""
-    given = list(given)
-    return [[type_, str(item['id'])] for type_ in BUILT_FOR for item in given if item['type'] == type_]
 
 
 def given(access: Mapping[str, Any]) -> list[dict[str, Any]]:

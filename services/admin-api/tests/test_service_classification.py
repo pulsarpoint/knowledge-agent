@@ -80,6 +80,7 @@ def test_migration_preserves_inventory_and_refuses_to_discard_saved_classificati
     up = (MIGRATIONS / '0044_service_classification.up.sql').read_text(encoding='utf-8')
     down = (MIGRATIONS / '0044_service_classification.down.sql').read_text(encoding='utf-8')
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / '0145_write_with_an_agent.down.sql').read_text(), prepare=False)
         conn.execute(
             (MIGRATIONS / '0144_no_document_folders.down.sql').read_text(), prepare=False
         )  # 0144 drops the folders 0109 down reads

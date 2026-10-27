@@ -13,8 +13,6 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.servers.discovery import readiness, server_row
-from knowledge_admin.documents.api import Tags, document_slug
-from knowledge_admin.documents.store import INVENTORY_TAG, NAME_IN_USE
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import (
@@ -28,14 +26,7 @@ from knowledge_admin.knowledge_agents.config import (
 )
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.output_schemas import store as output_schemas
-from knowledge_admin.sessions.run_access import (
-    agent_access,
-    bring,
-    built_for,
-    check_picks,
-    given,
-    run_access,
-)
+from knowledge_admin.sessions.run_access import agent_access, bring, check_picks, given, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.selection import disabled_for, validate as valid_tools
@@ -45,11 +36,7 @@ WRITE_TAG = 'documentation'
 ONE_START = (
     'Choose one starting point: a document, a new document, a server, a service, an environment or a code project.'
 )
-ID_OR_NEW = 'Give a document id or a new document.'
-ONE_NEW = 'One new document per run.'
-INVENTORY_FOR = 'An inventory document is written for one server, service or environment.'
-RESOURCE_FOR = 'A new document is built for one server, service, environment or code project.'
-NOT_THE_START = 'The new document must be the one the run starts from.'
+NEEDS_RESOURCE = 'Pick at least one resource for the agent to write about.'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
 PICKS = (
@@ -93,10 +80,6 @@ TOO_MANY_TAGS = 'A run takes at most 10 tags.'
 RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
-NO_SSH = (
-    'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
-    'commands on it. {reason}'
-)
 AGENT_DISABLED = 'Agent is disabled.'
 AGENT_NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 TITLE_LENGTH = 120
@@ -106,51 +89,11 @@ SCHEMA_VERSION_NOT_FOUND = 'Output schema version not found.'
 VERSION_WITHOUT_SCHEMA = 'Choose the output schema of this version.'
 
 
-class NewDocument(BaseModel):
-    """A document the run writes: its name (a slug comes from it) and its tags; with one
-    server_id, service_id or environment_id it is built for that resource alone (a resource's New document page's
-    Write with an agent); tagged inventory it must name one: the inventory document of that resource."""
-
-    model_config = ConfigDict(extra='forbid')
-    name: str = Field(max_length=240)
-    tags: Tags = Field(default_factory=list)
-    server_id: UUID | None = None
-    service_id: UUID | None = None
-    environment_id: UUID | None = None
-    code_project_id: UUID | None = None
-
-    @model_validator(mode='after')
-    def valid(self):
-        if '\x00' in self.name:
-            raise ValueError('Text cannot contain null characters')
-        self.name = self.name.strip()
-        if not document_slug(self.name):
-            raise ValueError('Use letters or digits in the document name')
-        given = [kind for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
-        if INVENTORY_TAG in self.tags and (len(given) != 1 or given == ['code_project']):
-            raise ValueError(INVENTORY_FOR)
-        if len(given) > 1:
-            raise ValueError(RESOURCE_FOR)
-        return self
-
-    def resource_for(self) -> tuple[str, UUID] | None:
-        """(type, id) of the one resource the document is built for; None when it names none."""
-        given = [(kind, getattr(self, f'{kind}_id')) for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
-        return given[0] if given else None
-
-
 class DocumentAccess(BaseModel):
-    """A document the run may use (read and draft), or a new document it writes."""
+    """A document the run may use (read and draft)."""
 
     model_config = ConfigDict(extra='forbid')
-    id: UUID | None = None
-    new: NewDocument | None = None
-
-    @model_validator(mode='after')
-    def valid(self):
-        if (self.id is None) == (self.new is None):
-            raise ValueError(ID_OR_NEW)
-        return self
+    id: UUID
 
 
 class Resources(Selection):
@@ -158,9 +101,12 @@ class Resources(Selection):
 
 
 class StartedFrom(BaseModel):
+    """Where an ad-hoc run starts: a document (Ask agent), a resource (a chat on it), or new_document (Write with an
+    agent: a chat that writes documents, from at most one resource, else from the resources the person picks)."""
+
     model_config = ConfigDict(extra='forbid')
     document_id: UUID | None = None
-    new_document: NewDocument | None = None
+    new_document: bool = False
     server_id: UUID | None = None
     service_id: UUID | None = None
     environment_id: UUID | None = None
@@ -168,15 +114,8 @@ class StartedFrom(BaseModel):
 
     @model_validator(mode='after')
     def valid(self):
-        starts = (
-            self.document_id,
-            self.new_document,
-            self.server_id,
-            self.service_id,
-            self.environment_id,
-            self.code_project_id,
-        )
-        if sum(item is not None for item in starts) != 1:
+        resources = sum(getattr(self, f'{kind}_id') is not None for kind in RESOURCE_TYPES)
+        if not one_start(self.document_id is not None, self.new_document, resources):
             raise ValueError(ONE_START)
         return self
 
@@ -188,6 +127,13 @@ class StartedFrom(BaseModel):
             if value is not None:
                 return kind, value
         return None
+
+
+def one_start(document: bool, new_document: bool, resources: int) -> bool:
+    """Whether a run starts from one place: a document or one resource, or (writing documents) at most one resource."""
+    if new_document:
+        return not document and resources <= 1
+    return document + resources == 1
 
 
 def resource_tag(kind: str, resource_id) -> str:
@@ -239,6 +185,10 @@ class StartInput(BaseModel):
                 raise ValueError('Choose a model.')
             if not self.system_prompt:
                 raise ValueError('Enter a system prompt')
+            # new_document needs a resource of the run: the one it starts from, or one the person picked
+            picked = any(getattr(self.resources, key) for _, key in PICKS)
+            if self.started_from.new_document and self.started_from.resource() is None and not picked:
+                raise ValueError(NEEDS_RESOURCE)
         if self.expert_ids is not None:
             self.expert_ids = list(dict.fromkeys(self.expert_ids))
         self.tags = list(dict.fromkeys(tag.strip() for tag in self.tags))
@@ -250,11 +200,8 @@ class StartInput(BaseModel):
                 raise ValueError(RESOURCE_TAG.format(tag=tag))
         if len(self.run_tags()) > MAX_TAGS:
             raise ValueError(TOO_MANY_TAGS)
-        new = [entry for entry in self.resources.documents if entry.new is not None]
-        if len(new) > 1:
-            raise ValueError(ONE_NEW)
-        given = dict.fromkeys(entry.id for entry in self.resources.documents if entry.id is not None)  # each once
-        self.resources.documents = [DocumentAccess(id=key) for key in given] + new
+        given = dict.fromkeys(entry.id for entry in self.resources.documents)  # each once
+        self.resources.documents = [DocumentAccess(id=key) for key in given]
         return self
 
     def resource(self) -> tuple[str, UUID] | None:
@@ -288,15 +235,6 @@ def assistant_prompt_id(project: UUID, kind: str) -> UUID:
     return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:{TYPE_TAGS[kind]}-assistant:{project}'.encode()).hexdigest())
 
 
-def start_server(conn, project: UUID, server_id: UUID) -> dict:
-    """The server a run starts from: it exists in this workspace and SSH is set up and allowed for it."""
-    server = server_row(conn, project, server_id, lock=True)
-    reason = readiness(server)
-    if reason:
-        raise HTTPException(400, reason)
-    return server
-
-
 def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
     """The service, environment or code project a run starts from: it exists in this workspace (a code project not
     archived). No SSH is needed: a server it brings that the run cannot connect to is listed and read, and SSH skips
@@ -309,14 +247,6 @@ def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
     if row is None:
         raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
     return row
-
-
-def resource_owner(conn, project: UUID, kind: str, resource_id: UUID) -> None:
-    """The resource a new-document run's document is built for: it exists in this workspace (404)."""
-    if not conn.execute(
-        f'SELECT 1 FROM ka.{RESOURCE_TYPES[kind]} WHERE id=%s AND project_id=%s', (resource_id, project)
-    ).fetchone():
-        raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
 
 
 def server_reason(row: dict) -> str | None:
@@ -335,34 +265,10 @@ def target_document(conn, project: UUID, document_id: UUID) -> dict:
     return row
 
 
-def document_access(conn, project: UUID, entries: list[DocumentAccess], built: list[list[str]]) -> list[dict]:
-    """The access entries of the documents the run may use, with their current titles, and
-    of the new document it may write (an id of its own, 'new:<uuid>', its name, slug, tags and what it is
-    built for: built). A brand-new draft already holding the new
-    document's slug refuses the run (409): every save would fail. A live document of that name does not:
-    the run drafts that document (an inventory document's run is refused: it never drafts another document)."""
+def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[dict]:
+    """The access entries of the documents the run may use, with their current titles."""
     access = []
     for entry in entries:
-        if entry.new is not None:
-            slug = document_slug(entry.new.name)
-            # an inventory document never drafts the live document of that name: it is refused like a brand-new draft
-            if conn.execute(
-                """SELECT 1 FROM ka.documents WHERE project_id=%s
-                AND (draft_of IS NULL AND is_draft OR %s AND NOT is_draft) AND slug=%s""",
-                (project, INVENTORY_TAG in entry.new.tags, slug),
-            ).fetchone():
-                raise HTTPException(409, NAME_IN_USE.format(slug=slug))
-            access.append(
-                access_entry(
-                    'document',
-                    {'id': f'new:{uuid4()}', 'name': entry.new.name},
-                    new=True,
-                    slug=slug,
-                    tags=entry.new.tags,
-                    built_for=built,
-                )
-            )
-            continue
         row = conn.execute(
             'SELECT id,title FROM ka.live_documents WHERE id=%s AND project_id=%s',
             (entry.id, project),
@@ -418,7 +324,7 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         raise HTTPException(409, AGENT_NO_MODEL)
     resources = value.resources
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
-    picked += [{'type': 'document', 'id': str(entry.id or 'new')} for entry in resources.documents]
+    picked += [{'type': 'document', 'id': str(entry.id)} for entry in resources.documents]
     try:
         access = agent_access(
             conn,
@@ -472,13 +378,13 @@ def _with(selection: Resources, kind: str, resource_id) -> Resources:
 def build(
     conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
 ) -> tuple[dict, dict, dict | None]:
-    """(pinned configuration, model, where it starts: the document or the resource; None for a saved agent or a new
-    document): preview and start share it, so they pin the same configuration except the random `new:` id of a new
-    document. A saved agent's run narrows its agent's access (narrow); an ad-hoc run (the user's model and prompt, no
-    agents row) holds what it was picked, each checked (check_picks), and is built the same way (run_access): what it
-    was given brings its children. A run started from a resource records it as `started_from` ({type, id, name}) and
-    is given it (a server run only with SSH to it); the resource an inventory document is about is given to its run
-    too (a server only with SSH to it: else the run starts without it and says so)."""
+    """(pinned configuration, model, where it starts: the document or the resource; None for a saved agent or a run
+    writing documents from no resource): preview and start share it, so they pin the same configuration. A saved
+    agent's run narrows its agent's access (narrow); an ad-hoc run (the user's model and prompt, no agents row) holds
+    what it was picked, each checked (check_picks), and is built the same way (run_access): what it was given brings
+    its children. A run started from a resource records it as `started_from` ({type, id, name}) and is given it: a
+    chat on a server only with SSH to it; a run writing documents about a server holds it either way (its own
+    resource: run_access), with SSH only when the server has it."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
@@ -487,28 +393,15 @@ def build(
     resource = value.resource()
     if resource is not None:
         kind, resource_id = resource
-        origin = (
-            start_server(conn, project, resource_id) if kind == 'server' else start_resource(conn, project, *resource)
-        )
-        selection = _with(selection, kind, origin['id'])
-    started = value.started_from.new_document
-    entries = list(value.resources.documents)
-    new = next((entry.new for entry in entries if entry.new is not None), None)
-    if new is not None and (started is None or new.model_dump() != started.model_dump()):
-        raise HTTPException(400, NOT_THE_START)
-    if started is not None and new is None:  # the new document it starts from is a resource it may write
-        entries.append(DocumentAccess(new=started))
-    owner = started.resource_for() if started is not None else None
-    notes = []
-    if owner is not None:  # the resource it writes about is read as a chat on it reads it
-        resource_owner(conn, project, *owner)
-        kind, resource_id = owner
-        found = server_row(conn, project, resource_id, lock=True) if kind == 'server' else None
-        reason = readiness(found) if found is not None else None
-        if reason:  # a run is given a server only with SSH to it: it starts without it
-            notes.append(NO_SSH.format(name=found['name'], reason=reason))
+        if kind == 'server':
+            origin = server_row(conn, project, resource_id, lock=True)
+            reason = readiness(origin)
+            if reason and not value.started_from.new_document:  # a chat on a server needs SSH to it
+                raise HTTPException(400, reason)
         else:
-            selection = _with(selection, kind, resource_id)
+            origin, reason = start_resource(conn, project, *resource), None
+        if reason is None:
+            selection = _with(selection, kind, origin['id'])
     target = None
     if value.started_from.document_id is not None:
         target = conn.execute(
@@ -531,16 +424,9 @@ def build(
         check_picks(conn, project, picked)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    # a new document is built for what the person chose; one naming a resource (an inventory document) for it alone
-    documents = document_access(
-        conn, project, entries, [[owner[0], str(owner[1])]] if owner is not None else built_for(picked)
-    )
+    documents = document_access(conn, project, value.resources.documents)
     # a resource run's resource is named in the instructions (runner.get_prompt), not in its context
     system_prompt = value.system_prompt + (f'\n\n# Context\n\n{value.context}' if value.context else '')
-    for entry in documents:
-        if entry.get('new'):  # a document run names its document in its context; a new document's id is made here
-            context = f'Document: {entry["name"]} (id {entry["id"]})'
-            system_prompt += f'\n\n{context}' if '\n# Context\n' in system_prompt else f'\n\n# Context\n\n{context}'
     pinned = pin(
         conn,
         project,
@@ -560,8 +446,6 @@ def build(
     )
     if resource is not None:
         pinned['started_from'] = {'type': resource[0], 'id': str(origin['id']), 'name': origin['name']}
-    if notes:
-        pinned['start_notes'] = notes
     pinned['experts'] = chosen_experts(pinned['experts'], value.expert_ids)
     pinned['project_id'] = str(project)
     pinned['disabled_tools'] = sorted(disabled_for((), off_tools(value)))
@@ -574,7 +458,7 @@ def build(
             project,
             holds,
             [*picked, *({'type': 'document', 'id': entry['id']} for entry in documents)],
-            own=owner or resource,
+            own=resource,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -598,7 +482,8 @@ def start_run(
     title: str | None = None,
 ) -> UUID:
     """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
-    a new document → documents, a server, service or environment → resource (tagged with it; server_id for a server),
+    Write with an agent → documents, a server, service or environment → resource (either tagged with its resource;
+    server_id for a server),
     a saved agent → chat, or `purpose` for a saved agent, as an event handler starts it
     with its event and handler),
     its tags (the request's and its resource's), its first input, and audit it. POST /api/sessions and the
@@ -654,8 +539,11 @@ def start_run(
             'tags': tags,
             **({'output_schema': {key: schema[key] for key in ('id', 'version')}} if schema else {}),
         }
-    elif resource is not None:
-        kind, resource_id = resource
+    elif resource is not None or value.started_from.new_document:
+        # a chat on a resource, or Write with an agent (from a resource or from the resources picked for it)
+        writing = value.started_from.new_document
+        kind, resource_id = resource or (None, None)
+        started = {**({'new_document': True} if writing else {}), **({f'{kind}_id': str(resource_id)} if kind else {})}
         snapshot = {
             'system_prompt': value.system_prompt,
             'context': value.context,
@@ -664,49 +552,23 @@ def start_run(
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
             server_id,target_document_id,prompt_snapshot,context_snapshot,agent_config)
-            VALUES (%s,%s,NULL,%s,%s,%s,'resource',%s,%s,NULL,%s,%s,%s)""",
+            VALUES (%s,%s,NULL,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s)""",
             (
                 session_id,
                 project,
                 actor,
                 model['id'],
                 title,
+                'documents' if writing else 'resource',
                 tags,
-                resource_id if kind == 'server' else None,
+                resource_id if kind == 'server' and not writing else None,  # a server chat's server
                 Jsonb(jsonable_encoder(snapshot)),
-                Jsonb({f'{kind}_id': str(resource_id)}),
+                Jsonb(started),
                 Jsonb(pinned),
             ),
         )
         details = {
-            f'{kind}_id': resource_id,
-            'tags': tags,
-            'model_id': model['id'],
-            'prompt_id': value.prompt_id,
-            'expert_ids': [entry['id'] for entry in pinned['experts']],
-        }
-    elif value.started_from.new_document is not None:
-        new = value.started_from.new_document.model_dump(mode='json', exclude_defaults=True)
-        snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
-        conn.execute(
-            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            target_document_id,document_name,prompt_snapshot,context_snapshot,agent_config)
-            VALUES (%s,%s,NULL,%s,%s,%s,'documents',%s,NULL,%s,%s,%s,%s)""",
-            (
-                session_id,
-                project,
-                actor,
-                model['id'],
-                title,
-                tags,
-                new['name'],
-                Jsonb(jsonable_encoder(snapshot)),
-                Jsonb({'new_document': new}),
-                Jsonb(pinned),
-            ),
-        )
-        details = {
-            'new_document': new,
+            **started,
             'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
@@ -768,11 +630,11 @@ def options(
     environment_id: UUID | None = None,
     code_project_id: UUID | None = None,
 ) -> dict:
-    """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
-    tagged documentation; for a server, service, environment or code project, the prompts tagged assistant and its
-    type tag, its seeded assistant prompt the first choice), the prompts Discover… offers on a resource (tagged its
-    discovery tag: discovery_prompts; none for a document or a type without one), resources (marked linked to the
-    starting document or resource) and experts."""
+    """What a start panel offers: models (the last one used first), prompts tagged for revision (Write with an agent,
+    new_document, also on a resource: tagged documentation; a chat on a server, service, environment or code project:
+    the prompts tagged assistant and its type tag, its seeded assistant prompt the first choice), the prompts
+    Discover… offers on a resource (tagged its discovery tag: discovery_prompts; none for a document, for writing or for
+    a type without one), resources (marked linked to the starting document or resource) and experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
     server = server_row(conn, project, server_id) if server_id is not None else None
     given = {
@@ -816,19 +678,15 @@ def options(
         ).fetchone()
     ids = [item['id'] for item in models]
     default_model = last['model_id'] if last and last['model_id'] in ids else (ids[0] if ids else None)
-    if kind is not None:
+    if new_document:
+        prompts, seeded = conn.execute(PROMPTS, (project, [WRITE_TAG])).fetchall(), write_prompt_id(project)
+    elif kind is not None:
         prompts = conn.execute(PROMPTS, (project, [ASSISTANT_TAG, TYPE_TAGS[kind]])).fetchall()
+        seeded = assistant_prompt_id(project, kind)
     else:
-        prompts = conn.execute(PROMPTS, (project, [WRITE_TAG if new_document else REVISION_TAG])).fetchall()
-    discovery = DISCOVERY_TAGS.get(kind)
+        prompts, seeded = conn.execute(PROMPTS, (project, [REVISION_TAG])).fetchall(), revise_prompt_id(project)
+    discovery = None if new_document else DISCOVERY_TAGS.get(kind)
     discovery_prompts = conn.execute(PROMPTS, (project, [discovery])).fetchall() if discovery else []
-    seeded = (
-        assistant_prompt_id(project, kind)
-        if kind
-        else write_prompt_id(project)
-        if new_document
-        else revise_prompt_id(project)
-    )
     prompt_choice = seeded if any(row['id'] == seeded for row in prompts) else (prompts[0]['id'] if prompts else None)
 
     def listed(query: str, linked_ids) -> list[dict]:

@@ -14,7 +14,7 @@ from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import call, ssh_ready
 from test_repositories import HEADERS
-from test_session_access import NEW, start, stored
+from test_session_access import start, stored
 from test_test_sessions import analyst, start as agent_start, tester  # noqa: F401  (fixtures)
 
 PROJECT = '5f0c2d7e-0000-4000-8000-000000000001'
@@ -42,7 +42,7 @@ def test_ad_hoc_runs_pin_no_resource_sections(world):
     for started_from, change in (
         ({'server_id': world.server['id']}, {}),
         ({'environment_id': str(world.environment)}, {}),
-        ({'new_document': NEW}, {'resources': {'documents': [{'new': NEW}]}}),
+        ({'new_document': True}, {'resources': {'code_project_ids': [str(world.shop)]}}),
     ):
         _, config = stored(world.store, start(world, started_from, **change))
         assert not set(SECTIONS) & set(config), started_from

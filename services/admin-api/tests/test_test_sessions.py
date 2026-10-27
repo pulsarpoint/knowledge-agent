@@ -84,12 +84,7 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
         'How many retries?',
         t.agent,
     )
-    assert (
-        session['document_name'],
-        session['draft'],
-        session['model_calls'],
-        session['reasoning_tokens'],
-    ) == (None, None, 0, 0)
+    assert (session['draft'], session['model_calls'], session['reasoning_tokens']) == (None, 0, 0)
     assert [(i['seq'], i['text'], i['status']) for i in session['inputs']] == [(1, 'How many retries?', 'queued')]
     assert session['reviews'] == [] and session['config']['id'] == t.agent
     assert session['context_snapshot'] == {}

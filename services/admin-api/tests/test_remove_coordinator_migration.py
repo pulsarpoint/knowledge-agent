@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0077_remove_coordinator.up.sql', '0077_remove_coordinator.down.sql'
 LATER = (
+    '0145_write_with_an_agent.down.sql',
     '0144_no_document_folders.down.sql',  # 0084 down moves agent_sessions.folder
     '0134_rag_gone.down.sql',  # 0114 down reads rag_collections
     '0116_drop_run_resources.down.sql',

@@ -11,8 +11,9 @@ over the access object (access.py); there is no role. The run's session is confi
 
 Document ids: a live document's id; a new document's id is the id of its draft (new_document returns it), which only
 the run that created it uses until a person publishes the draft, and which stays the document's id once published
-(store.promote_draft keeps the row). A run started from Documents → New writes the new document it was given, an
-id 'new:<uuid>' in its access object: the first save creates the run's new-document draft, later saves update it.
+(store.promote_draft keeps the row). The run's own draft of a live document is taken for that document (a person
+mentions a draft in the chat by its id): get_document reads, and update_document and edit_document save, the run's
+draft of it.
 
 A save locks the run's session, then its draft (the order the worker and promote take them in), never ka.projects or
 ka.documents rows of live documents, and recomputes the draft's sources from the run's tool calls."""
@@ -31,16 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.inventory import connect, dumps, project_of
 from knowledge_admin.documents.api import Description, Markdown, Tags, Title, document_slug
-from knowledge_admin.documents.drafts import (
-    NAME_IN_USE,
-    NEW_DEFAULTS,
-    audit,
-    available_resources,
-    document_named,
-    free_slug,
-    live_content,
-    record_run_sources,
-)
+from knowledge_admin.documents.drafts import NEW_DEFAULTS, audit, free_slug, live_content, record_run_sources
 from knowledge_admin.documents.store import (
     CONTENT,
     ENTRY_COLUMNS,
@@ -74,9 +66,6 @@ PERSON_OWNS = 'A person edited your draft of {name}; it is theirs now. Save agai
 EDITED = 'A person edited your earlier draft; this is a new draft, and get_document now reads it.'
 SAVED = 'Saved draft ({n} lines).'
 OUT_OF_RANGE = 'The document has {n} lines.'
-NOT_WRITTEN = 'Not written yet.'
-WRITE_FIRST = 'Write the document with update_document first.'
-NEW_PREFIX = 'new:'
 DRAFT_NOTE = "This is a draft: a person publishes it on the document's page."
 DUPLICATE_TITLE = (
     'A document titled "{title}" is already linked to this {type} ({id}); update it with update_document instead.'
@@ -111,12 +100,8 @@ OWN_NEW = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown
     WHERE id=%s AND is_draft AND draft_of IS NULL AND session_id=%s"""
 LINKED = """SELECT server_id,service_id,environment_id,code_project_id FROM ka.document_resources
     WHERE document_id=%s AND removed_at IS NULL"""
-# The run's working draft of its new document: the brand-new draft with the entry's slug, or its draft of the live
-# document that slug now names.
-NEW_WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents
-    WHERE is_draft AND session_id=%s AND NOT edited AND ((draft_of IS NULL AND slug=%s)
-    OR draft_of=(SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft AND slug=%s))
-    ORDER BY created_at DESC,id DESC LIMIT 1"""
+# The live document a draft of the run's revises (a mention gives the draft's id).
+DRAFT_OF = 'SELECT draft_of FROM ka.documents WHERE id=%s AND is_draft AND session_id=%s AND draft_of IS NOT NULL'
 # A document linked to the resource ({column}) with this title (case does not matter): a live one, or a new document
 # this run drafted.
 SAME_TITLE = """SELECT d.id FROM ka.documents d WHERE d.project_id=%s AND d.draft_of IS NULL
@@ -288,16 +273,10 @@ def check_new_document(access: dict, resource: dict, **_) -> str | None:
 def check_update_document(
     access: dict, document_id: str, linked: list[tuple[str, str]] = (), resource: dict | None = None, **_
 ) -> str | None:
-    """None when allowed, else the refusal text: a usable document (check_get_document; the new document a run was
-    given needs every resource it is built for in the list too), and the resource to link, when given, in the list."""
+    """None when allowed, else the refusal text: a usable document (check_get_document), and the resource to link,
+    when given, in the list."""
     if refusal := check_get_document(access, document_id, linked):
         return refusal
-    entry = access_rules.entry(access, 'document', document_id)
-    if entry is not None and entry.get('new'):
-        built_for = [(kind, key) for kind, key in entry.get('built_for') or []]
-        if not access_rules.can_create_document(access, built_for):
-            kind = next(kind for kind, key in built_for if not access_rules.can_use(access, kind, key))
-            return access_rules.refuse_use(kind)
     if resource is not None:
         return check_list_documents(access, resource)
     return None
@@ -310,8 +289,8 @@ def check_edit_document(access: dict, document_id: str, linked: list[tuple[str, 
 
 def search_scope(access: dict) -> dict[str, list[str]]:
     """check_get_document as SQL parameters (SEARCH): the ids of the documents given to the run and of the servers,
-    services, environments and code projects a linked document is readable through. Ids that are not uuids (a new
-    document's 'new:<uuid>') are left out: they never name a live document."""
+    services, environments and code projects a linked document is readable through. Ids that are not uuids are left
+    out: they never name a live document."""
     return {
         kind: [str(key) for item in access_rules.entries(access, kind) if (key := _uuid(item['id'])) is not None]
         for kind in ('document', *LINK_KINDS)
@@ -355,41 +334,24 @@ def _search_documents(config: dict[str, Any], query: str, limit: int) -> str:
     return dumps({'documents': documents})
 
 
-def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: bool = False) -> dict | None:
-    """The run's open, unedited draft of its new document: the new-document draft with the entry's slug, or (when that
-    slug named an existing document at the first save) its draft of that document."""
-    slug = entry['slug']
-    return conn.execute(NEW_WORKING + (' FOR UPDATE' if lock else ''), (session_id, slug, project, slug)).fetchone()
-
-
-def _get_new_document(config: dict[str, Any], document_id: str) -> tuple[dict | None, str | None]:
-    """(the run's draft of its new document, or None with the answer to give instead); the caller checked it."""
-    entry = access_rules.entry(config['access'], 'document', document_id)
-    session = config.get('session_id')
-    if not session:
-        return None, NOT_WRITTEN
-    with connect() as conn:
-        draft = _new_document_draft(conn, session, project_of(conn, config), entry)
-    return (draft, None) if draft is not None else (None, NOT_WRITTEN)
+def _document(conn, session, document: UUID | None) -> UUID | None:
+    """The document an id names for the run: the live document its own draft revises (a mention gives a draft's
+    id), else the id itself."""
+    found = conn.execute(DRAFT_OF, (document, session)).fetchone() if document and session else None
+    return found['draft_of'] if found else document
 
 
 def _get_document(
     config: dict[str, Any], document_id: str, section: str | None, start_line: int | None, end_line: int | None
 ) -> str:
-    if str(document_id).startswith(NEW_PREFIX):
-        if refusal := check_get_document(config['access'], document_id):
-            return refusal
-        draft, answer = _get_new_document(config, document_id)
-        if draft is None:
-            return answer
-        return _render(document_id, draft, None, section, start_line, end_line)
-    document = _uuid(document_id)
+    session = config.get('session_id')
     with connect() as conn:
-        if refusal := check_get_document(config['access'], str(document_id), linked=_linked(conn, document)):
+        document = _document(conn, session, _uuid(document_id))
+        key = str(document or document_id)
+        if refusal := check_get_document(config['access'], key, linked=_linked(conn, document)):
             return refusal
         project = project_of(conn, config)
         live = conn.execute(LIVE, (document, project)).fetchone()
-        session = config.get('session_id')
         if live is None:  # deleted during the run, or a new document's draft: only the run that created it reads it
             own = conn.execute(OWN_NEW, (document, session)).fetchone() if session else None
             if own is None:
@@ -465,19 +427,14 @@ def _save_once(
     resource: dict | None,
 ) -> str:
     access = config['access']
-    if str(document_id).startswith(NEW_PREFIX):
-        if refusal := check_update_document(access, document_id, resource=resource):
-            return refusal
-        return _save_new(config, access_rules.entry(access, 'document', document_id), change, resource)
     document = _uuid(document_id)
     if document is None:  # not a document id: refused like a document outside the run
         return check_update_document(access, str(document_id), resource=resource) or _refuse_document(access)
     if not config.get('session_id'):
         raise ValueError(NO_SESSION)
     with connect() as conn:
-        if refusal := check_update_document(
-            access, str(document_id), linked=_linked(conn, document), resource=resource
-        ):
+        document = _document(conn, config['session_id'], document)
+        if refusal := check_update_document(access, str(document), linked=_linked(conn, document), resource=resource):
             return refusal
         session = _locked_session(conn, config)
         project = session['project_id']
@@ -494,7 +451,7 @@ def _save_once(
             if current is None:
                 note = _note(conn, session, document, live['version'])
         text = _text(change, dict(current or live))
-        draft = _write(conn, config, session, current, text, document if live is not None else None)
+        draft = _write(conn, session, current, text, document if live is not None else None)
         linking = _link(conn, access, session, draft, document if live is not None else None, resource)
     return _reply(SAVED.format(n=len(text.markdown.splitlines())), note, linking)
 
@@ -540,28 +497,10 @@ def _note(conn, session: dict, document: UUID, version: int) -> str:
     return notes[outcome['status']].format(version=version)
 
 
-def _run_links(new: dict[str, Any]) -> dict[str, list[str]]:
-    """What the new document is built for (its access entry's built_for: what the person chose, an environment, not
-    what it brings for the tools), as the resource_ids it links on promote."""
-    links = {key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')}
-    for kind, key in new.get('built_for') or []:
-        links[f'{kind}_ids'].append(str(key))
-    return links
-
-
-def _write(
-    conn,
-    config: dict[str, Any],
-    session: dict,
-    current: dict | None,
-    text: DraftText,
-    document: UUID | None,
-    new: dict[str, Any] | None = None,
-) -> UUID:
+def _write(conn, session: dict, current: dict | None, text: DraftText, document: UUID | None) -> UUID:
     """Save `text` as the run's draft and return its id: update `current`, else create a draft of `document` from its
-    live content (title and description from `text`, which started from it), else (no document) of the new document
-    `new` ({slug, tags}; tagged inventory: the inventory document of the run's one chosen resource). Then
-    recompute the draft's sources from the run's tool calls."""
+    live content (title and description from `text`, which started from it). Then recompute the draft's sources from
+    the run's tool calls."""
     project = session['project_id']
     prov = Provenance('agent_run', None, session['id'])
     if current is not None:
@@ -583,24 +522,9 @@ def _write(
             {'session_id': session['id'], 'turn': session['turns']},
         )
         draft_id, document = current['id'], current['draft_of']
-    elif document is not None:
+    else:
         content = {**live_content(conn, project, document), **text.model_dump()}
         draft_id = create_draft(conn, project, prov, content, origin='generated', document_id=document)
-    else:
-        try:
-            draft_id = create_draft(
-                conn,
-                project,
-                prov,
-                {**NEW_DEFAULTS, **text.model_dump(), 'tags': list(new.get('tags') or [])},
-                origin='generated',
-                slug=new['slug'],
-                links=available_resources(conn, project, _run_links(new)),
-            )
-        except errors.UniqueViolation:  # another run's or a person's brand-new draft holds this slug
-            raise ValueError(NAME_IN_USE.format(slug=new['slug'])) from None
-        except HTTPException as exc:  # a live document took the name of a new document tagged inventory meanwhile
-            raise ValueError(exc.detail) from None
     record_run_sources(conn, project, draft_id, document, session['id'], session['turns'])
     return draft_id
 
@@ -617,56 +541,8 @@ def _locked_session(conn, config: dict[str, Any]) -> dict:
     return session
 
 
-def _save_new(
-    config: dict[str, Any],
-    entry: dict[str, Any],
-    change: Callable[[dict[str, Any]], dict[str, Any]],
-    resource: dict | None,
-) -> str:
-    """A save of the run's new document (the tool checked it): the first creates its draft, later ones update
-    that draft. When the entry's slug names an existing document (also one a person promoted the run's
-    earlier draft into), the first save creates a draft of that document from its live content instead."""
-    if not config.get('session_id'):
-        raise ValueError(NO_SESSION)
-    with connect() as conn:
-        session = _locked_session(conn, config)
-        project = session['project_id']
-        current = _new_document_draft(conn, session['id'], project, entry, lock=True)
-        existing = None if current is not None else document_named(conn, project, entry['slug'])
-        if current is None and existing is None:
-            # The run's brand-new draft, edited by a person, holds the name: no second draft until they decide.
-            owned = conn.execute(
-                """SELECT title FROM ka.documents WHERE is_draft AND session_id=%s AND draft_of IS NULL AND edited
-                AND slug=%s""",
-                (session['id'], entry['slug']),
-            ).fetchone()
-            if owned is not None:
-                raise ValueError(PERSON_OWNS.format(name=owned['title']))
-        live = live_content(conn, project, existing['id']) if existing is not None else None
-        # markdown None marks the first save: edit_document has nothing to change yet
-        base = (
-            dict(current)
-            if current is not None
-            else {
-                'title': live['title'] if live else entry['name'],
-                'description': live['description'] if live else '',
-                'markdown': None,
-            }
-        )
-        text = _text(change, base)
-        note = ''
-        if current is None and existing is not None:
-            note = _note(conn, session, existing['id'], existing['version'])
-        document = existing['id'] if existing is not None else current['draft_of'] if current is not None else None
-        draft = _write(conn, config, session, current, text, existing['id'] if existing is not None else None, entry)
-        linking = _link(conn, config['access'], session, draft, document, resource)
-    return _reply(SAVED.format(n=len(text.markdown.splitlines())), note, linking)
-
-
 def _replace(old_text: str, new_text: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def change(base: dict[str, Any]) -> dict[str, Any]:
-        if base['markdown'] is None:
-            raise ValueError(WRITE_FIRST)
         count = base['markdown'].count(old_text)
         if count == 0:
             raise ValueError(NOT_FOUND)
@@ -818,7 +694,7 @@ DocumentId = Annotated[
         min_length=1,
         max_length=64,
         description="A document id: from search_documents, list_documents, get_resource, new_document or the run's "
-        'context.',
+        'context, or the id of a draft of this run (a mention).',
     ),
 ]
 Content = Annotated[
@@ -918,9 +794,8 @@ async def update_document(
     ] = None,
 ) -> str:
     def change(base: dict[str, Any]) -> dict[str, Any]:
-        first = base['markdown'] is None  # the first save of a new document (or of the existing one its name matched)
         return {
-            'title': (title or base['title']) if first else (base['title'] if title is None else title),
+            'title': base['title'] if title is None else title,
             'description': base['description'] if description is None else description,
             'markdown': content,
         }
@@ -935,7 +810,7 @@ class EditDocument(ToolArguments):
         min_length=1,
         max_length=64,
         description="A document id: from search_documents, list_documents, get_resource, new_document or the run's "
-        'context.',
+        'context, or the id of a draft of this run (a mention).',
     )
     old_text: str = Field(
         min_length=1, max_length=200_000, description='The exact passage to replace; it must occur exactly once.'

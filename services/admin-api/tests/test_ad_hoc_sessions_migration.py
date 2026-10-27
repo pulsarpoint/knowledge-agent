@@ -37,6 +37,9 @@ def test_only_documents_sessions_run_without_an_agent_and_down_removes_them(stor
         ad_hoc = add_ad_hoc_session(conn, project, actor, model, message='Document it')
         tested = add_chat_session(conn, project, actor, 'search', model)
         conn.commit()
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, NO_FOLDERS)
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
             conn.execute(

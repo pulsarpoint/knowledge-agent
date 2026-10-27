@@ -26,17 +26,6 @@ ACCESS = {
     'server_with_services': run(SERVER, item('service', 'v1', 'api', source='via server s1')),
     # a document page's Ask agent run
     'document': run(item('document', 'd1', 'Runbook')),
-    # Documents → New: its new document, built for the server
-    'new_document': run(
-        SERVER,
-        item(
-            'document',
-            'new:n1',
-            'New doc',
-            new=True,
-            built_for=[['server', 's1']],
-        ),
-    ),
     'code': run(item('code_project', 'c1', 'payments-api', folder_paths=['/code/payments'])),
     # a run on an environment (its server and service come with it): it may write drafts
     'environment': run(
@@ -104,7 +93,7 @@ NO_DOCUMENTS = 'This run has no documents.'
 NOT_SERVER = 'This server is not available in this run.'
 NOT_CODE = 'This code project is not available in this run.'
 NOT_DOCUMENT = 'This document is not available in this run.'
-WITH_SERVER = ('server', 'server_with_services', 'new_document', 'environment')
+WITH_SERVER = ('server', 'server_with_services', 'environment')
 LINKED_TOO = (
     'Documents linked to a server, service or environment in this run are usable too: list_documents lists them.'
 )
@@ -133,7 +122,6 @@ USE = row(
     NOT_DOCUMENT,
     document=None,
     **some(('server', 'server_with_services', 'environment'), f'{NOT_DOCUMENT} {LINKED_TOO}'),
-    new_document=f'{NOT_DOCUMENT} Documents you may use: New doc (new:n1). {LINKED_TOO}',
     other=f'{NOT_DOCUMENT} Documents you may use: Other doc (d9). {LINKED_TOO}',
 )
 ALWAYS = row(None)
@@ -209,11 +197,8 @@ def test_the_folder_tools_take_the_runs_skills():
 
 
 def test_a_new_document_is_created_only_for_resources_in_the_list():
-    from knowledge_admin.capabilities.document_tools import check_new_document, check_update_document
+    from knowledge_admin.capabilities.document_tools import check_new_document
 
-    assert check_update_document(ACCESS['new_document'], document_id='new:n1') is None
-    elsewhere = run(item('document', 'new:n1', 'New doc', new=True, built_for=[['service', 'v1']]))
-    assert check_update_document(elsewhere, document_id='new:n1') == 'This service is not available in this run.'
     server = {'type': 'server', 'name': 'WEB-1'}  # by name: a resource of the run with that name
     assert check_new_document(ACCESS['server'], resource=server) is None
     assert check_new_document(ACCESS['server'], resource={'type': 'server', 'name': 'db-9'}) == NOT_SERVER

@@ -64,6 +64,5 @@ def view(
         # what the run may use: resources with their source (never their connections: access.listing)
         'access': {'resources': access_rules.listing(config['access'])},
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,
-        'notes': config.get('start_notes', []),  # what the start left out, and why
         'output_schema': config.get('output_schema'),  # the pinned {id, name, version, schema}; None: a normal run
     }

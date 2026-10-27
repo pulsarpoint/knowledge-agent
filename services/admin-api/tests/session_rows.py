@@ -90,8 +90,8 @@ def add_ad_hoc_session(conn, project, actor, model_id, *, message: str | None = 
     session = uuid4()
     conn.execute(
         """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-        context_snapshot,document_name,agent_config)
-        VALUES (%s,%s,NULL,%s,%s,'Payments','{}',%s,'Payments',%s)""",
+        context_snapshot,agent_config)
+        VALUES (%s,%s,NULL,%s,%s,'Payments','{}',%s,%s)""",
         (session, project, actor, model_id, Jsonb({'folders': [], 'code_project_ids': []}), Jsonb({'id': 'ad-hoc'})),
     )
     if message is not None:

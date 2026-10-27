@@ -258,6 +258,23 @@ def free_slug(conn, project, base: str) -> str:
 SESSION_DRAFT = lifecycle.DRAFT_OUTCOME.format(draft='s.last_draft_id') + ' AS document_draft'
 
 
+# The drafts the session %(session)s created (each draft's document.draft.created event), oldest first: the open
+# draft's title, else the published document's (a new document keeps its draft's id; a draft of a document, the
+# document's); draft_of and its title; state open, published, discarded or replaced (DRAFT_OUTCOME; a promoted new
+# document's row is the live document), or null when that is unknown (its document was deleted).
+SESSION_DRAFTS = f"""SELECT c.resource_id AS id,COALESCE(x.title,o.title) AS title,o.id AS draft_of,
+    o.title AS draft_of_title,
+    CASE {lifecycle.DRAFT_OUTCOME.format(draft='c.resource_id')}->>'status' WHEN 'open' THEN 'open'
+        WHEN 'promoted' THEN 'published' WHEN 'discarded' THEN 'discarded' WHEN 'replaced' THEN 'replaced' END AS state,
+    COALESCE(x.updated_at,(SELECT max(a.created_at) FROM ka.audit_events a WHERE a.resource_type='document_draft'
+        AND a.resource_id=c.resource_id)) AS updated_at
+    FROM ka.audit_events c LEFT JOIN ka.documents x ON x.id=c.resource_id
+    LEFT JOIN ka.documents o ON o.id=(c.details->>'document_id')::uuid AND NOT o.is_draft
+    WHERE c.project_id=%(project)s AND c.action='document.draft.created' AND c.details->>'session_id'=%(session)s
+    ORDER BY c.created_at,c.id"""
+SESSION_ONLY = 'List the drafts of a session without other filters.'
+
+
 def call_arguments(payload: dict) -> dict:
     """A recorded tool call's arguments. A native session records them as an object (its recorder parses the SDK's
     JSON string); a JSON string is parsed too. Anything else: no arguments."""
@@ -450,11 +467,20 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         code_project_id: UUID | None = None,
         deployment_id: UUID | None = None,
         tag: str | None = Query(default=None, max_length=80),
+        session_id: UUID | None = None,
     ) -> dict:
         """Drafts, newest first; new=true: only brand-new documents (the Documents page's New drafts). A resource
         filter keeps the drafts linked to it: brand-new drafts by their own links, drafts of a document by its links.
-        `tag`: the drafts with that tag (one tag, exact, case-insensitive)."""
+        `tag`: the drafts with that tag (one tag, exact, case-insensitive). `session_id` (alone): every draft that
+        run created, oldest first, with what became of it (SESSION_DRAFTS: Write with an agent lists them)."""
         db = database()
+        if session_id is not None:
+            if new or tag or any((environment_id, service_id, server_id, code_project_id, deployment_id)):
+                raise HTTPException(400, SESSION_ONLY)
+            with db.connect() as conn:
+                project = db.project(conn, app_name)
+                rows = conn.execute(SESSION_DRAFTS, {'project': project, 'session': str(session_id)}).fetchall()
+            return jsonable_encoder({'drafts': rows})
         given = {
             'environment_id': environment_id,
             'service_id': service_id,

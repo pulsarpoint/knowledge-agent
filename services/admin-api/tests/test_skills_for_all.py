@@ -93,7 +93,7 @@ def test_an_ad_hoc_run_gets_every_enabled_skill(sessions):  # noqa: F811
 
     add_skill(sessions.client, 'beta')
     add_skill(sessions.client, 'off', enabled=False)
-    config = build(sessions)
+    config = build(sessions, code_project_ids=[sessions.repo])
     assert [item['name'] for item in config['skills']] == ['beta']
 
 

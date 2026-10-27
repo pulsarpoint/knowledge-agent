@@ -26,13 +26,6 @@ def test_entry_and_can_use_compare_ids_as_strings():
     assert not access.can_use(a, 'server', '8')
 
 
-def test_can_create_document_needs_every_built_for():
-    a = run_access()
-    assert access.can_create_document(a, [('server', 's1'), ('document', 'd1')])
-    assert not access.can_create_document(a, [('server', 's1'), ('server', 'gone')])
-    assert access.can_create_document(a, [])
-
-
 def test_has_any():
     a = run_access()
     assert access.has_any(a, 'server')

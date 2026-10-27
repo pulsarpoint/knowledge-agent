@@ -94,7 +94,6 @@ def sessions(store, tmp_path, monkeypatch):
         'server_ids': [],
         'system_prompt': ' You document systems. ',
         'prompt': ' Write the API reference. ',
-        'document_name': 'Payments – API reference',
     }
     return SimpleNamespace(
         client=client,
@@ -124,21 +123,17 @@ SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
 
 
 def post(sessions, **change):
-    """Start a new-document run as the Generate documents form did: `sessions.body` (the form's keys) as POST /api/sessions.
-    `expert_ids` passes through when given (every run gets every tool)."""
+    """Start a Write with an agent run from the picked resources: `sessions.body` (the form's keys) as POST
+    /api/sessions. `expert_ids` passes through when given (every run gets every tool)."""
     form = {**sessions.body, **change}
-    new = {'name': form['document_name']}
     body = {
-        'started_from': {'new_document': new},
+        'started_from': {'new_document': True},
         'message': form['prompt'],
         'model_id': form['model_id'],
         'system_prompt': form['system_prompt'],
         'prompt_id': form.get('prompt_id'),
         **{key: form[key] for key in ('expert_ids',) if key in form},
-        'resources': {
-            **{key: form[key] for key in SELECTION if key in form},
-            'documents': [{'new': new}],
-        },
+        'resources': {key: form[key] for key in SELECTION if key in form},
     }
     return sessions.client.post('/api/sessions', headers=HEADERS, json=body)
 

@@ -16,7 +16,6 @@ from test_repositories import HEADERS
 from test_test_sessions import analyst, refused, start as agent_start, tester  # noqa: F401  (fixtures)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
-NEW = {'name': 'Shop overview'}
 
 
 def start(world, started_from: dict, **change) -> str:
@@ -92,26 +91,10 @@ def test_no_run_has_a_role_and_documents_carry_no_editable_flag(world):
     ssh_ready(world)
     plain, _ = stored(world.store, start(world, {'server_id': world.server['id']}))
     assert 'roles' not in plain
-    new, config = stored(
-        world.store,
-        start(
-            world,
-            {'new_document': NEW},
-            resources={'documents': [{'new': NEW}]},
-        ),
+    written, _ = stored(
+        world.store, start(world, {'new_document': True}, resources={'code_project_ids': [str(world.shop)]})
     )
-    [document] = of(config, 'document')
-    assert new == {
-        'resources': [
-            {
-                **entry('document', document['id'], 'Shop overview', ''),
-                'new': True,  # the new document carries its slug and what it is built for
-                'slug': document['slug'],
-                'tags': document['tags'],
-                'built_for': [],
-            }
-        ],
-    }
+    assert 'roles' not in written and not of({'access': written}, 'document')  # writing names no document up front
     with world.store.connect() as conn:
         live = conn.execute("SELECT id FROM ka.live_documents WHERE title='web-1 overview'").fetchone()['id']
     revision, _ = stored(

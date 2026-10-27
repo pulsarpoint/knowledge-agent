@@ -24,7 +24,10 @@ DRAFTS = (
     "changes it; a person publishes it (or discards it) on the document's page. The live document does not change "
     'until then, so never say a document is published.'
 )
-DOCUMENT_ID = "document_id (from search_documents, list_documents, get_resource, new_document or the run's context)"
+DOCUMENT_ID = (
+    "document_id (from search_documents, list_documents, get_resource, new_document or the run's context; a draft id a "
+    'person mentions as [Draft "<title>" · <id>] works too: it names this run\'s draft of that document)'
+)
 GET_DOCUMENT = (
     'Read one managed document by id: without section or lines, its outline and text as JSON (text up to 50,000 '
     "characters); with section (a heading) or start_line/end_line, those lines with numbers. Reads this run's draft of "

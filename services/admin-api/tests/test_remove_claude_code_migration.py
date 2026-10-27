@@ -66,6 +66,9 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         model = a_model(conn, actor)
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, '0144_no_document_folders.down.sql')  # 0084 down moves agent_sessions.folder
         run(conn, '0134_rag_gone.down.sql')  # 0114 down reads rag_collections
         run(conn, GROUNDED)

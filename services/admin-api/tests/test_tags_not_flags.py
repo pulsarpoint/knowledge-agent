@@ -118,6 +118,9 @@ def test_0109_turns_the_flag_into_the_tag_and_drops_both_columns(store):
     other = live(store, 'other', 'Other', server_ids=[server])
     payments = live(store, 'payments', 'Payments', service_ids=[service])
     with store.connect() as conn:
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, NO_FOLDERS_DOWN)
         run(conn, WORKSPACE_DOWN)
         run(conn, INVENTORY_DROP_DOWN)
@@ -171,6 +174,9 @@ def test_0109_down_refuses_when_two_documents_tagged_inventory_are_built_for_one
     live(store, 'first', 'First', server_ids=[server], tags=['inventory'])
     live(store, 'second', 'Second', server_ids=[server], tags=['inventory'])
     with store.connect() as conn:
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, NO_FOLDERS_DOWN)
         run(conn, WORKSPACE_DOWN)
         run(conn, INVENTORY_DROP_DOWN)

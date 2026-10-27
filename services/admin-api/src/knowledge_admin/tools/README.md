@@ -80,6 +80,8 @@ the run's resources by `resource_of`). `new_document` takes the first free slug 
 and the title (`drafts.free_slug`), refuses a title already used by a document linked to the resource (`A
 document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
+`get_document`, `update_document` and `edit_document` take the run's own draft id too (a person mentions a draft as
+`[Draft "<title>" · <id>]`): a draft of a live document stands for that document (`document_tools._document`).
 
 There is no skill tool: the run's instructions list its skills (`config['skills']`: every enabled skill, pinned at start)
 by name, description and the absolute path of their `SKILL.md` (`skills.section`, used by `runner.get_prompt` and

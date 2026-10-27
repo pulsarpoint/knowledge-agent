@@ -18,6 +18,9 @@ def run(conn, name):
 @pytest.fixture(autouse=True)
 def before_0104(store):
     with store.connect() as conn:
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, '0144_no_document_folders.down.sql')  # 0144 drops the folder columns 0109 and 0104 change
         run(conn, '0131_proposals_gone.down.sql')  # 0131 drops discovery_proposals, which older migrations change
         run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again

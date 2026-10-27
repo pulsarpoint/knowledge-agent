@@ -13,6 +13,7 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0075_agent_resources.up.sql', '0075_agent_resources.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0075 down drops a check 0077 removed
 LATER = (
+    '0145_write_with_an_agent.down.sql',
     '0144_no_document_folders.down.sql',  # 0084 down moves agent_sessions.folder
     '0134_rag_gone.down.sql',  # 0114 down rebuilds the collection selections from rag_collections
     '0114_drop_agent_resource_tables.down.sql',

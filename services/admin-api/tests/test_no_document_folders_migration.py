@@ -14,6 +14,7 @@ from test_rag_gone_migration import ignoring_folder_order, schema
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0144_no_document_folders.up.sql', '0144_no_document_folders.down.sql'
+LATER = '0145_write_with_an_agent.down.sql'  # drops agent_sessions.document_name, which 0144 down checks
 
 
 def run(conn, name):
@@ -62,6 +63,7 @@ def slugs(conn) -> dict:
 
 def test_down_gives_back_the_0143_schema_and_up_again(store, at_0143):
     with store.connect() as conn:
+        run(conn, LATER)
         run(conn, DOWN)
         assert ignoring_folder_order(schema(conn)) == ignoring_folder_order(at_0143)
         run(conn, UP)
@@ -78,6 +80,7 @@ def test_down_gives_back_the_0143_schema_and_up_again(store, at_0143):
 
 def test_up_renames_colliding_slugs_keeping_live_documents_then_the_oldest(store):
     with store.connect() as conn:
+        run(conn, LATER)
         run(conn, DOWN)
         shop, other = store.project(conn, 'shop'), store.project(conn, 'other')
         oldest = document(conn, shop, 'runbook', 'ops', age=5)
@@ -108,6 +111,7 @@ def test_up_renames_colliding_slugs_keeping_live_documents_then_the_oldest(store
 
 def test_a_new_document_run_needs_only_its_document_name(store):
     with store.connect() as conn:
+        run(conn, LATER)
         project = store.project(conn, 'shop')
         actor = conn.execute(
             "INSERT INTO ka.principals(issuer,subject) VALUES ('test','writer') RETURNING id"

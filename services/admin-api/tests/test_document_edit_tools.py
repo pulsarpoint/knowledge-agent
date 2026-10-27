@@ -340,7 +340,7 @@ def test_a_subagent_gets_no_document_access_so_the_edit_tools_refuse():
     assert access_rules.listing(sub['access'], 'document') == []
 
 
-def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev):
+def test_get_document_reads_only_this_runs_draft_and_takes_only_its_own_draft_id(rev):
     from drafts_world import new_draft
 
     by_person = new_draft(rev.docs, document_id=rev.docs.runbook, markdown="# A person's draft")
@@ -361,17 +361,15 @@ def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev)
     call(rev, 'update_document', document_id=str(rev.docs.runbook), content='# Mine')
     [mine] = run_drafts(rev)
     assert json.loads(call(rev, 'get_document', document_id=str(rev.docs.runbook)))['markdown'] == '# Mine'
-    for draft_id in (str(mine['id']), by_person['id']):
-        assert call(rev, 'get_document', document_id=draft_id).startswith(refuse_use('document'))
-        given = with_access(
-            dict(rev.config),
-            [
-                entry('document', rev.docs.runbook, 'Runbook'),
-                entry('document', draft_id, 'D'),
-            ],
-        )
-        refused = call(rev.__class__(**{**vars(rev), 'config': given}), 'get_document', document_id=draft_id)
-        assert refused == 'Document not found'  # pinned or not, a draft id is never read as a document
+    # the run's own draft id names its draft of the document (a mention gives it)
+    assert json.loads(call(rev, 'get_document', document_id=str(mine['id'])))['markdown'] == '# Mine'
+    # a person's draft is never read by its id, pinned or not
+    assert call(rev, 'get_document', document_id=by_person['id']).startswith(refuse_use('document'))
+    given = with_access(
+        dict(rev.config), [entry('document', rev.docs.runbook, 'Runbook'), entry('document', by_person['id'], 'D')]
+    )
+    refused = call(rev.__class__(**{**vars(rev), 'config': given}), 'get_document', document_id=by_person['id'])
+    assert refused == 'Document not found'
     assert refuse_use('document') == 'This document is not available in this run.'
 
 

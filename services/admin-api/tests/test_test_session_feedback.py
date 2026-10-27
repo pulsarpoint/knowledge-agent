@@ -196,8 +196,8 @@ def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(
         conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (chat.session,))
         documents = conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,
-            prompt_snapshot,context_snapshot,document_name,agent_config) SELECT %s,project_id,agent_id,actor_id,model_id,'Docs',
-            '{}','{}','Docs',agent_config FROM ka.agent_sessions WHERE id=%s RETURNING id""",
+            prompt_snapshot,context_snapshot,agent_config) SELECT %s,project_id,agent_id,actor_id,model_id,'Docs',
+            '{}','{}',agent_config FROM ka.agent_sessions WHERE id=%s RETURNING id""",
             (uuid4(), chat.session),
         ).fetchone()['id']
     assert post(chat.review, {'comment': 'x'}, 409) == REVIEW_BUSY

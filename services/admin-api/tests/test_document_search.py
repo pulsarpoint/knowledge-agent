@@ -202,11 +202,11 @@ def test_the_empty_answer_suggests_list_documents(lib):
 def test_the_scope_is_the_get_document_rule():
     """search_scope gives the SQL the same rule check_get_document applies: a document is readable when given, or
     linked to a server, service, environment or code project in the run (not a deployment); ids that are not uuids
-    (a new document's 'new:<uuid>') never match a live document."""
+    never match a live document."""
     document, server, service, environment, code, deployment, other = (str(uuid4()) for _ in range(7))
     run = access(
         ('document', document),
-        ('document', 'new:' + str(uuid4())),
+        ('document', 'not-a-uuid'),
         ('server', server),
         ('service', service),
         ('environment', environment),

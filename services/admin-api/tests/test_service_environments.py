@@ -72,6 +72,7 @@ def test_a_deployment_in_another_projects_environment_is_refused(store, tmp_path
 def test_migration_maps_exact_labels_and_retains_unmatched_deployments(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute((migrations / '0145_write_with_an_agent.down.sql').read_text(), prepare=False)
         conn.execute(
             (migrations / '0144_no_document_folders.down.sql').read_text(), prepare=False
         )  # 0144 drops the folders 0109 down reads

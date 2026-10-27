@@ -97,14 +97,12 @@ def test_the_page_data_needs_an_administrator(world):
     assert world.client.get(f'/api/code-projects/{world.shop}').status_code == 403
 
 
-def test_a_new_document_can_be_built_for_a_code_project(world):
-    new = {'name': 'Shop notes', 'code_project_id': str(world.shop)}
-    created = start(world, {'new_document': new}, resources={'documents': [{'new': new}]})
+def test_writing_with_an_agent_can_start_from_a_code_project(world):
+    created = start(world, {'new_document': True, 'code_project_id': str(world.shop)})
     assert created.status_code == 201, created.text
     pinned = pinned_of(world, created.json()['id'])
     assert ids(pinned, 'code_project') == [str(world.shop)]
-    document = next(item for item in pinned['access']['resources'] if item['type'] == 'document')
-    assert document['built_for'] == [['code_project', str(world.shop)]]
+    assert pinned['started_from']['type'] == 'code_project'
 
 
 def test_the_page_data_has_the_services_built_from_it_recent_syncs_and_its_graph(world):

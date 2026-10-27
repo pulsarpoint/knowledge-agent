@@ -7,8 +7,6 @@ from inventory_rows import environment_id
 
 from access_helpers import give
 from knowledge_admin.access import SSH_NOT_SET_UP
-from knowledge_admin.capabilities.document_tools import _run_links
-from knowledge_admin.sessions.run_access import built_for, given
 from test_profiles import create, update
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_world import ask  # noqa: F401  (fixture)
@@ -231,13 +229,6 @@ def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_i
         ('code_project', ask.s.worker),
     }
     assert session['given_resources'] == [{'type': 'service', 'id': ask.s.service}]
-    assert _run_links({'built_for': built_for(given(session['config']['access']))}) == {
-        'code_project_ids': [],
-        'environment_ids': [],
-        'service_ids': [ask.s.service],
-        'server_ids': [],
-        'deployment_ids': [],
-    }
 
 
 def test_a_saved_agent_stored_with_old_roles_runs_without_them(agent, ask):

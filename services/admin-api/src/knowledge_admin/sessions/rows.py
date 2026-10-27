@@ -66,7 +66,7 @@ def _select(extra: str = '') -> str:
 
 SUMMARY = _select()
 DETAIL = _select(
-    ',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.server_id,s.target_document_id'
+    ',s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.server_id,s.target_document_id'
     f',{PENDING_WAKEUPS}'
     # what the run was given ([{type, id}]: what the person chose, an environment rather than what it brings);
     # the same entries as sessions/run_access.given
@@ -116,12 +116,8 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
             },
         ).fetchall()
     row['started_by'], row['previous_output'] = started_by(conn, session_id)
-    pinned_shown = row['purpose'] in ('event', 'chat', 'revision') or (
-        row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {})
-    )  # a new-document run
-    if (
-        pinned_shown
-    ):  # its pinned configuration (credential references only) and, for a saved agent's conversations, its suggestions
+    if row['purpose'] in ('event', 'chat', 'revision', 'documents'):
+        # its pinned configuration (credential references only) and, for a saved agent's conversations, its suggestions
         row['config'] = conn.execute(
             'SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (session_id,)
         ).fetchone()['agent_config']

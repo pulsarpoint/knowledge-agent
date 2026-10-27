@@ -50,6 +50,9 @@ def depend(conn, project, start, end, **columns):
 
 def test_down_gives_back_the_0142_schema_and_up_again(store, at_0142):
     with store.connect() as conn:
+        run(
+            conn, '0145_write_with_an_agent.down.sql'
+        )  # 0145 drops agent_sessions.document_name, which 0144 down checks
         run(conn, '0144_no_document_folders.down.sql')
         run(conn, DOWN)
         assert ignoring_folder_order(schema(conn)) == ignoring_folder_order(at_0142)

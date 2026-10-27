@@ -32,10 +32,6 @@ PUBLIC = (
     'folder_paths',
     'graph_path',
     'code_root',
-    'new',
-    'slug',
-    'tags',
-    'built_for',
 )
 NOT_AVAILABLE = 'This {type} is not available in this run.'
 NONE_OF = 'This run has no {type}s.'
@@ -64,10 +60,6 @@ def ssh_reason(server: dict) -> str | None:
 
 def can_use(access: dict, type: str, id: str) -> bool:
     return entry(access, type, id) is not None
-
-
-def can_create_document(access: dict, built_for: list[tuple[str, str]]) -> bool:
-    return all(can_use(access, t, i) for t, i in built_for)
 
 
 def has_any(access: dict, type: str) -> bool:
