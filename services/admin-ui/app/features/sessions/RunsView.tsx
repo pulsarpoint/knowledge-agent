@@ -13,10 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~
 
 const KINDS: Record<string, string> = {
   test: "Agent test",
-  event_session: "Event session",
+  event_session: "Event run",
   chat_session: "Chat",
   event_task: "Event task",
-  native_session: "Native session",
+  native_session: "Native run",
 };
 // Kinds no longer produced, kept so old run records still read well; not offered in the filter.
 const RETIRED_KINDS: Record<string, string> = { claude_code: "Claude Code" };

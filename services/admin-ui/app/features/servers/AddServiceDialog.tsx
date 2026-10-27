@@ -276,7 +276,7 @@ export default function AddServiceDialog({
           <div className="flex gap-2">
             <Button disabled={saving || !choice}>
               {saving && <Spinner data-icon="inline-start" />}
-              Add service
+              {choice === NEW ? "Create service" : "Add service"}
             </Button>
             <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel

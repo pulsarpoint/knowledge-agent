@@ -156,7 +156,7 @@ test("run types have readable names in the filter and the list", async () => {
     </MemoryRouter>,
   );
   const row = (await screen.findByText("Payments API reference")).closest("tr")!;
-  expect(within(row).getByText("Native session")).toBeInTheDocument();
+  expect(within(row).getByText("Native run")).toBeInTheDocument();
   // a run kind without a name shows as is
   expect(within((await screen.findByText("Old session")).closest("tr")!).getByText("retired_kind")).toBeInTheDocument();
   // a retired kind keeps its label in rows but is not offered in the filter
@@ -167,10 +167,10 @@ test("run types have readable names in the filter and the list", async () => {
   expect(options.map((option) => [option.getAttribute("value"), option.textContent])).toEqual([
     ["", "All"],
     ["test", "Agent test"],
-    ["event_session", "Event session"],
+    ["event_session", "Event run"],
     ["chat_session", "Chat"],
     ["event_task", "Event task"],
-    ["native_session", "Native session"],
+    ["native_session", "Native run"],
   ]);
 });
 

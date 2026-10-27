@@ -86,7 +86,7 @@ test("adding a new server creates it, then puts it in the environment", async ()
   await user.type(screen.getByLabelText("Name"), "web-2");
   await user.type(screen.getByLabelText("Hostname"), "10.0.0.9");
   await user.type(screen.getByLabelText("Description"), "Second web host");
-  await user.click(screen.getByRole("button", { name: "Add server" }));
+  await user.click(screen.getByRole("button", { name: "Create server" }));
   await vi.waitFor(() => expect(onAdded).toHaveBeenCalledWith("s9"));
   expect(calls.find((call) => call.key === "POST /api/servers")!.body).toEqual({
     name: "web-2",

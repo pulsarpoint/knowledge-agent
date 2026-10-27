@@ -156,7 +156,7 @@ export default function AddServerDialog({
           <div className="flex gap-2">
             <Button disabled={saving || !choice}>
               {saving && <Spinner data-icon="inline-start" />}
-              Add server
+              {choice === NEW ? "Create server" : "Add server"}
             </Button>
             <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel

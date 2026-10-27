@@ -117,7 +117,7 @@ def test_a_decided_or_edited_draft_makes_the_next_save_a_new_draft(rev):
     [first] = run_drafts(rev)
     assert promote(rev.docs, first).status_code == 200
     assert call(rev, 'update_document', document_id=str(rev.docs.runbook), content='# Two') == (
-        f'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version 3. {DRAFT_NOTE}'
+        f'Saved draft (1 lines). Your earlier draft was published; this is a new draft based on version 3. {DRAFT_NOTE}'
     )
     [second] = run_drafts(rev)  # the promote deleted the first; the new draft starts from the new live version
     assert (second['markdown'], second['base_version']) == ('# Two', 3)
@@ -382,7 +382,7 @@ def test_a_save_after_another_draft_was_promoted_starts_a_new_draft_and_says_so(
     assert promote(rev.docs, theirs).status_code == 200  # deletes the run's draft too
     assert session_draft(rev)[0] == {'id': str(mine['id']), 'document_id': rev.docs.runbook, 'status': 'replaced'}
     assert call(rev, 'update_document', document_id=str(rev.docs.runbook), content='# The run again') == (
-        'Saved draft (1 lines). Another draft of this document was promoted (version 3); your earlier draft was '
+        'Saved draft (1 lines). Another draft of this document was published (version 3); your earlier draft was '
         f'removed. This save started a new draft from the live version. {DRAFT_NOTE}'
     )
     [again] = run_drafts(rev)

@@ -116,7 +116,7 @@ test("adding a new service creates it, then its deployment", async () => {
   await user.type(screen.getByLabelText("Owner"), "payments team");
   await user.type(screen.getByLabelText("Description"), "Books entries");
   await deploymentFields(user);
-  await user.click(screen.getByRole("button", { name: "Add service" }));
+  await user.click(screen.getByRole("button", { name: "Create service" }));
   await vi.waitFor(() => expect(onAdded).toHaveBeenCalledWith("v9"));
   expect(calls.find((call) => call.key === "POST /api/services")!.body).toEqual({
     name: "ledger",
@@ -143,7 +143,7 @@ test("a new external service has an Address field, sent with the service", async
   await user.click(screen.getByRole("combobox", { name: "Type" }));
   await user.click(screen.getByRole("option", { name: "External service" }));
   await user.type(screen.getByLabelText("Address"), " smtp.example.com ");
-  await user.click(screen.getByRole("button", { name: "Add service" }));
+  await user.click(screen.getByRole("button", { name: "Create service" }));
   await vi.waitFor(() => expect(onAdded).toHaveBeenCalledWith("v9"));
   expect(calls.find((call) => call.key === "POST /api/services")!.body).toMatchObject({
     name: "smtp relay",
@@ -165,10 +165,10 @@ test("a refused deployment keeps the dialog; saving again does not create the ne
   await user.click(await screen.findByRole("combobox", { name: "Service" }));
   await user.click(screen.getByRole("option", { name: "A new service" }));
   await user.type(screen.getByLabelText("Name"), "ledger");
-  await user.click(screen.getByRole("button", { name: "Add service" }));
+  await user.click(screen.getByRole("button", { name: "Create service" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("This deployment already exists");
   refuse = false;
-  await user.click(screen.getByRole("button", { name: "Add service" }));
+  await user.click(screen.getByRole("button", { name: "Create service" }));
   await vi.waitFor(() => expect(onAdded).toHaveBeenCalledWith("v9"));
   expect(calls.filter((call) => call.key === "POST /api/services")).toHaveLength(1);
 });

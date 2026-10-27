@@ -100,7 +100,7 @@ export default function LlmModelForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{model ? `Edit ${model.name}` : "Add model"}</CardTitle>
+        <CardTitle>{model ? `Edit ${model.name}` : "New model"}</CardTitle>
         <CardDescription>Save and test a model connection for agents or memory embeddings.</CardDescription>
       </CardHeader>
       <form onSubmit={submit} className="flex flex-col gap-6">

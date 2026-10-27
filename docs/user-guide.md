@@ -74,10 +74,10 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  repository-worker (git clone/pull, code graph)
-               agent-session-worker (document, agent chat, Ask agent and event-handler sessions)
+               agent-session-worker (document, agent chat, Ask agent and event-handler runs)
 ```
 
-`agent-session-worker` runs document, agent chat and Ask agent sessions, and the agent runs that event handlers start. Like `admin-api` it reaches
+`agent-session-worker` runs document, agent chat and Ask agent chats, and the agent runs that event handlers start. Like `admin-api` it reaches
 PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
 
@@ -690,23 +690,23 @@ no roles): a tool without what it needs refuses (for example `This run has no se
 (`get_environment_model`, `list_servers`, `list_deployments`, `list_connections`), and every agent in a conversation
 can add to it as **drafts** (`save_environment`, `save_server`, `save_service`, `save_deployment`, `save_connection`,
 `save_relation`, `remove_inventory_item`, and `save_inventory_draft` for a whole picture in one call), only for what is
-in its resources or what it added in the same session — so it can draft a server, deploy a service on it and connect it
+in its resources or what it added in the same chat — so it can draft a server, deploy a service on it and connect it
 in one conversation. An agent never changes a confirmed entry: it adds and changes drafts, and a person confirms or
-discards them in the environment workspace. Its drafts show in the audit log with the person who started the session,
-the agent and the session; helpers and experts never change the inventory. Documents work the same way: every agent
+discards them in the environment workspace. Its drafts show in the audit log with the person who started the chat,
+the agent and the run; helpers and experts never change the inventory. Documents work the same way: every agent
 in a conversation reads the documents of its resources (`list_documents`, `get_document`) and writes **drafts** of
 them — a new document for a server, service or environment it has (`new_document`, built for it; a
 title already used there is refused with the existing document's id), the whole text of a document it may read
 (`update_document`, which can also link the document to another of its resources once published) or one passage
 (`edit_document`). Each draft waits on the document's page (**Draft — not published**) until a person publishes or
 discards it; nothing needs a role. **Agent runs**, run
-records, session pages and agent chats show how often each tool was used.
+records, run pages and agent chats show how often each tool was used.
 
 **Subagents.** Every agent can start helpers with `run_subagent`: each gets a complete task, every tool except
 `run_subagent`, and some or all of the run's resources, but not the conversation (helpers only read: no document or inventory
 writes). Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
 default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. On the Chat page and on the
-session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
+run page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
 answer (**Main agent** goes back). The header and the main agent's entry count the whole run including helpers, while
 the main turn's Worked line counts only the agent's own work. **Stop** stops the agent and all of its helpers.
@@ -717,8 +717,8 @@ Write with an agent run, then gets a tool `ask_<name>` for it; an expert itself 
 experts in its chat **Settings**. An expert works on
 its own resources, or on those the caller passes, which must be the caller's own and in the expert's resources. An expert starts without the
 conversation, may start its own subagents, uses its own model and keys, and returns its final
-answer. The helpers of one turn (subagents and expert calls together) are limited to 16; sessions started before an
-expert was added do not see it. On the Chat page and on the session page an expert call appears in the Worked block as
+answer. The helpers of one turn (subagents and expert calls together) are limited to 16; chats started before an
+expert was added do not see it. On the Chat page and on the run page an expert call appears in the Worked block as
 `Asked <name> · <task>` with **Open**, and under **Agents in this run** as `Expert · <name>` once it has started
 (selecting it shows its history; **Main agent** goes back); a call refused before it started shows as a failed tool
 line. In **Agent runs**, filtering by the expert's agent lists the calls made to it as "Called as expert by <caller>";
@@ -726,7 +726,7 @@ opening one shows that call's record, including the expert's own subagents.
 
 **Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Chat** tab **Settings**
 lists only the agent's resources, a tab per type, all on; switch off what the run should not get (**All** and the
-filter work within that list; nothing else can be added). The choice is kept for the session and shown in the header
+filter work within that list; nothing else can be added). The choice is kept for the chat and shown in the header
 and in **Preview**; chat settings, event handlers and expert calls narrow the same way. A run never gets more than the
 agent has: a pick outside its resources is refused (`server <id> is not in the agent's access`). What a run was given brings its direct children: an environment its services and
 servers, a service its code projects and the servers it is deployed on, a server the services deployed on it
@@ -734,19 +734,19 @@ servers, a service its code projects and the servers it is deployed on, a server
 has none of is refused (`This run has no code projects.`). Example: a **Code analyst** with several code projects,
 tested with `payments-api` in one conversation and `helpers` in the next.
 
-Limits: message ≤ 20,000 characters; a chat session's turns have no time
-limit (they end with the answer, **Stop**, **New chat** (it closes the open run) or a lost worker), and a session closes after 24 hours
+Limits: message ≤ 20,000 characters; a chat's turns have no time
+limit (they end with the answer, **Stop**, **New chat** (it closes the open run) or a lost worker), and a chat closes after 24 hours
 without activity. A message is blocked if the agent is disabled or has no enabled model.
 
 Saving the agent's settings changes what runs next. Migration 0133 removed **Answer only from documents** (agents find
 documents with `search_documents` and read them with `get_document`).
 
 
-Removing an agent that has history (conversations — its chats and event runs —, documentation sessions or run records
+Removing an agent that has history (conversations — its chats and event runs —, documentation runs or run records
 of earlier test chats) lists that
 history in the **Delete “<name>”?** dialog (**Delete agent** without history). **Delete agent and history** deletes the agent together with it; saved
 documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
-(a chat or document session that is starting or working) cannot be removed; stop that work or wait for
+(a chat or document run that is starting or working) cannot be removed; stop that work or wait for
 it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
@@ -790,7 +790,7 @@ resources you chose (for example `ssh_run` only on the chosen servers), as in an
 **The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Chat page: the
 main pane shows each turn (your message, a collapsed **Worked** block with thinking, tool calls and results, and the answer)
 and scrolls on its own; the message box is always visible. After you scroll up it stops following new events and shows
-**Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up. The header shows tokens
+**Jump to latest**. Opening a run loads the latest 100 events; earlier pages load as you scroll up. The header shows tokens
 in/out/cached, model calls and the status: Starting, Working, Waiting for you, Stopped, Failed or Finished; the sidebar shows
 **Agents in this run**, the draft and, for a run started with an output schema, **Output** (on a narrow screen open
 **Run details**). Each answer links to its **Full record**. A run
@@ -805,12 +805,12 @@ that run.
   ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn.
 - **Stop**: ends the turn within about 30 seconds; a request or command already running cannot be recalled. Queued messages are
   discarded when the turn is stopped.
-- **Close chat**. Chats continue when you leave the page and close after 24 idle hours (a session idle for 5 minutes is
+- **Close chat**. Chats continue when you leave the page and close after 24 idle hours (a chat idle for 5 minutes is
   paused and resumes on your next message).
-- **Wake-ups**: an agent can schedule a wake-up to continue the session later (from 1 minute to 30 days ahead, at most 3
-  pending per session), for example to check a deployment again. Each pending one is listed above the message box as
-  `Wakes up at <time>: <message>` (your local time) with **Cancel**. When it is due the session gets a new turn that starts
-  with `Scheduled wake-up`; if the agent is working then, it waits for that turn to end. A session with a pending wake-up
+- **Wake-ups**: an agent can schedule a wake-up to continue the chat later (from 1 minute to 30 days ahead, at most 3
+  pending per chat), for example to check a deployment again. Each pending one is listed above the message box as
+  `Wakes up at <time>: <message>` (your local time) with **Cancel**. When it is due the chat gets a new turn that starts
+  with `Scheduled wake-up`; if the agent is working then, it waits for that turn to end. A chat with a pending wake-up
   is not closed after 24 idle hours. **Stop** keeps the wake-ups; **Close chat** cancels them.
 
 A turn has no time or model-call limit: it ends when the agent finishes or you press **Stop** (each model request and MCP
@@ -819,7 +819,7 @@ Tokens are recorded, cost is not. Every turn is an agent run in **Activity → A
 
 Errors: "Choose an enabled model."; "Select available …" for an item that is gone; `… is not available: it was removed,
 archived or disabled.`; a provider error, such as a missing Bedrock inference profile, shows the provider's reason without
-credentials plus a hint; "Waiting for the agent session worker…" when the worker is not running.
+credentials plus a hint; "Waiting for the agent worker…" when the worker is not running.
 
 Security: the model key stays in the worker. Every enabled model connection's key is redacted from stored events, drafts and
 error messages. `shell_run` runs in the sandboxed `shell-worker`, with `DATA_ROOT` read-only.
@@ -921,7 +921,7 @@ container paths, availability, and a file browser with text preview.
 ### 4.14 Agent runs
 
 `/activity/runs` — a complete record of every agent run: agent chat
-sessions, earlier test chats, document runs and the earlier Generate documents sessions. Each record shows, in order:
+sessions, earlier test chats, document runs and the earlier Generate documents runs. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
 - the model's reasoning when the provider returns it (otherwise "Reasoning not returned
@@ -931,8 +931,8 @@ sessions, earlier test chats, document runs and the earlier Generate documents s
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Chat** (turns of an agent's chats, from its Chat page), **Event session** (event run
-turns), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
+characters. The run type filter offers **Chat** (turns of an agent's chats, from its Chat page), **Event run** (event run
+turns), **Agent test** (test chats from before the upgrade) and **Native run** (document run turns); you
 can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
 finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
 started) and by user (part of the email, press Enter).
@@ -1287,7 +1287,7 @@ run a handler started records it in that event's chain, so handler loops stop at
 | `CODE_INDEX_FOLDER` | Folder for code graph snapshots (default `code-index`) |
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
-| `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
+| `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native run turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `APP_ADMIN_*`, `KEYCLOAK_ADMIN_PASSWORD`, `PHOENIX_*`, `*_OAUTH2_PROXY_*` | Bootstrap credentials and gateway secrets |
 | `DOCKER_DNS_SEARCH` | DNS search domain so short SSH/Jira host names resolve in containers |
@@ -1354,8 +1354,8 @@ resources and roles decide).
 | `list_documents`, `new_document`, `update_document`, `edit_document` | Document tools: the run has the resource (or the document) | Draft documents of a server, service or environment in the run's access; every write is a draft a person publishes (see Drafts and connections) |
 | MCP tools | The run has the MCP server | Every tool of the tested MCP servers in the run's access |
 | `search_documents` | Every run | Full-text search over the published documents the run may read (given to it, or linked to a server, service, environment or code project in it); drafts are never searched. Returns each match's id, title, short description, tags, linked resources and a short snippet; read one with `get_document` |
-| `run_subagent` | Agent sessions (never inside a subagent) | Starts a helper with every tool but `run_subagent`, a subset of the run's resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
-| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and the run did not leave it out (sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
+| `run_subagent` | Agent chats and runs (never inside a subagent) | Starts a helper with every tool but `run_subagent`, a subset of the run's resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
+| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and the run did not leave it out (chats and runs only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
 
 Every tool works on the run's resources only; a kind the run has none of is refused with `This run has no ….`
 
