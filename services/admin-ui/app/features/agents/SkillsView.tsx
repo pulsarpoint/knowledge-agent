@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { BookOpen, Download, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { BookOpen, Download, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   changedLabel,
@@ -25,6 +25,13 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button, buttonVariants } from "~/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Field, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -201,14 +208,21 @@ export default function SkillsView() {
                   <TableHead>Source</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead>Enabled</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-12 text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {matching.map((skill) => (
                   <TableRow key={skill.id}>
                     <TableCell className="max-w-md whitespace-normal">
-                      <p className="break-words font-medium">{skill.name}</p>
+                      <Link
+                        to={`/skills/${encodeURIComponent(skill.id)}`}
+                        className="break-words font-medium hover:underline"
+                      >
+                        {skill.name}
+                      </Link>
                       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
                         {skill.description}
                       </p>
@@ -226,56 +240,14 @@ export default function SkillsView() {
                         onCheckedChange={(enabled) => void toggle(skill, enabled)}
                       />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {skill.source.kind === "git" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={blocked}
-                            aria-label={`Update ${skill.name} from source`}
-                            onClick={() => void update(skill)}
-                          >
-                            <RefreshCw data-icon="inline-start" />
-                            Update from source
-                          </Button>
-                        )}
-                        <Button size="sm" variant="outline" disabled={blocked} asChild>
-                          <label>
-                            <Upload data-icon="inline-start" />
-                            Update from upload
-                            <input
-                              type="file"
-                              accept=".zip,application/zip"
-                              className="sr-only"
-                              aria-label={`Zip for ${skill.name}`}
-                              disabled={blocked}
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                event.target.value = "";
-                                if (file) void uploadUpdate(skill, file);
-                              }}
-                            />
-                          </label>
-                        </Button>
-                        <Link
-                          to={`/skills/${encodeURIComponent(skill.id)}`}
-                          aria-label={`Edit ${skill.name}`}
-                          className={buttonVariants({ size: "sm", variant: "outline" })}
-                        >
-                          <Pencil />
-                          Edit
-                        </Link>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={blocked}
-                          aria-label={`Delete ${skill.name}`}
-                          onClick={() => setRemoving(skill)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
+                    <TableCell className="text-right">
+                      <SkillActions
+                        skill={skill}
+                        disabled={blocked}
+                        onUpdate={() => void update(skill)}
+                        onUpload={(file) => void uploadUpdate(skill, file)}
+                        onDelete={() => setRemoving(skill)}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -315,5 +287,70 @@ export default function SkillsView() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** A skill row's actions in one menu: Edit, Update from source (git skills), Update from upload… (a zip), Delete. */
+function SkillActions({
+  skill,
+  disabled,
+  onUpdate,
+  onUpload,
+  onDelete,
+}: {
+  skill: SkillSummary;
+  disabled: boolean;
+  onUpdate: () => void;
+  onUpload: (file: File) => void;
+  onDelete: () => void;
+}) {
+  const zip = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={zip}
+        type="file"
+        accept=".zip,application/zip"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label={`Zip for ${skill.name}`}
+        disabled={disabled}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) onUpload(file);
+        }}
+      />
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={`Actions for ${skill.name}`} disabled={disabled}>
+            <MoreHorizontal />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link to={`/skills/${encodeURIComponent(skill.id)}`}>
+              <Pencil />
+              Edit
+            </Link>
+          </DropdownMenuItem>
+          {skill.source.kind === "git" && (
+            <DropdownMenuItem onSelect={onUpdate}>
+              <RefreshCw />
+              Update from source
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onSelect={() => zip.current?.click()}>
+            <Upload />
+            Update from upload…
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+            <Trash2 />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }

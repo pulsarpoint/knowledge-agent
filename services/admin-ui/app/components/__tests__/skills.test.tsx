@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import SkillsView from "~/features/agents/SkillsView";
 import {
@@ -90,6 +91,7 @@ test("the page says every agent sees every enabled skill and each row has its en
 });
 
 test("the list shows each skill's version and source; Update from source only for git skills", async () => {
+  const user = userEvent.setup();
   const calls = api({
     "GET /api/skills": () => [200, { skills: [notes, pdf] }],
     "POST /api/skills/s1/update/source": () => [
@@ -109,9 +111,16 @@ test("the list shows each skill's version and source; Update from source only fo
   expect(within(row).getByText("Git: https://github.com/acme/skills @ main, pdf-forms")).toBeInTheDocument();
   const other = screen.getByText("notes").closest("tr")!;
   expect(within(other).getByText("Uploaded notes.zip")).toBeInTheDocument();
-  expect(within(other).queryByRole("button", { name: /Update from source/ })).not.toBeInTheDocument();
-  expect(within(other).getByRole("link", { name: "Edit notes" })).toHaveAttribute("href", "/skills/s2");
-  fireEvent.click(within(row).getByRole("button", { name: "Update pdf-forms from source" }));
+  // Each row has one actions menu instead of a row of buttons; the name opens the skill.
+  expect(within(row).getAllByRole("button")).toHaveLength(1);
+  expect(within(other).getByRole("link", { name: "notes" })).toHaveAttribute("href", "/skills/s2");
+  await user.click(within(other).getByRole("button", { name: "Actions for notes" }));
+  expect(screen.getByRole("menuitem", { name: "Edit" })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Update from upload…" })).toBeInTheDocument();
+  expect(screen.queryByRole("menuitem", { name: "Update from source" })).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  await user.click(within(row).getByRole("button", { name: "Actions for pdf-forms" }));
+  await user.click(screen.getByRole("menuitem", { name: "Update from source" }));
   await screen.findByText("pdf-forms updated to version fff000111222. Changed: ref.md (added), SKILL.md (modified).");
   expect(calls.find((call) => call.key === "POST /api/skills/s1/update/source")!.body).toEqual({ revision: 2 });
 });
@@ -200,12 +209,14 @@ test("New skill creates SKILL.md from the template and opens the editor", async 
 });
 
 test("Delete asks first, naming the skill and its files", async () => {
+  const user = userEvent.setup();
   const calls = api({
     "GET /api/skills": () => [200, { skills: [pdf] }],
     "DELETE /api/skills/s1": () => [204, null],
   });
   show();
-  fireEvent.click(await screen.findByRole("button", { name: "Delete pdf-forms" }));
+  await user.click(await screen.findByRole("button", { name: "Actions for pdf-forms" }));
+  await user.click(screen.getByRole("menuitem", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText("Delete pdf-forms?")).toBeInTheDocument();
   expect(calls.some((call) => call.key.startsWith("DELETE"))).toBe(false);
