@@ -3,8 +3,9 @@ SET search_path = ka, public;
 
 -- Documents lose their folder, a leftover of RAG (nothing is written to disk): a document is named by its slug in the
 -- project. Documents are organized by their resource links, tags and search. Slugs that would collide are renamed
--- first: in each project and slug the oldest row keeps it, the others get the first free -2, -3, ... (shortened to
--- stay within 120 characters). A new-document run (agent_sessions purpose documents) loses its folder too.
+-- first: in each project and slug a live document keeps it before a brand-new draft, the oldest first; the others get
+-- the first free -2, -3, ... (shortened to stay within 120 characters). A new-document run (agent_sessions purpose
+-- documents) loses its folder too.
 DO $$
 DECLARE
     row record;
@@ -14,7 +15,7 @@ BEGIN
     FOR row IN
         SELECT id, project_id, slug FROM (
             SELECT id, project_id, slug,
-                row_number() OVER (PARTITION BY project_id, slug ORDER BY created_at, id) AS position
+                row_number() OVER (PARTITION BY project_id, slug ORDER BY is_draft, created_at, id) AS position
             FROM documents WHERE slug IS NOT NULL) ranked
         WHERE position > 1 ORDER BY project_id, slug, position
     LOOP

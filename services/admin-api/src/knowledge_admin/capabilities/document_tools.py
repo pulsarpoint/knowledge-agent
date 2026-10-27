@@ -56,6 +56,7 @@ from knowledge_admin.tools import texts
 from knowledge_admin.tools.registry import tool
 
 NO_SESSION = 'The document tools work only in an agent session.'
+NAME_RACE = 'Other documents took this name at the same time. Call new_document again.'
 MAX_MARKDOWN = 50_000
 MAX_LISTED = 100
 DOCUMENT_GONE = 'This document no longer exists.'
@@ -704,21 +705,27 @@ def _new_document(
         ).fetchone()
         if clash is not None:
             return DUPLICATE_TITLE.format(title=text.title, type=access_rules.TYPE_WORDS[kind], id=clash['id'])
-        try:
-            slug = free_slug(conn, project, document_slug(f'{row["name"]} {text.title}'))
-            draft = create_draft(
-                conn,
-                project,
-                Provenance('agent_run', None, session['id']),
-                {**NEW_DEFAULTS, **text.model_dump(), 'tags': list(tags or [])},
-                origin='generated',
-                slug=slug,
-                links={f'{kind}_ids': [row['id']]},
-            )
-        except errors.UniqueViolation:  # another draft took the name meanwhile
-            raise ValueError(NAME_IN_USE.format(slug=slug)) from None
-        except HTTPException as exc:
-            raise ValueError(exc.detail) from None
+        draft = None
+        for _ in range(2):  # another run may take the free slug before the insert: look again once
+            try:
+                with conn.transaction():
+                    slug = free_slug(conn, project, document_slug(f'{row["name"]} {text.title}'))
+                    draft = create_draft(
+                        conn,
+                        project,
+                        Provenance('agent_run', None, session['id']),
+                        {**NEW_DEFAULTS, **text.model_dump(), 'tags': list(tags or [])},
+                        origin='generated',
+                        slug=slug,
+                        links={f'{kind}_ids': [row['id']]},
+                    )
+                break
+            except errors.UniqueViolation:
+                continue
+            except HTTPException as exc:
+                raise ValueError(exc.detail) from None
+        if draft is None:
+            raise ValueError(NAME_RACE)
         record_run_sources(conn, project, draft, None, session['id'], session['turns'])
     created = CREATED.format(
         title=text.title,

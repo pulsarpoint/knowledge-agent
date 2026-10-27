@@ -76,7 +76,7 @@ def test_down_gives_back_the_0143_schema_and_up_again(store, at_0143):
         assert 'folder' not in names
 
 
-def test_up_renames_colliding_slugs_keeping_the_oldest(store):
+def test_up_renames_colliding_slugs_keeping_live_documents_then_the_oldest(store):
     with store.connect() as conn:
         run(conn, DOWN)
         shop, other = store.project(conn, 'shop'), store.project(conn, 'other')
@@ -89,12 +89,15 @@ def test_up_renames_colliding_slugs_keeping_the_oldest(store):
         long = 'a' * 120
         long_old = document(conn, shop, long, 'x', age=2)
         long_new = document(conn, shop, long, 'y', age=1)
+        old_draft = document(conn, shop, 'guide', 'drafts', draft=True, age=9)  # older, but only a brand-new draft
+        live_guide = document(conn, shop, 'guide', 'ops', age=1)
         run(conn, UP)
         after = slugs(conn)
         assert after[oldest] == 'runbook' and after[taken] == 'runbook-2'
         assert after[middle] == 'runbook-3' and after[newest] == 'runbook-4'
         assert after[revision] is None and after[elsewhere] == 'runbook'
         assert after[long_old] == long and after[long_new] == 'a' * 118 + '-2'
+        assert (after[live_guide], after[old_draft]) == ('guide', 'guide-2')  # a live document keeps its name
         with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
             conn.execute("UPDATE ka.documents SET slug='runbook' WHERE id=%s", (newest,))
         document_id = conn.execute(

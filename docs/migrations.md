@@ -656,8 +656,8 @@ nothing needs it). The down migration drops the table (test data).
 
 Documents lose their folder, a leftover of RAG (nothing was written to disk): a document is named by its slug in the
 project and organized by its resource links, tags and full-text search. Before the column goes, slugs that would
-collide in a project are renamed: in each project and slug the oldest row (by `created_at`, then `id`) keeps it, the
-others get the first free `-2`, `-3`, ... (the base shortened to stay within 120 characters). `documents.folder`, its
+collide in a project are renamed: in each project and slug a live document keeps it before a brand-new draft (then the
+oldest by `created_at`, then `id`), the others get the first free `-2`, `-3`, ... (the base shortened to stay within 120 characters). `documents.folder`, its
 check and the `documents_folder_slug` index go; `documents_slug` is unique on `(project_id, slug) WHERE slug IS NOT
 NULL` (live documents and brand-new drafts, as before), and `documents_kind` no longer mentions the folder. The views
 `live_documents`, `document_details` and `document_drafts_view` are recreated without it. A new-document run loses its

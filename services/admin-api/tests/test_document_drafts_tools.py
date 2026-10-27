@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from psycopg.types.json import Jsonb
 
 from access_helpers import entry, with_access
@@ -308,6 +309,62 @@ def test_the_role_and_the_editable_flag_are_gone():
     assert grep(REMOVED, *paths) == []
     assert grep(EDITABLE, *paths) == []
     assert grep(r'\bsave_document\b', *paths) == []
+
+
+def racing_shop(rev, monkeypatch, races: int) -> str:
+    """A code project Shop in the run's access; the first `races` free slugs are taken by another document right after
+    new_document picked them (as a racing run would)."""
+    from knowledge_admin.capabilities import document_tools
+    from knowledge_admin.documents.drafts import NEW_DEFAULTS
+    from knowledge_admin.documents.store import Provenance, create_draft
+
+    shop = uuid4()
+    with rev.docs.store.connect() as conn:
+        conn.execute(
+            "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'shop','Shop')",
+            (shop, rev.docs.project),
+        )
+    rev.config['access'] = {'resources': [{**entry('code_project', shop, 'Shop'), 'source': 'given'}]}
+    real, taken = document_tools.free_slug, []
+
+    def free_slug(conn, project, base):
+        slug = real(conn, project, base)
+        if len(taken) < races:
+            taken.append(slug)
+            with rev.docs.store.connect() as other:  # the other run's brand-new draft, committed first
+                create_draft(
+                    other,
+                    rev.docs.project,
+                    Provenance('person', None),
+                    {**NEW_DEFAULTS, 'title': f'Racing {len(taken)}', 'markdown': '# R'},
+                    origin='manual',
+                    slug=slug,
+                )
+        return slug
+
+    monkeypatch.setattr(document_tools, 'free_slug', free_slug)
+    return shop
+
+
+def test_new_document_looks_again_once_when_another_run_takes_its_slug(rev, monkeypatch):
+    racing_shop(rev, monkeypatch, races=1)
+    reply = call(
+        rev, 'new_document', resource={'type': 'code_project', 'name': 'shop'}, title='Overview', content='# O'
+    )
+    assert reply.endswith(DRAFT_NOTE), reply
+    with rev.docs.store.connect() as conn:
+        draft = conn.execute('SELECT slug,draft_of FROM ka.documents WHERE id=%s', (created_id(reply),)).fetchone()
+    assert (draft['slug'], draft['draft_of']) == ('shop-overview-2', None)
+
+
+def test_new_document_refuses_when_its_slug_is_taken_twice(rev, monkeypatch):
+    from knowledge_admin.capabilities.document_tools import NAME_RACE
+
+    racing_shop(rev, monkeypatch, races=2)
+    with pytest.raises(ValueError) as refused:
+        call(rev, 'new_document', resource={'type': 'code_project', 'name': 'shop'}, title='Overview', content='# O')
+    assert str(refused.value) == NAME_RACE and 'Choose' not in NAME_RACE
+    assert run_drafts(rev) == []
 
 
 def test_a_code_project_chat_drafts_its_overview_and_lists_its_documents(rev):
