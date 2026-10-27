@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBeforeUnload, useBlocker } from "react-router";
 import {
   AlertDialog,
@@ -15,7 +15,9 @@ import {
 function LeaveDialog({ open, onStay, onLeave }: { open: boolean; onStay: () => void; onLeave: () => void }) {
   // Leave closes the dialog too: its close must not undo what Leave just let through.
   const leaving = useRef(false);
-  if (!open) leaving.current = false;
+  useEffect(() => {
+    if (!open) leaving.current = false;
+  }, [open]);
   const stay = () => {
     if (!leaving.current) onStay();
   };

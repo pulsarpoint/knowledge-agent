@@ -229,6 +229,8 @@ function Editor({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // An action from the Drafts tab (Edit, Promote) waiting for the confirmation that unsaved changes may be lost.
+  // An in-page action that would replace unsaved text (Edit or Promote a draft, the agent's first message) asks
+  // "Discard unsaved changes?" here; leaving the page is asked by LeaveGuard (Stay / Leave).
   const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
   const leaving = useRef(false);
   const ids = pickIds(DOCUMENT_KINDS, value);
@@ -389,11 +391,7 @@ function Editor({
   async function remove() {
     if (!document) return;
     setError("");
-    try {
-      await deleteDocument(document.id, revision);
-    } catch (e) {
-      throw e instanceof Error ? e : new Error("Could not delete document");
-    }
+    await deleteDocument(document.id, revision); // a failure stays in the dialog
     leaving.current = true;
     navigate("/documents");
   }

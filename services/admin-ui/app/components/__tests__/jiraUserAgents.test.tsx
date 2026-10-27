@@ -137,7 +137,20 @@ test("changes a row's agent and removes a row", async () => {
   await user.click(screen.getByRole("option", { name: "Docs agent" }));
   await waitFor(() => expect(changed).toEqual({ agent_id: "docs", name: "Ops Bot" }));
   expect(await screen.findByRole("combobox", { name: "Agent for Ops Bot" })).toHaveTextContent("Docs agent");
+  const deleted = () =>
+    fetch.mock.calls.some(
+      ([url, init]) => url === "/api/jira/user-agents/ops-bot" && (init as RequestInit)?.method === "DELETE",
+    );
   await user.click(screen.getByRole("button", { name: "Remove Ops Bot" }));
+  // The removal asks first: Cancel sends nothing.
+  let dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Remove “Ops Bot”?")).toBeInTheDocument();
+  await user.click(dialog.getByRole("button", { name: "Cancel" }));
+  expect(deleted()).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Remove Ops Bot" }));
+  dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByRole("button", { name: "Remove Jira user" })).toHaveClass("bg-destructive");
+  await user.click(dialog.getByRole("button", { name: "Remove Jira user" }));
   await waitFor(() => expect(screen.queryByText("Ops Bot")).toBeNull());
   expect(
     fetch.mock.calls.some(

@@ -13,6 +13,7 @@ import {
   type JiraUser,
   type JiraUserAgent,
 } from "./api";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -151,6 +152,7 @@ export default function JiraUserAgents() {
       setAgentId("");
     }
   }
+  const [removal, setRemoval] = useState<Removal | null>(null);
   const remove = (row: JiraUserAgent) =>
     run(async () => {
       await deleteJiraUserAgent(row.jira_user_key);
@@ -228,7 +230,14 @@ export default function JiraUserAgents() {
                 size="icon"
                 disabled={busy}
                 aria-label={`Remove ${row.jira_user_name}`}
-                onClick={() => void remove(row)}
+                onClick={() =>
+                  setRemoval({
+                    title: `Remove “${row.jira_user_name}”?`,
+                    description: `Tickets assigned to this Jira user no longer go to ${row.agent_name}. The agent stays.`,
+                    action: "Remove Jira user",
+                    run: () => void remove(row),
+                  })
+                }
               >
                 <X />
               </Button>
@@ -279,6 +288,7 @@ export default function JiraUserAgents() {
           {busy && <Spinner data-icon="inline-start" />}Add
         </Button>
       </form>
+      <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
     </section>
   );
 }

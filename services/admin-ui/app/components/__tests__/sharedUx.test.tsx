@@ -168,23 +168,25 @@ function GuardedSheet() {
 }
 
 test("useSheetGuard: a clean sheet closes at once", async () => {
+  const user = userEvent.setup();
   render(<GuardedSheet />);
-  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.getByText("sheet closed")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 test("useSheetGuard: a dirty sheet asks Stay / Leave on close (Escape or Cancel)", async () => {
+  const user = userEvent.setup();
   render(<GuardedSheet />);
-  await userEvent.type(screen.getByLabelText("Name"), "x");
-  await userEvent.keyboard("{Escape}");
+  await user.type(screen.getByLabelText("Name"), "x");
+  await user.keyboard("{Escape}");
   let dialog = within(await screen.findByRole("alertdialog"));
   expect(dialog.getByText("Unsaved changes")).toBeInTheDocument();
-  await userEvent.click(dialog.getByRole("button", { name: "Stay" }));
+  await user.click(dialog.getByRole("button", { name: "Stay" }));
   expect(screen.getByText("sheet open")).toBeInTheDocument();
   expect(screen.getByLabelText("Name")).toHaveValue("x");
-  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
   dialog = within(await screen.findByRole("alertdialog"));
-  await userEvent.click(dialog.getByRole("button", { name: "Leave" }));
+  await user.click(dialog.getByRole("button", { name: "Leave" }));
   await waitFor(() => expect(screen.getByText("sheet closed")).toBeInTheDocument());
 });
