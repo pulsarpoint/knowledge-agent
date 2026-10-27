@@ -1,6 +1,7 @@
 # Documentation administration
 
-Docs is a separate admin section with Documents, Prompts and Folders.
+Docs is a separate admin section with Documents and Prompts. Documents are organized by their resource links, tags
+and full-text search; there are no documentation folders (migration 0144).
 It supports Markdown CRUD, version history, resource links, versioned prompts and
 documents written by agent sessions.
 
@@ -8,14 +9,14 @@ documents written by agent sessions.
 
 Since migration 0104 a document lives in three tables:
 
-- `ka.documents` holds live documents **and** drafts. A live row (`is_draft = false`) has the stable ID, slug, folder,
+- `ka.documents` holds live documents **and** drafts. A live row (`is_draft = false`) has the stable ID, slug,
   optimistic `revision`, its version number `version` and its current content: Markdown, SHA-256 `content_hash`
   (checked against the exact UTF-8 bytes), title, description, purpose, audience, tags, `origin` (manual, generated,
   uploaded), `from_draft`, `session_id` (the run that wrote it), the public resource `source_snapshot`, and who made the
   version live and when. A draft row (`is_draft = true`) is either a **draft of a live document** (`draft_of` = the
-  live id, `base_version` = the live version it started from, no slug or folder of its own) or a **brand-new
-  document** that has never been live (its own slug and folder, no `draft_of`). Slugs are unique per folder among live
-  documents and brand-new drafts; brand-new drafts reserve their name.
+  live id, `base_version` = the live version it started from, no slug of its own) or a **brand-new
+  document** that has never been live (its own slug, no `draft_of`). Slugs are unique in the project among live
+  documents and brand-new drafts (`documents_slug`); brand-new drafts reserve their name.
 - `ka.document_archive` holds the earlier live contents of a document (`document_id`, `version`, the same content
   columns, `created_at` = when that version went live, `archived_at`/`archived_by`). Version history is the archive
   rows plus the live row, by version number.
@@ -26,7 +27,7 @@ Since migration 0104 a document lives in three tables:
 
 Readers use views and never see a draft by accident: `ka.live_documents` (live rows), `ka.document_details` (live rows
 with their active link arrays and `draft_count`) and `ka.document_drafts_view` (every draft with its document's
-title, slug and folder, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
+title and slug, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
 a run's document that points at a draft, and a `built_for` link on a draft of a live document (migration 0130).
 
 **Links.** A brand-new draft (a person's Save, a new-document run's first save, a discovery run's `new_document`) gets its links as `built_for`, with `added_how` person, agent_run or discovery. A built-for link cannot
@@ -45,7 +46,7 @@ show anywhere. Promote changes no other link. The audit row
 live document creates the person's draft of it (later Saves update that draft), and no route writes live content.
 Content goes live only by **Publish** (a brand-new draft) or **Promote** (a draft of a live document), both
 `POST /drafts/{id}/promote`. A brand-new draft keeps the ID it will have as a document, opens at `/documents/{id}`
-(`GET /documents/{id}` answers with `is_draft: true`, `published: false`) and can be renamed (`slug`, `folder` on
+(`GET /documents/{id}` answers with `is_draft: true`, `published: false`) and can be renamed (`slug` on
 `PUT /drafts/{id}`) until it is published; a draft of a live document keeps its document's name. There is no history of
 a draft's own saves: version history starts when it is published. **Discovery** follows the same rule: a run's `new_document`
 creates a brand-new draft (the run's `session_id`, built for the resource it is for) and `update_document` creates a
@@ -55,7 +56,7 @@ number of drafts; they are listed by `created_at`, newest first. **Promoting** d
 transaction locking L) archives L's content, updates L in place with D's content (`version + 1`, `from_draft`, the
 same ID) and **deletes every draft of L**, D included; when D's `base_version` is older than L's `version`, promote
 answers 409 `STALE_BASE` until confirmed. Promoting a brand-new draft makes that row live as version 1 with its ID,
-slug, folder, sources and built-for links. **Discarding** a draft deletes it (a brand-new draft with its links: the
+slug, sources and built-for links. **Discarding** a draft deletes it (a brand-new draft with its links: the
 document never existed). Deleting a live document deletes its drafts, archive rows and links. Stale saves (wrong
 `revision`) return 409 without losing anything. Promote audits `document.draft.promoted` for D,
 `document.draft.replaced` for each other draft it deleted, and `document.updated` (`document.created` for a brand-new
@@ -127,10 +128,10 @@ role. Mutations also require an attributed user. No credential fields are return
 | `GET /documents/{id}/versions/{version}` | One version by number (archive or live): Markdown and resource snapshot |
 | `GET /documents/{id}/resource-history` | Every link row, active and removed |
 | `DELETE /documents/{id}` | Expected `revision` and `confirmed=true` required |
-| `POST /drafts` | A draft of a live document (`document_id`; text defaults to the live version) or a brand-new document (`slug`, optional `folder`, `title`, `markdown`, optional `resource_ids`, which become built-for links); a folder+slug naming a live document makes a draft of it |
+| `POST /drafts` | A draft of a live document (`document_id`; text defaults to the live version) or a brand-new document (`slug`, `title`, `markdown`, optional `resource_ids`, which become built-for links); a slug naming a live document is a 409 |
 | `GET /drafts` | Drafts (each row has `published`: false for a brand-new draft); `new=true` keeps brand-new documents; `environment_id`, `service_id`, `server_id`, `code_project_id`, `deployment_id` keep the drafts linked to that resource (brand-new drafts by their own links, drafts of a document by its links) |
 | `GET /drafts/{id}` | A draft with its Markdown, sources, base and live version numbers, `stale` and the live Markdown |
-| `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`); a brand-new draft may also send `slug` and/or `folder` (null: no folder) to rename it (409 when the name is taken or is also a documentation folder); a draft of a document that sends either is a 400 "A draft of a published document keeps its document's name." |
+| `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`); a brand-new draft may also send `slug` to rename it (409 when the name is taken); a draft of a document that sends one is a 400 "A draft of a published document keeps its document's name." |
 | `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: Publish (a brand-new draft) or Promote: make it the live version and delete the document's other drafts; returns `document_id`, `version`, `revision`, `deleted_drafts`; 409 `STALE_BASE` when the live version moved on |
 | `POST /drafts/{id}/discard` | `{revision}`: delete the draft |
 | `GET /documents/{id}/drafts` | Drafts of a document, newest first (no Markdown) |
@@ -144,7 +145,7 @@ role. Mutations also require an attributed user. No credential fields are return
 
 The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
 `/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts),
-`/sessions/:id` (the run page for every run) and `/documentation/folders`. `input_kind` is retired: the column remains only for the
+and `/sessions/:id` (the run page for every run); the old `/documentation/folders` pages redirect to `/documents`. `input_kind` is retired: the column remains only for the
 per-workspace seed functions, and the API neither accepts nor returns it.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
 confirmation and navigation with unsaved edits.
@@ -169,7 +170,7 @@ Subagents and experts get the read tools only (`search_documents`, `list_documen
 | `search_documents(query, limit?)` | Full-text search over the **published** usable documents (drafts are never searched): `websearch_to_tsquery('english', query)` (stemmed words, `"a phrase"`, `or`, `-word`), ranked with `ts_rank_cd`, a title match above a description match above a text match; `limit` 1–25 (10). Each result: `document_id`, title, `description_short`, tags, `resources` (its links to the run's own servers, services, environments and code projects: type, id, name) and `snippet` (`ts_headline`, about 30 words, matches in `**bold**`). Nothing found says so and points to `list_documents`. The index is the partial GIN expression index `documents_search` on live rows (migration 0133); the query repeats its expression (`document_tools.SEARCH_VECTOR`) and its scope is the run's access as SQL parameters (`search_scope`, the `get_document` rule). |
 | `list_documents(resource)` | The documents linked to a server, service or environment of the run (`resource`: `{type, id}` or `{type, name}`) and to what belongs to it: id, title, short description, tags, `published` (false for a new document the run drafted) and `your_draft`; the inventory document first. |
 | `get_document(document_id, section?, start_line?, end_line?)` | The run's draft of the document when it has one, else the live version: outline and text, or the asked lines numbered. |
-| `new_document(resource, title, content, description?, tags?)` | Creates a new document as a brand-new draft built for the resource (`built_for`, `added_how = 'agent_run'`, the run's `session_id`); folder and slug come from the resource and the title. A title already used by a document linked to the same resource is refused with that document's id. Returns the id the document keeps once published. |
+| `new_document(resource, title, content, description?, tags?)` | Creates a new document as a brand-new draft built for the resource (`built_for`, `added_how = 'agent_run'`, the run's `session_id`); its slug is the first free one in the project (`-2`, `-3`, ...) from the resource's name and the title. A title already used by a document linked to the same resource is refused with that document's id. Returns the id the document keeps once published. |
 | `update_document(document_id, content, title?, description?, resource?)` | Saves the run's draft of the document with its complete content. With `resource`, the document is linked to that server, service or environment: a new document's draft gets the link at once, a draft of a live document holds it and Promote adds it (see **Links**). |
 | `edit_document(document_id, old_text, new_text)` | Replaces one exact passage (it must occur once) in the run's draft, started from the live text when there is none yet; an empty `new_text` removes it. |
 
@@ -182,9 +183,9 @@ review** (`GET /api/environments/{id}/document-drafts`).
 ## Write a new document with an agent
 
 **Documents → New → Write with an agent** opens the same chat pane as Ask agent, on a document that does not exist yet.
-The page asks for a **Title** and a **Folder** (the Folder field appears with the pane). The run is started by
-`POST /api/sessions` with `started_from.new_document {folder, name}` and the new document in the run's access,
-`resources.documents[{new: {folder, name}}]` (an `editable` key is refused: 422). Such runs have `purpose = 'documents'`. A run starts from a document or
+The page asks for a **Title**. The run is started by
+`POST /api/sessions` with `started_from.new_document {name}` and the new document in the run's access,
+`resources.documents[{new: {name}}]` (an `editable` key is refused: 422). Such runs have `purpose = 'documents'`. A run starts from a document or
 from a new document, not both (`GET /api/sessions/options` takes `new_document=1` without `agent_id` or `document_id`).
 
 `GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects,
@@ -198,7 +199,7 @@ that is not switched off (Advanced → Tools), including `run_subagent`; the run
 
 The agent writes the document with `update_document(document_id, content, title?, description?, resource?)` and
 `edit_document(document_id, old_text, new_text)`, using the new document's id from its context. Both write the run's draft. The agent's final answer is not turned into a
-draft. If a document with the title's slug already exists in the folder, the saves become a draft of that document.
+draft. If a document with the title's slug already exists, the saves become a draft of that document.
 Otherwise the first save creates a brand-new draft whose links are built-for (`added_how = 'agent_run'`, the run's
 `session_id`): the environments, services, servers and code projects chosen (for a run started from a server page, that
 server). What they bring along for the agent (an environment's services and servers, a service's code projects and the
@@ -227,7 +228,7 @@ the agent `ad-hoc`. `context_snapshot` holds where the run started (`new_documen
 (`[{type, id}]`: what the person chose, an environment rather than what it brings); Start new chat with these settings
 restores them. A new document is built for the same choice; one that names a single server, service or environment (an inventory
 document always does) is built for that resource alone (its entry's `built_for`). Credentials are never included. Migration 0116 dropped the ids-only `run_resources` column.
-A saved agent's chat sessions (its Chat tab) share the table with `purpose = 'chat'` (no document name, folder or draft).
+A saved agent's chat sessions (its Chat tab) share the table with `purpose = 'chat'` (no document name or draft).
 
 **Turns.** `agent-session-worker` claims sessions (`session_worker.claim`), decrypts the pinned
 config's credentials per turn, runs `agents.agent(config, text, session=HistorySession, hooks=SessionEvents, stream=False,

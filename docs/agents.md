@@ -51,15 +51,15 @@ limit, no per-turn time limit, no 300-second limit).
   the new documents the run drafted for it. `get_document(document_id, section?, start_line?, end_line?)` reads the
   run's own draft of a document when it has one. `new_document(resource, title, content, description?, tags?)` creates
   a new document as a draft built for a server, service or environment in the run's access (`resource`: `{type, id}`
-  or `{type, name}`), in that resource's folder (`servers/<slug>`, `service-documents/<slug>`,
-  `environments/<slug>`); a title already used by a document linked to the resource is refused with its id ("A
+  or `{type, name}`), named by the first free slug in the project from the resource's name and the title (`-2`, `-3`,
+  ... when taken); a title already used by a document linked to the resource is refused with its id ("A
   document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead."). It
   returns the draft's id: only that run uses it until a person publishes the draft, and it stays the document's id
   afterwards. `update_document(document_id, content, title?, description?, resource?)` saves the run's draft with the
   whole text; `resource` adds a link that the draft holds and publishing adds to the document (migration 0130 lets a
   draft of a live document hold `linked` links). `edit_document(document_id, old_text, new_text)` replaces one exact
   passage. The write tools are offered only in a session turn: never to a subagent or an expert. A run started from
-  Documents → New (`resources.documents[{new: {folder, name}}]`) writes its new document (`new:<uuid>`) with
+  Documents → New (`resources.documents[{new: {name}}]`) writes its new document (`new:<uuid>`) with
   `update_document`, which creates the draft of a new document built for the resources the run was started for, not
   for what they bring along (see [documentation](documentation.md)). A run keeps updating its own draft
   (`agent_sessions.last_draft_id`). Promote and discard delete drafts, and promoting one draft of a document deletes the

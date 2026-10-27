@@ -130,7 +130,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
 5. **Environments** → group servers and services (e.g. `production`, `staging`).
 6. **Services** → **New service**: describe applications; on the service page link code projects, record
    relations and add deployments.
-7. **Docs → Documents** → **New** → **Write with an agent**: give a title and folder, then tell the agent what to write.
+7. **Docs → Documents** → **New** → **Write with an agent**: give a title, then tell the agent what to write.
 8. **Agents** → create agents, assign a model, enable capabilities, test them.
 
 ---
@@ -161,7 +161,7 @@ General conventions throughout the admin app:
 | Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers · System map |
 | Code | Projects · Code graphs |
-| Docs | Documents · Folders |
+| Docs | Documents |
 
 Footer: theme toggle and **Sign out**.
 
@@ -684,7 +684,7 @@ in one conversation. An agent never changes a confirmed entry: it adds and chang
 discards them in the environment workspace. Its drafts show in the audit log with the person who started the session,
 the agent and the session; helpers and experts never change the inventory. Documents work the same way: every agent
 in a conversation reads the documents of its resources (`list_documents`, `get_document`) and writes **drafts** of
-them — a new document for a server, service or environment it has (`new_document`, built for it, in its folder; a
+them — a new document for a server, service or environment it has (`new_document`, built for it; a
 title already used there is refused with the existing document's id), the whole text of a document it may read
 (`update_document`, which can also link the document to another of its resources once published) or one passage
 (`edit_document`). Each draft waits on the document's page (**Draft — not published**) until a person publishes or
@@ -745,15 +745,13 @@ See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent rece
 exist yet. It is the same chat as **Ask agent** on a document ([4.12](#412-documents)): the page takes the full width, the
 document takes two thirds and the chat one third.
 
-1. Give a **Title** and a **Folder**. The Folder field appears with the chat. Without both, nothing starts. Folder names are
-   lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
-   '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
-   characters. The title needs ASCII letters or digits (the file name is made from them).
+1. Give a **Title**. Without it, nothing starts. The title needs ASCII letters or digits (the document's name, its slug,
+   is made from them).
 2. Message the agent: what to write and what to read. It writes the document with `update_document` and changes it with
    `edit_document`. Each save updates the run's draft; you can ask for more changes.
 3. A bar above the editor shows the draft. **Compare** opens the draft page. **Promote** creates the document and opens it.
 
-If the title and folder match an existing document, the agent's saves become a draft of that document. Nothing goes live until
+If the title matches an existing document's name, the agent's saves become a draft of that document. Nothing goes live until
 you promote the draft. There is one conversation per page visit; **New chat** closes it.
 
 **Settings** in the chat opens what the agent may use: the model, the resources (code projects,
@@ -823,10 +821,10 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
 **Connections**.
 
 - **New document**: **Save** creates a draft of the new document and opens it at `/documents/{id}`.
-- A document that is only a draft shows "Draft — not published yet" with **Save** (its name — slug and folder — can
+- A document that is only a draft shows "Draft — not published yet" with **Save** (its name — the slug — can
   still change), **Publish** (it becomes version 1 of the document, same address) and **Discard**. It has no version
   history or Drafts tab until it is published.
-- A live document shows "Version n" with **Save**, **Download document folder** (ZIP),
+- A live document shows "Version n" with **Save**, **Download document** (ZIP),
   **Delete** and **Ask agent**. The first **Save** creates your draft of the document and the editor goes on editing
   it — "Editing your draft (created {time}, from version {n}). Save updates it; Promote makes it live." — later Saves
   update the same draft. Promote it on the **Drafts** tab.
@@ -844,7 +842,7 @@ only when a person publishes or promotes a draft.
 
 - The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
   documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title and tags,
-  folder, written by, updated) with **Open** and **Discard**; it ignores the filters. The **Drafts** view lists every draft with its tags: a draft of a new document
+  written by, updated) with **Open** and **Discard**; it ignores the filters. The **Drafts** view lists every draft with its tags: a draft of a new document
   is marked **Not published** (**Open**, **Publish**, **Discard**); a draft of a live document names its document.
 - **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
   the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the
@@ -853,7 +851,7 @@ only when a person publishes or promotes a draft.
   live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
   removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Promote**
   first ask "Discard unsaved changes?" (**Keep editing** does nothing).
-- A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created in the folder meanwhile, the draft becomes a draft of it and opens
+- A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created meanwhile, the draft becomes a draft of it and opens
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
 - **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
@@ -887,10 +885,9 @@ deleted with it.
 Agents find published documents with `search_documents` (full-text search over the documents their run may read)
 and read one with `get_document`.
 
-**Folders** (`/documentation/folders`) — the documentation folders with their document
-count, code projects and last generated time. Opening a folder lists its documents
-(title, code project, last generated), each opening in Documents. Editing a folder
-document keeps it in its folder.
+There are no documentation folders: a document's name (its slug) is unique in the workspace, and documents are found
+by their resources (each resource's Documents tab), tags and search. The old `/documentation/folders` links open
+Documents.
 
 ### 4.13 Storage
 
@@ -1225,7 +1222,7 @@ run a handler started records it in that event's chain, so handler loops stop at
 2. **Code projects**: add the Git repository; wait for the clone.
 3. **Services**: create the service, link the code project.
 4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
-5. **Docs → Documents → New → Write with an agent**: give a title and folder, open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
+5. **Docs → Documents → New → Write with an agent**: give a title, open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
 6. Follow the chat, send messages such as "shorten the API section", then **Promote** the draft.
 
 ### B. Document deployments and infrastructure
@@ -1246,7 +1243,7 @@ run a handler started records it in that event's chain, so handler loops stop at
 
 ### D. Write documentation interactively with an agent
 
-1. **Docs → Documents → New → Write with an agent** → give a title and folder, choose the resources and the prompt in **Settings**, and tell the agent what to write.
+1. **Docs → Documents → New → Write with an agent** → give a title, choose the resources and the prompt in **Settings**, and tell the agent what to write.
 2. Follow the stream and send a message such as "shorten the API section".
 3. **Promote** the draft.
 
