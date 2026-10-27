@@ -1,11 +1,10 @@
 import { useState } from "react";
+import BackLink from "~/components/BackLink";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { ArrowLeft } from "lucide-react";
 import { promotedNotice, type DraftDetail } from "./drafts";
 import DraftEditForm from "./DraftEditForm";
 import DraftView from "./DraftView";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Button } from "~/components/ui/button";
 
 /** /documents/drafts/:draftId — a draft of a live document on its own page (the environment's Drafts to review links here): the
  * changes against the live version, sources, Edit, Discard and Promote, which opens the document. A brand-new draft
@@ -22,24 +21,21 @@ export default function DraftPageView() {
   const documentPath = draft?.document_id ? `/documents/${encodeURIComponent(draft.document_id)}` : "/documents";
   return (
     <div className="flex flex-col gap-6">
-      <Button asChild variant="ghost" className="self-start">
-        <Link to="/documents">
-          <ArrowLeft data-icon="inline-start" />
-          Documents
-        </Link>
-      </Button>
-      <h1 className="text-2xl font-semibold">
-        {draft?.document_id ? (
-          <>
-            Draft of{" "}
-            <Link className="underline-offset-4 hover:underline" to={documentPath}>
-              {draft.document_title ?? draft.title}
-            </Link>
-          </>
-        ) : (
-          "Draft"
-        )}
-      </h1>
+      <div className="flex flex-col gap-1">
+        <BackLink to="/documents">All documents</BackLink>
+        <h2 className="text-xl font-semibold">
+          {draft?.document_id ? (
+            <>
+              Draft of{" "}
+              <Link className="underline-offset-4 hover:underline" to={documentPath}>
+                {draft.document_title ?? draft.title}
+              </Link>
+            </>
+          ) : (
+            "Draft"
+          )}
+        </h2>
+      </div>
       {notice && (
         <Alert role="status">
           <AlertDescription>{notice}</AlertDescription>

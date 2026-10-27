@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { createEvent, type EventDetail, type NewEventInput } from "./api";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "~/components/ui/field";
@@ -50,6 +51,9 @@ export default function NewEventSheet({
   const [payload, setPayload] = useState(prefill?.payload ? JSON.stringify(prefill.payload, null, 2) : "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const values = JSON.stringify([source, type, subject, title, payload]);
+  const [initial] = useState(values);
+  const guard = useSheetGuard(values !== initial);
   const parsed = parsePayload(payload);
   const problem = "problem" in parsed ? parsed.problem : null;
 
@@ -80,9 +84,10 @@ export default function NewEventSheet({
     <Sheet
       open
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) guard.close(onClose);
       }}
     >
+      {guard.dialog}
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>New event</SheetTitle>

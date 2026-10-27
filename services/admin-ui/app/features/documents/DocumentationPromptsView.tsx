@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import BackLink from "~/components/BackLink";
+import ConfirmRemove from "~/components/ConfirmRemove";
+import LeaveGuard from "~/components/LeaveGuard";
 import { Link, useNavigate, useParams } from "react-router";
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import {
   activateDocumentationPrompt,
   deleteDocumentationPrompt,
@@ -14,18 +17,7 @@ import {
   type DocumentationPromptVersion,
 } from "./api";
 import TagsInput from "./TagsInput";
-import UnsavedDocumentChanges from "./UnsavedDocumentChanges";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "~/components/ui/empty";
@@ -227,29 +219,21 @@ function PromptEditor({
   }
   async function remove() {
     if (!prompt || !deleting) return;
-    setPending(true);
     setError("");
     try {
       await deleteDocumentationPrompt(prompt.id, prompt.revision, deleting.version?.id);
-      leaving.current = true;
-      if (deleting.version) onSaved(prompt.id);
-      else navigate("/prompts");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not delete prompt");
-    } finally {
-      setPending(false);
+      throw e instanceof Error ? e : new Error("Could not delete prompt");
     }
+    leaving.current = true;
+    if (deleting.version) onSaved(prompt.id);
+    else navigate("/prompts");
   }
   return (
     <form onSubmit={save} className="flex flex-col gap-6">
-      <UnsavedDocumentChanges dirty={dirty} leaving={leaving} />
+      <LeaveGuard dirty={dirty} leaving={leaving} />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button asChild variant="ghost">
-          <Link to="/prompts">
-            <ArrowLeft data-icon="inline-start" />
-            Prompts
-          </Link>
-        </Button>
+        <BackLink to="/prompts">All prompts</BackLink>
         <div className="flex gap-2">
           {prompt && (
             <Button
@@ -416,44 +400,23 @@ function PromptEditor({
           )}
         </section>
       )}
-      <AlertDialog
-        open={deleting !== null}
-        onOpenChange={(open) => {
-          if (!open && !pending) setDeleting(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deleting?.version ? `Delete prompt version ${deleting.version.version}?` : `Delete “${prompt?.name}”?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleting?.version
+      <ConfirmRemove
+        removal={
+          deleting && {
+            title: deleting.version
+              ? `Delete prompt version ${deleting.version.version}?`
+              : `Delete “${prompt?.name}”?`,
+            description: `${
+              deleting.version
                 ? "This permanently removes the inactive version."
-                : "This permanently removes the prompt and all of its versions."}{" "}
-              Existing generation snapshots are retained. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={pending}
-              onClick={(e) => {
-                e.preventDefault();
-                void remove();
-              }}
-            >
-              {pending && <Spinner />}Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                : "This permanently removes the prompt and all of its versions."
+            } Existing generation snapshots are retained. This cannot be undone.`,
+            action: deleting.version ? "Delete version" : "Delete prompt",
+            run: remove,
+          }
+        }
+        onClose={() => setDeleting(null)}
+      />
     </form>
   );
 }

@@ -16,6 +16,7 @@ import {
 } from "./drafts";
 import DiffView from "./DiffView";
 import Markdown from "~/components/Markdown";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -320,33 +321,21 @@ export default function DraftView({
         <h3 className="text-sm font-semibold">Sources</h3>
         <SourceList sources={draft.sources} empty="No recorded sources." />
       </section>
-      <AlertDialog
-        open={confirmDiscard}
-        onOpenChange={(value) => {
-          if (!busy) setConfirmDiscard(value);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{`Discard “${draft.title}”?`}</AlertDialogTitle>
-            <AlertDialogDescription>
-              The draft is deleted (the audit history keeps a record). The live document does not change.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(e) => {
-                e.preventDefault();
-                void discard();
-              }}
-            >
-              Discard draft
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          confirmDiscard
+            ? {
+                title: `Discard “${draft.title}”?`,
+                description:
+                  "The draft is deleted (the audit history keeps a record). The live document does not change.",
+                action: "Discard draft",
+                run: discard,
+              }
+            : null
+        }
+        onClose={() => setConfirmDiscard(false)}
+        busy={busy}
+      />
       <PromoteWarning others={warning.others} busy={busy} onConfirm={warning.confirm} onCancel={warning.cancel} />
     </section>
   );

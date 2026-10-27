@@ -304,7 +304,7 @@ describe("a resource page's document actions", () => {
     render(<RouterProvider router={router} />);
     fireEvent.click(await screen.findByRole("button", { name: "Delete Disk runbook" }));
     let dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText("Delete Disk runbook?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Delete “Disk runbook”?")).toBeInTheDocument();
     expect(within(dialog).getByText(/It is deleted everywhere, with its history\./)).toBeInTheDocument();
     expect(within(dialog).getByText(/It is also linked to: nginx, Production\./)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -350,7 +350,7 @@ describe("a resource page's document actions", () => {
     show("/servers/s1");
     fireEvent.click(await screen.findByRole("button", { name: "Discard draft Backup plan" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText("Discard draft Backup plan?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Discard “Backup plan”?")).toBeInTheDocument();
     expect(within(dialog).getByText("The draft is discarded; nothing was published.")).toBeInTheDocument();
     expect(within(dialog).queryByText(/deleted everywhere/)).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Delete document" })).toBeNull();

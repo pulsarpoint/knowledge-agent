@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useOutletContext, useParams } from "react-router";
-import { ArrowLeft } from "lucide-react";
+import BackLink from "~/components/BackLink";
+import { Outlet, useLocation, useOutletContext, useParams } from "react-router";
 import { getAgent, type AgentProfile } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -56,12 +56,7 @@ function AgentPage({ agentId }: { agentId: string }) {
   }, [agentId, reloaded]);
   return (
     <section className="flex flex-col gap-6" aria-label="Agent details">
-      <Button asChild variant="link" className="self-start px-0">
-        <Link to="/agents">
-          <ArrowLeft />
-          All agents
-        </Link>
-      </Button>
+      <BackLink to="/agents">All agents</BackLink>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>

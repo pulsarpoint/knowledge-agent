@@ -13,19 +13,10 @@ import { deleteDocument } from "~/features/documents/api";
 import { discardDraft } from "~/features/documents/drafts";
 import Markdown from "~/components/Markdown";
 import TagLinks from "~/features/documents/TagLinks";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 
 /** A resource page's documents: New document (the New page built for the resource); its inventory document rendered
  * when it has one (Open edits it through drafts as usual); its document list (its and its direct children's documents:
@@ -143,32 +134,22 @@ export default function EntryDocuments({
             ))}
           </ul>
         ))}
-      <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deleting?.is_draft ? `Discard draft ${deleting.title}?` : `Delete ${deleting?.title}?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleting?.is_draft
-                ? "The draft is discarded; nothing was published."
-                : "It is deleted everywhere, with its history." +
-                  (deleting && deleting.linked_elsewhere.length > 0
-                    ? ` It is also linked to: ${deleting.linked_elsewhere.map((link) => link.name).join(", ")}.`
-                    : "")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              onClick={() => deleting && void remove(deleting)}
-            >
-              {deleting?.is_draft ? "Discard draft" : "Delete document"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          deleting && {
+            title: deleting.is_draft ? `Discard “${deleting.title}”?` : `Delete “${deleting.title}”?`,
+            description: deleting.is_draft
+              ? "The draft is discarded; nothing was published."
+              : "It is deleted everywhere, with its history." +
+                (deleting.linked_elsewhere.length > 0
+                  ? ` It is also linked to: ${deleting.linked_elsewhere.map((link) => link.name).join(", ")}.`
+                  : ""),
+            action: deleting.is_draft ? "Discard draft" : "Delete document",
+            run: () => void remove(deleting),
+          }
+        }
+        onClose={() => setDeleting(null)}
+      />
     </section>
   );
 }

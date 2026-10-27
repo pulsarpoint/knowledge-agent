@@ -7,24 +7,14 @@ import { environmentMapPath } from "./inventoryMap";
 import { RowAction, RowActions } from "./RowAction";
 import EnvironmentForm from "./EnvironmentForm";
 import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
-import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 /** The environments with what is deployed in them; each one's map is the System map rooted at it. A draft environment
@@ -84,6 +74,7 @@ export default function EnvironmentsView() {
       setRefresh((value) => value + 1);
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the environment. Try again.");
+      throw error; // the dialog stays open with the reason
     } finally {
       setDeleting(false);
     }
@@ -331,40 +322,23 @@ export default function EnvironmentsView() {
           </CardContent>
         </Card>
       )}
-      <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !deleting) setDeleteTarget(null);
+      <ConfirmRemove
+        removal={
+          deleteTarget && {
+            title: `Delete “${deleteTarget.name}”?`,
+            description:
+              "This permanently deletes the environment. An environment with deployments cannot be deleted: remove or move its deployments first. This cannot be undone.",
+            action: "Delete environment",
+            run: confirmDelete,
+          }
+        }
+        onClose={() => {
+          setDeleteTarget(null);
+          setDeleteError(null);
         }}
-      >
-        <AlertDialogContent aria-busy={deleting}>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="break-words">Delete “{deleteTarget?.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes the environment. An environment with deployments cannot be deleted: remove or
-              move its deployments first. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteError && (
-            <Alert variant="destructive">
-              <AlertDescription>{deleteError}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              disabled={deleting}
-              onClick={(event) => {
-                event.preventDefault();
-                confirmDelete();
-              }}
-            >
-              {deleting && <Spinner data-icon="inline-start" />}Delete environment
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        busy={deleting}
+        error={deleteError}
+      />
     </div>
   );
 }

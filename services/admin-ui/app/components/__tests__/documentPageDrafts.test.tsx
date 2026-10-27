@@ -257,6 +257,11 @@ test("Connections adds and removes dependencies and shows what uses the document
     }),
   );
   fireEvent.click(await panel.findByRole("button", { name: "Remove Overview" }));
+  // The removal asks first.
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Remove the link to “Overview”?")).toBeInTheDocument();
+  expect(calls.some((c) => c.key === "DELETE /api/documentation/documents/doc-1/links/doc-2")).toBe(false);
+  fireEvent.click(dialog.getByRole("button", { name: "Remove link" }));
   await waitFor(() =>
     expect(calls.some((c) => c.key === "DELETE /api/documentation/documents/doc-1/links/doc-2")).toBe(true),
   );
@@ -279,7 +284,7 @@ test("a notice handed over by the draft page shows on the document page", async 
   expect(await screen.findByText(notice)).toBeInTheDocument();
 });
 
-test("with unsaved changes, Edit on a draft asks first; Keep editing keeps the text, Discard changes loads the draft", async () => {
+test("with unsaved changes, Edit on a draft asks first; Cancel keeps the text, Discard changes loads the draft", async () => {
   api(base);
   show("/documents/doc-1?tab=drafts&draft=d1");
   const view = within(await screen.findByRole("region", { name: "Draft" }));
@@ -287,7 +292,7 @@ test("with unsaved changes, Edit on a draft asks first; Keep editing keeps the t
   fireEvent.click(view.getByRole("button", { name: "Edit" }));
   const dialog = within(await screen.findByRole("alertdialog"));
   expect(dialog.getByText("Discard unsaved changes?")).toBeInTheDocument();
-  fireEvent.click(dialog.getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
   expect(screen.queryByText(/Editing your draft/)).toBeNull();
@@ -297,14 +302,14 @@ test("with unsaved changes, Edit on a draft asks first; Keep editing keeps the t
   expect(screen.getByText(/Editing your draft/)).toBeInTheDocument();
 });
 
-test("with unsaved changes, Promote on the Drafts tab asks first; Keep editing promotes nothing", async () => {
+test("with unsaved changes, Promote on the Drafts tab asks first; Cancel promotes nothing", async () => {
   const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 };
   const calls = api({ ...base, "POST /api/documentation/drafts/d1/promote": () => [200, promoted] });
   show("/documents/doc-1?tab=drafts&draft=d1");
   const view = within(await screen.findByRole("region", { name: "Draft" }));
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# My unsaved text" } });
   fireEvent.click(view.getByRole("button", { name: "Promote" }));
-  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");

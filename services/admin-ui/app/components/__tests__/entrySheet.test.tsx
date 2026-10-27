@@ -287,6 +287,14 @@ test("edits a connection, shows a conflict and reloads, and removes it with its 
   });
   await waitFor(() => expect(fetch.mock.calls.filter((call) => call[0] === CONNECTIONS)).toHaveLength(2));
   await user.click(screen.getByRole("button", { name: `Remove ${text}` }));
+  // A removal asks first: Cancel removes nothing; Remove connection does.
+  let dialog = within(await screen.findByRole("alertdialog"));
+  await user.click(dialog.getByRole("button", { name: "Cancel" }));
+  expect(fetch.mock.calls.some((call) => call[0] === "/api/connections/c1?revision=2")).toBe(false);
+  await user.click(screen.getByRole("button", { name: `Remove ${text}` }));
+  dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByRole("button", { name: "Remove connection" })).toHaveClass("bg-destructive");
+  await user.click(dialog.getByRole("button", { name: "Remove connection" }));
   await waitFor(() => expect(fetch.mock.calls.some((call) => call[0] === "/api/connections/c1?revision=2")).toBe(true));
 });
 
@@ -325,6 +333,10 @@ test("adds a built_from relation to a code project and removes a relation", asyn
     }),
   );
   await user.click(await screen.findByRole("button", { name: "Remove worker is part of api" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Remove the relation worker is part of api?")).toBeInTheDocument();
+  expect(fetch.mock.calls.some((call) => call[0] === "/api/relations/r1?revision=2")).toBe(false);
+  await user.click(dialog.getByRole("button", { name: "Remove relation" }));
   await waitFor(() => expect(fetch.mock.calls.some((call) => call[0] === "/api/relations/r1?revision=2")).toBe(true));
 });
 
@@ -413,5 +425,9 @@ test("Link a document adds a linked link; Remove link removes it", async () => {
   await waitFor(() => expect(posted).toEqual({ document_id: "d1" }));
   expect(onChanged).toHaveBeenCalled();
   await user.click(await documents.findByRole("button", { name: "Remove link: Runbook" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Remove the link to “Runbook”?")).toBeInTheDocument();
+  expect(documents.queryByText("No documents are linked.")).toBeNull();
+  await user.click(dialog.getByRole("button", { name: "Remove link" }));
   await waitFor(() => expect(documents.getByText("No documents are linked.")).toBeInTheDocument());
 });

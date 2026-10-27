@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { EMIT, saveSchedule, type Schedule } from "./schedules";
 import TimetableFields, { complete, timetableOf, timing, type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPull, jiraPullParams, type JiraPull } from "./JiraPullFields";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -20,7 +21,15 @@ import { Input } from "~/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Spinner } from "~/components/ui/spinner";
 
-function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (schedule: Schedule) => void }) {
+function ScheduleForm({
+  schedule,
+  onSaved,
+  onDirtyChange,
+}: {
+  schedule: Schedule;
+  onSaved: (schedule: Schedule) => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
   const [name, setName] = useState(schedule.name);
   const [timetable, setTimetable] = useState<Timetable>(() => timetableOf(schedule));
   const [pull, setPull] = useState<JiraPull>(() => jiraPull(schedule.params));
@@ -28,6 +37,13 @@ function ScheduleForm({ schedule, onSaved }: { schedule: Schedule; onSaved: (sch
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const values = JSON.stringify([name, timetable, pull]);
+  const [initial] = useState(values);
+  const dirty = values !== initial;
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty]);
   /** Handlers bound to the old name follow a rename (the list knows which those are). */
   const bound = schedule.handlers?.length ?? 0;
   const renaming = schedule.target_kind === EMIT && name.trim() !== schedule.name;
@@ -116,19 +132,22 @@ export default function ScheduleEditor({
   onClose: () => void;
   onSaved: (schedule: Schedule) => void;
 }) {
+  const [dirty, setDirty] = useState(false);
+  const guard = useSheetGuard(dirty);
   return (
     <Sheet
       open={schedule !== null}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) guard.close(onClose);
       }}
     >
+      {guard.dialog}
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-md">
         <SheetHeader>
           <SheetTitle>Edit schedule</SheetTitle>
           <SheetDescription>{schedule?.name}</SheetDescription>
         </SheetHeader>
-        {schedule && <ScheduleForm key={schedule.id} schedule={schedule} onSaved={onSaved} />}
+        {schedule && <ScheduleForm key={schedule.id} schedule={schedule} onSaved={onSaved} onDirtyChange={setDirty} />}
       </SheetContent>
     </Sheet>
   );

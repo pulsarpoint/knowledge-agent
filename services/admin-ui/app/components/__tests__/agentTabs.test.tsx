@@ -139,21 +139,25 @@ test("agent removal requires confirmation and preserves the record on conflicts"
     .mockRejectedValueOnce(new Error("Agent has retained run history."))
     .mockResolvedValue(undefined);
   app("/agents");
-  await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
+  await user.click(await screen.findByRole("button", { name: "Delete Payments code" }));
   expect(screen.getByRole("alertdialog")).toHaveTextContent(
     "Shared servers, code projects, skills, models, and documents will be kept.",
+  );
+  expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete “Payments code”?");
+  expect(await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Delete agent" })).toHaveClass(
+    "bg-destructive",
   );
   expect(profiles.deleteAgent).not.toHaveBeenCalled();
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   expect(profiles.deleteAgent).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Remove Payments code" }));
-  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove agent" }));
+  await user.click(screen.getByRole("button", { name: "Delete Payments code" }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete agent" }));
   expect(await screen.findByText("Agent has retained run history.")).toBeVisible();
   expect(profiles.deleteAgent).toHaveBeenCalledWith("custom-code", 1, false);
   expect(screen.getByRole("alertdialog")).toBeVisible();
-  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove agent" }));
-  expect(screen.queryByRole("button", { name: "Remove Payments code" })).not.toBeInTheDocument();
-  expect(await screen.findByText("Agent Payments code removed")).toBeVisible();
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete agent" }));
+  expect(screen.queryByRole("button", { name: "Delete Payments code" })).not.toBeInTheDocument();
+  expect(await screen.findByText("Agent Payments code deleted")).toBeVisible();
 });
 
 test("an agent with history lists it and is deleted with it only on the destructive action", async () => {
@@ -165,20 +169,20 @@ test("an agent with history lists it and is deleted with it only on the destruct
   });
   vi.mocked(profiles.deleteAgent).mockResolvedValue(undefined);
   app("/agents");
-  await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
+  await user.click(await screen.findByRole("button", { name: "Delete Payments code" }));
   const dialog = screen.getByRole("alertdialog");
   expect(await within(dialog).findByText("2 conversations, 1 documentation session, 3 run records")).toBeVisible();
   expect(profiles.getAgentHistory).toHaveBeenCalledWith("custom-code");
   expect(dialog).toHaveTextContent("Saved documents are kept.");
-  expect(within(dialog).queryByRole("button", { name: "Remove agent" })).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "Delete agent" })).toBeNull();
   await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(profiles.deleteAgent).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Remove Payments code" }));
+  await user.click(screen.getByRole("button", { name: "Delete Payments code" }));
   await user.click(
     await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Delete agent and history" }),
   );
   expect(profiles.deleteAgent).toHaveBeenCalledWith("custom-code", 1, true);
-  expect(screen.queryByRole("button", { name: "Remove Payments code" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Delete Payments code" })).not.toBeInTheDocument();
   expect(await screen.findByText("Agent Payments code and its history deleted")).toBeVisible();
 });
 
@@ -189,8 +193,8 @@ test("a delete refused because history appeared meanwhile shows that history", a
     .mockResolvedValue({ conversations: 1, documentation_sessions: 0, run_records: 1 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error("This agent has sessions or run history."));
   app("/agents");
-  await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
-  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove agent" }));
+  await user.click(await screen.findByRole("button", { name: "Delete Payments code" }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete agent" }));
   expect(await within(screen.getByRole("alertdialog")).findByText("1 conversation, 1 run record")).toBeVisible();
   expect(
     within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete agent and history" }),
@@ -209,13 +213,13 @@ test("a delete refused because the agent is working says so and keeps the dialog
   });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   app("/agents");
-  await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
+  await user.click(await screen.findByRole("button", { name: "Delete Payments code" }));
   await user.click(
     await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Delete agent and history" }),
   );
   expect(await within(screen.getByRole("alertdialog")).findByText(WORKING)).toBeVisible();
   expect(screen.getByRole("alertdialog")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Remove Payments code", hidden: true })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete Payments code", hidden: true })).toBeInTheDocument();
 });
 
 test("a working agent whose history appeared meanwhile keeps the working message next to the history", async () => {
@@ -225,8 +229,8 @@ test("a working agent whose history appeared meanwhile keeps the working message
     .mockResolvedValue({ conversations: 0, documentation_sessions: 1, run_records: 0 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   app("/agents");
-  await user.click(await screen.findByRole("button", { name: "Remove Payments code" }));
-  await user.click(await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Remove agent" }));
+  await user.click(await screen.findByRole("button", { name: "Delete Payments code" }));
+  await user.click(await within(screen.getByRole("alertdialog")).findByRole("button", { name: "Delete agent" }));
   const dialog = screen.getByRole("alertdialog");
   expect(await within(dialog).findByText("1 documentation session")).toBeVisible();
   expect(within(dialog).getByText(WORKING)).toBeVisible();

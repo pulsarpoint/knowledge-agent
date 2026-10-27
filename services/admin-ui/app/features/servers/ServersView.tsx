@@ -7,19 +7,10 @@ import { getSSH, testSSH } from "./operations";
 import ServerForm from "./ServerForm";
 import ServerSSHForm from "./ServerSSHForm";
 import { RowAction, RowActions } from "./RowAction";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -77,6 +68,7 @@ export default function ServersView() {
       setRefresh((value) => value + 1);
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the server. Try again.");
+      throw error; // the dialog stays open with the reason
     } finally {
       setDeleting(false);
     }
@@ -320,40 +312,22 @@ export default function ServersView() {
           </div>
         </>
       )}
-      <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !deleting) setDeleteTarget(null);
+      <ConfirmRemove
+        removal={
+          deleteTarget && {
+            title: `Delete “${deleteTarget.name}”?`,
+            description: `This permanently removes the server record for ${deleteTarget.hostname} from the inventory. Linked service deployments must be removed first. This cannot be undone.`,
+            action: "Delete server",
+            run: confirmDelete,
+          }
+        }
+        onClose={() => {
+          setDeleteTarget(null);
+          setDeleteError(null);
         }}
-      >
-        <AlertDialogContent aria-busy={deleting}>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="break-words">Delete “{deleteTarget?.name}”?</AlertDialogTitle>
-            <AlertDialogDescription className="break-words">
-              This permanently removes the server record for {deleteTarget?.hostname} from the inventory. Linked service
-              deployments must be removed first. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteError && (
-            <Alert variant="destructive">
-              <AlertDescription>{deleteError}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              disabled={deleting}
-              onClick={(event) => {
-                event.preventDefault();
-                confirmDelete();
-              }}
-            >
-              {deleting && <Spinner data-icon="inline-start" />}Delete server
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        busy={deleting}
+        error={deleteError}
+      />
     </div>
   );
 }

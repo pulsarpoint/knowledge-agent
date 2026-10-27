@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useNavigate, useParams } from "react-router";
 import { History } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
@@ -12,19 +12,12 @@ import {
   saveOutputSchema,
   type OutputSchema,
 } from "./api";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import BackLink from "~/components/BackLink";
+import ConfirmRemove from "~/components/ConfirmRemove";
+import LeaveGuard from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
@@ -82,6 +75,10 @@ export default function OutputSchemaEditorView() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [viewed, setViewed] = useState<{ version: number; text: string } | null>(null);
+  const leaving = useRef(false); // set before the page navigates on its own (created, deleted)
+  const dirty = entry
+    ? name !== entry.name || description !== entry.description || schemaText !== pretty(entry.schema)
+    : name.trim() !== "" || description.trim() !== "" || schemaText !== STARTER;
 
   const show = (value: OutputSchema) => {
     setEntry(value);
@@ -165,16 +162,21 @@ export default function OutputSchemaEditorView() {
       if (entry) show((await saveOutputSchema(entry.id, draft, entry.revision)).schema);
       else {
         const created = (await createOutputSchema(draft)).schema;
+        leaving.current = true;
         navigate(`/output-schemas/${encodeURIComponent(created.id)}`, { replace: true });
       }
     }, "Could not save the output schema.");
   }
-  const remove = () =>
-    entry &&
-    void run(async () => {
+  const remove = async () => {
+    if (!entry) return;
+    try {
       await deleteOutputSchema(entry.id, entry.revision);
-      navigate("/output-schemas");
-    }, "Could not delete the output schema.");
+    } catch (reason) {
+      throw new Error(message(reason, "Could not delete the output schema."));
+    }
+    leaving.current = true;
+    navigate("/output-schemas");
+  };
   const view = (version: number) =>
     entry &&
     void run(async () => {
@@ -185,8 +187,10 @@ export default function OutputSchemaEditorView() {
   if (loading) return <Skeleton className="h-64 w-full" />;
   return (
     <form onSubmit={save} className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <LeaveGuard dirty={dirty} leaving={leaving} />
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="flex flex-col gap-1">
+          <BackLink to="/output-schemas">All output schemas</BackLink>
           <h2 className="text-xl font-semibold">{entry ? entry.name : "New output schema"}</h2>
           {entry && (
             <p className="text-sm text-muted-foreground">
@@ -195,9 +199,6 @@ export default function OutputSchemaEditorView() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="ghost" asChild>
-            <Link to="/output-schemas">All schemas</Link>
-          </Button>
           {entry && (
             <Button type="button" variant="outline" onClick={() => setVersionsOpen(true)}>
               <History data-icon="inline-start" />
@@ -288,23 +289,20 @@ export default function OutputSchemaEditorView() {
           </Button>
         )}
       </div>
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {entry?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Its versions are deleted too. Runs that used it keep their output. A schema a handler uses cannot be
-              deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={remove}>
-              Delete schema
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          confirmDelete && entry
+            ? {
+                title: `Delete “${entry.name}”?`,
+                description:
+                  "Its versions are deleted too. Runs that used it keep their output. A schema a handler uses cannot be deleted.",
+                action: "Delete output schema",
+                run: remove,
+              }
+            : null
+        }
+        onClose={() => setConfirmDelete(false)}
+      />
       {entry && (
         <Sheet
           open={versionsOpen}

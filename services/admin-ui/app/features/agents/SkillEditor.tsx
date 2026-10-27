@@ -1,16 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router";
-import {
-  ArrowLeft,
-  File as FileIcon,
-  FilePlus,
-  Folder,
-  FolderPlus,
-  History,
-  Pencil,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import BackLink from "~/components/BackLink";
+import ConfirmRemove from "~/components/ConfirmRemove";
+import LeaveGuard from "~/components/LeaveGuard";
+import { useParams } from "react-router";
+import { File as FileIcon, FilePlus, Folder, FolderPlus, History, Pencil, Trash2, Upload } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   changedLabel,
@@ -30,7 +23,6 @@ import {
   type TreeRow,
   type WorkingFile,
 } from "./skills";
-import UnsavedDocumentChanges from "~/features/documents/UnsavedDocumentChanges";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +35,7 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Field, FieldError, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
@@ -233,11 +225,8 @@ export default function SkillEditor() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <Link to="/skills" className="flex items-center gap-1 text-sm text-muted-foreground hover:underline">
-            <ArrowLeft className="size-4" />
-            All skills
-          </Link>
-          <h2 className="text-lg font-semibold">{skill.name}</h2>
+          <BackLink to="/skills">All skills</BackLink>
+          <h2 className="text-xl font-semibold">{skill.name}</h2>
           <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>Version</span>
             <span className="font-mono text-xs">{skill.version}</span>
@@ -453,34 +442,22 @@ export default function SkillEditor() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleting !== null} onOpenChange={(value) => !value && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deleting?.kind === "folder"
-                ? `Delete folder ${deleting.path} and its ${filesUnder(deleting)} ${filesUnder(deleting) === 1 ? "file" : "files"}?`
-                : `Delete ${deleting?.path}?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              It is removed from the skill when you save. Previous versions keep their copy.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              onClick={() => {
-                if (deleting) remove(deleting);
-                setDeleting(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          deleting && {
+            title:
+              deleting.kind === "folder"
+                ? `Delete folder “${deleting.path}” and its ${filesUnder(deleting)} ${filesUnder(deleting) === 1 ? "file" : "files"}?`
+                : `Delete “${deleting.path}”?`,
+            description: "It is removed from the skill when you save. Previous versions keep their copy.",
+            action: deleting.kind === "folder" ? "Delete folder" : "Delete file",
+            run: () => remove(deleting),
+          }
+        }
+        onClose={() => setDeleting(null)}
+      />
 
-      <UnsavedDocumentChanges dirty={dirty} leaving={leaving} />
+      <LeaveGuard dirty={dirty} leaving={leaving} />
     </div>
   );
 }

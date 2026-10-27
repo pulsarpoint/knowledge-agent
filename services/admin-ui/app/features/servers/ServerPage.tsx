@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BackLink from "~/components/BackLink";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getServerPage, type ServerPageData } from "./discovery";
@@ -36,9 +37,7 @@ export default function ServerPage({ serverId }: { serverId: string }) {
   if (!data)
     return error ? (
       <div className="flex flex-col gap-3">
-        <Link className="self-start text-sm underline" to="/servers">
-          Servers
-        </Link>
+        <BackLink to="/servers">All servers</BackLink>
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -56,11 +55,9 @@ export default function ServerPage({ serverId }: { serverId: string }) {
         </Alert>
       )}
       <div className="flex flex-col gap-1">
-        <Link className="self-start text-sm underline" to="/servers">
-          Servers
-        </Link>
+        <BackLink to="/servers">All servers</BackLink>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="break-words text-2xl font-semibold">{server.name}</h1>
+          <h2 className="break-words text-xl font-semibold">{server.name}</h2>
           {server.status === "draft" && <DraftBadge />}
         </div>
         <p className="font-mono text-sm">{server.hostname}</p>

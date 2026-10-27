@@ -208,7 +208,7 @@ test("the first message asks about unsaved changes first", async () => {
   fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: "# Edited, not saved" } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
   const dialog = await screen.findByRole("alertdialog");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(pane.props.some((p) => p.started)).toBe(false);
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Edited, not saved");
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));

@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import EnvironmentsView from "~/features/servers/EnvironmentsView";
 import type { EnvironmentAsset, EnvironmentInput } from "~/features/servers/environments";
 import type { ServiceAsset } from "~/features/servers/services";
@@ -54,6 +54,41 @@ const development: EnvironmentAsset = {
   servers: servers.map(({ id, name, hostname, status }) => ({ id, name, hostname, status })),
 };
 
+/** The environments page in a data router (its form's leave guard needs one), with a page to leave to. */
+const page = () =>
+  renderRoutes(
+    [
+      { path: "/environments", element: <EnvironmentsView /> },
+      { path: "/services", element: <p>Services page</p> },
+    ],
+    "/environments",
+  ).router;
+
+afterEach(() => vi.unstubAllGlobals());
+
+test("leaving with unsaved changes in the environment form asks Stay / Leave; an untouched form does not", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ environments: [] }))),
+  );
+  const router = page();
+  await userEvent.click(await screen.findByRole("button", { name: "Add environment" }));
+  await userEvent.click(screen.getByRole("link", { name: "Services page" }));
+  expect(await screen.findByText("Services page")).toBeInTheDocument();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await router.navigate("/environments");
+  await userEvent.click(await screen.findByRole("button", { name: "Add environment" }));
+  await userEvent.type(screen.getByLabelText("Environment name"), "QA");
+  await userEvent.click(screen.getByRole("link", { name: "Services page" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  await userEvent.click(dialog.getByRole("button", { name: "Stay" }));
+  expect(router.state.location.pathname).toBe("/environments");
+  expect(screen.getByLabelText("Environment name")).toHaveValue("QA");
+  await userEvent.click(screen.getByRole("link", { name: "Services page" }));
+  await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(await screen.findByText("Services page")).toBeInTheDocument();
+});
+
 function setup(
   environments: EnvironmentAsset[] = [],
   options: {
@@ -90,11 +125,7 @@ function setup(
     return new Response(JSON.stringify({ environments }));
   });
   vi.stubGlobal("fetch", fetch);
-  render(
-    <MemoryRouter>
-      <EnvironmentsView />
-    </MemoryRouter>,
-  );
+  page();
   return fetch;
 }
 
@@ -244,11 +275,7 @@ test("a draft environment shows a Draft badge with Confirm and Discard; Confirm 
       throw new Error(`unexpected ${key}`);
     }),
   );
-  render(
-    <MemoryRouter>
-      <EnvironmentsView />
-    </MemoryRouter>,
-  );
+  page();
   const row = (await screen.findByRole("link", { name: "Development" })).closest("tr")!;
   expect(within(row).getByText("Draft")).toBeInTheDocument();
   expect(within(row).getByRole("button", { name: "Discard Development" })).toBeInTheDocument();

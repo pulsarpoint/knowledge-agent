@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { saveServer, type ServerAsset } from "./api";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
@@ -26,6 +27,9 @@ export default function ServerForm({
   const [sshAllowed, setSshAllowed] = useState(server?.ssh_allowed ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const values = JSON.stringify([name, hostname, description, tags, sshAllowed]);
+  const [initial] = useState(values);
+  const guard = useSheetGuard(values !== initial);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -57,9 +61,10 @@ export default function ServerForm({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !saving) onClose();
+        if (!open && !saving) guard.close(onClose);
       }}
     >
+      {guard.dialog}
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{server ? "Edit server" : "Register server"}</SheetTitle>

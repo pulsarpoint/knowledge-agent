@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BackLink from "~/components/BackLink";
 import { Link, useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { draftsLabel, getEnvironment, getEnvironmentModel, type EnvironmentAsset } from "./environments";
@@ -49,11 +50,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
     return () => controller.abort();
   }, [environmentId, version, chatTurns]);
 
-  const back = (
-    <Link className="self-start text-sm underline" to="/environments">
-      Environments
-    </Link>
-  );
+  const back = <BackLink to="/environments">All environments</BackLink>;
   if (!environment)
     return error ? (
       <div className="flex flex-col gap-3">
@@ -84,7 +81,7 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
         <div className="flex flex-col gap-1">
           {back}
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="break-words text-2xl font-semibold">{environment.name}</h1>
+            <h2 className="break-words text-xl font-semibold">{environment.name}</h2>
             {environment.status === "draft" && <DraftBadge />}
           </div>
           <p className="whitespace-pre-wrap text-sm text-muted-foreground">

@@ -32,6 +32,7 @@ import {
 } from "./inventory";
 import { getServices, type ServiceAsset } from "./services";
 import { DraftsUsed } from "./ConfirmDraftSheet";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -435,6 +436,7 @@ export default function EntrySheet({
   const [documents, setDocuments] = useState<EntryDocuments>({ inventory_document: null, documents: [] });
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [removal, setRemoval] = useState<Removal | null>(null);
   const load = useCallback(async () => {
     try {
       const [linked, documented] = await Promise.all([
@@ -537,10 +539,16 @@ export default function EntrySheet({
                                 variant="ghost"
                                 aria-label={`Remove ${text}`}
                                 onClick={() =>
-                                  void act(
-                                    () => deleteItem("connections", connection.id, connection.revision),
-                                    "Could not remove the connection.",
-                                  )
+                                  setRemoval({
+                                    title: `Remove the connection ${text}?`,
+                                    description: "The connection is removed. Both ends stay.",
+                                    action: "Remove connection",
+                                    run: () =>
+                                      void act(
+                                        () => deleteItem("connections", connection.id, connection.revision),
+                                        "Could not remove the connection.",
+                                      ),
+                                  })
                                 }
                               >
                                 Remove
@@ -613,10 +621,16 @@ export default function EntrySheet({
                               variant="ghost"
                               aria-label={`Remove ${text}`}
                               onClick={() =>
-                                void act(
-                                  () => deleteItem("relations", relation.id, relation.revision),
-                                  "Could not remove the relation.",
-                                )
+                                setRemoval({
+                                  title: `Remove the relation ${text}?`,
+                                  description: "The relation is removed. Both services stay.",
+                                  action: "Remove relation",
+                                  run: () =>
+                                    void act(
+                                      () => deleteItem("relations", relation.id, relation.revision),
+                                      "Could not remove the relation.",
+                                    ),
+                                })
                               }
                             >
                               Remove
@@ -673,7 +687,14 @@ export default function EntrySheet({
                         size="sm"
                         variant="ghost"
                         aria-label={`Remove link: ${document.title}`}
-                        onClick={() => void act(() => unlinkDocument(entry, document.id), "Could not remove the link.")}
+                        onClick={() =>
+                          setRemoval({
+                            title: `Remove the link to “${document.title}”?`,
+                            description: `The document is no longer linked to ${entry.name}. The document stays.`,
+                            action: "Remove link",
+                            run: () => void act(() => unlinkDocument(entry, document.id), "Could not remove the link."),
+                          })
+                        }
                       >
                         Remove
                       </Button>
@@ -691,6 +712,7 @@ export default function EntrySheet({
             />
           </section>
         </div>
+        <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
       </SheetContent>
     </Sheet>
   );

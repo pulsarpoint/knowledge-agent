@@ -20,6 +20,7 @@ import {
 } from "./handlers";
 import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
 import type { OutputSchemaChoice } from "~/features/outputSchemas/api";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -154,12 +155,20 @@ function HandlerForm({
   handler,
   schedule,
   onSaved,
+  onDirtyChange,
 }: {
   handler: EventHandler | null;
   schedule?: { id: string; name: string };
   onSaved: (handler: EventHandler) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [form, setForm] = useState<Form>(handler ? fromHandler(handler) : schedule ? scheduleForm(schedule) : BLANK);
+  const [initial] = useState(form);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty]);
   const [schedules, setSchedules] = useState<{ id: string; name: string }[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[] | null>(null);
   const [types, setTypes] = useState<string[]>([]);
@@ -659,13 +668,16 @@ export default function HandlerSheet({
   onClose: () => void;
   onSaved: (handler: EventHandler) => void;
 }) {
+  const [dirty, setDirty] = useState(false);
+  const guard = useSheetGuard(dirty);
   return (
     <Sheet
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) guard.close(onClose);
       }}
     >
+      {guard.dialog}
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{handler ? "Edit handler" : "New handler"}</SheetTitle>
@@ -677,6 +689,7 @@ export default function HandlerSheet({
             handler={handler}
             schedule={schedule}
             onSaved={onSaved}
+            onDirtyChange={setDirty}
           />
         )}
       </SheetContent>

@@ -3,6 +3,7 @@ import { ApiError } from "~/lib/api";
 import { DEFAULT_CRON, EMIT, TARGETS, browserTimeZone, createSchedule, type Schedule } from "./schedules";
 import TimetableFields, { complete, timing, type Timetable } from "./TimetableFields";
 import JiraPullFields, { jiraPullParams, type JiraPull } from "./JiraPullFields";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
@@ -38,6 +39,9 @@ export default function NewScheduleSheet({
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const values = JSON.stringify([target, name, timetable, enabled, pull]);
+  const [initial] = useState(values);
+  const guard = useSheetGuard(values !== initial);
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -66,9 +70,10 @@ export default function NewScheduleSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) guard.close(onClose);
       }}
     >
+      {guard.dialog}
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-md">
         <SheetHeader>
           <SheetTitle>New schedule</SheetTitle>

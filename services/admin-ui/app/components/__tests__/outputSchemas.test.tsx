@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter } from "react-router";
 import OutputSchemasView from "~/features/outputSchemas/OutputSchemasView";
 import OutputSchemaEditorView from "~/features/outputSchemas/OutputSchemaEditorView";
 import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
@@ -48,14 +49,13 @@ const bodyOf = (fetch: ReturnType<typeof api>, method: string, url?: string) =>
   JSON.parse(fetch.mock.calls.find(([u, init]) => init?.method === method && (!url || u === url))![1]!.body as string);
 
 function editor(url: string) {
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <Routes>
-        <Route path="/output-schemas" element={<p>Schema list</p>} />
-        <Route path="/output-schemas/new" element={<OutputSchemaEditorView />} />
-        <Route path="/output-schemas/:schemaId" element={<OutputSchemaEditorView />} />
-      </Routes>
-    </MemoryRouter>,
+  return renderRoutes(
+    [
+      { path: "/output-schemas", element: <p>Schema list</p> },
+      { path: "/output-schemas/new", element: <OutputSchemaEditorView /> },
+      { path: "/output-schemas/:schemaId", element: <OutputSchemaEditorView /> },
+    ],
+    url,
   );
 }
 
@@ -206,12 +206,30 @@ test("Delete asks first; a schema a handler uses is refused with the handler nam
   fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText(/Runs that used it keep their output/)).toBeInTheDocument();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Delete schema" }));
-  expect(await screen.findByText("Used by: Triage tickets.")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete schema" }));
+  expect(within(dialog).getByText("Delete “Verdict”?")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete output schema" }));
+  // The refusal is shown in the dialog, which stays open.
+  expect(await within(dialog).findByText("Used by: Triage tickets.")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete output schema" }));
   expect(await screen.findByText("Schema list")).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(2);
+});
+
+test("leaving the editor with unsaved changes asks Stay / Leave; unchanged it leaves at once", async () => {
+  api((url) => (url === "/api/output-schemas/s1" ? { schema: detail() } : undefined));
+  const { router } = editor("/output-schemas/s1");
+  await userEvent.click(await screen.findByRole("link", { name: "All output schemas" }));
+  expect(await screen.findByText("Schema list")).toBeInTheDocument();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await router.navigate("/output-schemas/s1");
+  await userEvent.type(await screen.findByLabelText("Description"), " more");
+  await userEvent.click(screen.getByRole("link", { name: "All output schemas" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  await userEvent.click(dialog.getByRole("button", { name: "Stay" }));
+  expect(router.state.location.pathname).toBe("/output-schemas/s1");
+  await userEvent.click(screen.getByRole("link", { name: "All output schemas" }));
+  await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(await screen.findByText("Schema list")).toBeInTheDocument();
 });
 
 test("the picker offers none or a schema, then the current version or a fixed one", async () => {

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import JiraSettingsView from "~/features/jira/JiraSettingsView";
 import JiraTicketsView from "~/features/jira/JiraTicketsView";
 import type { JiraConnection, JiraTickets } from "~/features/jira/api";
@@ -50,16 +51,46 @@ const section = (url: string) =>
       ? new Response(JSON.stringify({ agents: [] }))
       : null;
 
+afterEach(() => vi.unstubAllGlobals());
+
+/** The settings page in a data router (its leave guard needs one), with the tickets page to leave to. */
+const showSettings = () =>
+  renderRoutes(
+    [
+      { path: "/jira/settings", element: <JiraSettingsView /> },
+      { path: "/jira/tickets", element: <p>Tickets page</p> },
+    ],
+    "/jira/settings",
+  ).router;
+
+test("leaving the settings with unsaved changes asks Stay / Leave; unchanged they leave at once", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => section(url) ?? new Response(JSON.stringify({ connection }))),
+  );
+  const router = showSettings();
+  await screen.findByDisplayValue(connection.username);
+  fireEvent.click(screen.getByRole("link", { name: "View tickets" }));
+  expect(await screen.findByText("Tickets page")).toBeInTheDocument();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await router.navigate("/jira/settings");
+  fireEvent.change(await screen.findByLabelText("Jira username"), { target: { value: "someone-else" } });
+  fireEvent.click(screen.getByRole("link", { name: "View tickets" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  fireEvent.click(dialog.getByRole("button", { name: "Stay" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(router.state.location.pathname).toBe("/jira/settings");
+  fireEvent.click(screen.getByRole("link", { name: "View tickets" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(await screen.findByText("Tickets page")).toBeInTheDocument();
+});
+
 test("the settings page shows Users and agents once a connection is saved", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => section(url) ?? new Response(JSON.stringify({ connection }))),
   );
-  render(
-    <MemoryRouter>
-      <JiraSettingsView />
-    </MemoryRouter>,
-  );
+  showSettings();
   expect(await screen.findByText("Users and agents")).toBeInTheDocument();
   expect(await screen.findByText("No Jira users are mapped to agents yet.")).toBeInTheDocument();
 });
@@ -77,11 +108,7 @@ test("save connection with token, clear password input, and test saved settings"
     return new Response(JSON.stringify({ connection: saved }));
   });
   vi.stubGlobal("fetch", fetch);
-  render(
-    <MemoryRouter>
-      <JiraSettingsView />
-    </MemoryRouter>,
-  );
+  showSettings();
   fireEvent.change(await screen.findByLabelText("Jira server URL"), { target: { value: connection.base_url } });
   fireEvent.change(screen.getByLabelText("Jira username"), { target: { value: connection.username } });
   fireEvent.change(screen.getByLabelText("Personal access token"), { target: { value: "test-secret-token" } });
@@ -114,11 +141,7 @@ test("blank token is omitted on edit and conflicts preserve input", async () => 
       ),
   );
   vi.stubGlobal("fetch", fetch);
-  render(
-    <MemoryRouter>
-      <JiraSettingsView />
-    </MemoryRouter>,
-  );
+  showSettings();
   fireEvent.change(await screen.findByLabelText("Jira username"), { target: { value: "new-user" } });
   fireEvent.submit(screen.getByRole("button", { name: "Save settings" }).closest("form")!);
   expect(await screen.findByText("Jira settings changed. Reload settings before saving")).toBeInTheDocument();
@@ -140,11 +163,7 @@ test("removing token sends explicit null", async () => {
       ),
   );
   vi.stubGlobal("fetch", fetch);
-  render(
-    <MemoryRouter>
-      <JiraSettingsView />
-    </MemoryRouter>,
-  );
+  showSettings();
   fireEvent.click(await screen.findByRole("checkbox", { name: "Remove saved token" }));
   fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
   await screen.findByText("Jira settings saved.");

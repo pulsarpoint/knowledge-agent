@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
 import { providerLabels, saveModel, type ModelInput, type ModelProfile, type Provider } from "./api";
+import LeaveGuard from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";
@@ -37,6 +38,22 @@ export default function LlmModelForm({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const values = JSON.stringify([
+    name,
+    provider,
+    modelId,
+    baseUrl,
+    region,
+    format,
+    dimensions,
+    version,
+    apiKey,
+    removeKey,
+    enabled,
+    structured,
+  ]);
+  const [initial] = useState(values);
+  const dirty = values !== initial;
 
   function changeProvider(value: Provider) {
     setProvider(value);
@@ -87,6 +104,7 @@ export default function LlmModelForm({
         <CardDescription>Save and test a model connection for agents or memory embeddings.</CardDescription>
       </CardHeader>
       <form onSubmit={submit} className="flex flex-col gap-6">
+        <LeaveGuard dirty={dirty} />
         <CardContent>
           {error && (
             <Alert variant="destructive" className="mb-4">

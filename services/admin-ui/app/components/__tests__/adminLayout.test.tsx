@@ -28,9 +28,9 @@ test("administration has its own navigation without reader pages", async () => {
   expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute("href", "/notifications");
   expect(screen.getByRole("link", { name: "Storage" })).toHaveAttribute("href", "/storage");
   const code = within(screen.getByRole("navigation", { name: "Code" }));
-  expect(code.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/code-projects");
+  expect(code.getByRole("link", { name: "Code projects" })).toHaveAttribute("href", "/code-projects");
   expect(code.getByRole("link", { name: "Code graphs" })).toHaveAttribute("href", "/code-graphs");
-  expect(screen.queryByRole("link", { name: "Code projects" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Projects" })).toBeNull();
   const environments = within(screen.getByRole("navigation", { name: "Environments" }));
   expect(environments.getByRole("link", { name: "Environments" })).toHaveAttribute("href", "/environments");
   expect(environments.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
@@ -128,21 +128,35 @@ test("an output schema page has its heading and keeps Output schemas current", a
   expect(screen.getByRole("heading", { level: 1, name: "Output schemas" })).toBeInTheDocument();
 });
 
-test("a server page has its own heading and keeps Servers current in the navigation", async () => {
+test.each([
+  ["/services/v1/view", "Services"],
+  ["/services/new", "Services"],
+  ["/environments/e1", "Environments"],
+  ["/servers/s1", "Servers"],
+  ["/sessions/x1", "Agent runs"],
+  ["/agents/a1/general", "All agents"],
+  ["/skills/k1", "Skills"],
+  ["/code-projects/c1/overview", "Code projects"],
+  ["/prompts/p1", "Prompts"],
+  ["/documents/new", "Documents"],
+  ["/documents/drafts/d1", "Documents"],
+  ["/activity/runs/r1", "Agent runs"],
+])("a detail page %s shows its section's heading, one h1, and keeps %s current", async (path, link) => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))),
   );
   render(
-    <MemoryRouter initialEntries={["/servers/s1"]}>
+    <MemoryRouter initialEntries={[path]}>
       <AdminLayout>
-        <h1>web-1</h1>
+        <h2>Record</h2>
       </AdminLayout>
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("heading", { name: "web-1" })).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Servers" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Servers" })).toHaveAttribute("data-active", "true");
+  expect(await screen.findByRole("heading", { level: 2, name: "Record" })).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  expect(screen.queryByRole("heading", { level: 1, name: "Administration" })).toBeNull();
+  expect(screen.getByRole("link", { name: link })).toHaveAttribute("data-active", "true");
 });
 
 test("a page that asks for the full width gets it, and gives it back when it stops", async () => {

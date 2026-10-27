@@ -14,16 +14,8 @@ import { Textarea } from "~/components/ui/textarea";
 import { Switch } from "~/components/ui/switch";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
+import LeaveGuard from "~/components/LeaveGuard";
 
 export default function MCPServersView() {
   const [servers, setServers] = useState<MCPServer[] | null>(null);
@@ -58,6 +50,14 @@ export default function MCPServersView() {
   useEffect(() => {
     void act(refresh);
   }, []);
+  const dirty =
+    editing !== null &&
+    (editing.name !== (editing.server?.name ?? "") ||
+      editing.description !== (editing.server?.description ?? "") ||
+      editing.url !== (editing.server?.url ?? "") ||
+      editing.enabled !== (editing.server?.enabled ?? true) ||
+      editing.token !== "" ||
+      editing.removeToken);
   function edit(server: MCPServer | null) {
     setError(null);
     setNotice(null);
@@ -73,6 +73,7 @@ export default function MCPServersView() {
   }
   return (
     <div className="flex flex-col gap-6">
+      <LeaveGuard dirty={dirty} />
       <div className="flex justify-between gap-3">
         <p className="text-sm text-muted-foreground">{servers?.length ?? 0} connections</p>
         <div className="flex gap-2">
@@ -320,7 +321,7 @@ export default function MCPServersView() {
                         setRemoving(server);
                       }}
                     >
-                      Remove
+                      Delete
                     </Button>
                   </div>
                 </TableCell>
@@ -329,45 +330,28 @@ export default function MCPServersView() {
           </TableBody>
         </Table>
       )}
-      <AlertDialog
-        open={!!removing}
-        onOpenChange={(open) => {
-          if (!open && !busy) setRemoving(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove MCP server?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {removing?.name} and its saved token will be deleted. It will be removed from all agent configurations,
-              and active runs will lose access to this connection.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                if (removing)
-                  void act(async () => {
-                    await deleteMCPServer(removing);
-                    setRemoving(null);
-                    await refresh();
-                    setNotice("MCP server removed.");
-                  });
-              }}
-            >
-              Remove MCP server
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          removing && {
+            title: `Delete “${removing.name}”?`,
+            description:
+              "It and its saved token will be deleted. It will be removed from all agent configurations, and active runs will lose access to this connection.",
+            action: "Delete MCP server",
+            run: async () => {
+              try {
+                await deleteMCPServer(removing);
+              } catch (e) {
+                throw new Error(e instanceof ApiError ? e.message : "MCP operation failed. Try refreshing.");
+              }
+              setRemoving(null);
+              await act(refresh);
+              setNotice("MCP server deleted.");
+            },
+          }
+        }
+        onClose={() => setRemoving(null)}
+        busy={busy}
+      />
     </div>
   );
 }

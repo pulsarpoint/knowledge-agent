@@ -45,6 +45,118 @@ import {
   SidebarTrigger,
 } from "~/components/ui/sidebar";
 
+/** The sections of the administration: a page belongs to the section whose path it is or starts with (a record's page
+ * under its list), so the layout always shows the section's title and description and the sidebar highlights it. */
+const SECTIONS = [
+  {
+    prefix: "/output-schemas",
+    title: "Output schemas",
+    description:
+      "JSON Schemas a run can be asked to finish with, versioned. Handlers, the API, Test and Run agent choose one per run.",
+  },
+  { prefix: "/prompts", title: "Prompts", description: "Reusable instructions for agents, organised by tags." },
+  {
+    prefix: "/notifications",
+    title: "Notifications",
+    description: "Answers agents gave to events, and the calls that failed.",
+  },
+  {
+    prefix: "/memory",
+    title: "Memory",
+    description: "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries.",
+  },
+  {
+    prefix: "/events",
+    title: "Events",
+    description: "Things that happened at your sources, and handlers that turn them into new events or agent answers.",
+  },
+  { prefix: "/schedules", title: "Schedules", description: "Run work on a timetable, such as pulling Jira tickets." },
+  {
+    prefix: "/activity/runs",
+    title: "Agent runs",
+    description: "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers.",
+  },
+  {
+    // A session is one agent run with its conversation: it belongs with the run records.
+    prefix: "/sessions",
+    title: "Agent runs",
+    description: "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers.",
+    nav: "/activity/runs",
+  },
+  {
+    prefix: "/storage",
+    title: "Storage",
+    description: "See where source code and code graphs are stored, and browse their folders.",
+  },
+  {
+    prefix: "/environments",
+    title: "Environments",
+    description: "Organize services and servers into Development, Staging, Production, or your own environments.",
+  },
+  {
+    prefix: "/documents",
+    title: "Documents",
+    description: "Write and maintain documentation linked to your code projects, services, and servers.",
+  },
+  {
+    prefix: "/mcp-servers",
+    title: "MCP servers",
+    description: "Manage external tools for Code search and SSH agents.",
+  },
+  {
+    prefix: "/llm-settings",
+    title: "LLM Settings",
+    description: "Manage model providers, credentials, and connection tests.",
+  },
+  {
+    prefix: "/skills",
+    title: "Skills",
+    description: "Folders of instructions, references and scripts your agents load when a task needs them.",
+  },
+  {
+    prefix: "/agents",
+    title: "Agents",
+    description: "Create agents with their own models, instructions, resources, and conversations.",
+  },
+  {
+    prefix: "/code-projects",
+    title: "Code projects",
+    description: "Browse the mounted code folder and organize local folders and Git sources into projects.",
+  },
+  {
+    prefix: "/code-graphs",
+    title: "Code graphs",
+    description: "Generate and explore each code project's graph: symbols, relationships, routes and languages.",
+  },
+  {
+    prefix: "/system-map",
+    title: "System map",
+    description: "The system as a graph you open one level at a time.",
+  },
+  {
+    prefix: "/services",
+    title: "Services",
+    description: "Connect applications, source code, and server deployments for agent investigations.",
+  },
+  {
+    prefix: "/servers",
+    title: "Servers",
+    description: "Manage hosts, descriptions, and tags for your service infrastructure.",
+  },
+  {
+    prefix: "/jira/settings",
+    title: "Jira Settings",
+    description: "Configure access to your Jira Data Center server and test the connection.",
+  },
+  { prefix: "/jira/tickets", title: "Jira Tickets", description: "Filter the Jira tickets saved by the pull." },
+];
+
+/** The section a path belongs to; `prefix` is the sidebar entry it highlights. */
+export function sectionOf(pathname: string) {
+  const found = SECTIONS.find(({ prefix }) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return found && { ...found, prefix: found.nav ?? found.prefix };
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,111 +195,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <Skeleton className="h-32 w-full" />
       </main>
     );
-  const repositories = pathname === "/code-projects" || pathname.startsWith("/code-projects/");
-  const codeGraphs = pathname === "/code-graphs";
-  const services = pathname === `/services`;
-  const environments = pathname === "/environments";
-  const servers = pathname === `/servers` || pathname.startsWith("/servers/");
-  const systemMap = pathname === "/system-map";
-  const jiraSettings = pathname === `/jira/settings`;
-  const jiraTickets = pathname === `/jira/tickets`;
-  const agentPage = pathname === "/agents" || pathname.startsWith("/agents/");
-  const docsPage = pathname.startsWith("/documents");
-  const promptsPage = pathname === "/prompts" || pathname.startsWith("/prompts/");
-  const skillsPage = pathname === "/skills" || pathname.startsWith("/skills/");
-  const sessionPage = pathname.startsWith("/sessions/") || pathname.startsWith("/servers/"); // its own heading is the session or server title
-  const runsPage = pathname.startsWith("/activity/runs");
-  const schedulesPage = pathname === "/schedules";
-  const eventsPage = pathname === "/events" || pathname.startsWith("/events/");
-  const notificationsPage = pathname === "/notifications";
-  const memoryPage = pathname === "/memory" || pathname.startsWith("/memory/");
-  const outputSchemasPage = pathname === "/output-schemas" || pathname.startsWith("/output-schemas/");
-  const title = outputSchemasPage
-    ? "Output schemas"
-    : promptsPage
-      ? "Prompts"
-      : notificationsPage
-        ? "Notifications"
-        : memoryPage
-          ? "Memory"
-          : eventsPage
-            ? "Events"
-            : schedulesPage
-              ? "Schedules"
-              : runsPage
-                ? "Agent runs"
-                : pathname === "/storage"
-                  ? "Storage"
-                  : environments
-                    ? "Environments"
-                    : docsPage
-                      ? "Documents"
-                      : pathname === "/mcp-servers"
-                        ? "MCP servers"
-                        : pathname === "/llm-settings"
-                          ? "LLM Settings"
-                          : skillsPage
-                            ? "Skills"
-                            : agentPage
-                              ? "Agents"
-                              : repositories
-                                ? "Code projects"
-                                : codeGraphs
-                                  ? "Code graphs"
-                                  : systemMap
-                                    ? "System map"
-                                    : services
-                                      ? "Services"
-                                      : servers
-                                        ? "Servers"
-                                        : jiraSettings
-                                          ? "Jira Settings"
-                                          : jiraTickets
-                                            ? "Jira Tickets"
-                                            : "Administration";
-  const description = outputSchemasPage
-    ? "JSON Schemas a run can be asked to finish with, versioned. Handlers, the API, Test and Run agent choose one per run."
-    : promptsPage
-      ? "Reusable instructions for agents, organised by tags."
-      : notificationsPage
-        ? "Answers agents gave to events, and the calls that failed."
-        : memoryPage
-          ? "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries."
-          : eventsPage
-            ? "Things that happened at your sources, and handlers that turn them into new events or agent answers."
-            : schedulesPage
-              ? "Run work on a timetable, such as pulling Jira tickets."
-              : runsPage
-                ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers."
-                : pathname === "/storage"
-                  ? "See where source code and code graphs are stored, and browse their folders."
-                  : environments
-                    ? "Organize services and servers into Development, Staging, Production, or your own environments."
-                    : docsPage
-                      ? "Write and maintain documentation linked to your code projects, services, and servers."
-                      : pathname === "/mcp-servers"
-                        ? "Manage external tools for Code search and SSH agents."
-                        : pathname === "/llm-settings"
-                          ? "Manage model providers, credentials, and connection tests."
-                          : skillsPage
-                            ? "Folders of instructions, references and scripts your agents load when a task needs them."
-                            : agentPage
-                              ? "Create agents with their own models, instructions, resources, and conversations."
-                              : repositories
-                                ? "Browse the mounted code folder and organize local folders and Git sources into projects."
-                                : codeGraphs
-                                  ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
-                                  : services
-                                    ? "Connect applications, source code, and server deployments for agent investigations."
-                                    : systemMap
-                                      ? "The system as a graph you open one level at a time."
-                                      : servers
-                                        ? "Manage hosts, descriptions, and tags for your service infrastructure."
-                                        : jiraSettings
-                                          ? "Configure access to your Jira Data Center server and test the connection."
-                                          : jiraTickets
-                                            ? "Filter the Jira tickets saved by the pull."
-                                            : "";
+  const section = sectionOf(pathname);
+  const at = (prefix: string) => section?.prefix === prefix;
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -211,7 +220,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>Administration</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/storage"}>
+                <SidebarMenuButton asChild isActive={at("/storage")}>
                   <Link to="/storage">
                     <Database />
                     <span>Storage</span>
@@ -219,7 +228,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={skillsPage}>
+                <SidebarMenuButton asChild isActive={at("/skills")}>
                   <Link to="/skills">
                     <BookOpen />
                     <span>Skills</span>
@@ -227,7 +236,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={promptsPage}>
+                <SidebarMenuButton asChild isActive={at("/prompts")}>
                   <Link to="/prompts">
                     <BookOpen />
                     <span>Prompts</span>
@@ -235,7 +244,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/mcp-servers"}>
+                <SidebarMenuButton asChild isActive={at("/mcp-servers")}>
                   <Link to="/mcp-servers">
                     <Plug />
                     <span>MCP servers</span>
@@ -243,7 +252,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={runsPage}>
+                <SidebarMenuButton asChild isActive={at("/activity/runs")}>
                   <Link to="/activity/runs">
                     <ListChecks />
                     <span>Agent runs</span>
@@ -251,7 +260,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={schedulesPage}>
+                <SidebarMenuButton asChild isActive={at("/schedules")}>
                   <Link to="/schedules">
                     <CalendarClock />
                     <span>Schedules</span>
@@ -259,7 +268,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={eventsPage}>
+                <SidebarMenuButton asChild isActive={at("/events")}>
                   <Link to="/events">
                     <Inbox />
                     <span>Events</span>
@@ -267,7 +276,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={notificationsPage}>
+                <SidebarMenuButton asChild isActive={at("/notifications")}>
                   <Link to="/notifications">
                     <Bell />
                     <span>Notifications</span>
@@ -275,7 +284,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={memoryPage}>
+                <SidebarMenuButton asChild isActive={at("/memory")}>
                   <Link to="/memory">
                     <Brain />
                     <span>Memory</span>
@@ -288,15 +297,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>Agents</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={agentPage}>
-                  <Link to="/agents" aria-current={agentPage ? "page" : undefined}>
+                <SidebarMenuButton asChild isActive={at("/agents")}>
+                  <Link to="/agents" aria-current={at("/agents") ? "page" : undefined}>
                     <Bot />
                     <span>All agents</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={outputSchemasPage}>
+                <SidebarMenuButton asChild isActive={at("/output-schemas")}>
                   <Link to="/output-schemas">
                     <Braces />
                     <span>Output schemas</span>
@@ -309,7 +318,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>LLM Settings</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/llm-settings"}>
+                <SidebarMenuButton asChild isActive={at("/llm-settings")}>
                   <Link to="/llm-settings">
                     <Settings />
                     <span>Models</span>
@@ -322,7 +331,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>Jira</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={jiraTickets}>
+                <SidebarMenuButton asChild isActive={at("/jira/tickets")}>
                   <Link to={`/jira/tickets`}>
                     <Ticket />
                     <span>Tickets</span>
@@ -330,7 +339,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={jiraSettings}>
+                <SidebarMenuButton asChild isActive={at("/jira/settings")}>
                   <Link to={`/jira/settings`}>
                     <Settings />
                     <span>Settings</span>
@@ -343,7 +352,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>Environments</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={environments}>
+                <SidebarMenuButton asChild isActive={at("/environments")}>
                   <Link to="/environments">
                     <Network />
                     <span>Environments</span>
@@ -351,7 +360,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={services}>
+                <SidebarMenuButton asChild isActive={at("/services")}>
                   <Link to={`/services`}>
                     <Layers />
                     <span>Services</span>
@@ -359,7 +368,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={servers}>
+                <SidebarMenuButton asChild isActive={at("/servers")}>
                   <Link to={`/servers`}>
                     <Server />
                     <span>Servers</span>
@@ -367,7 +376,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={systemMap}>
+                <SidebarMenuButton asChild isActive={at("/system-map")}>
                   <Link to="/system-map">
                     <Workflow />
                     <span>System map</span>
@@ -380,15 +389,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>Code</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={repositories}>
+                <SidebarMenuButton asChild isActive={at("/code-projects")}>
                   <Link to="/code-projects">
                     <FolderGit2 />
-                    <span>Projects</span>
+                    <span>Code projects</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={codeGraphs}>
+                <SidebarMenuButton asChild isActive={at("/code-graphs")}>
                   <Link to="/code-graphs">
                     <Network />
                     <span>Code graphs</span>
@@ -401,7 +410,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarGroupLabel>Docs</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname.startsWith("/documents")}>
+                <SidebarMenuButton asChild isActive={at("/documents")}>
                   <Link to="/documents">
                     <Files />
                     <span>Documents</span>
@@ -431,12 +440,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <span className="text-sm text-muted-foreground">Administration</span>
         </header>
         <main className={cn("mx-auto flex w-full flex-col gap-6 p-6", !wide && "max-w-6xl")}>
-          {!sessionPage && (
-            <div>
-              <h1 className="text-2xl font-semibold">{title}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-            </div>
-          )}
+          <div>
+            <h1 className="text-2xl font-semibold">{section?.title ?? "Administration"}</h1>
+            {section && <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>}
+          </div>
           <WidePageContext.Provider value={setWide}>{children}</WidePageContext.Provider>
         </main>
         <Toaster position="bottom-right" />

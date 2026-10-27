@@ -18,7 +18,7 @@ import AddServiceDialog from "./AddServiceDialog";
 import ServerForm from "./ServerForm";
 import ServicePanel from "./ServicePanel";
 import { RowAction, RowActions } from "./RowAction";
-import ConfirmRemove, { type Removal } from "./ConfirmRemove";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";

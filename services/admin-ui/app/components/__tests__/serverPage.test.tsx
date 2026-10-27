@@ -215,7 +215,7 @@ test("shows the server, its services and documents; its chats are in the chat pa
     ],
   });
   show();
-  expect(await screen.findByRole("heading", { name: "web-1", level: 1 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "web-1", level: 2 })).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1/view");
   expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
@@ -300,7 +300,7 @@ test("a server whose SSH is not ready shows its reason and blocks the first mess
   expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(false);
 });
 
-test("a missing server says so and links back to Servers", async () => {
+test("a missing server says so and links back to All servers", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) =>
@@ -311,7 +311,7 @@ test("a missing server says so and links back to Servers", async () => {
   );
   show();
   expect(await screen.findByText("Server not found.")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Servers" })).toHaveAttribute("href", "/servers");
+  expect(screen.getByRole("link", { name: "All servers" })).toHaveAttribute("href", "/servers");
 });
 
 test("empty services and documents are explained", async () => {

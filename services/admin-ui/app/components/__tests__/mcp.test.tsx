@@ -1,7 +1,7 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import MCPServersView from "~/features/llm/MCPServersView";
 import * as api from "~/features/llm/mcp";
 vi.mock("~/features/llm/mcp");
@@ -18,6 +18,35 @@ const connection: api.MCPServer = {
   last_tested_at: "2026-09-10T12:00:00Z",
   last_test_error: null,
 };
+/** The MCP servers page in a data router (its form's leave guard needs one), with a page to leave to. */
+const page = () =>
+  renderRoutes(
+    [
+      { path: "/mcp-servers", element: <MCPServersView /> },
+      { path: "/other", element: <p>Other page</p> },
+    ],
+    "/mcp-servers",
+  ).router;
+afterEach(() => vi.unstubAllGlobals());
+it("leaving with unsaved changes in the MCP server form asks Stay / Leave; an untouched form does not", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getMCPServers).mockResolvedValue({ servers: [connection] });
+  const router = page();
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await act(() => router.navigate("/other"));
+  expect(await screen.findByText("Other page")).toBeInTheDocument();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await act(() => router.navigate("/mcp-servers"));
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await user.type(screen.getByLabelText("Name"), " 2");
+  await act(() => router.navigate("/other"));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  await user.click(dialog.getByRole("button", { name: "Stay" }));
+  expect(router.state.location.pathname).toBe("/mcp-servers");
+  await act(() => router.navigate("/other"));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(await screen.findByText("Other page")).toBeInTheDocument();
+});
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getMCPServers).mockResolvedValue({ servers: [connection] });
@@ -25,11 +54,7 @@ beforeEach(() => {
 it("preserves a saved token on edit and requires confirmation to remove a connection", async () => {
   const user = userEvent.setup();
   vi.mocked(api.saveMCPServer).mockResolvedValue(connection);
-  render(
-    <MemoryRouter>
-      <MCPServersView />
-    </MemoryRouter>,
-  );
+  page();
   await user.click(await screen.findByRole("button", { name: "Edit" }));
   expect(screen.getByLabelText("Replace bearer token")).toHaveValue("");
   expect(screen.getByText(/Leave blank to keep it/)).toBeVisible();
@@ -44,14 +69,15 @@ it("preserves a saved token on edit and requires confirmation to remove a connec
       revision: 2,
     }),
   );
-  await user.click(screen.getByRole("button", { name: /^Remove$/ }));
+  await user.click(screen.getByRole("button", { name: /^Delete$/ }));
   const dialog = screen.getByRole("alertdialog");
   expect(dialog).toHaveTextContent("removed from all agent configurations");
+  expect(within(dialog).getByRole("button", { name: "Delete MCP server" })).toHaveClass("bg-destructive");
   expect(api.deleteMCPServer).not.toHaveBeenCalled();
   await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(api.deleteMCPServer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: /^Remove$/ }));
-  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove MCP server" }));
+  await user.click(screen.getByRole("button", { name: /^Delete$/ }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete MCP server" }));
   await waitFor(() => expect(api.deleteMCPServer).toHaveBeenCalledWith(connection));
 });
 it("tests a saved connection and shows discovered tools", async () => {
@@ -61,11 +87,7 @@ it("tests a saved connection and shows discovered tools", async () => {
     message: "Connected. Discovered 1 tools.",
     server: connection,
   });
-  render(
-    <MemoryRouter>
-      <MCPServersView />
-    </MemoryRouter>,
-  );
+  page();
   await user.click(await screen.findByRole("button", { name: "Test connection" }));
   await screen.findByText("Connected. Discovered 1 tools.");
   expect(api.testMCPServer).toHaveBeenCalledWith(connection);

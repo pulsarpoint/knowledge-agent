@@ -177,6 +177,26 @@ test("creating an emit handler with a condition sends the draft", async () => {
   expect(await screen.findByText("Emit triage.requested")).toBeInTheDocument();
 });
 
+test("closing the handler sheet with unsaved changes asks Stay / Leave; an untouched sheet closes at once", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await screen.findByRole("dialog");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "New handler" }));
+  await user.type(within(await screen.findByRole("dialog")).getByLabelText("Name"), "Triage");
+  await user.keyboard("{Escape}");
+  const ask = within(await screen.findByRole("alertdialog"));
+  await user.click(ask.getByRole("button", { name: "Stay" }));
+  expect(within(screen.getByRole("dialog")).getByLabelText("Name")).toHaveValue("Triage");
+  await user.keyboard("{Escape}");
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
 test("send to agent picks an agent and a prompt; server errors show in the form", async () => {
   const user = userEvent.setup();
   let sent: Record<string, unknown> = {};
@@ -258,8 +278,9 @@ test("the switch saves enabled with the revision; delete asks first", async () =
   await waitFor(() => expect([saved.enabled, saved.revision]).toEqual([false, 1]));
   await user.click(screen.getByRole("button", { name: "Delete Triage" }));
   const dialog = await screen.findByRole("alertdialog");
-  expect(within(dialog).getByText("Delete handler Triage?")).toBeInTheDocument();
-  await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+  expect(within(dialog).getByText("Delete “Triage”?")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Delete handler" })).toHaveClass("bg-destructive");
+  await user.click(within(dialog).getByRole("button", { name: "Delete handler" }));
   await waitFor(() => expect(screen.queryByText("Triage")).toBeNull());
   expect(
     fetch.mock.calls.some(

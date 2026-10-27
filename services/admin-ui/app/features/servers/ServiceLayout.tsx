@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useOutletContext, useParams } from "react-router";
-import { ArrowLeft } from "lucide-react";
+import BackLink from "~/components/BackLink";
+import { Outlet, useLocation, useOutletContext, useParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import {
   deleteItem,
@@ -18,14 +18,13 @@ import { getServices, type ServiceAsset } from "./services";
 import { serviceRoles, serviceTypes } from "./serviceClassification";
 import { connectionRows } from "./ServicePanel";
 import { CONFLICT, removeItem } from "./rows";
-import ConfirmRemove, { type Removal } from "./ConfirmRemove";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import { DraftBadge } from "./ConfirmDraftSheet";
 import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import SectionLinks from "~/components/SectionLinks";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
 /** What each sub-page means, shown under the tab links. */
@@ -89,14 +88,7 @@ interface Data {
 const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 /** The way back to the services list. */
-export const AllServices = () => (
-  <Button asChild variant="link" className="self-start px-0">
-    <Link to="/services">
-      <ArrowLeft />
-      All services
-    </Link>
-  </Button>
-);
+export const AllServices = () => <BackLink to="/services">All services</BackLink>;
 
 /** One service (`/services/:serviceId`): a header (All services, name, type and role badges, the address of an external
  * service; Chat and Discover…), the sub-pages View, Edit, Code, Depends on, Used by, Part of, Parts, Connections and

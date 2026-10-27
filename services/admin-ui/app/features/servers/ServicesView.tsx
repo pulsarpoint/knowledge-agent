@@ -7,22 +7,12 @@ import { RowAction, RowActions } from "./RowAction";
 import { servicePath } from "./ServicePanel";
 import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Badge } from "~/components/ui/badge";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
-import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 export default function ServicesView() {
@@ -70,6 +60,7 @@ export default function ServicesView() {
       setRefresh((value) => value + 1);
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the service. Try again.");
+      throw error; // the dialog stays open with the reason
     } finally {
       setDeleting(false);
     }
@@ -259,40 +250,23 @@ export default function ServicesView() {
           )}
         </>
       )}
-      <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !deleting) setDeleteTarget(null);
+      <ConfirmRemove
+        removal={
+          deleteTarget && {
+            title: `Delete “${deleteTarget.name}”?`,
+            description:
+              "This permanently deletes the service record, its saved deployment records, and its links to code projects and agents. Running applications, servers, and code files are not changed. This cannot be undone.",
+            action: "Delete service",
+            run: confirmDelete,
+          }
+        }
+        onClose={() => {
+          setDeleteTarget(null);
+          setDeleteError(null);
         }}
-      >
-        <AlertDialogContent aria-busy={deleting}>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="break-words">Delete “{deleteTarget?.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes the service record, its saved deployment records, and its links to code projects
-              and agents. Running applications, servers, and code files are not changed. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteError && (
-            <Alert variant="destructive">
-              <AlertDescription>{deleteError}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              disabled={deleting}
-              onClick={(event) => {
-                event.preventDefault();
-                confirmDelete();
-              }}
-            >
-              {deleting && <Spinner data-icon="inline-start" />}Delete service
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        busy={deleting}
+        error={deleteError}
+      />
     </div>
   );
 }

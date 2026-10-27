@@ -388,7 +388,7 @@ test("the environment page shows its workspace of servers and services; no Chats
       <EnvironmentPage environmentId="e1" />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("heading", { name: "Production", level: 1 })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Production", level: 2 })).toBeInTheDocument();
   const servers = within(await screen.findByRole("region", { name: "Servers" }));
   expect(servers.getByRole("button", { name: /^web-1/ })).toHaveAttribute("aria-pressed", "true");
   const services = within(screen.getByRole("region", { name: "Services on web-1" }));

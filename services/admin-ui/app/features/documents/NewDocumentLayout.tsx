@@ -1,4 +1,5 @@
 import { Outlet, useSearchParams } from "react-router";
+import BackLink from "~/components/BackLink";
 import SectionLinks from "~/components/SectionLinks";
 import { newDocumentResource, newDocumentSearch } from "./api";
 
@@ -12,7 +13,10 @@ export default function NewDocumentLayout() {
   const agentSearch = chat ? `${search ? `${search}&` : "?"}${new URLSearchParams({ chat })}` : search;
   return (
     <section className="flex min-w-0 flex-col gap-4">
-      <h1 className="text-2xl font-semibold">New document</h1>
+      <div className="flex flex-col gap-1">
+        <BackLink to="/documents">All documents</BackLink>
+        <h2 className="text-xl font-semibold">New document</h2>
+      </div>
       <SectionLinks
         label="New document"
         sections={[

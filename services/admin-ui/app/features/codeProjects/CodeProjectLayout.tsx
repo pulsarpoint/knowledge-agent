@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useOutletContext, useParams } from "react-router";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import BackLink from "~/components/BackLink";
+import { Outlet, useLocation, useOutletContext, useParams } from "react-router";
+import { RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getCodeProject, pullCodeProject, type CodeProjectDetail } from "./api";
 import { graphStatus, syncing } from "./status";
@@ -100,14 +101,7 @@ function CodeProjectPage({ codeProjectId }: { codeProjectId: string }) {
     }
   }
 
-  const back = (
-    <Button asChild variant="link" className="self-start px-0">
-      <Link to="/code-projects">
-        <ArrowLeft />
-        All code projects
-      </Link>
-    </Button>
-  );
+  const back = <BackLink to="/code-projects">All code projects</BackLink>;
   if (!project)
     return error ? (
       <div className="flex flex-col gap-3">

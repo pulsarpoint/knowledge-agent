@@ -7,16 +7,7 @@ import { useCodeProjectsPage } from "./CodeProjectsLayout";
 import { graphStatus, syncStatus, syncing } from "./status";
 import DataTable from "~/components/DataTable";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -135,10 +126,10 @@ export default function CodeProjectsList() {
       const result = await removeCodeProject(project.id, withFiles);
       if (result.errors.length) setError(result.errors.join(" "));
       return !withFiles
-        ? `${project.name} removed. Files on disk were kept.`
+        ? `${project.name} deleted. Files on disk were kept.`
         : result.deleted.length
-          ? `${project.name} removed. Deleted ${result.deleted.join(", ")}.`
-          : `${project.name} removed. No files were found to delete.`;
+          ? `${project.name} deleted. Deleted ${result.deleted.join(", ")}.`
+          : `${project.name} deleted. No files were found to delete.`;
     });
 
   const sortHeader = (label: string, key: SortKey) => {
@@ -325,58 +316,44 @@ export default function CodeProjectsList() {
             : "No code projects match."
         }
       />
-      <AlertDialog
-        open={removing !== null}
-        onOpenChange={(open) => {
-          if (!open) setRemoving(null);
-        }}
+      <ConfirmRemove
+        removal={
+          removing && {
+            title: `Delete “${removing.name}”?`,
+            description:
+              "It disappears from Code projects, services and agents, and its folders can be used by another project.",
+            action: "Delete code project",
+            run: () => void remove(removing, deleteFiles),
+          }
+        }
+        onClose={() => setRemoving(null)}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove code project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Remove {removing?.name}? It disappears from Code projects, services and agents, and its folders can be
-              used by another project.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {removing && (
-            <div className="flex flex-col gap-3 text-sm">
-              <ul className="list-disc pl-5 break-all">
-                {projectFolders(removing).map((folder) => (
-                  <li key={folder}>{folder}</li>
-                ))}
-                {projectFolders(removing).length === 0 && <li className="text-muted-foreground">No folders</li>}
-              </ul>
-              <Field orientation="horizontal" className="items-start">
-                <Checkbox
-                  id="remove-delete-files"
-                  checked={deleteFiles}
-                  onCheckedChange={(checked) => setDeleteFiles(checked === true)}
-                />
-                <div>
-                  <FieldLabel htmlFor="remove-delete-files">
-                    Also delete these folders and the code graph from disk
-                  </FieldLabel>
-                  <FieldDescription className="mt-1">
-                    This cannot be undone. Refused when another code project uses a folder.
-                  </FieldDescription>
-                </div>
-              </Field>
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (removing) void remove(removing, deleteFiles);
-                setRemoving(null);
-              }}
-            >
-              Remove project
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {removing && (
+          <div className="flex flex-col gap-3 text-sm">
+            <ul className="list-disc pl-5 break-all">
+              {projectFolders(removing).map((folder) => (
+                <li key={folder}>{folder}</li>
+              ))}
+              {projectFolders(removing).length === 0 && <li className="text-muted-foreground">No folders</li>}
+            </ul>
+            <Field orientation="horizontal" className="items-start">
+              <Checkbox
+                id="remove-delete-files"
+                checked={deleteFiles}
+                onCheckedChange={(checked) => setDeleteFiles(checked === true)}
+              />
+              <div>
+                <FieldLabel htmlFor="remove-delete-files">
+                  Also delete these folders and the code graph from disk
+                </FieldLabel>
+                <FieldDescription className="mt-1">
+                  This cannot be undone. Refused when another code project uses a folder.
+                </FieldDescription>
+              </div>
+            </Field>
+          </div>
+        )}
+      </ConfirmRemove>
     </div>
   );
 }

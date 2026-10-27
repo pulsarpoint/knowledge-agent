@@ -176,9 +176,9 @@ test("failed save retains edits and navigating away requires confirmation", asyn
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("This document changed");
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Unsaved work");
-  fireEvent.click(screen.getByRole("link", { name: "Documents" }));
+  fireEvent.click(screen.getByRole("link", { name: "All documents" }));
   const dialog = await screen.findByRole("alertdialog");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Unsaved work");
 });
 

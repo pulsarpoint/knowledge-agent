@@ -24,7 +24,7 @@ import AddRelationDialog from "./AddRelationDialog";
 import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
 import { RowAction, RowActions } from "./RowAction";
 import { CONFLICT, draftOf, List, Row, removeItem } from "./rows";
-import ConfirmRemove, { type Removal } from "./ConfirmRemove";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import EntryDocuments from "./EntryDocuments";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";

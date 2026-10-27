@@ -4,6 +4,7 @@ import { PlugZap, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getJiraSettings, saveJiraSettings, testJiraConnection, type JiraConnection } from "./api";
 import JiraUserAgents from "./JiraUserAgents";
+import LeaveGuard from "~/components/LeaveGuard";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -120,6 +121,7 @@ export default function JiraSettingsView() {
       {connection === undefined && loading && <Skeleton className="h-64 w-full" />}
       {connection !== undefined && (
         <form onSubmit={save} className="flex max-w-2xl flex-col gap-6 rounded-lg border p-6">
+          <LeaveGuard dirty={dirty} />
           <FieldSet disabled={disabled}>
             <FieldLegend>Server connection</FieldLegend>
             <FieldGroup>

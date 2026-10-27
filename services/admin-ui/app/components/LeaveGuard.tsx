@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useBeforeUnload, useBlocker } from "react-router";
 import {
   AlertDialog,
@@ -11,21 +11,16 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 
-/** Leaving the page (another section, back, any link) while it has unsaved changes asks first. */
-export default function LeaveGuard({ dirty }: { dirty: boolean }) {
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
-  );
-  useBeforeUnload((event) => {
-    if (dirty) event.preventDefault();
-  });
-  // Leave closes the dialog too: its close must not reset the navigation it just let through.
+/** The one question unsaved changes ask: Stay or Leave. */
+function LeaveDialog({ open, onStay, onLeave }: { open: boolean; onStay: () => void; onLeave: () => void }) {
+  // Leave closes the dialog too: its close must not undo what Leave just let through.
   const leaving = useRef(false);
+  if (!open) leaving.current = false;
   const stay = () => {
-    if (!leaving.current && blocker.state === "blocked") blocker.reset();
+    if (!leaving.current) onStay();
   };
   return (
-    <AlertDialog open={blocker.state === "blocked"} onOpenChange={(open) => !open && stay()}>
+    <AlertDialog open={open} onOpenChange={(next) => !next && stay()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
@@ -35,9 +30,8 @@ export default function LeaveGuard({ dirty }: { dirty: boolean }) {
           <AlertDialogCancel onClick={stay}>Stay</AlertDialogCancel>
           <AlertDialogAction
             onClick={() => {
-              if (blocker.state !== "blocked") return;
               leaving.current = true;
-              blocker.proceed();
+              onLeave();
             }}
           >
             Leave
@@ -46,4 +40,57 @@ export default function LeaveGuard({ dirty }: { dirty: boolean }) {
       </AlertDialogContent>
     </AlertDialog>
   );
+}
+
+const differentPath = (a: string, b: string) => a !== b;
+
+/** Leaving the page (another section, back, any link) while it has unsaved changes asks first. `samePage(a, b)` says
+ * which path changes stay on the page (the document page with its agent run); a page that navigates on its own after
+ * saving or discarding sets `leaving` first, so its own navigation never asks. */
+export default function LeaveGuard({
+  dirty,
+  samePage,
+  leaving,
+}: {
+  dirty: boolean;
+  samePage?: (a: string, b: string) => boolean;
+  leaving?: React.RefObject<boolean>;
+}) {
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty &&
+      !leaving?.current &&
+      (samePage
+        ? !samePage(currentLocation.pathname, nextLocation.pathname)
+        : differentPath(currentLocation.pathname, nextLocation.pathname)),
+  );
+  useBeforeUnload((event) => {
+    if (dirty && !leaving?.current) event.preventDefault();
+  });
+  return (
+    <LeaveDialog
+      open={blocker.state === "blocked"}
+      onStay={() => blocker.state === "blocked" && blocker.reset()}
+      onLeave={() => blocker.state === "blocked" && blocker.proceed()}
+    />
+  );
+}
+
+/** Closing a sheet with unsaved changes asks the same question: `close(done)` runs `done` at once when the sheet is
+ * clean, and after Leave when it is dirty. Render `dialog` next to the sheet. */
+export function useSheetGuard(dirty: boolean) {
+  const [pending, setPending] = useState<(() => void) | null>(null);
+  const close = (done: () => void) => (dirty ? setPending(() => done) : done());
+  const dialog = (
+    <LeaveDialog
+      open={pending !== null}
+      onStay={() => setPending(null)}
+      onLeave={() => {
+        const done = pending;
+        setPending(null);
+        done?.();
+      }}
+    />
+  );
+  return { close, dialog };
 }

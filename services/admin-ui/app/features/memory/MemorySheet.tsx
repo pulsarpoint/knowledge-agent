@@ -14,18 +14,10 @@ import {
   type MemoryEntry,
   type MemoryVersion,
 } from "./api";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import { useSheetGuard } from "~/components/LeaveGuard";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "~/components/ui/sheet";
@@ -110,7 +102,17 @@ function Diff({ from, to }: { from: string; to: string }) {
   );
 }
 
-function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+function SheetBody({
+  id,
+  onClose,
+  onChanged,
+  onDirtyChange,
+}: {
+  id: string;
+  onClose: () => void;
+  onChanged: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
   const [entryId, setEntryId] = useState<string | null>(id === "new" ? null : id);
   const [entry, setEntry] = useState<MemoryEntry | null>(null);
   const [versions, setVersions] = useState<MemoryVersion[]>([]);
@@ -124,6 +126,15 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reload, setReload] = useState(0);
   const [currentProfile, setCurrentProfile] = useState<string | null>(null);
+  const dirty = entry
+    ? name !== entry.name ||
+      content !== entry.content ||
+      JSON.stringify(rows) !== JSON.stringify(toRows(entry.metadata))
+    : name !== "" || content !== "" || rows.length > 0;
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty]);
 
   // Loads the entry into the form (again after a save, a restore or Load current).
   useEffect(() => {
@@ -340,20 +351,19 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
           form
         )}
       </div>
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {entry?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>Delete {entry?.name}? Its history is deleted too.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={() => void remove()}>
-              Delete entry
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          confirmDelete && entry
+            ? {
+                title: `Delete “${entry.name}”?`,
+                description: "Its history is deleted too.",
+                action: "Delete entry",
+                run: () => void remove(),
+              }
+            : null
+        }
+        onClose={() => setConfirmDelete(false)}
+      />
     </>
   );
 }
@@ -368,15 +378,18 @@ export default function MemorySheet({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const [dirty, setDirty] = useState(false);
+  const guard = useSheetGuard(dirty);
   return (
     <Sheet
       open={id !== null}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) guard.close(onClose);
       }}
     >
+      {guard.dialog}
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-xl">
-        {id !== null && <SheetBody key={id} id={id} onClose={onClose} onChanged={onChanged} />}
+        {id !== null && <SheetBody key={id} id={id} onClose={onClose} onChanged={onChanged} onDirtyChange={setDirty} />}
       </SheetContent>
     </Sheet>
   );

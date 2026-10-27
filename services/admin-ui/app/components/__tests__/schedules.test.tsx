@@ -144,9 +144,9 @@ test("delete asks first and removes the row", async () => {
   });
   view();
   await user.click(await screen.findByRole("button", { name: "Delete" }));
-  expect(screen.getByText("Delete schedule Jira auto pull?")).toBeInTheDocument();
+  expect(screen.getByText("Delete “Jira auto pull”?")).toBeInTheDocument();
   expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
-  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete schedule" }));
   expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
@@ -167,13 +167,13 @@ test("a double click on Delete sends one request and keeps the title", async () 
   vi.stubGlobal("fetch", fetch);
   view();
   await user.click(await screen.findByRole("button", { name: "Delete" }));
-  const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" });
+  const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete schedule" });
   await user.dblClick(confirm);
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   release();
   expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
-  expect(screen.queryByText("Delete schedule ?")).not.toBeInTheDocument();
+  expect(screen.queryByText("Delete “”?")).not.toBeInTheDocument();
 });
 
 test("pausing sends the revision and shows the paused row", async () => {
@@ -564,6 +564,8 @@ test("a rename asks first only when handlers are bound, and says how many", asyn
   expect(await screen.findByText("This also updates 2 handlers.")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Cancel" }));
   await user.keyboard("{Escape}");
+  // The sheet has unsaved changes: closing it asks first.
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await user.click(second);
   await user.clear(screen.getByLabelText("Name"));

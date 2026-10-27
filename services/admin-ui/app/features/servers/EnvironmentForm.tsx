@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { saveEnvironment, type Environment, type EnvironmentAsset } from "./environments";
+import LeaveGuard from "~/components/LeaveGuard";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";
@@ -23,6 +24,7 @@ export default function EnvironmentForm({
   const [description, setDescription] = useState(environment?.description ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dirty = name !== (environment?.name ?? "") || description !== (environment?.description ?? "");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -48,6 +50,7 @@ export default function EnvironmentForm({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6 rounded-lg border p-6">
+      <LeaveGuard dirty={dirty} />
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">{environment ? "Edit environment" : "Add environment"}</h2>
         <Button

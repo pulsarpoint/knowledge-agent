@@ -150,6 +150,25 @@ test("register a server with description and several tags then display it", asyn
   await waitFor(() => expect(screen.getByRole("button", { name: "Add server" })).toBeEnabled());
 });
 
+test("closing the server sheet with unsaved changes asks Stay / Leave; an unchanged sheet closes at once", async () => {
+  const user = userEvent.setup();
+  setup([server]);
+  await action("App host", "Edit");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await action("App host", "Edit");
+  await user.type(screen.getByLabelText("Description (optional)"), " more");
+  await user.keyboard("{Escape}");
+  const ask = within(await screen.findByRole("alertdialog"));
+  expect(ask.getByText("Unsaved changes")).toBeInTheDocument();
+  await user.click(ask.getByRole("button", { name: "Stay" }));
+  expect(screen.getByLabelText("Description (optional)")).toHaveValue(`${server.description} more`);
+  await user.keyboard("{Escape}");
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
 test("search includes tags, descriptions, and hostnames", async () => {
   setup([server]);
   const filter = await screen.findByRole("textbox", { name: "Filter servers" });

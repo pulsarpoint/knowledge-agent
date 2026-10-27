@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import LlmSettingsView from "~/features/llm/LlmSettingsView";
 import LlmModelForm from "~/features/llm/LlmModelForm";
@@ -22,6 +22,43 @@ const bedrock: ModelProfile = {
   updated_at: "",
 };
 
+/** A model form alone, in a data router (its leave guard needs one). */
+const form = (element: React.ReactElement) => renderRoutes([{ path: "/", element }], "/");
+/** The model settings page in a data router, with the Agents page to leave to. */
+const page = () =>
+  renderRoutes(
+    [
+      { path: "/llm-settings", element: <LlmSettingsView /> },
+      { path: "/agents", element: <p>Agents list</p> },
+    ],
+    "/llm-settings",
+  ).router;
+
+test("leaving with unsaved changes in the model form asks Stay / Leave; an untouched form does not", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ models: [bedrock], assignments: { revision: 1 } }))),
+  );
+  const router = page();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Add model" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+  fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
+  expect(await screen.findByText("Agents list")).toBeInTheDocument();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await router.navigate("/llm-settings");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Add model" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+  fireEvent.change(screen.getByLabelText("Connection name"), { target: { value: "Search" } });
+  fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  fireEvent.click(dialog.getByRole("button", { name: "Stay" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(router.state.location.pathname).toBe("/llm-settings");
+  fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(await screen.findByText("Agents list")).toBeInTheDocument();
+});
+
 test("editing a Bedrock model preserves its saved key and supports disabling", async () => {
   const saved = vi.fn();
   const fetch = vi.fn(
@@ -29,7 +66,7 @@ test("editing a Bedrock model preserves its saved key and supports disabling", a
       new Response(JSON.stringify({ ...bedrock, ...JSON.parse(init!.body as string), revision: 2 })),
   );
   vi.stubGlobal("fetch", fetch);
-  render(<LlmModelForm model={bedrock} onSaved={saved} onClose={() => {}} />);
+  form(<LlmModelForm model={bedrock} onSaved={saved} onClose={() => {}} />);
   expect(screen.getByLabelText("AWS region")).toHaveValue("eu-central-1");
   expect(screen.getByLabelText("Bedrock API key")).toHaveValue("");
   expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument();
@@ -58,7 +95,7 @@ test("a stale model edit keeps the new key and other unsaved values", async () =
         ),
     ),
   );
-  render(<LlmModelForm model={bedrock} onSaved={() => {}} onClose={() => {}} />);
+  form(<LlmModelForm model={bedrock} onSaved={() => {}} onClose={() => {}} />);
   fireEvent.change(screen.getByLabelText("Bedrock API key"), { target: { value: "replacement-key" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("alert");
@@ -77,11 +114,7 @@ test("connection test is explicit and uses the saved revision", async () => {
       ),
   );
   vi.stubGlobal("fetch", fetch);
-  render(
-    <MemoryRouter>
-      <LlmSettingsView />
-    </MemoryRouter>,
-  );
+  page();
   const button = await screen.findByRole("button", { name: "Test connection" });
   expect(fetch.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
   fireEvent.click(button);
@@ -96,11 +129,7 @@ test("model settings manages connections and links to Agents for model selection
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ models: [bedrock], assignments: { revision: 1 } }))),
   );
-  render(
-    <MemoryRouter>
-      <LlmSettingsView />
-    </MemoryRouter>,
-  );
+  page();
   expect(await screen.findByRole("cell", { name: "Bedrock Claude" })).toBeVisible();
   expect(screen.getByRole("link", { name: "Agents page" })).toHaveAttribute("href", "/agents");
   expect(screen.queryByText("Agent models")).not.toBeInTheDocument();
@@ -115,7 +144,7 @@ test("creating an embedding connection includes its dimensions and version", asy
       new Response(JSON.stringify({ ...JSON.parse(init!.body as string), id: "embed", revision: 1 })),
   );
   vi.stubGlobal("fetch", fetch);
-  render(<LlmModelForm model={null} onSaved={saved} onClose={() => {}} />);
+  form(<LlmModelForm model={null} onSaved={saved} onClose={() => {}} />);
   await user.click(screen.getByRole("combobox", { name: "Model type" }));
   await user.click(screen.getByRole("option", { name: "Embeddings" }));
   expect(screen.getByRole("combobox", { name: "Provider" })).toBeEnabled();
@@ -141,7 +170,7 @@ test("Bedrock embedding form keeps embedding type and saves its region", async (
       new Response(JSON.stringify({ ...JSON.parse(init!.body as string), id: "embed", revision: 1 })),
   );
   vi.stubGlobal("fetch", fetch);
-  render(<LlmModelForm model={null} onSaved={saved} onClose={() => {}} />);
+  form(<LlmModelForm model={null} onSaved={saved} onClose={() => {}} />);
   await user.click(screen.getByRole("combobox", { name: "Model type" }));
   await user.click(screen.getByRole("option", { name: "Embeddings" }));
   await user.click(screen.getByRole("combobox", { name: "Provider" }));
@@ -172,7 +201,7 @@ test("a chat model saves Supports structured output (on by default for OpenAI, k
       new Response(JSON.stringify({ ...bedrock, ...JSON.parse(init!.body as string), revision: 2 })),
   );
   vi.stubGlobal("fetch", fetch);
-  const { unmount } = render(
+  const { unmount } = form(
     <LlmModelForm
       model={{ ...bedrock, capabilities: { supports_structured_output: true } }}
       onSaved={saved}
@@ -188,6 +217,6 @@ test("a chat model saves Supports structured output (on by default for OpenAI, k
     supports_structured_output: false,
   });
   unmount();
-  render(<LlmModelForm model={null} onSaved={() => {}} onClose={() => {}} />);
+  form(<LlmModelForm model={null} onSaved={() => {}} onClose={() => {}} />);
   expect(screen.getByRole("switch", { name: "Supports structured output" })).toBeChecked();
 });

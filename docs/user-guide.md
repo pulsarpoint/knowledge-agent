@@ -148,8 +148,14 @@ General conventions throughout the admin app:
 - **Secrets are write-only**: API keys, tokens and SSH private keys are encrypted
   (AES-GCM with `CREDENTIAL_ENCRYPTION_KEY`) and never shown again. A blank secret
   field keeps the saved value; use the explicit **Remove saved …** control to clear it.
-- **Deletes ask for confirmation**; several records (LLM models, code projects) cannot be deleted at all — disable them
-  instead.
+- **Every removal asks first**, with a red button: **Delete** destroys a record (`Delete “<name>”?`), **Remove** drops a
+  link or membership (both records stay), **Discard** drops a draft or unsaved edits. LLM models cannot be deleted —
+  disable them instead.
+- **Unsaved changes ask before they are lost**: leaving a page (or closing a side sheet with Escape, the close button
+  or a click outside) with unsaved edits asks "You have unsaved changes. Leave without saving?" — **Stay** keeps them,
+  **Leave** drops them.
+- **Page header**: every page shows its section's title and description; a record's page starts with a link back to its
+  list (**All agents**, **All services**, **All documents**, …) above the record's name.
 - Configuration changes are recorded in an internal audit table.
 
 ### 4.1 Navigation
@@ -161,7 +167,7 @@ General conventions throughout the admin app:
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers · System map |
-| Code | Projects · Code graphs |
+| Code | Code projects · Code graphs |
 | Docs | Documents |
 
 Footer: theme toggle and **Sign out**.
@@ -734,7 +740,7 @@ documents with `search_documents` and read them with `get_document`).
 
 Removing an agent that has history (conversations — its chats and event runs —, documentation sessions or run records
 of earlier test chats) lists that
-history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
+history in the **Delete “<name>”?** dialog (**Delete agent** without history). **Delete agent and history** deletes the agent together with it; saved
 documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
 (a chat or document session that is starting or working) cannot be removed; stop that work or wait for
 it to finish first.
@@ -863,7 +869,7 @@ only when a person publishes or promotes a draft.
   editor; **Promote** makes it the live version — a stale draft first says "This draft was based on version n; the
   live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
   removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Promote**
-  first ask "Discard unsaved changes?" (**Keep editing** does nothing).
+  first ask "Discard unsaved changes?" (**Cancel** does nothing; **Discard changes** goes on).
 - A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created meanwhile, the draft becomes a draft of it and opens
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
@@ -1162,13 +1168,13 @@ their own pages, and connect them here.
   service it also shows its connections and relations. **Add a connection**: **From** one of the service's
   deployments, **To** another deployment (its port is filled in) or **An external host** (a hostname or IP, which needs
   a port), the **Port**, the **Protocol** (`tcp` unless you change it: 1–20 lowercase letters, digits or `. + -`) and a
-  description. **Edit** changes an outgoing connection; **Remove** removes it. **Add a relation**: *depends on* or *is
+  description. **Edit** changes an outgoing connection; **Remove** asks first, then removes it. **Add a relation**: *depends on* or *is
   part of* another service, or *is built from* a code project, with a description; to change one, remove it and add it
   again. The Services page edits the same relations. A change someone made meanwhile is refused with a message and the
   panel reads the current state again.
 - **Documents.** The panel lists the entry's documents from their links: its inventory document (**Inventory**) and
   every other document built for it or linked to it. **Link a document** finds a published document and links it to
-  the entry; **Remove** removes that link (the document stays). A link a document was built for can't be removed.
+  the entry; **Remove** asks first, then removes that link (the document stays). A link a document was built for can't be removed.
   Deleting an entry removes its documents' links to it.
 - **Upgrading.** From the stored graph: service dependencies and code project links became links (0095); nodes you
   drew by hand are gone and document attachments are not carried over (the documents keep the links they were built

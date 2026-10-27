@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { applyToOriginal, cloneAgent, getApplyPreview, type ApplyPreview } from "./clones";
 import { deleteAgent, describeHistory, getAgentHistory, type AgentProfile } from "./api";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -16,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -131,6 +132,7 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
             if (found) setHistory(found);
           })
           .catch(() => undefined);
+      throw reason; // the dialog stays open with the reason
     } finally {
       setBusy(false);
     }
@@ -211,49 +213,32 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <AlertDialog
-        open={deleting}
-        onOpenChange={(open) => {
-          if (!open && !busy) {
-            setDeleting(false);
-            setError("");
-          }
+      <ConfirmRemove
+        removal={
+          deleting
+            ? {
+                title: `Delete “${profile.name}”?`,
+                description: `This clone is deleted. ${original?.name ?? "The original"} keeps the applied configuration.`,
+                action: "Delete clone",
+                run: removeClone,
+              }
+            : null
+        }
+        onClose={() => {
+          setDeleting(false);
+          setError("");
         }}
+        busy={busy || history === undefined}
+        error={deleting ? error || null : null}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this clone?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {profile.name} is deleted. {original?.name} keeps the applied configuration.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {history && (
-            <div className="flex flex-col gap-1 text-sm">
-              <p>This clone has history that will be deleted with it:</p>
-              <p className="font-medium">{history}</p>
-              <p className="text-muted-foreground">Saved documents are kept.</p>
-            </div>
-          )}
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Keep clone</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              disabled={busy || history === undefined}
-              onClick={(event) => {
-                event.preventDefault();
-                void removeClone();
-              }}
-            >
-              Delete clone
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {history && (
+          <div className="flex flex-col gap-1 text-sm">
+            <p>This clone has history that will be deleted with it:</p>
+            <p className="font-medium">{history}</p>
+            <p className="text-muted-foreground">Saved documents are kept.</p>
+          </div>
+        )}
+      </ConfirmRemove>
     </div>
   );
 }

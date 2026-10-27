@@ -7,16 +7,7 @@ import { DraftAuthor } from "./DraftView";
 import TagLinks from "./TagLinks";
 import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -459,35 +450,20 @@ export default function DocumentsView() {
           </div>
         </div>
       )}
-      <AlertDialog
-        open={discarding !== null}
-        onOpenChange={(open) => {
-          if (!open && !busy) setDiscarding(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{`Discard “${discarding?.title ?? ""}”?`}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {discarding?.document_id
-                ? "The draft is deleted (the audit history keeps a record). The live document does not change."
-                : "The draft is deleted (the audit history keeps a record). No document is created."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(e) => {
-                e.preventDefault();
-                void discard();
-              }}
-            >
-              Discard draft
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          discarding && {
+            title: `Discard “${discarding.title}”?`,
+            description: discarding.document_id
+              ? "The draft is deleted (the audit history keeps a record). The live document does not change."
+              : "The draft is deleted (the audit history keeps a record). No document is created.",
+            action: "Discard draft",
+            run: discard,
+          }
+        }
+        onClose={() => setDiscarding(null)}
+        busy={busy}
+      />
     </div>
   );
 }

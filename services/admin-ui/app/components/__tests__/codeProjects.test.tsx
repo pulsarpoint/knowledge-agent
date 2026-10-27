@@ -235,11 +235,13 @@ test("Delete asks for confirmation, keeps files by default and drops the project
   await user.click(await screen.findByRole("button", { name: "Delete Payments" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(dialog).toHaveTextContent("code/payments");
+  expect(dialog).toHaveTextContent("Delete “Payments”?");
+  expect(screen.getByRole("button", { name: "Delete code project" })).toHaveClass("bg-destructive");
   const box = screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ });
   expect(box).not.toBeChecked();
   expect(fetch.mock.calls.some(([url]) => String(url).includes("/archive"))).toBe(false);
-  await user.click(screen.getByRole("button", { name: "Remove project" }));
-  await screen.findByText("Payments removed. Files on disk were kept.");
+  await user.click(screen.getByRole("button", { name: "Delete code project" }));
+  await screen.findByText("Payments deleted. Files on disk were kept.");
   const call = fetch.mock.calls.find(([url]) => String(url).endsWith("/api/code-projects/code-1/archive"))!;
   expect(call[1]?.method).toBe("POST");
   expect(JSON.parse(call[1]!.body as string)).toEqual({ delete_files: false });
@@ -264,8 +266,8 @@ test("Delete with the delete box sends delete_files and reports what was deleted
   show();
   await user.click(await screen.findByRole("button", { name: "Delete Payments" }));
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
-  await user.click(screen.getByRole("button", { name: "Remove project" }));
-  await screen.findByText("Payments removed. Deleted code/payments.");
+  await user.click(screen.getByRole("button", { name: "Delete code project" }));
+  await screen.findByText("Payments deleted. Deleted code/payments.");
   expect(screen.getByText(/code-index\/code-1 could not be deleted: Permission denied/)).toBeInTheDocument();
   const call = fetch.mock.calls.find(([url]) => String(url).endsWith("/archive"))!;
   expect(JSON.parse(call[1]!.body as string)).toEqual({ delete_files: true });
@@ -291,7 +293,7 @@ test("a refused Delete shows the reason and keeps the project", async () => {
   show();
   await user.click(await screen.findByRole("button", { name: "Delete Payments" }));
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
-  await user.click(screen.getByRole("button", { name: "Remove project" }));
+  await user.click(screen.getByRole("button", { name: "Delete code project" }));
   await screen.findByText(/code\/payments is also used by code project Billing/);
   expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
 });
@@ -549,8 +551,8 @@ test("the table goes back a page when its last page empties", async () => {
   await screen.findByRole("link", { name: "Project 01" });
   await user.click(screen.getByRole("button", { name: "Next page" }));
   await user.click(screen.getByRole("button", { name: "Delete Project 21" }));
-  await user.click(await screen.findByRole("button", { name: "Remove project" }));
-  await screen.findByText("Project 21 removed. Files on disk were kept.");
+  await user.click(await screen.findByRole("button", { name: "Delete code project" }));
+  await screen.findByText("Project 21 deleted. Files on disk were kept.");
   await waitFor(() => expect(rows()).toHaveLength(20));
   expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
 });

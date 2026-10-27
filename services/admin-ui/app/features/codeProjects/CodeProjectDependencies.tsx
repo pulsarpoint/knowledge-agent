@@ -12,7 +12,7 @@ import {
 import { useCodeProjectPage } from "./CodeProjectLayout";
 import { createItem } from "~/features/servers/inventory";
 import { draftOf, List, Row, removeItem } from "~/features/servers/rows";
-import ConfirmRemove, { type Removal } from "~/features/servers/ConfirmRemove";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import PickSheet from "~/features/servers/PickSheet";
 import { DraftBadge } from "~/features/servers/ConfirmDraftSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";

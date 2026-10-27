@@ -13,18 +13,9 @@ import {
   type SkillSummary,
 } from "./skills";
 import { ImportSkillsSheet, NewSkillSheet } from "./SkillImport";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -263,29 +254,18 @@ export default function SkillsView() {
           </div>
         </>
       )}
-      <AlertDialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {removing?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The skill, all its files and its previous versions are deleted, and agents that use it lose it. This
-              cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              onClick={() => {
-                if (removing) void remove(removing);
-                setRemoving(null);
-              }}
-            >
-              Delete skill
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          removing && {
+            title: `Delete “${removing.name}”?`,
+            description:
+              "The skill, all its files and its previous versions are deleted, and agents that use it lose it. This cannot be undone.",
+            action: "Delete skill",
+            run: () => void remove(removing),
+          }
+        }
+        onClose={() => setRemoving(null)}
+      />
     </div>
   );
 }

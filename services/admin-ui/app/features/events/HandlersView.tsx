@@ -4,16 +4,7 @@ import { useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { deleteHandler, boundToSchedule, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
 import HandlerSheet from "./HandlerSheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -206,34 +197,22 @@ export default function HandlersView() {
           close();
         }}
       />
-      <AlertDialog
-        open={deleting !== null}
-        onOpenChange={(open) => {
-          if (!open && !removing) setDeleting(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete handler {deletingName.current}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Its run history stays on the events.
-              {deletingSchedule.current && " The schedule keeps recording events."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={removing}
-              onClick={(event) => {
-                event.preventDefault();
-                void remove();
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          deleting
+            ? {
+                title: `Delete “${deletingName.current}”?`,
+                description: `Its run history stays on the events.${
+                  deletingSchedule.current ? " The schedule keeps recording events." : ""
+                }`,
+                action: "Delete handler",
+                run: remove,
+              }
+            : null
+        }
+        onClose={() => setDeleting(null)}
+        busy={removing}
+      />
     </div>
   );
 }

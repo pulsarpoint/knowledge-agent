@@ -341,7 +341,7 @@ test("a short history fills the main pane by loading earlier pages until it over
   }
 });
 
-test("the session page has one page heading, the session title", async () => {
+test("the session page has one page heading, its section; the session title is the record's heading with a back link", async () => {
   const { default: AdminLayout } = await import("../AdminLayout");
   vi.stubGlobal(
     "fetch",
@@ -360,8 +360,9 @@ test("the session page has one page heading, the session title", async () => {
       </AdminLayout>
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("heading", { name: "Payments – API reference", level: 1 })).toBeVisible();
-  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  expect(await screen.findByRole("heading", { name: "Payments – API reference", level: 2 })).toBeVisible();
+  expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Agent runs"]);
+  expect(screen.getByRole("link", { name: "All agent runs" })).toHaveAttribute("href", "/activity/runs");
   // a Write with an agent run links back to its conversation there
   expect(screen.getByRole("link", { name: "Write with an agent" })).toHaveAttribute(
     "href",

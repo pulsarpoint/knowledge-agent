@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BackLink from "~/components/BackLink";
 import { useSearchParams } from "react-router";
 import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -108,9 +109,12 @@ export default function RunRecordView({ runKey }: { runKey: string }) {
   }, [runKey, call]);
   if (error)
     return (
-      <Alert variant="destructive">
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
+      <div className="flex flex-col gap-3">
+        <BackLink to="/activity/runs">All agent runs</BackLink>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </div>
     );
   if (!record) return <Skeleton className="h-64 w-full" />;
   const start = record.events.find((e) => e.kind === "start")?.payload ?? {};
@@ -121,7 +125,8 @@ export default function RunRecordView({ runKey }: { runKey: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">{String(start.title ?? record.run_key)}</h2>
+        <BackLink to="/activity/runs">All agent runs</BackLink>
+        <h2 className="text-xl font-semibold">{String(start.title ?? record.run_key)}</h2>
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Badge variant="secondary">{String(start.kind ?? "run")}</Badge>
           <span>{String(start.agent ?? record.agent_id)}</span>

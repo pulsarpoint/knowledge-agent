@@ -17,16 +17,7 @@ import {
 import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
 import HandlerSheet from "./HandlerSheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
+import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -334,34 +325,22 @@ export default function SchedulesView() {
           }}
         />
       )}
-      <AlertDialog
-        open={deleting !== null}
-        onOpenChange={(open) => {
-          if (!open && !removing) setDeleting(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete schedule {deletingName.current}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Its history is deleted too.
-              {deletingEmit.current && " Its handlers stay; they no longer match any event."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={removing}
-              onClick={(event) => {
-                event.preventDefault();
-                void remove();
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          deleting
+            ? {
+                title: `Delete “${deletingName.current}”?`,
+                description: `Its history is deleted too.${
+                  deletingEmit.current ? " Its handlers stay; they no longer match any event." : ""
+                }`,
+                action: "Delete schedule",
+                run: remove,
+              }
+            : null
+        }
+        onClose={() => setDeleting(null)}
+        busy={removing}
+      />
       <HandlerSheet
         open={adding !== null}
         handler={null}

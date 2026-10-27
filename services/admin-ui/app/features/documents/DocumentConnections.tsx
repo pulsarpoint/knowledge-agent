@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { getDocuments, type DocumentSummary } from "./api";
 import { addLink, getConnections, removeLink, type Connections } from "./drafts";
 import { SourceList } from "./DraftView";
+import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldLabel } from "~/components/ui/field";
@@ -17,6 +18,7 @@ export default function DocumentConnections({ documentId }: { documentId: string
   const [found, setFound] = useState<DocumentSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [removal, setRemoval] = useState<Removal | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     getConnections(documentId, controller.signal)
@@ -89,7 +91,14 @@ export default function DocumentConnections({ documentId }: { documentId: string
                   variant="outline"
                   disabled={busy}
                   aria-label={`Remove ${item.title}`}
-                  onClick={() => void change(() => removeLink(documentId, item.id))}
+                  onClick={() =>
+                    setRemoval({
+                      title: `Remove the link to “${item.title}”?`,
+                      description: "This document no longer depends on it. Both documents stay.",
+                      action: "Remove link",
+                      run: () => void change(() => removeLink(documentId, item.id)),
+                    })
+                  }
                 >
                   Remove
                 </Button>
@@ -154,6 +163,7 @@ export default function DocumentConnections({ documentId }: { documentId: string
         <h3 className="font-medium">Built from</h3>
         <SourceList sources={connections.built_from} empty="The live version records no sources." />
       </section>
+      <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
     </section>
   );
 }

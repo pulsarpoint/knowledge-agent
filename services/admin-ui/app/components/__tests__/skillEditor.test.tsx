@@ -143,8 +143,8 @@ test("edit, add, upload, rename and delete in the tree; Save sends the changes a
   await screen.findByText("2.0 KB");
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
-  expect(within(dialog).getByText("Delete logo.png?")).toBeInTheDocument();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  expect(within(dialog).getByText("Delete “logo.png”?")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete file" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "logo.png" })).not.toBeInTheDocument());
 
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -170,7 +170,7 @@ test("deleting a folder asks first, naming the folder and how many files go", as
   fireEvent.click(await screen.findByRole("button", { name: "scripts" }));
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
-  expect(within(dialog).getByText("Delete folder scripts and its 1 file?")).toBeInTheDocument();
+  expect(within(dialog).getByText("Delete folder “scripts” and its 1 file?")).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(screen.getByRole("button", { name: "scripts/run.sh" })).toBeInTheDocument();
 });
@@ -225,7 +225,7 @@ test("leaving with unsaved changes asks first", async () => {
   fireEvent.change(editor(), { target: { value: SKILL_MD + "x" } });
   fireEvent.click(screen.getByRole("link", { name: "All skills" }));
   const dialog = await screen.findByRole("alertdialog");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
   expect(router.state.location.pathname).toBe("/skills/s1");
   expect(editor()).toHaveValue(SKILL_MD + "x");
 });

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BackLink from "~/components/BackLink";
 import { agentPath } from "~/features/agents/api";
 import { Link } from "react-router";
 import { writeWithAgentPath } from "~/features/documents/api";
@@ -79,9 +80,12 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
 
   if (!session)
     return run.error ? (
-      <Alert variant="destructive">
-        <AlertDescription>{run.error}</AlertDescription>
-      </Alert>
+      <div className="flex flex-col gap-3">
+        <BackLink to="/activity/runs">All agent runs</BackLink>
+        <Alert variant="destructive">
+          <AlertDescription>{run.error}</AlertDescription>
+        </Alert>
+      </div>
     ) : (
       <Skeleton className="h-60" />
     );
@@ -121,7 +125,8 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         notice={notice}
         heading={
           <>
-            <h1 className="break-words text-2xl font-semibold">{session.title}</h1>
+            <BackLink to="/activity/runs">All agent runs</BackLink>
+            <h2 className="break-words text-xl font-semibold">{session.title}</h2>
             <p className="text-sm text-muted-foreground">
               {statusLabels[session.status]} · {session.model_name}
               {startedFrom && <> · Started from {startedFrom}</>}

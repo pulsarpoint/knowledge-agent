@@ -218,7 +218,7 @@ test("Delete asks first, naming the skill and its files", async () => {
   await user.click(await screen.findByRole("button", { name: "Actions for pdf-forms" }));
   await user.click(screen.getByRole("menuitem", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
-  expect(within(dialog).getByText("Delete pdf-forms?")).toBeInTheDocument();
+  expect(within(dialog).getByText("Delete “pdf-forms”?")).toBeInTheDocument();
   expect(calls.some((call) => call.key.startsWith("DELETE"))).toBe(false);
   fireEvent.click(within(dialog).getByRole("button", { name: "Delete skill" }));
   await screen.findByText("Deleted pdf-forms.");

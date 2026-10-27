@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, Bot, Save, Trash2 } from "lucide-react";
+import BackLink from "~/components/BackLink";
+import ConfirmRemove from "~/components/ConfirmRemove";
+import LeaveGuard from "~/components/LeaveGuard";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { Bot, Save, Trash2 } from "lucide-react";
 import {
   deleteDocument,
   getDocument,
@@ -39,18 +42,7 @@ import DocumentLinkHistory from "./DocumentLinkHistory";
 import Markdown from "~/components/Markdown";
 import DocumentResourceSelection from "./DocumentResourceSelection";
 import TagLinks from "./TagLinks";
-import UnsavedDocumentChanges from "./UnsavedDocumentChanges";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldDescription, FieldError } from "~/components/ui/field";
@@ -61,6 +53,10 @@ import { Spinner } from "~/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { DOCUMENT_KINDS, emptyIds, pickIds } from "~/lib/resources";
+
+// The document page with its Ask agent run (/documents/:id/agent/:runId) is the same page: the editor stays.
+const documentPage = (pathname: string) => pathname.replace(/\/agent\/[^/]+\/?$/, "");
+const samePage = (a: string, b: string) => documentPage(a) === documentPage(b);
 
 const TABS = ["write", "preview", "resources", "history", "drafts", "connections", "agent-runs"];
 /** A brand-new draft's tabs: no versions, drafts or connections until it is published. */
@@ -392,17 +388,14 @@ function Editor({
   }
   async function remove() {
     if (!document) return;
-    setPending(true);
     setError("");
     try {
       await deleteDocument(document.id, revision);
-      leaving.current = true;
-      navigate("/documents");
     } catch (e) {
-      failed(e, "Could not delete document");
-    } finally {
-      setPending(false);
+      throw e instanceof Error ? e : new Error("Could not delete document");
     }
+    leaving.current = true;
+    navigate("/documents");
   }
   async function publish() {
     if (!document) return;
@@ -444,14 +437,9 @@ function Editor({
   }
   return (
     <form onSubmit={save} className="flex flex-col gap-6">
-      <UnsavedDocumentChanges dirty={dirty} leaving={leaving} />
+      <LeaveGuard dirty={dirty} samePage={samePage} leaving={leaving} />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button asChild variant="ghost">
-          <Link to="/documents">
-            <ArrowLeft data-icon="inline-start" />
-            Documents
-          </Link>
-        </Button>
+        <BackLink to="/documents">All documents</BackLink>
         <div className="flex items-center gap-2">
           {isLive && (
             <Button asChild type="button" variant="outline">
@@ -881,94 +869,45 @@ function Editor({
           <TabsContent value="agent-runs">{document && <DocumentAgentRuns documentId={document.id} />}</TabsContent>
         </Tabs>
       </fieldset>
-      <AlertDialog
-        open={unsavedAction !== null}
-        onOpenChange={(open) => {
-          if (!open) setUnsavedAction(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The editor has changes that are not saved. Continuing replaces them; they will be lost.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep editing</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const action = unsavedAction;
-                setUnsavedAction(null);
-                action?.run();
-              }}
-            >
-              Discard changes
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog
-        open={confirmDiscard}
-        onOpenChange={(open) => {
-          if (!pending) setConfirmDiscard(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{`Discard “${document?.title ?? ""}”?`}</AlertDialogTitle>
-            <AlertDialogDescription>
-              The draft is deleted (the audit history keeps a record). No document is created.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={pending}
-              onClick={(e) => {
-                e.preventDefault();
-                void discard();
-              }}
-            >
-              {pending && <Spinner />}Discard draft
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog
-        open={confirmDelete}
-        onOpenChange={(open) => {
-          if (!pending) setConfirmDelete(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{document?.title}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the document, all saved versions, and its resource links. The linked code projects, services,
-              and servers remain. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={pending}
-              onClick={(e) => {
-                e.preventDefault();
-                void remove();
-              }}
-            >
-              {pending && <Spinner />}Delete document
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmRemove
+        removal={
+          unsavedAction && {
+            title: "Discard unsaved changes?",
+            description: "The editor has changes that are not saved. Continuing replaces them; they will be lost.",
+            action: "Discard changes",
+            run: unsavedAction.run,
+          }
+        }
+        onClose={() => setUnsavedAction(null)}
+      />
+      <ConfirmRemove
+        removal={
+          confirmDiscard
+            ? {
+                title: `Discard “${document?.title ?? ""}”?`,
+                description: "The draft is deleted (the audit history keeps a record). No document is created.",
+                action: "Discard draft",
+                run: discard,
+              }
+            : null
+        }
+        onClose={() => setConfirmDiscard(false)}
+        busy={pending}
+      />
+      <ConfirmRemove
+        removal={
+          confirmDelete
+            ? {
+                title: `Delete “${document?.title ?? ""}”?`,
+                description:
+                  "This removes the document, all saved versions, and its resource links. The linked code projects, services, and servers remain. This cannot be undone.",
+                action: "Delete document",
+                run: remove,
+              }
+            : null
+        }
+        onClose={() => setConfirmDelete(false)}
+      />
     </form>
   );
 }
