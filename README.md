@@ -54,16 +54,22 @@ make down          # stop; preserve all data volumes
 
 ## Debugging errors
 
-admin-api and its workers log every error response as one line: a 4xx as `WARNING`, with the message and
-any code (`request <id> <METHOD> <path> -> <status> <message> (<code>)`); a 5xx or an unexpected exception
-as `ERROR` with the traceback (the browser gets `Internal error`). A request that fails validation names the
-field in the message, for example `expert_ids.2: Input should be a valid UUID ...`, and the log line adds
-the error type. Paths are logged without their query string.
+admin-api logs every error response as one line: a 4xx as `WARNING`, with the message and any code
+(`request <id> <METHOD> <path> -> <status> <message> (<code>)`); a 5xx or an unexpected exception as `ERROR`
+with the traceback (the browser gets `Internal error`). A 404 for a path no route serves and a client that
+disconnects are `INFO`; a failure after the response has started is one `ERROR` line
+(`-> <status> failed during the response`), with the traceback logged by uvicorn. A request that fails
+validation names the field in the message, for example `expert_ids.2: Input should be a valid UUID ...`,
+and the log line adds the error type. Paths are logged without their query string, and control characters
+(newlines) in a line are escaped. Its workers (`repository-worker`, `agent-session-worker`, `shell-worker`)
+use the same `LOG_LEVEL` and line format.
 
 `LOG_LEVEL` in `.env` is `debug`, `info` (the default) or `warning`. `debug` also logs the rejected input
 of each validation error, shortened to 200 characters, with tokens, passwords, secrets, keys,
-authorization and credentials masked (headers and cookies are never logged). It applies to the
-application's own loggers; libraries stay at `info`. An invalid value stops the services at start.
+authorization and credentials masked, and the credentials, query and fragment of a URL hidden
+(`https://***@host/path?***`); headers and cookies are never logged. It applies to the application's own
+loggers and to uvicorn's; other libraries stay at `info`, because their debug output can carry request
+bodies and credentials. An invalid value stops the services at start.
 
 ```sh
 # in .env: LOG_LEVEL=debug
@@ -73,8 +79,8 @@ docker compose --env-file .env -f deploy/compose.yaml logs --since 30m admin-api
 
 Every response carries an `X-Request-ID` header (an incoming safe `X-Request-ID` is kept). To find the log
 line of a failed request, copy that header from the browser's Network tab and grep for it:
-`docker compose --env-file .env -f deploy/compose.yaml logs admin-api | grep <request id>`. The same
-applies to `repository-worker` and `agent-session-worker` logs.
+`docker compose --env-file .env -f deploy/compose.yaml logs admin-api | grep <request id>`. The workers'
+errors are read the same way, with `WARNING|ERROR` and their service name instead of `admin-api`.
 
 `--env-file .env` is required: the compose file has required variables (`${...:?Run make setup}`), and
 without them `docker compose` refuses to run, even for `logs`.

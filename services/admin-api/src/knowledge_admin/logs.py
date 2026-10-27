@@ -16,8 +16,9 @@ def parse_level(value: str | None) -> str:
 
 
 def configure(level: str | None) -> str:
-    """Log lines with time, level, logger and message. The application's loggers (knowledge_admin.*) use the level;
-    libraries stay at info at most, because their debug output can carry request bodies and credentials."""
+    """Log lines with time, level, logger and message. The application's loggers (knowledge_admin.*) use the level
+    (uvicorn's follow it too: cli.py passes it on); other libraries stay at info at most, because their debug output
+    can carry request bodies and credentials."""
     name = parse_level(level)
     logging.basicConfig(level=max(LEVELS[name], logging.INFO), format=FORMAT, force=True)
     logging.getLogger('knowledge_admin').setLevel(LEVELS[name])

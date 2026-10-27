@@ -2,6 +2,7 @@
 save from the editor (a new folder from the current one plus changes), restore a kept folder, delete."""
 
 import base64
+import logging
 from uuid import UUID
 
 import pytest
@@ -234,7 +235,7 @@ def test_without_a_skills_folder_the_api_says_so(store, tmp_path, monkeypatch):
     assert response.status_code == 503
 
 
-def test_a_failed_switch_leaves_no_new_folder_and_the_kept_folders_unchanged(client, root, monkeypatch):
+def test_a_failed_switch_leaves_no_new_folder_and_the_kept_folders_unchanged(client, root, monkeypatch, caplog):
     from knowledge_admin.skills import store
 
     skill = create(client)
@@ -250,6 +251,7 @@ def test_a_failed_switch_leaves_no_new_folder_and_the_kept_folders_unchanged(cli
     def broken(*_, **__):
         raise RuntimeError('the database went away')
 
+    caplog.set_level(logging.ERROR, logger='knowledge_admin.http')
     with monkeypatch.context() as patch:
         patch.setattr(store, 'switch', broken)
         failed = client.put(
@@ -257,7 +259,9 @@ def test_a_failed_switch_leaves_no_new_folder_and_the_kept_folders_unchanged(cli
             headers=HEADERS,
             json={'revision': 3, 'changes': [{'path': 'n.md', 'text': 'lost'}]},
         )
-    assert failed.status_code == 500 and failed.json() == {'error': {'message': 'Internal error'}}  # logged
+    assert failed.status_code == 500 and failed.json() == {'error': {'message': 'Internal error'}}
+    [logged] = [r for r in caplog.records if r.name == 'knowledge_admin.http' and r.levelno == logging.ERROR]
+    assert logged.exc_info[0] is RuntimeError and 'the database went away' in str(logged.exc_info[1])  # the switch
     assert client.get(f'/api/skills/{skill["id"]}', headers=HEADERS).json() == before
     assert sorted(p.name for p in (root / 'skills' / skill['id']).iterdir()) == on_disk
 
