@@ -6,6 +6,7 @@ import LlmSettingsView from "~/features/llm/LlmSettingsView";
 import LlmModelForm from "~/features/llm/LlmModelForm";
 import type { ModelProfile } from "~/features/llm/api";
 import { Toaster } from "~/components/ui/sonner";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 afterEach(() => vi.unstubAllGlobals());
 const bedrock: ModelProfile = {
@@ -118,13 +119,29 @@ test("connection test is explicit and uses the saved revision", async () => {
   );
   vi.stubGlobal("fetch", fetch);
   page();
-  const button = await screen.findByRole("button", { name: "Test connection" });
+  const button = await screen.findByRole("button", { name: "Test Bedrock Claude" });
   expect(fetch.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
   fireEvent.click(button);
   await screen.findByText("Bedrock Claude: Model responded successfully.");
   const call = fetch.mock.calls.find(([, init]) => init?.method)!;
   expect(call[0]).toBe("/api/llm/models/bedrock-1/test");
   expect(JSON.parse(call[1]!.body as string)).toEqual({ revision: 1 });
+});
+
+test("a model row keeps Test inline and Edit in its menu; Edit opens the model's form", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ models: [bedrock], assignments: { revision: 1 } }))),
+  );
+  page();
+  const row = (await screen.findByRole("cell", { name: "Bedrock Claude" })).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Test Bedrock Claude", "Actions for Bedrock Claude"]);
+  await user.click(within(row).getByRole("button", { name: "Actions for Bedrock Claude" }));
+  expect(menuItems()).toEqual(["Edit"]);
+  await user.keyboard("{Escape}");
+  await rowAction(user, "Bedrock Claude", "Edit");
+  expect(await screen.findByLabelText("Connection name")).toHaveValue("Bedrock Claude");
 });
 
 test("model settings manages connections and links to Agents for model selection", async () => {

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, History, Pencil, Play, Plus } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
@@ -19,6 +19,7 @@ import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
 import HandlerSheet from "./HandlerSheet";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -254,10 +255,10 @@ export default function SchedulesView() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex justify-end gap-1">
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="ghost"
                         disabled={busy === schedule.id || schedule.running}
                         onClick={() =>
                           change(schedule, () => runSchedule(schedule.id), `Schedule “${schedule.name}” started.`)
@@ -266,31 +267,22 @@ export default function SchedulesView() {
                         <Play data-icon="inline-start" />
                         Run now
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(schedule)}>
-                        <Pencil data-icon="inline-start" />
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-expanded={history?.id === schedule.id}
-                        onClick={() => toggleHistory(schedule)}
-                      >
-                        <History data-icon="inline-start" />
-                        History
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          deletingName.current = schedule.name;
-                          deletingEmit.current = schedule.target_kind === EMIT;
-                          setDeleting(schedule);
-                        }}
-                      >
-                        <Trash2 data-icon="inline-start" />
-                        Delete
-                      </Button>
+                      <RowMenu
+                        name={schedule.name}
+                        items={[
+                          { label: "Edit", icon: Pencil, onSelect: () => setEditing(schedule) },
+                          {
+                            label: history?.id === schedule.id ? "Hide history" : "History",
+                            icon: History,
+                            onSelect: () => toggleHistory(schedule),
+                          },
+                          deleteMenuItem(() => {
+                            deletingName.current = schedule.name;
+                            deletingEmit.current = schedule.target_kind === EMIT;
+                            setDeleting(schedule);
+                          }),
+                        ]}
+                      />
                     </div>
                   </TableCell>
                 </TableRow>

@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import CodeGraphsView from "~/features/codeProjects/CodeGraphsView";
 import type { CodeProject } from "~/features/codeProjects/api";
 import { Toaster } from "~/components/ui/sonner";
+import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 vi.mock("~/features/codeProjects/CodeGraphExplorer", () => ({
   default: ({ projectId, sourceHash }: { projectId: string; sourceHash: string }) => (
@@ -95,7 +96,12 @@ test("lists every project with its graph summary and opens a graph", async () =>
   expect(within(billing).queryByRole("button", { name: "View graph for Billing" })).toBeNull();
   const ledger = screen.getByRole("cell", { name: "Ledger" }).closest("tr")!;
   expect(ledger).toHaveTextContent("running");
-  expect(within(ledger).getByRole("button", { name: "Generate graph for Ledger" })).toBeDisabled();
+  await user.click(within(ledger).getByRole("button", { name: "Actions for Ledger" }));
+  expect(screen.getByRole("menuitem", { name: "Generate graph" })).toHaveAttribute("aria-disabled", "true");
+  await user.keyboard("{Escape}");
+  // View graph is the row's one inline action; Generate graph is in the menu
+  expect(rowButtons(row)).toEqual(["View graph for Payments", "Actions for Payments"]);
+  expect(rowButtons(billing)).toEqual(["Actions for Billing"]);
   await user.click(within(row).getByRole("button", { name: "View graph for Payments" }));
   expect(await screen.findByText("Explorer p1 h1")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Close graph" }));
@@ -111,7 +117,7 @@ test("Generate graph queues processing and reloads", async () => {
       <Toaster />
     </MemoryRouter>,
   );
-  await user.click(await screen.findByRole("button", { name: "Generate graph for Billing" }));
+  await rowAction(user, "Billing", "Generate graph");
   await screen.findByText("Code graph generation queued for Billing.");
   expect(
     fetch.mock.calls.some(

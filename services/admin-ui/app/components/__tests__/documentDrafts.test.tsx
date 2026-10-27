@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import userEvent from "@testing-library/user-event";
 import { Toaster } from "~/components/ui/sonner";
+import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 import DocumentsView from "~/features/documents/DocumentsView";
 import DraftPageView from "~/features/documents/DraftPageView";
 
@@ -143,7 +145,10 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   await waitFor(() =>
     expect(calls.some((c) => c.key === "GET /api/documentation/documents?has_drafts=true")).toBe(true),
   );
-  fireEvent.click(section.getByRole("button", { name: "Discard Disk layout" }));
+  expect(rowButtons(section.getByRole("link", { name: "Disk layout" }).closest("tr")!)).toEqual([
+    "Actions for Disk layout",
+  ]);
+  await rowAction(userEvent, "Disk layout", "Discard", section);
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard draft" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d9/discard")?.body).toEqual({ revision: 1 }),
@@ -257,7 +262,7 @@ test("a failed discard on the list shows why and refreshes the list so a retry w
   });
   show("/documents");
   const section = within(await screen.findByRole("region", { name: "New drafts" }));
-  fireEvent.click(section.getByRole("button", { name: /Discard/ }));
+  await rowAction(userEvent, "Disk layout", "Discard", section);
   fireEvent.click(await screen.findByRole("button", { name: "Discard draft" }));
   expect(await screen.findByText("Changed meanwhile")).toBeInTheDocument();
   await waitFor(() => expect(calls.filter((c) => c.key === "GET /api/documentation/drafts?new=true")).toHaveLength(2));

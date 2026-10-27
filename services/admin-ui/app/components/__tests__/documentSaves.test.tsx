@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import userEvent from "@testing-library/user-event";
 import { Toaster } from "~/components/ui/sonner";
+import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
 import DocumentsView from "~/features/documents/DocumentsView";
 import DraftPageView from "~/features/documents/DraftPageView";
@@ -441,16 +443,20 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
   const rows = table.getAllByRole("row").slice(1);
   const brandNewRow = within(rows[0]);
   expect(brandNewRow.getByText("Not published")).toBeInTheDocument();
-  expect(brandNewRow.getByRole("link", { name: "Open New runbook" })).toHaveAttribute("href", "/documents/d5");
-  expect(brandNewRow.getByRole("button", { name: "Discard New runbook" })).toBeInTheDocument();
+  expect(brandNewRow.getByRole("link", { name: "New runbook" })).toHaveAttribute("href", "/documents/d5");
+  // Publish inline, Discard in the menu; no Open beside the title link
+  expect(rowButtons(rows[0])).toEqual(["Publish New runbook", "Actions for New runbook"]);
+  await rowAction(userEvent, "New runbook", "Discard", brandNewRow);
+  expect(await screen.findByRole("alertdialog")).toHaveTextContent("Discard “New runbook”?");
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   const ofLive = within(rows[1]);
   expect(ofLive.queryByText("Not published")).toBeNull();
   expect(ofLive.getByRole("link", { name: "Runbook" })).toHaveAttribute("href", "/documents/doc-1");
-  expect(ofLive.getByRole("link", { name: "Open Runbook rewrite" })).toHaveAttribute(
+  expect(ofLive.getByRole("link", { name: "Runbook rewrite" })).toHaveAttribute(
     "href",
     "/documents/doc-1?tab=drafts&draft=d7",
   );
-  expect(ofLive.queryByRole("button", { name: /^Publish/ })).toBeNull();
+  expect(rowButtons(rows[1])).toEqual(["Actions for Runbook rewrite"]);
   fireEvent.click(brandNewRow.getByRole("button", { name: "Publish New runbook" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d5/promote")?.body).toEqual({

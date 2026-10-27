@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react-router";
-import { ArrowRight, Copy, Play, Sparkles, Trash2 } from "lucide-react";
+import { Copy, Play, Sparkles } from "lucide-react";
 import AgentWizard from "./AgentWizard";
 import { toast } from "sonner";
 import { cloneAgent } from "./clones";
@@ -14,6 +14,7 @@ import {
   type AgentSummary,
 } from "./api";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -188,7 +189,7 @@ export default function AgentsView() {
                   <TableCell>
                     <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "Enabled" : "Disabled"}</Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-right">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -199,32 +200,17 @@ export default function AgentsView() {
                     >
                       <Play />
                     </Button>
-                    <Button variant="ghost" size="icon" asChild>
-                      <Link to={`/agents/${a.id}`} aria-label={`Open ${a.name}`}>
-                        <ArrowRight />
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <RowMenu
+                      name={a.name}
                       disabled={busy}
-                      aria-label={`Clone ${a.name}`}
-                      onClick={() => void cloneRow(a)}
-                    >
-                      <Copy />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled={busy}
-                      aria-label={`Delete ${a.name}`}
-                      onClick={() => {
-                        setError("");
-                        setRemoving(a);
-                      }}
-                    >
-                      <Trash2 data-icon="inline-start" />
-                    </Button>
+                      items={[
+                        { label: "Clone", icon: Copy, onSelect: () => void cloneRow(a) },
+                        deleteMenuItem(() => {
+                          setError("");
+                          setRemoving(a);
+                        }),
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

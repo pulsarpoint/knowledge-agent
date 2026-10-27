@@ -1,8 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { stubApi } from "~/lib/__tests__/serviceFixture";
-import ConfirmDraftSheet, { DraftActions, DraftsUsed } from "./ConfirmDraftSheet";
-import { RowActions } from "./RowAction";
+import { MemoryRouter } from "react-router";
+import { Pencil } from "lucide-react";
+import { menuItems, rowButtons } from "~/lib/__tests__/rowMenu";
+import ConfirmDraftSheet, { DraftRowMenu, DraftsUsed } from "./ConfirmDraftSheet";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -110,7 +112,7 @@ test("a draft changed between the dry run and Confirm says so and stays open", a
   expect(onDone).not.toHaveBeenCalled();
 });
 
-test("the row buttons open the sheet for their own target", async () => {
+test("a draft row keeps Confirm inline and Discard in its menu; each opens the sheet for its own target", async () => {
   const user = userEvent.setup();
   stubApi({
     "POST /api/inventory/server/s1/discard?dry_run=1": () => [
@@ -119,18 +121,39 @@ test("the row buttons open the sheet for their own target", async () => {
     ],
   });
   render(
-    <RowActions>
-      <DraftActions
-        name="app-1"
-        confirm={{ kind: "membership", id: "e1:s1", revision: null }}
-        discard={{ kind: "server", id: "s1", revision: 3 }}
-        onDone={() => {}}
-      />
-    </RowActions>,
+    <MemoryRouter>
+      <div data-testid="row">
+        <DraftRowMenu
+          name="app-1"
+          draft={{
+            confirm: { kind: "membership", id: "e1:s1", revision: null },
+            discard: { kind: "server", id: "s1", revision: 3 },
+            onDone: () => {},
+          }}
+          items={[{ label: "Edit", icon: Pencil, onSelect: () => {} }]}
+        />
+      </div>
+    </MemoryRouter>,
   );
-  expect(screen.getByRole("button", { name: "Confirm app-1" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Discard app-1" }));
+  expect(rowButtons(screen.getByTestId("row"))).toEqual(["Confirm app-1", "Actions for app-1"]);
+  await user.click(screen.getByRole("button", { name: "Actions for app-1" }));
+  expect(menuItems()).toEqual(["Edit", "Discard"]);
+  await user.click(screen.getByRole("menuitem", { name: "Discard" }));
   expect(await screen.findByRole("dialog", { name: "Discard app-1?" })).toBeInTheDocument();
+});
+
+test("a confirmed row has no Confirm and no Discard, only its own items", async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <div data-testid="row">
+        <DraftRowMenu name="app-1" items={[{ label: "Edit", icon: Pencil, onSelect: () => {} }]} />
+      </div>
+    </MemoryRouter>,
+  );
+  expect(rowButtons(screen.getByTestId("row"))).toEqual(["Actions for app-1"]);
+  await user.click(screen.getByRole("button", { name: "Actions for app-1" }));
+  expect(menuItems()).toEqual(["Edit"]);
 });
 
 test("a form that uses drafts says saving confirms them", () => {

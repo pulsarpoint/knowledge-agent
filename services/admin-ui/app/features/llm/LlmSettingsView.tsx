@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { Plus, RefreshCw } from "lucide-react";
+import { Pencil, Plug, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getLlmSettings, providerLabels, testModel, type LlmSettings, type ModelProfile } from "./api";
 import LlmModelForm from "./LlmModelForm";
+import RowMenu from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -157,23 +158,26 @@ export default function LlmSettingsView() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="ghost"
+                            aria-label={`Test ${model.name}`}
                             disabled={!model.enabled || testing !== null || editing !== undefined}
                             onClick={() => void test(model)}
                           >
-                            {testing === model.id && <Spinner />}Test connection
+                            {testing === model.id ? (
+                              <Spinner data-icon="inline-start" />
+                            ) : (
+                              <Plug data-icon="inline-start" />
+                            )}
+                            Test connection
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <RowMenu
+                            name={model.name}
                             disabled={editing !== undefined || testing !== null}
-                            onClick={() => setEditing(model)}
-                          >
-                            Edit<span className="sr-only"> {model.name}</span>
-                          </Button>
+                            items={[{ label: "Edit", icon: Pencil, onSelect: () => setEditing(model) }]}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>

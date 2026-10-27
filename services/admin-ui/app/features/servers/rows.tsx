@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteItem, isStale, type ItemKind } from "./inventory";
-import { DraftActions, DraftBadge, type DraftTarget } from "./ConfirmDraftSheet";
-import { RowAction, RowActions } from "./RowAction";
+import { deleteMenuItem } from "~/components/RowMenu";
+import { DraftBadge, DraftRowMenu, type DraftTarget } from "./ConfirmDraftSheet";
 
 export const CONFLICT = "This was changed meanwhile. Reload to see the latest.";
 
@@ -35,7 +35,7 @@ export const draftOf = (
 
 export const List = ({ children }: { children: ReactNode }) => <ul className="flex flex-col gap-1">{children}</ul>;
 
-/** A list row with Edit (when given) and Remove; `href` makes its text a link (a connection's other service), `detail`
+/** A list row with a menu of Edit (when given) and Remove; `href` makes its text a link (a connection's other service), `detail`
  * is a line under it (a relation's description). A draft shows its badge and Confirm / Discard (then `onDone`). */
 export function Row({
   text,
@@ -71,17 +71,11 @@ export function Row({
         </span>
         {detail && <span className="text-muted-foreground [overflow-wrap:anywhere]">{detail}</span>}
       </span>
-      <RowActions>
-        {draft && <DraftActions name={name} confirm={draft} onDone={() => onDone?.()} />}
-        {onEdit && (
-          <RowAction label="Edit" name={name} onClick={onEdit}>
-            <Pencil />
-          </RowAction>
-        )}
-        <RowAction label="Remove" name={name} destructive onClick={onRemove}>
-          <Trash2 />
-        </RowAction>
-      </RowActions>
+      <DraftRowMenu
+        name={name}
+        draft={draft && { confirm: draft, onDone: () => onDone?.() }}
+        items={[onEdit && { label: "Edit", icon: Pencil, onSelect: onEdit }, deleteMenuItem(onRemove, "Remove")]}
+      />
     </li>
   );
 }

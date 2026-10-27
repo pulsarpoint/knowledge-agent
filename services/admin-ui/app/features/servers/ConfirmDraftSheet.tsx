@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { confirmDraft, discardDraft, isStale, type DraftKind, type Reached } from "./inventory";
-import { RowAction } from "./RowAction";
+import RowMenu, { type RowMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -32,42 +32,50 @@ export function DraftsUsed({ names }: { names: string[] }) {
   return <p className="text-sm text-muted-foreground">Saving confirms the drafts it uses: {names.join(", ")}.</p>;
 }
 
-/** Confirm and Discard row buttons for a draft; each opens ConfirmDraftSheet. `discard` defaults to `confirm` (a
- * server row confirms its membership but discards the draft server itself). Place inside RowActions. */
-export function DraftActions({
+/** A row's actions: its `items` in a RowMenu and, for a draft, Confirm inline and Discard in the menu, each opening
+ * ConfirmDraftSheet. `draft.discard` defaults to `draft.confirm` (a server row confirms its membership but discards
+ * the draft server itself); `draft.onDone` is called with what was done once the sheet finishes. */
+export function DraftRowMenu({
   name,
-  confirm,
-  discard = confirm,
-  onDone,
+  draft,
+  items,
+  disabled,
 }: {
   name: string;
-  confirm: DraftTarget;
-  discard?: DraftTarget;
-  /** Called with what was done once the sheet finishes. */
-  onDone: (action: Action) => void;
+  draft?: { confirm: DraftTarget; discard?: DraftTarget; onDone: (action: Action) => void };
+  items: (RowMenuItem | false | null | undefined)[];
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState<Action | null>(null);
   return (
-    <>
-      <RowAction label="Confirm" name={name} onClick={() => setOpen("confirm")}>
-        <Check />
-      </RowAction>
-      <RowAction label="Discard" name={name} destructive onClick={() => setOpen("discard")}>
-        <X />
-      </RowAction>
-      {open && (
+    <div className="flex shrink-0 items-center justify-end gap-1">
+      {draft && (
+        <Button variant="ghost" size="sm" aria-label={`Confirm ${name}`} onClick={() => setOpen("confirm")}>
+          <Check data-icon="inline-start" />
+          Confirm
+        </Button>
+      )}
+      <RowMenu
+        name={name}
+        disabled={disabled}
+        items={[
+          draft && { label: "Discard", icon: X, onSelect: () => setOpen("discard"), destructive: true },
+          ...items,
+        ]}
+      />
+      {draft && open && (
         <ConfirmDraftSheet
           action={open}
-          target={open === "confirm" ? confirm : discard}
+          target={open === "confirm" ? draft.confirm : (draft.discard ?? draft.confirm)}
           name={name}
           onClose={() => setOpen(null)}
           onDone={() => {
             setOpen(null);
-            onDone(open);
+            draft.onDone(open);
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 

@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
 import DocumentsView from "~/features/documents/DocumentsView";
 import EntryDocuments from "~/features/servers/EntryDocuments";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
@@ -279,11 +281,15 @@ describe("a resource page's document actions", () => {
     ],
   };
 
-  test("Edit opens the document's page: a live document's and a new document's draft's", async () => {
+  test("the title opens the document's page (a live document's and a new document's draft's); the menu holds the removal only", async () => {
     api({ [RESOURCE_DOCS]: () => [200, listed] });
     show("/servers/s1");
-    expect(await screen.findByRole("link", { name: "Edit Disk runbook" })).toHaveAttribute("href", "/documents/d1");
-    expect(screen.getByRole("link", { name: "Edit Backup plan" })).toHaveAttribute("href", "/documents/d2");
+    expect(await screen.findByRole("link", { name: "Disk runbook" })).toHaveAttribute("href", "/documents/d1");
+    expect(screen.getByRole("link", { name: "Backup plan" })).toHaveAttribute("href", "/documents/d2");
+    const item = screen.getByRole("link", { name: "Backup plan" }).closest("li")!;
+    expect(rowButtons(item)).toEqual(["Actions for Backup plan"]);
+    await userEvent.click(within(item).getByRole("button", { name: "Actions for Backup plan" }));
+    expect(menuItems()).toEqual(["Discard"]);
   });
 
   test("Delete asks first, naming the other resources it is linked to; Cancel deletes nothing, Delete document deletes and reloads", async () => {
@@ -302,7 +308,7 @@ describe("a resource page's document actions", () => {
       { initialEntries: ["/servers/s1"] },
     );
     render(<RouterProvider router={router} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete Disk runbook" }));
+    await rowAction(userEvent, "Disk runbook", "Delete");
     let dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Delete “Disk runbook”?")).toBeInTheDocument();
     expect(within(dialog).getByText(/It is deleted everywhere, with its history\./)).toBeInTheDocument();
@@ -310,7 +316,7 @@ describe("a resource page's document actions", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(calls.some((c) => c.key.startsWith("DELETE"))).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Delete Disk runbook" }));
+    await rowAction(userEvent, "Disk runbook", "Delete");
     dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete document" }));
     await waitFor(() => expect(changed).toHaveBeenCalled());
@@ -321,7 +327,7 @@ describe("a resource page's document actions", () => {
   test("a document only linked here: no 'also linked to'", async () => {
     api({ [RESOURCE_DOCS]: () => [200, listed] });
     show("/servers/s1");
-    fireEvent.click(await screen.findByRole("button", { name: "Delete Plain" }));
+    await rowAction(userEvent, "Plain", "Delete");
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).queryByText(/also linked to/)).toBeNull();
   });
@@ -335,7 +341,7 @@ describe("a resource page's document actions", () => {
       ],
     });
     show("/servers/s1");
-    fireEvent.click(await screen.findByRole("button", { name: "Delete Plain" }));
+    await rowAction(userEvent, "Plain", "Delete");
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete document" }));
     expect(await screen.findByText("The document changed; reload and try again.")).toBeInTheDocument();
     await waitFor(() => expect(calls.filter((c) => c.key === RESOURCE_DOCS)).toHaveLength(2));
@@ -348,7 +354,7 @@ describe("a resource page's document actions", () => {
       "POST /api/documentation/drafts/d2/discard": () => [200, {}],
     });
     show("/servers/s1");
-    fireEvent.click(await screen.findByRole("button", { name: "Discard draft Backup plan" }));
+    await rowAction(userEvent, "Backup plan", "Discard");
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Discard “Backup plan”?")).toBeInTheDocument();
     expect(within(dialog).getByText("The draft is discarded; nothing was published.")).toBeInTheDocument();

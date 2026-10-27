@@ -175,6 +175,12 @@ Footer: theme toggle and **Sign out**.
 A finished action (a save, a delete, Run now, a test that passed) shows a short confirmation toast in the corner of
 the screen; errors stay on the page, next to the form or list, until you act again.
 
+Every list row keeps its actions in one **⋯** menu (*Actions for <name>*): the actions as icon and label, then
+**Delete** (or **Remove** / **Discard**) last, in red, which always asks first. A row's name opens its page, so the menu
+has no Open. At most one quick action stays in the row itself: **Run** on agents, **Sync now** on code projects,
+**Run now** on schedules, **Test connection** on models and MCP servers, **View graph** on code graphs, **Publish** on
+a new document's draft and **Confirm** on an inventory draft.
+
 ### 4.2 LLM Settings
 
 `/llm-settings` — named model connections used by agents
@@ -213,8 +219,8 @@ The page has two sub-pages, shown as links under the title:
 
 - **Code projects** (`/code-projects`) — a table of the code projects: **Name** (opens the project's page), **Source** (the
   Git URL, or *local folder*), **Ref**, **Commit** (short, with when it was last synced), **Sync status**, **Code graph**
-  (its status), **Built into** (how many services are built from it) and the row's actions **Sync now** (a Git pull;
-  Git projects only) and **Delete**. **Search** looks in the name and the source; the **Sync status** and **Code graph**
+  (its status), **Built into** (how many services are built from it) **Sync now** in the row (a Git pull;
+  Git projects only) and **Delete** in its ⋯ menu. **Search** looks in the name and the source; the **Sync status** and **Code graph**
   filters keep one status; a click on **Name**, **Commit** (last synced) or **Sync status** sorts by it (again: the
   other way round). 20 projects a page. **New code project** opens the project form in a sheet on the right. The list's
   data comes from `GET /api/code-projects` (each project with its code graph state and `built_into_count`).
@@ -244,7 +250,7 @@ are shown as a safe summary ("Check the URL, branch, token permissions…").
 symbols, relationships, routes, languages and parse errors. It skips `.env*`, keys,
 dependency/build folders, binaries and files over 1 MiB, and reuses unchanged files.
 **Code → Code graphs** lists every project's graph (status, files, symbols, relationships, languages, last
-generated) with **View graph** (an explorer: files → symbols, filter, paging) and **Generate graph**; on a project's page,
+generated) with **View graph** (an explorer: files → symbols, filter, paging) and, in the row's ⋯ menu, **Generate graph**; on a project's page,
 **Overview → Re-index** generates it again. `/code-graphs?project=<id>` opens one
 directly. The graph is a
 prerequisite for code documentation phases ([4.11](#411-write-a-new-document-with-an-agent)).
@@ -338,10 +344,10 @@ services and servers, a server's services, a service's code projects and the ser
 the title (opens the document), its tags (each opens the Documents list filtered by it), the first line of its
 description, and "· <name>" when it belongs to a child. The resource's inventory document comes first, then its other
 documents, then the children's, grouped by child; a document linked to several of them is listed once. With none:
-"No documents yet.". Each row has two icon buttons: **Edit** opens the document's page (a new document's draft opens
-at `/documents/<id>` too), and **Delete** asks first — "Delete <title>?", "It is deleted everywhere, with its
+"No documents yet.". The title opens the document's page (a new document's draft opens at `/documents/<id>` too);
+the row's ⋯ menu has **Delete**, which asks first — "Delete <title>?", "It is deleted everywhere, with its
 history." and, when the document is linked to other resources, "It is also linked to: <names>." — with **Cancel** and
-**Delete document**. For a new document's draft it asks "Discard draft <title>?" ("The draft is discarded; nothing
+**Delete document**. For a new document's draft the menu has **Discard**: it asks "Discard <title>?" ("The draft is discarded; nothing
 was published.") and **Discard draft** discards the draft. When the document changed meanwhile, the server's message is shown above the list and the list reloads.
 
 #### Chats and Discover
@@ -392,8 +398,8 @@ a deployment there; it stays a member (empty) when its last deployment there is 
 environment when one of its deployments is; a service deployed in two environments is in both.
 
 - **New environment** adds one (name, description). The list shows each environment with the number of services and
-  servers in it: filter, **Map** (the System map
-  rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
+  servers in it: filter; the name opens its page, and the row's ⋯ menu has **Map** (the System map
+  rooted at the environment), **Documents**, **Edit** and **Delete**.
 - An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat** and
   **Discover** on the right; Chat opens the agent chat beside the page, its Chats sheet lists the earlier
   chats about the environment) and two tabs, the open one kept in the URL (`?view=documents`; none: Workspace):
@@ -445,7 +451,7 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
   a draft membership) and the service rows, and in the service panel on the service itself, its deployments,
   connections, relations and code projects; on the server page's services table and the service page's panel; and on
   the Environments list (a draft environment). A draft environment and draft external services are listed under
-  **Other drafts** above the workspace columns. Each draft has **Confirm** (✓) and **Discard** (✕). The server page's
+  **Other drafts** above the workspace columns. Each draft has **Confirm** in its row and **Discard** in the row's ⋯ menu. The server page's
   header shows a draft server's badge only: confirm or discard it in the environment workspace.
 - **Confirm** first lists what it also confirms, then confirms them together: a draft is confirmed with every draft it
   needs — a deployment with its server, service and the server's membership of the environment, a connection with its
@@ -650,7 +656,7 @@ An agent has one configuration: what its pages show is what runs. A conversation
 opens that agent's Chat page (`/agents/<id>/chat`). A disabled agent's **Run** is off. Its turns are **Chat** runs in
 Agent runs (4.14).
 
-**Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the conversations and other history deleted with it), or keep it as an alternative.
+**Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or a row's ⋯ menu in the All agents list (**Clone**) and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the conversations and other history deleted with it), or keep it as an alternative.
 
 **Chat page.** The Chat page (`/agents/<id>/chat`; an old `?view=chat` or `?view=test` link opens it too) is the same chat as **Ask agent**. Type
 a message and send it: it starts a chat run, which the
@@ -865,8 +871,8 @@ only when a person publishes a draft.
 
 - The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
   documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title and tags,
-  written by, updated) with **Open** and **Discard**; it ignores the filters. The **Drafts** view lists every draft with its tags: a draft of a new document
-  is marked **Not published** (**Open**, **Publish**, **Discard**); a draft of a live document names its document.
+  written by, updated; the title opens it) with **Discard** in the row's ⋯ menu; it ignores the filters. The **Drafts** view lists every draft with its tags: a draft of a new document
+  is marked **Not published** (**Publish** in the row, **Discard** in its menu); a draft of a live document names its document.
 - **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
   the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the
   document it revises and the documents its author read, "(deleted)" when one is gone). **Edit** loads it into the

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
-import { BookOpen, Download, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { BookOpen, Download, Pencil, Plus, RefreshCw, Upload } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   changedLabel,
@@ -15,15 +15,9 @@ import {
 } from "./skills";
 import { ImportSkillsSheet, NewSkillSheet } from "./SkillImport";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Field, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -226,12 +220,24 @@ export default function SkillsView() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <SkillActions
-                        skill={skill}
+                      <RowMenu
+                        name={skill.name}
                         disabled={blocked}
-                        onUpdate={() => void update(skill)}
-                        onUpload={(file) => void uploadUpdate(skill, file)}
-                        onDelete={() => setRemoving(skill)}
+                        items={[
+                          { label: "Edit", icon: Pencil, to: `/skills/${encodeURIComponent(skill.id)}` },
+                          skill.source.kind === "git" && {
+                            label: "Update from source",
+                            icon: RefreshCw,
+                            onSelect: () => void update(skill),
+                          },
+                          {
+                            label: "Update from upload…",
+                            icon: Upload,
+                            accept: ".zip,application/zip",
+                            onFile: (file) => void uploadUpdate(skill, file),
+                          },
+                          deleteMenuItem(() => setRemoving(skill)),
+                        ]}
                       />
                     </TableCell>
                   </TableRow>
@@ -261,70 +267,5 @@ export default function SkillsView() {
         onClose={() => setRemoving(null)}
       />
     </div>
-  );
-}
-
-/** A skill row's actions in one menu: Edit, Update from source (git skills), Update from upload… (a zip), Delete. */
-function SkillActions({
-  skill,
-  disabled,
-  onUpdate,
-  onUpload,
-  onDelete,
-}: {
-  skill: SkillSummary;
-  disabled: boolean;
-  onUpdate: () => void;
-  onUpload: (file: File) => void;
-  onDelete: () => void;
-}) {
-  const zip = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <input
-        ref={zip}
-        type="file"
-        accept=".zip,application/zip"
-        className="sr-only"
-        tabIndex={-1}
-        aria-label={`Zip for ${skill.name}`}
-        disabled={disabled}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (file) onUpload(file);
-        }}
-      />
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label={`Actions for ${skill.name}`} disabled={disabled}>
-            <MoreHorizontal />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem asChild>
-            <Link to={`/skills/${encodeURIComponent(skill.id)}`}>
-              <Pencil />
-              Edit
-            </Link>
-          </DropdownMenuItem>
-          {skill.source.kind === "git" && (
-            <DropdownMenuItem onSelect={onUpdate}>
-              <RefreshCw />
-              Update from source
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem onSelect={() => zip.current?.click()}>
-            <Upload />
-            Update from upload…
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
   );
 }

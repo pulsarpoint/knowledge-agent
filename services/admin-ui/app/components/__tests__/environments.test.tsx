@@ -6,6 +6,7 @@ import type { EnvironmentAsset, EnvironmentInput } from "~/features/servers/envi
 import type { ServiceAsset } from "~/features/servers/services";
 import type { ServerAsset } from "~/features/servers/api";
 import { Toaster } from "~/components/ui/sonner";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -146,18 +147,14 @@ test("create sends the name and description only; contents come from deployments
   expect(await screen.findByText("Environment “Development” saved.")).toBeInTheDocument();
   const request = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
   expect(JSON.parse(request[1]!.body as string)).toEqual({ name: "Development", description: "Daily testing" });
-  // the details show what is deployed in it, read again after the save
-  expect(
-    await within(screen.getByRole("region", { name: "Environment services" })).findByText("Database"),
-  ).toBeInTheDocument();
-  expect(
-    within(screen.getByRole("region", { name: "Environment servers" })).getByText(/host1.internal/),
-  ).toBeInTheDocument();
+  // the list is read again after the save; the name links to its page (no Details panel beside the list)
+  expect(await screen.findByRole("link", { name: "Development" })).toHaveAttribute("href", "/environments/development");
+  expect(screen.queryByRole("region", { name: "Environment services" })).toBeNull();
 });
 
 test("edit sends the saved revision", async () => {
   const fetch = setup([{ ...development }]);
-  await userEvent.click(await screen.findByRole("button", { name: "Edit Development" }));
+  await rowAction(userEvent, "Development", "Edit");
   expect(screen.getByLabelText("Environment name")).toHaveValue("Development");
   fireEvent.change(screen.getByLabelText("Environment name"), { target: { value: "Dev" } });
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -169,7 +166,7 @@ test("edit sends the saved revision", async () => {
 
 test("stale edits keep the form", async () => {
   const fetch = setup([{ ...development }], { saveStatus: 409 });
-  await userEvent.click(await screen.findByRole("button", { name: "Edit Development" }));
+  await rowAction(userEvent, "Development", "Edit");
   fireEvent.change(screen.getByLabelText("Environment name"), { target: { value: "Unsaved" } });
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   expect(await screen.findByText(/This environment changed/)).toBeInTheDocument();
@@ -186,12 +183,12 @@ test("deletion waits for confirmation and completion while preserving the Cancel
         finish = resolve;
       }),
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Delete Development" }));
+  await rowAction(userEvent, "Development", "Delete");
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toHaveFocus();
   expect(screen.getByText(/An environment with deployments cannot be deleted/)).toBeInTheDocument();
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   expect(fetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
-  await userEvent.click(screen.getByRole("button", { name: "Delete Development" }));
+  await rowAction(userEvent, "Development", "Delete");
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete environment" }));
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   expect(fetch.mock.calls.find(([, init]) => init?.method === "DELETE")?.[0]).toBe(
@@ -213,20 +210,20 @@ test("deletion failure retains the environment and explains the conflict", async
         status: 409,
       }),
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Delete Development" }));
+  await rowAction(userEvent, "Development", "Delete");
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete environment" }));
   expect(await within(screen.getByRole("alertdialog")).findByText(/This environment changed/)).toBeInTheDocument();
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeEnabled();
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
-  expect(screen.getByRole("button", { name: "Edit Development" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for Development" })).toBeInTheDocument();
 });
 
 test("list filtering includes deployed services and hostnames", async () => {
   setup([{ ...development }]);
-  await screen.findByRole("button", { name: "Details Development" });
+  await screen.findByRole("button", { name: "Actions for Development" });
   for (const query of ["Daily testing", "Database", "host1.internal"]) {
     fireEvent.change(screen.getByRole("textbox", { name: "Filter environments" }), { target: { value: query } });
-    expect(screen.getByRole("button", { name: "Details Development" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Actions for Development" })).toBeInTheDocument();
   }
   fireEvent.change(screen.getByRole("textbox", { name: "Filter environments" }), { target: { value: "missing" } });
   expect(screen.getByText("No environments match this filter.")).toBeInTheDocument();
@@ -244,16 +241,18 @@ test("an environment's name links to its page", async () => {
   expect(await screen.findByRole("link", { name: "Development" })).toHaveAttribute("href", "/environments/development");
 });
 
-test("each environment row has icon buttons and a Documents link", async () => {
+test("an environment row holds only its menu: Map, Documents, Edit, then Delete (no Details beside the name link)", async () => {
   setup([{ ...development }]);
-  for (const name of ["Details", "Edit", "Delete"])
-    expect(await screen.findByRole("button", { name: `${name} Development` })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Map Development" })).toHaveAttribute(
+  const row = (await screen.findByRole("link", { name: "Development" })).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Actions for Development"]);
+  await userEvent.click(within(row).getByRole("button", { name: "Actions for Development" }));
+  expect(menuItems()).toEqual(["Map", "Documents", "Edit", "Delete"]);
+  expect(screen.getByRole("menuitem", { name: "Map" })).toHaveAttribute(
     "href",
     "/system-map?map=infrastructure&root=environment%3Adevelopment&depth=2",
   );
   expect(screen.queryByRole("tab", { name: "Dependency graph" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Documents Development" })).toHaveAttribute(
+  expect(screen.getByRole("menuitem", { name: "Documents" })).toHaveAttribute(
     "href",
     `/documents?environment_id=${development.id}`,
   );
@@ -283,7 +282,10 @@ test("a draft environment shows a Draft badge with Confirm and Discard; Confirm 
   page();
   const row = (await screen.findByRole("link", { name: "Development" })).closest("tr")!;
   expect(within(row).getByText("Draft")).toBeInTheDocument();
-  expect(within(row).getByRole("button", { name: "Discard Development" })).toBeInTheDocument();
+  expect(rowButtons(row)).toEqual(["Confirm Development", "Actions for Development"]);
+  await user.click(within(row).getByRole("button", { name: "Actions for Development" }));
+  expect(menuItems()).toEqual(["Map", "Documents", "Edit", "Discard", "Delete"]);
+  await user.keyboard("{Escape}");
   await user.click(within(row).getByRole("button", { name: "Confirm Development" }));
   await user.click(await screen.findByRole("button", { name: "Confirm" }));
   await waitFor(() => expect(screen.queryByText("Draft")).not.toBeInTheDocument());

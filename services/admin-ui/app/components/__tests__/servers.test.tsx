@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import ServersView from "~/features/servers/ServersView";
 import type { ServerAsset } from "~/features/servers/api";
 import { Toaster } from "~/components/ui/sonner";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -49,13 +50,14 @@ function setup(servers: ServerAsset[] = [], conflict = false) {
   return fetch;
 }
 
-/** The named icon button of a server row. */
-async function iconButton(server: string, item: string) {
-  return screen.findByRole("button", { name: `${item} ${server}` });
+/** The named item of a server row's menu (opened). */
+async function menuItem(server: string, item: string) {
+  await userEvent.setup().click(await screen.findByRole("button", { name: `Actions for ${server}` }));
+  return screen.findByRole("menuitem", { name: item });
 }
 
 async function action(server: string, item: string) {
-  await userEvent.setup().click(await iconButton(server, item));
+  await rowAction(userEvent.setup(), server, item);
 }
 
 test("server deletion opens a confirmation and Cancel leaves the server untouched", async () => {
@@ -68,7 +70,7 @@ test("server deletion opens a confirmation and Cancel leaves the server untouche
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(fetch.mock.calls).toHaveLength(1);
-  expect(screen.getByRole("button", { name: "Edit App host" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for App host" })).toBeInTheDocument();
 });
 
 test("confirmed server deletion waits for the API then removes the row", async () => {
@@ -100,7 +102,7 @@ test("confirmed server deletion waits for the API then removes the row", async (
   });
   expect(await screen.findByText("Server “App host” deleted.")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Edit App host" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Actions for App host" })).toBeNull();
 });
 
 test("a failed deletion keeps the dialog and server available", async () => {
@@ -125,7 +127,7 @@ test("a failed deletion keeps the dialog and server available", async () => {
   expect(await dialog.findByText("Remove linked service deployments first")).toBeInTheDocument();
   expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
-  expect(screen.getByRole("button", { name: "Edit App host" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for App host" })).toBeInTheDocument();
 });
 
 test("register a server with description and several tags then display it", async () => {
@@ -179,7 +181,7 @@ test("search includes tags, descriptions, and hostnames", async () => {
   const filter = await screen.findByRole("textbox", { name: "Filter servers" });
   for (const query of ["EU-West", "payment", "app.internal"]) {
     fireEvent.change(filter, { target: { value: query } });
-    expect(screen.getByRole("button", { name: "Edit App host" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Actions for App host" })).toBeInTheDocument();
   }
   fireEvent.change(filter, { target: { value: "missing" } });
   expect(screen.getByText("No servers match this filter.")).toBeInTheDocument();
@@ -221,7 +223,7 @@ test("conflicts retain unsaved input; cancel reloads before reopening", async ()
   expect(screen.getByRole("switch", { name: "Agent SSH" })).toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2));
-  expect(await iconButton("App host", "Edit")).toBeEnabled();
+  expect(await menuItem("App host", "Edit")).not.toHaveAttribute("aria-disabled");
 });
 
 test("failed inventory load prevents adding and can be retried", async () => {
@@ -325,7 +327,7 @@ test("Test SSH shows why a server cannot connect", async () => {
 
 test("Test SSH is unavailable when SSH is not allowed", async () => {
   setup([server]);
-  expect(await iconButton("App host", "Test SSH")).toBeDisabled();
+  expect(await menuItem("App host", "Test SSH")).toHaveAttribute("aria-disabled", "true");
 });
 
 test("the server name links to the server page", async () => {
@@ -333,13 +335,12 @@ test("the server name links to the server page", async () => {
   expect(await screen.findByRole("link", { name: "App host" })).toHaveAttribute("href", "/servers/server-1");
 });
 
-test("each server row has small icon buttons and a Documents link", async () => {
+test("a server row holds no inline buttons, only its menu: SSH settings, Test SSH, Documents, Edit, then Delete", async () => {
   setup([{ ...server, ssh_allowed: true }]);
-  for (const name of ["SSH settings", "Test SSH", "Edit", "Delete"])
-    expect(await iconButton("App host", name)).toBeEnabled();
-  expect(screen.getByRole("link", { name: "Documents App host" })).toHaveAttribute(
-    "href",
-    "/documents?server_id=server-1",
-  );
-  expect(screen.queryByRole("button", { name: "Actions for App host" })).toBeNull();
+  const row = (await screen.findByRole("link", { name: "App host" })).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Actions for App host"]);
+  await userEvent.setup().click(within(row).getByRole("button", { name: "Actions for App host" }));
+  expect(menuItems()).toEqual(["SSH settings", "Test SSH", "Documents", "Edit", "Delete"]);
+  for (const item of screen.getAllByRole("menuitem")) expect(item).not.toHaveAttribute("aria-disabled");
+  expect(screen.getByRole("menuitem", { name: "Documents" })).toHaveAttribute("href", "/documents?server_id=server-1");
 });

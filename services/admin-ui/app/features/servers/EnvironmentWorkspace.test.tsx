@@ -5,6 +5,7 @@ import type { EnvironmentModel } from "./environments";
 import type { Status } from "./inventory";
 import { serviceAsset, serviceDeployment } from "~/lib/__tests__/serviceFixture";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 const deployment = (id: string, service_id: string, service_name: string, port: number | null) => ({
   id,
@@ -176,7 +177,7 @@ test("Remove from environment shows the refusal while deployments exist", async 
     ],
   });
   show("?server=s1");
-  await user.click(await screen.findByRole("button", { name: "Remove from environment app-1" }));
+  await rowAction(user, "app-1", "Remove from environment");
   await user.click(
     within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove from environment" }),
   );
@@ -199,7 +200,7 @@ test("Remove from environment of an empty member reloads and clears the selectio
   });
   const onChanged = vi.fn();
   show("?server=s3", onChanged);
-  await user.click(await screen.findByRole("button", { name: "Remove from environment cache-1" }));
+  await rowAction(user, "cache-1", "Remove from environment");
   await user.click(
     within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove from environment" }),
   );
@@ -223,7 +224,7 @@ test("column 3 is the service panel; a change there reloads the workspace", asyn
   const service = within(await screen.findByRole("region", { name: "payments-api" }));
   expect(service.getByRole("region", { name: "Connections" })).toBeInTheDocument();
   expect(service.getByRole("link", { name: "Service page" })).toHaveAttribute("href", "/services/v1/view");
-  await user.click(service.getByRole("button", { name: "Remove the deployment here" }));
+  await rowAction(user, "the deployment here", "Remove", service);
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(calls.filter((call) => call.key === "GET /api/environments/e1/model")).toHaveLength(2));
 });
@@ -263,13 +264,19 @@ test("drafts carry a Draft badge with Confirm and Discard; a server row confirms
   const servers = within(await screen.findByRole("region", { name: "Servers" }));
   expect(servers.getByRole("button", { name: /^cache-1/ })).toHaveTextContent("Draft");
   expect(servers.getByRole("button", { name: /^app-1/ })).not.toHaveTextContent("Draft");
+  // after the row's own select button: Confirm inline, the rest in the menu
+  const draftRow = servers.getByRole("button", { name: /^cache-1/ }).closest("li")!;
+  expect(rowButtons(draftRow).slice(1)).toEqual(["Confirm cache-1", "Actions for cache-1"]);
+  await user.click(within(draftRow).getByRole("button", { name: "Actions for cache-1" }));
+  expect(menuItems()).toEqual(["Edit", "Discard", "Remove from environment"]);
+  await user.keyboard("{Escape}");
   const services = within(screen.getByRole("region", { name: "Services on app-1" }));
   expect(services.getByRole("button", { name: /^nginx/ })).toHaveTextContent("Draft");
   expect(services.getByRole("button", { name: "Confirm nginx" })).toBeInTheDocument();
   expect(services.queryByRole("button", { name: "Confirm payments-api" })).not.toBeInTheDocument();
 
   // Discard acts on the draft server itself (taking its membership with it).
-  await user.click(servers.getByRole("button", { name: "Discard cache-1" }));
+  await rowAction(user, "cache-1", "Discard", servers);
   expect(await screen.findByRole("dialog", { name: "Discard cache-1?" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Cancel" }));
 

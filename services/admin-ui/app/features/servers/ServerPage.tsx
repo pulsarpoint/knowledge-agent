@@ -6,8 +6,7 @@ import { getServerPage, type ServerPageData } from "./discovery";
 import DiscoverWizard from "~/features/sessions/DiscoverWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
-import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
-import { RowActions } from "./RowAction";
+import { DraftBadge, DraftRowMenu } from "./ConfirmDraftSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -117,15 +116,16 @@ export default function ServerPage({ serverId }: { serverId: string }) {
                     <TableCell>{[item.runtime, item.runtime_name].filter(Boolean).join(" · ") || "—"}</TableCell>
                     <TableCell>{item.port ?? "—"}</TableCell>
                     <TableCell>{item.deployed_version || "—"}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-right">
                       {item.status === "draft" && (
-                        <RowActions>
-                          <DraftActions
-                            name={item.service_name}
-                            confirm={{ kind: "deployment", id: item.id, revision: item.revision }}
-                            onDone={() => setVersion((value) => value + 1)}
-                          />
-                        </RowActions>
+                        <DraftRowMenu
+                          name={item.service_name}
+                          draft={{
+                            confirm: { kind: "deployment", id: item.id, revision: item.revision },
+                            onDone: () => setVersion((value) => value + 1),
+                          }}
+                          items={[]}
+                        />
                       )}
                     </TableCell>
                   </TableRow>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router";
-import { FileText, Plus, RefreshCw } from "lucide-react";
+import { FileText, Plus, RefreshCw, Upload } from "lucide-react";
 import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from "./api";
 import { discardDraft, draftPath, getDrafts, getNewDrafts, promoteDraft, type DraftSummary } from "./drafts";
 import { DraftAuthor } from "./DraftView";
@@ -9,6 +9,7 @@ import TagLinks from "./TagLinks";
 import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -130,10 +131,8 @@ export default function DocumentsView() {
       setRefresh((n) => n + 1);
     }
   }
-  const discardButton = (draft: DraftSummary) => (
-    <Button size="sm" variant="outline" aria-label={`Discard ${draft.title}`} onClick={() => setDiscarding(draft)}>
-      Discard
-    </Button>
+  const draftMenu = (draft: DraftSummary) => (
+    <RowMenu name={draft.title} items={[deleteMenuItem(() => setDiscarding(draft), "Discard")]} />
   );
   return (
     <div className="flex flex-col gap-6">
@@ -278,24 +277,20 @@ export default function DocumentsView() {
                       </TableCell>
                       <TableCell>{new Date(draft.created_at).toLocaleString()}</TableCell>
                       <TableCell>
-                        <div className="flex justify-end gap-2">
-                          <Button asChild size="sm" variant="outline">
-                            <Link to={draftPath(draft)} aria-label={`Open ${draft.title}`}>
-                              Open
-                            </Link>
-                          </Button>
+                        <div className="flex items-center justify-end gap-1">
                           {!draft.document_id && (
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="ghost"
                               disabled={busy}
                               aria-label={`Publish ${draft.title}`}
                               onClick={() => void publish(draft)}
                             >
+                              <Upload data-icon="inline-start" />
                               Publish
                             </Button>
                           )}
-                          {discardButton(draft)}
+                          {draftMenu(draft)}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -332,14 +327,7 @@ export default function DocumentsView() {
                     </TableCell>
                     <TableCell>{new Date(draft.updated_at).toLocaleString()}</TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-2">
-                        <Button asChild size="sm" variant="outline">
-                          <Link to={draftPath(draft)} aria-label={`Open ${draft.title}`}>
-                            Open
-                          </Link>
-                        </Button>
-                        {discardButton(draft)}
-                      </div>
+                      <div className="flex justify-end">{draftMenu(draft)}</div>
                     </TableCell>
                   </TableRow>
                 ))}

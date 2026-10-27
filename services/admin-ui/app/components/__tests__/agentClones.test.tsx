@@ -7,6 +7,7 @@ import * as clones from "~/features/agents/clones";
 import * as llm from "~/features/llm/api";
 import { Toaster } from "~/components/ui/sonner";
 import { ApiError } from "../../lib/api";
+import { rowAction } from "~/lib/__tests__/rowMenu";
 
 vi.mock("~/features/agents/api", async () => ({
   ...(await vi.importActual("~/features/agents/api")),
@@ -172,7 +173,7 @@ test("All agents shows clones and clones a row", async () => {
   const user = userEvent.setup();
   open("/agents");
   expect(await screen.findByText("Clone of SSH agent")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Clone SSH agent" }));
+  await rowAction(user, "SSH agent", "Clone");
   expect(clones.cloneAgent).toHaveBeenCalledWith("operations");
   await waitFor(() => expect(profiles.getAgent).toHaveBeenLastCalledWith("clone-2"));
 });

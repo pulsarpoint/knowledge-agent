@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
-import { FileText, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { FileText, Layers, Pencil, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteService, getServices, type ServiceAsset } from "./services";
-import { RowAction, RowActions } from "./RowAction";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { servicePath } from "./ServicePanel";
 import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
@@ -206,27 +206,21 @@ export default function ServicesView() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="align-top">
-                          <RowActions>
-                            <RowAction label="Documents" name={service.name} to={`/documents?service_id=${service.id}`}>
-                              <FileText />
-                            </RowAction>
-                            <RowAction label="Edit" name={service.name} to={servicePath(service.id, "edit")}>
-                              <Pencil />
-                            </RowAction>
-                            <RowAction
-                              label="Delete"
-                              name={service.name}
-                              destructive
-                              disabled={loading || error !== null || deleting}
-                              onClick={() => {
-                                setDeleteTarget(service);
-                                setDeleteError(null);
-                              }}
-                            >
-                              <Trash2 />
-                            </RowAction>
-                          </RowActions>
+                        <TableCell className="text-right align-top">
+                          <RowMenu
+                            name={service.name}
+                            items={[
+                              { label: "Documents", icon: FileText, to: `/documents?service_id=${service.id}` },
+                              { label: "Edit", icon: Pencil, to: servicePath(service.id, "edit") },
+                              {
+                                ...deleteMenuItem(() => {
+                                  setDeleteTarget(service);
+                                  setDeleteError(null);
+                                }),
+                                disabled: loading || error !== null || deleting,
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

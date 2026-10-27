@@ -4,6 +4,13 @@ import { MemoryRouter } from "react-router";
 import SchedulesView from "~/features/events/SchedulesView";
 import type { Schedule } from "~/features/events/schedules";
 import { Toaster } from "~/components/ui/sonner";
+import { menuItems, rowButtons } from "~/lib/__tests__/rowMenu";
+
+/** Chooses `item` in the menu of the `index`th schedule row. */
+async function choose(user: ReturnType<typeof userEvent.setup>, item: string, index = 0) {
+  await user.click((await screen.findAllByRole("button", { name: /^Actions for / }))[index]);
+  await user.click(await screen.findByRole("menuitem", { name: item }));
+}
 
 const schedule: Schedule = {
   id: "s-1",
@@ -145,7 +152,7 @@ test("delete asks first and removes the row", async () => {
     "DELETE /api/schedules/s-1": () => [204, null],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  await choose(user, "Delete");
   expect(screen.getByText("Delete “Jira auto pull”?")).toBeInTheDocument();
   expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete schedule" }));
@@ -169,7 +176,7 @@ test("a double click on Delete sends one request and keeps the title", async () 
   });
   vi.stubGlobal("fetch", fetch);
   view();
-  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  await choose(user, "Delete");
   const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete schedule" });
   await user.dblClick(confirm);
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
@@ -212,6 +219,16 @@ test("run now while running shows the server message", async () => {
   expect(await screen.findByText("This schedule is already running.")).toBeInTheDocument();
 });
 
+test("a schedule row keeps Run now inline and Edit, History and Delete in its menu", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/schedules": () => [200, { schedules: [schedule] }] });
+  view();
+  const row = (await screen.findByText(schedule.name)).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Run now", `Actions for ${schedule.name}`]);
+  await user.click(within(row).getByRole("button", { name: `Actions for ${schedule.name}` }));
+  expect(menuItems()).toEqual(["Edit", "History", "Delete"]);
+});
+
 test("history lists the newest runs", async () => {
   const user = userEvent.setup();
   api({
@@ -233,7 +250,7 @@ test("history lists the newest runs", async () => {
     ],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "History" }));
+  await choose(user, "History");
   expect(await screen.findByText(/Run now · Failed · Could not reach Jira\./)).toBeInTheDocument();
 });
 
@@ -246,7 +263,7 @@ test("editor shows and saves the Jira query and number of tickets", async () => 
     "PUT /api/schedules/s-1": () => [200, { schedule: { ...stored, revision: 4 } }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   const jql = screen.getByLabelText("Jira query (JQL)");
   const limit = screen.getByLabelText("Number of tickets");
   expect(jql).toHaveValue("project = DEMO");
@@ -272,7 +289,7 @@ test("editor saves empty query and number of tickets as the fallback", async () 
     "PUT /api/schedules/s-1": () => [200, { schedule: { ...stored, params: {}, revision: 4 } }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   await user.clear(screen.getByLabelText("Jira query (JQL)"));
   await user.clear(screen.getByLabelText("Number of tickets"));
   expect(screen.getByText(/Leave empty to use the query of the last fetch on Jira → Tickets/)).toBeInTheDocument();
@@ -295,7 +312,7 @@ test("editor previews a custom cron, shows errors under the field and saves", as
     ],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   await user.click(screen.getByRole("combobox", { name: "How often" }));
   await user.click(screen.getByRole("option", { name: "Custom" }));
   const cron = screen.getByLabelText("Cron expression");
@@ -507,7 +524,7 @@ test("deleting an emit schedule says its handlers stay", async () => {
   const user = userEvent.setup();
   api({ "GET /api/schedules": () => [200, { schedules: [emit()] }] });
   view();
-  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  await choose(user, "Delete");
   expect(
     screen.getByText("Its history is deleted too. Its handlers stay; they no longer match any event."),
   ).toBeInTheDocument();
@@ -525,7 +542,7 @@ test("editing an emit schedule saves its name; edits keep the handlers line", as
     ],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   const name = screen.getByLabelText("Name");
   expect(name).toHaveValue("Morning summary");
   await user.clear(name);
@@ -561,8 +578,7 @@ test("a rename asks first only when handlers are bound, and says how many", asyn
     "PUT /api/schedules/e-2": () => [200, { schedule: { ...lone, name: "Late check", revision: 2 } }],
   });
   view();
-  const [first, second] = await screen.findAllByRole("button", { name: "Edit" });
-  await user.click(first);
+  await choose(user, "Edit");
   await user.clear(screen.getByLabelText("Name"));
   await user.type(screen.getByLabelText("Name"), "Daily digest");
   await screen.findByText("Next runs");
@@ -573,7 +589,7 @@ test("a rename asks first only when handlers are bound, and says how many", asyn
   // The sheet has unsaved changes: closing it asks first.
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  await user.click(second);
+  await choose(user, "Edit", 1);
   await user.clear(screen.getByLabelText("Name"));
   await user.type(screen.getByLabelText("Name"), "Late check");
   await screen.findByText("Next runs");
@@ -665,7 +681,7 @@ test("editing a one-time schedule shows its time in its zone and saves a new one
     "PUT /api/schedules/o-1": () => [200, { schedule: { ...stored, revision: 2, handlers: undefined } }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   expect(screen.getByRole("tab", { name: "Once" })).toHaveAttribute("aria-selected", "true");
   const time = screen.getByLabelText("Date and time");
   expect(time).toHaveValue("2030-01-15T09:30");
@@ -700,7 +716,7 @@ test("a finished one-time schedule keeps its time when renamed", async () => {
     ],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   expect(screen.getByLabelText("Date and time")).toHaveValue("2026-10-01T10:00");
   const name = screen.getByLabelText("Name");
   await user.clear(name);
@@ -722,7 +738,7 @@ test("the Jira editor has no Repeating / Once switch", async () => {
     "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await choose(user, "Edit");
   await screen.findByText("Next runs");
   expect(screen.queryByRole("tab", { name: "Once" })).toBeNull();
 });

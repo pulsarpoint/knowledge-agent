@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import HandlersView from "~/features/events/HandlersView";
 import { Toaster } from "~/components/ui/sonner";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 const handler = (extra = {}) => ({
   id: "h-1",
@@ -125,6 +126,16 @@ test("lists handlers with what they do", async () => {
   expect(screen.getByText("Send to Tester")).toBeInTheDocument();
   expect(screen.getAllByText("jira.ticket.* · 1 condition")).toHaveLength(2);
   expect(screen.getByText("Failed")).toBeInTheDocument();
+});
+
+test("a handler row has no inline buttons: Edit and Delete are in its menu", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/event-handlers": { handlers: [handler()] } });
+  view();
+  const row = (await screen.findByText("Triage")).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Actions for Triage"]);
+  await user.click(within(row).getByRole("button", { name: "Actions for Triage" }));
+  expect(menuItems()).toEqual(["Edit", "Delete"]);
 });
 
 test("empty state", async () => {
@@ -253,7 +264,7 @@ test("preview shows why an event does not match and the rendered output", async 
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   await user.click(within(sheet).getByRole("combobox", { name: "Preview event" }));
   await user.click(screen.getByRole("option", { name: /DEMO-7/ }));
@@ -281,7 +292,7 @@ test("the switch saves enabled with the revision; delete asks first", async () =
   await waitFor(() => expect([saved.enabled, saved.revision]).toEqual([false, 1]));
   expect(await screen.findByText("Handler “Triage” disabled.")).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "Enabled" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Delete Triage" }));
+  await rowAction(user, "Triage", "Delete");
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText("Delete “Triage”?")).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "Delete handler" })).toHaveClass("bg-destructive");
@@ -309,7 +320,7 @@ test("the form keeps a stored agent that is no longer offered", async () => {
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   expect(await within(sheet).findByRole("combobox", { name: "Agent" })).toHaveTextContent("gone (not available)");
   await user.click(within(sheet).getByRole("button", { name: "Save" }));
@@ -412,7 +423,7 @@ test("a saved assignee handler opens with the assignee target; preview names the
     }),
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByRole("combobox", { name: "Agent" })).toHaveTextContent("Agent mapped to the assignee");
   await user.click(within(sheet).getByRole("combobox", { name: "Preview event" }));
@@ -476,7 +487,7 @@ test("a saved handler keeps its Give the ticket back setting; turning it off sav
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   const box = within(sheet).getByLabelText(GIVE_BACK);
   expect(box).toBeChecked();
@@ -594,7 +605,7 @@ test("only a handler that takes schedule.fired with the schedule condition gets 
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Delete Triage" }));
+  await rowAction(user, "Triage", "Delete");
   expect(screen.getByText("Its run history stays on the events.")).toBeInTheDocument();
 });
 
@@ -611,7 +622,7 @@ test("deleting a schedule handler says the schedule keeps recording events", asy
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Delete Triage" }));
+  await rowAction(user, "Triage", "Delete");
   expect(
     screen.getByText("Its run history stays on the events. The schedule keeps recording events."),
   ).toBeInTheDocument();
@@ -724,7 +735,7 @@ test("a saved pattern that is not in the list opens as Custom pattern", async ()
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [handler({ type_pattern: "jira.*.created" })] }, ...SHEET_DATA });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).getByRole("combobox", { name: "Event type" })).toHaveTextContent("Custom pattern…");
   expect(within(sheet).getByLabelText("Event type pattern")).toHaveValue("jira.*.created");
@@ -782,7 +793,7 @@ test("a saved handler opens with its schema following the current version; the s
   await waitFor(() =>
     expect(sent).toMatchObject({ enabled: false, output_schema_id: "schema-1", output_schema_version: null }),
   );
-  await user.click(screen.getByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   await waitFor(() =>
     expect(within(sheet).getByRole("combobox", { name: "Output schema" })).toHaveTextContent("Verdict"),
@@ -803,7 +814,7 @@ test("Include the previous output is a Send to agent switch; it saves and the en
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "Edit Triage" }));
+  await rowAction(user, "Triage", "Edit");
   const sheet = await screen.findByRole("dialog");
   const toggle = within(sheet).getByRole("switch", { name: "Include the previous output" });
   expect(toggle).not.toBeChecked();

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CodeProject } from "~/features/codeProjects/api";
 import { renderCodeProjects, sectionLink } from "~/lib/__tests__/codeProjectRoutes";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 const project: CodeProject = {
   id: "code-1",
@@ -217,6 +218,16 @@ test("the table shows 20 projects per page", async () => {
   expect(rows()).toHaveLength(9); // a search starts again at page 1
 });
 
+test("a code project row keeps Sync now inline and Delete in its menu", async () => {
+  const user = userEvent.setup();
+  api([project]);
+  show();
+  const row = (await screen.findByRole("link", { name: "Payments" })).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Sync Payments now", "Actions for Payments"]);
+  await user.click(within(row).getByRole("button", { name: "Actions for Payments" }));
+  expect(menuItems()).toEqual(["Delete"]);
+});
+
 test("Sync now queues a pull from the row", async () => {
   const user = userEvent.setup();
   const fetch = api([project]);
@@ -232,7 +243,7 @@ test("Delete asks for confirmation, keeps files by default and drops the project
   const user = userEvent.setup();
   const fetch = api([project]);
   show();
-  await user.click(await screen.findByRole("button", { name: "Delete Payments" }));
+  await rowAction(user, "Payments", "Delete");
   const dialog = await screen.findByRole("alertdialog");
   expect(dialog).toHaveTextContent("code/payments");
   expect(dialog).toHaveTextContent("Delete “Payments”?");
@@ -264,7 +275,7 @@ test("Delete with the delete box sends delete_files and reports what was deleted
     return base(raw, init);
   });
   show();
-  await user.click(await screen.findByRole("button", { name: "Delete Payments" }));
+  await rowAction(user, "Payments", "Delete");
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole("button", { name: "Delete code project" }));
   await screen.findByText("Payments deleted. Deleted code/payments.");
@@ -291,11 +302,11 @@ test("a refused Delete shows the reason and keeps the project", async () => {
     return base(raw, init);
   });
   show();
-  await user.click(await screen.findByRole("button", { name: "Delete Payments" }));
+  await rowAction(user, "Payments", "Delete");
   await user.click(screen.getByRole("checkbox", { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole("button", { name: "Delete code project" }));
   await screen.findByText(/code\/payments is also used by code project Billing/);
-  expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
 });
 
 test("New code project maps multiple existing folders into a local code project in a sheet", async () => {
@@ -550,7 +561,7 @@ test("the table goes back a page when its last page empties", async () => {
   show();
   await screen.findByRole("link", { name: "Project 01" });
   await user.click(screen.getByRole("button", { name: "Next page" }));
-  await user.click(screen.getByRole("button", { name: "Delete Project 21" }));
+  await rowAction(user, "Project 21", "Delete");
   await user.click(await screen.findByRole("button", { name: "Delete code project" }));
   await screen.findByText("Project 21 deleted. Files on disk were kept.");
   await waitFor(() => expect(rows()).toHaveLength(20));

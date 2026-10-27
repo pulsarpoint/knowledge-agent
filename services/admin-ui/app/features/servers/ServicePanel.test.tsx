@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { serviceAsset as asset, serviceDeployment, stubApi as api } from "~/lib/__tests__/serviceFixture";
 import type { Connection, Deployment, Relation } from "./inventory";
 import ServicePanel from "./ServicePanel";
+import { rowAction } from "~/lib/__tests__/rowMenu";
 
 vi.mock("~/components/Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
@@ -185,16 +186,16 @@ test("remove buttons send the revision they read, then reload", async () => {
     }),
   );
   const onChanged = panel();
-  await user.click(await screen.findByRole("button", { name: "Remove → postgres on db-1 (prod) :5432 tcp" }));
+  await rowAction(user, "→ postgres on db-1 (prod) :5432 tcp", "Remove");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
-  await user.click(await screen.findByRole("button", { name: "Remove Part of billing" }));
+  await rowAction(user, "Part of billing", "Remove");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
-  await user.click(await screen.findByRole("button", { name: "Remove payments-repo" }));
+  await rowAction(user, "payments-repo", "Remove");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(3));
-  await user.click(await screen.findByRole("button", { name: "Remove the deployment here" }));
+  await rowAction(user, "the deployment here", "Remove");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(4));
   expect(calls.filter((call) => call.key.startsWith("DELETE")).map((call) => call.key)).toEqual([
@@ -217,7 +218,7 @@ test("a stale revision on remove shows the conflict text and reloads", async () 
     }),
   );
   const onChanged = panel();
-  await user.click(await screen.findByRole("button", { name: "Remove Needed by nginx" }));
+  await rowAction(user, "Needed by nginx", "Remove");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(CONFLICT);
   await vi.waitFor(() => expect(loads(calls)).toBe(2));
@@ -235,7 +236,7 @@ test("two people edit the same connection: the second save gets the conflict tex
     }),
   );
   panel();
-  await user.click(await screen.findByRole("button", { name: "Edit ← nginx on app-1 (prod) :8000 http" }));
+  await rowAction(user, "← nginx on app-1 (prod) :8000 http", "Edit");
   await user.clear(screen.getByLabelText("Port"));
   await user.type(screen.getByLabelText("Port"), "8080");
   await user.click(screen.getByRole("button", { name: "Save connection" }));
@@ -249,7 +250,7 @@ test("another refusal on save, such as a duplicate, shows the API's own message 
   const user = userEvent.setup();
   api(routes({ "PUT /api/connections/c2": () => [409, { error: { message: "This connection already exists" } }] }));
   panel();
-  await user.click(await screen.findByRole("button", { name: "Edit ← nginx on app-1 (prod) :8000 http" }));
+  await rowAction(user, "← nginx on app-1 (prod) :8000 http", "Edit");
   await user.click(screen.getByRole("button", { name: "Save connection" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("This connection already exists");
   expect(screen.queryByText(CONFLICT)).not.toBeInTheDocument();
@@ -260,7 +261,7 @@ test("another 409 on remove shows the API's own message", async () => {
   const user = userEvent.setup();
   api(routes({ "DELETE /api/relations/rel2?revision=5": () => [409, { error: { message: "Refused for a reason" } }] }));
   panel();
-  await user.click(await screen.findByRole("button", { name: "Remove Needed by nginx" }));
+  await rowAction(user, "Needed by nginx", "Remove");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Refused for a reason");
 });
@@ -271,7 +272,7 @@ test("a duplicate on the fields sheet shows the API's own message", async () => 
     routes({ "PUT /api/services/v1": () => [409, { error: { message: "A service with this name already exists" } }] }),
   );
   panel();
-  await user.click(await screen.findByRole("button", { name: "Edit payments-api" }));
+  await rowAction(user, "payments-api", "Edit");
   await user.click(screen.getByRole("button", { name: "Save service" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("A service with this name already exists");
   expect(screen.getByRole("button", { name: "Save service" })).toBeInTheDocument();
@@ -309,7 +310,7 @@ test("editing the fields sends the revision; the Address field appears only for 
   const user = userEvent.setup();
   const calls = api(routes({ "PUT /api/services/v1": (body) => [200, { ...services[0], ...body }] }));
   const onChanged = panel();
-  await user.click(await screen.findByRole("button", { name: "Edit payments-api" }));
+  await rowAction(user, "payments-api", "Edit");
   expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
   await user.click(screen.getByRole("combobox", { name: "Type" }));
   await user.click(screen.getByRole("option", { name: "External service" }));
@@ -331,7 +332,7 @@ test("editing the deployment here sends its revision", async () => {
   const user = userEvent.setup();
   const calls = api(routes({ "PUT /api/deployments/d1": (body) => [200, { ...deployments[0], ...body }] }));
   const onChanged = panel();
-  await user.click(await screen.findByRole("button", { name: "Edit the deployment here" }));
+  await rowAction(user, "the deployment here", "Edit");
   await user.clear(screen.getByLabelText("Version"));
   await user.type(screen.getByLabelText("Version"), "1.5");
   await user.click(screen.getByRole("button", { name: "Save deployment" }));
@@ -392,7 +393,7 @@ test("drafts in the panel carry a Draft badge with Confirm and Discard: the serv
   const connectionsPart = within(column.getByRole("region", { name: "Connections" }));
   expect(connectionsPart.getAllByRole("button", { name: /^Confirm/ })).toHaveLength(1);
   const relationsPart = within(column.getByRole("region", { name: "Relations" }));
-  await user.click(relationsPart.getByRole("button", { name: "Discard Part of billing" }));
+  await rowAction(user, "Part of billing", "Discard", relationsPart);
   expect(await screen.findByRole("dialog", { name: "Discard Part of billing?" })).toBeInTheDocument();
 });
 
@@ -417,7 +418,7 @@ test("a person's edit of a draft keeps it a draft; Confirm then confirms it with
     }),
   );
   const onChanged = panel();
-  await user.click(await screen.findByRole("button", { name: "Edit the deployment here" }));
+  await rowAction(user, "the deployment here", "Edit");
   await user.clear(screen.getByLabelText("Version"));
   await user.type(screen.getByLabelText("Version"), "1.5");
   await user.click(screen.getByRole("button", { name: "Save deployment" }));
@@ -452,7 +453,7 @@ test("Remove asks first: Cancel removes nothing, the dialog names what goes", as
   const user = userEvent.setup();
   const calls = api(routes());
   panel();
-  await user.click(await screen.findByRole("button", { name: "Remove payments-repo" }));
+  await rowAction(user, "payments-repo", "Remove");
   const dialog = within(await screen.findByRole("alertdialog"));
   expect(dialog.getByText("Remove code project payments-repo from payments-api?")).toBeInTheDocument();
   expect(dialog.getByText("The code project stays; only the link goes.")).toBeInTheDocument();

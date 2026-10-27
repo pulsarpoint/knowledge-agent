@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Plus, Trash2, Workflow } from "lucide-react";
+import { Pencil, Plus, Workflow } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { deleteHandler, boundToSchedule, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
 import HandlerSheet from "./HandlerSheet";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -158,31 +159,18 @@ export default function HandlersView() {
                       <span className="text-sm text-muted-foreground">Never run</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Edit ${handler.name}`}
-                        onClick={() => setEditing(handler)}
-                      >
-                        <Pencil data-icon="inline-start" />
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Delete ${handler.name}`}
-                        onClick={() => {
+                  <TableCell className="text-right">
+                    <RowMenu
+                      name={handler.name}
+                      items={[
+                        { label: "Edit", icon: Pencil, onSelect: () => setEditing(handler) },
+                        deleteMenuItem(() => {
                           deletingName.current = handler.name;
                           deletingSchedule.current = boundToSchedule(handler);
                           setDeleting(handler);
-                        }}
-                      >
-                        <Trash2 data-icon="inline-start" />
-                        Delete
-                      </Button>
-                    </div>
+                        }),
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import ServicesView from "~/features/servers/ServicesView";
 import type { Repository } from "~/features/codeProjects/api";
 import type { ServerAsset } from "~/features/servers/api";
 import type { ServiceAsset } from "~/features/servers/services";
 import { Toaster } from "~/components/ui/sonner";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -99,14 +101,14 @@ afterEach(() => vi.unstubAllGlobals());
 
 test("service deletion asks for confirmation and Cancel preserves the service", async () => {
   const fetch = setup([service]);
-  fireEvent.click(await screen.findByRole("button", { name: "Delete Payments" }));
+  await rowAction(userEvent, "Payments", "Delete");
   const dialog = screen.getByRole("alertdialog");
   expect(within(dialog).getByRole("heading", { name: "Delete “Payments”?" })).toBeInTheDocument();
   expect(within(dialog).getByText(/Running applications, servers, and code files are not changed/)).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
   expect(fetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
 });
 
@@ -119,7 +121,7 @@ test("deletion sends the revision, waits for success and removes the row", async
         finish = resolve;
       }),
   });
-  fireEvent.click(await screen.findByRole("button", { name: "Delete Payments" }));
+  await rowAction(userEvent, "Payments", "Delete");
   fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete service" }));
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: /Delete service/ })).toBeDisabled();
@@ -132,7 +134,7 @@ test("deletion sends the revision, waits for success and removes the row", async
   });
   expect(await screen.findByText("Service “Payments” deleted.")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Delete Payments" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Actions for Payments" })).toBeNull();
   expect(await screen.findByText("Build your service inventory")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Add your first service" })).toBeInTheDocument();
 });
@@ -144,14 +146,14 @@ test("failed deletion keeps the dialog and service available", async () => {
         status: 409,
       }),
   });
-  fireEvent.click(await screen.findByRole("button", { name: "Delete Payments" }));
+  await rowAction(userEvent, "Payments", "Delete");
   fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete service" }));
   expect(
     await within(screen.getByRole("alertdialog")).findByText("This service changed. Cancel, refresh, and try again."),
   ).toBeInTheDocument();
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeEnabled();
   fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
-  expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
 });
 
 const postgres: ServiceAsset = {
@@ -169,17 +171,17 @@ const postgres: ServiceAsset = {
 
 test("service list can be filtered by type or role", async () => {
   setup([service, postgres]);
-  await screen.findByRole("button", { name: "Delete PostgreSQL" });
+  await screen.findByRole("button", { name: "Actions for PostgreSQL" });
   for (const query of ["Built-in software", "Database"]) {
     fireEvent.change(screen.getByRole("textbox", { name: "Filter services" }), { target: { value: query } });
-    expect(screen.getByRole("button", { name: "Delete PostgreSQL" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete Payments" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Actions for PostgreSQL" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Actions for Payments" })).toBeNull();
   }
 });
 
 test("services remains an inventory page without a graph tab", async () => {
   setup([service], { initialEntry: "/services?view=graph&layout=tala" });
-  expect(await screen.findByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Filter services" })).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Dependency graph" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Service dependency graph" })).toBeNull();
@@ -188,14 +190,16 @@ test("services remains an inventory page without a graph tab", async () => {
 test("a service's name opens its View, Edit opens its Edit page and New service opens /services/new", async () => {
   setup([service]);
   expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute("href", "/services/service-1/view");
-  expect(screen.getByRole("link", { name: "Edit Payments" })).toHaveAttribute("href", "/services/service-1/edit");
   expect(screen.getByRole("link", { name: "New service" })).toHaveAttribute("href", "/services/new");
-  expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Documents Payments" })).toHaveAttribute(
+  const row = screen.getByRole("link", { name: "Payments" }).closest("tr")!;
+  expect(rowButtons(row)).toEqual(["Actions for Payments"]);
+  await userEvent.setup().click(within(row).getByRole("button", { name: "Actions for Payments" }));
+  expect(menuItems()).toEqual(["Documents", "Edit", "Delete"]);
+  expect(screen.getByRole("menuitem", { name: "Edit" })).toHaveAttribute("href", "/services/service-1/edit");
+  expect(screen.getByRole("menuitem", { name: "Documents" })).toHaveAttribute(
     "href",
     `/documents?service_id=${service.id}`,
   );
-  expect(screen.queryByRole("button", { name: "Details Payments" })).toBeNull();
 });
 
 test("an empty inventory offers New service", async () => {

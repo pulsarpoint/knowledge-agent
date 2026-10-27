@@ -4,6 +4,7 @@ import routes from "~/routes";
 import { renderCodeProjects, sectionLink } from "~/lib/__tests__/codeProjectRoutes";
 import { stubApi } from "~/lib/__tests__/serviceFixture";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
+import { menuItems, rowAction } from "~/lib/__tests__/rowMenu";
 
 vi.mock("~/features/sessions/useSessionEvents", () => ({
   useSessionEvents: () => ({
@@ -112,7 +113,9 @@ test("an agent-drafted dependency shows as a draft with Confirm and Discard", as
   const depends = within(await screen.findByRole("region", { name: "Depends on" }));
   expect(await depends.findByRole("button", { name: "Confirm Money" })).toBeInTheDocument();
   expect(depends.getAllByText("Draft")).toHaveLength(1);
-  expect(depends.getByRole("button", { name: "Discard Money" })).toBeInTheDocument();
+  await userEvent.click(depends.getByRole("button", { name: "Actions for Money" }));
+  expect(menuItems()).toContain("Discard");
+  await userEvent.keyboard("{Escape}");
   expect(depends.queryByRole("button", { name: "Confirm Ui-kit" })).toBeNull();
 });
 
@@ -154,7 +157,7 @@ test("Discard checks first (dry run), then discards the draft dependency with it
   });
   renderCodeProjects("/code-projects/c1/dependencies");
   const depends = within(await screen.findByRole("region", { name: "Depends on" }));
-  await userEvent.click(await depends.findByRole("button", { name: "Discard Money" }));
+  await rowAction(userEvent, "Money", "Discard", depends);
   const sheet = within(await screen.findByRole("dialog", { name: "Discard Money?" }));
   await sheet.findByText("Nothing else is deleted with it.");
   await userEvent.click(sheet.getByRole("button", { name: "Discard" }));
@@ -188,7 +191,7 @@ test("Remove asks first, then deletes the dependency with its revision", async (
   const calls = api({ "DELETE /api/code-dependencies/d1?revision=4": () => [200, { id: "d1" }] });
   renderCodeProjects("/code-projects/c1/dependencies");
   const depends = within(await screen.findByRole("region", { name: "Depends on" }));
-  await userEvent.click(await depends.findByRole("button", { name: "Remove Ui-kit" }));
+  await rowAction(userEvent, "Ui-kit", "Remove", depends);
   expect(writes(calls)).toEqual([]);
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/code-dependencies/d1?revision=4", null]]));

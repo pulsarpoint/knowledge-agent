@@ -12,12 +12,11 @@ import {
   type ModelServer,
 } from "./environments";
 import { membershipId } from "./inventory";
-import { DraftActions, DraftBadge, type DraftTarget } from "./ConfirmDraftSheet";
+import { DraftBadge, DraftRowMenu, type DraftTarget } from "./ConfirmDraftSheet";
 import AddServerDialog from "./AddServerDialog";
 import AddServiceDialog from "./AddServiceDialog";
 import ServerForm from "./ServerForm";
 import ServicePanel from "./ServicePanel";
-import { RowAction, RowActions } from "./RowAction";
 import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -226,15 +225,15 @@ export default function EnvironmentWorkspace({
                   </span>
                   <span className="text-xs text-muted-foreground">{item.label}</span>
                 </span>
-                <RowActions>
-                  <DraftActions
-                    name={item.name}
-                    confirm={{ kind: item.kind, id: item.id, revision: item.revision }}
-                    onDone={(action) =>
-                      action === "discard" && item.kind === "environment" ? navigate("/environments") : reload()
-                    }
-                  />
-                </RowActions>
+                <DraftRowMenu
+                  name={item.name}
+                  draft={{
+                    confirm: { kind: item.kind, id: item.id, revision: item.revision },
+                    onDone: (action) =>
+                      action === "discard" && item.kind === "environment" ? navigate("/environments") : reload(),
+                  }}
+                  items={[]}
+                />
               </li>
             ))}
           </ul>
@@ -263,28 +262,25 @@ export default function EnvironmentWorkspace({
                     </span>
                     <span className="text-xs text-muted-foreground">{count(item.deployments.length)}</span>
                   </button>
-                  <RowActions>
-                    {serverDraft(item) && (
-                      <DraftActions name={item.name} {...serverTargets(environmentId, item)} onDone={reload} />
-                    )}
-                    <RowAction label="Edit" name={item.name} onClick={() => void edit(item)}>
-                      <Pencil />
-                    </RowAction>
-                    <RowAction
-                      label="Remove from environment"
-                      name={item.name}
-                      onClick={() =>
-                        setRemoval({
-                          title: `Remove ${item.name} from ${model.environment.name}?`,
-                          description: "The server stays recorded; it is only no longer in this environment.",
-                          action: "Remove from environment",
-                          run: () => void remove(item),
-                        })
-                      }
-                    >
-                      <Unlink />
-                    </RowAction>
-                  </RowActions>
+                  <DraftRowMenu
+                    name={item.name}
+                    draft={serverDraft(item) ? { ...serverTargets(environmentId, item), onDone: reload } : undefined}
+                    items={[
+                      { label: "Edit", icon: Pencil, onSelect: () => void edit(item) },
+                      {
+                        label: "Remove from environment",
+                        icon: Unlink,
+                        destructive: true,
+                        onSelect: () =>
+                          setRemoval({
+                            title: `Remove ${item.name} from ${model.environment.name}?`,
+                            description: "The server stays recorded; it is only no longer in this environment.",
+                            action: "Remove from environment",
+                            run: () => void remove(item),
+                          }),
+                      },
+                    ]}
+                  />
                 </li>
               ))}
             </ul>
@@ -338,13 +334,14 @@ export default function EnvironmentWorkspace({
                       )}
                     </button>
                     {deploymentDraft(item) && (
-                      <RowActions>
-                        <DraftActions
-                          name={item.service_name}
-                          confirm={{ kind: "deployment", id: item.id, revision: item.revision }}
-                          onDone={reload}
-                        />
-                      </RowActions>
+                      <DraftRowMenu
+                        name={item.service_name}
+                        draft={{
+                          confirm: { kind: "deployment", id: item.id, revision: item.revision },
+                          onDone: reload,
+                        }}
+                        items={[]}
+                      />
                     )}
                   </li>
                 ))}

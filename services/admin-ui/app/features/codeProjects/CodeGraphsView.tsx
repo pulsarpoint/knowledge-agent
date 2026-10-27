@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router";
-import { RefreshCw } from "lucide-react";
+import { Network, RefreshCw } from "lucide-react";
 import CodeGraphExplorer from "./CodeGraphExplorer";
+import RowMenu from "~/components/RowMenu";
 import { getCodeProjects, processCodeProject, type CodeProject } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -133,26 +134,29 @@ export default function CodeGraphsView() {
                   </TableCell>
                   <TableCell>{index ? new Date(index.processed_at).toLocaleString() : "—"}</TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex items-center justify-end gap-1">
                       {index && (
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
                           aria-label={`View graph for ${project.name}`}
                           onClick={() => select(project.id)}
                         >
+                          <Network data-icon="inline-start" />
                           View graph
                         </Button>
                       )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy || active(project)}
-                        aria-label={`Generate graph for ${project.name}`}
-                        onClick={() => void generate(project)}
-                      >
-                        Generate graph
-                      </Button>
+                      <RowMenu
+                        name={project.name}
+                        items={[
+                          {
+                            label: "Generate graph",
+                            icon: RefreshCw,
+                            disabled: busy || active(project),
+                            onSelect: () => void generate(project),
+                          },
+                        ]}
+                      />
                     </div>
                   </TableCell>
                 </TableRow>

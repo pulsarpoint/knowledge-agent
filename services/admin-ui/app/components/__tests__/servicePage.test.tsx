@@ -15,6 +15,7 @@ import { resourceChatPath } from "~/features/sessions/api";
 import { serviceAsset as asset, serviceDeployment, stubApi } from "~/lib/__tests__/serviceFixture";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 import type { Connection, Deployment, Relation } from "~/features/servers/inventory";
+import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 
 vi.mock("~/components/Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 vi.mock("~/features/sessions/useSessionEvents", async () => {
@@ -275,11 +276,15 @@ test("View: description, owner, where it runs with Edit and Remove per deploymen
   const runs = within(screen.getByRole("region", { name: "Where it runs" }));
   expect(runs.getByRole("link", { name: "prod" })).toHaveAttribute("href", "/environments/e-prod");
   expect(runs.getByText(/prod \/ app-1 · docker · payments · :8000/)).toBeInTheDocument();
-  expect(runs.getByRole("button", { name: "Edit prod / app-1" })).toBeInTheDocument();
+  const run = runs.getByText(/prod \/ app-1 · docker/).closest("li")!;
+  expect(rowButtons(run)).toEqual(["Actions for prod / app-1"]);
+  await userEvent.click(within(run).getByRole("button", { name: "Actions for prod / app-1" }));
+  expect(menuItems()).toEqual(["Edit", "Remove"]);
+  await userEvent.keyboard("{Escape}");
   const related = within(screen.getByRole("region", { name: "Related" }));
   expect(related.getByRole("link", { name: /Depends on 1/ })).toHaveAttribute("href", "/services/v1/depends-on");
   expect(related.getByRole("link", { name: /Code projects 1/ })).toHaveAttribute("href", "/services/v1/code");
-  await userEvent.click(runs.getByRole("button", { name: "Remove staging / app-2" }));
+  await rowAction(userEvent, "staging / app-2", "Remove", runs);
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/deployments/d3?revision=2", null]]));
 });
@@ -308,12 +313,12 @@ test("Depends on lists the services it depends on with their descriptions; Remov
   expect(list.getByRole("link", { name: "postgres" })).toHaveAttribute("href", "/services/v2/view");
   expect(list.getByText("stores payments")).toBeInTheDocument();
   expect(list.queryByText("billing")).toBeNull();
-  await userEvent.click(list.getByRole("button", { name: "Remove postgres" }));
+  await rowAction(userEvent, "postgres", "Remove", list);
   const dialog = within(screen.getByRole("alertdialog"));
   expect(dialog.getByText("Remove “payments-api depends on postgres”?")).toBeInTheDocument();
   await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   expect(writes(calls)).toEqual([]);
-  await userEvent.click(list.getByRole("button", { name: "Remove postgres" }));
+  await rowAction(userEvent, "postgres", "Remove", list);
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/relations/rel4?revision=5", null]]));
 });
@@ -400,8 +405,10 @@ test("a draft relation shows the Draft badge with Confirm and Discard", async ()
   show("/services/v1/depends-on");
   const list = within(await screen.findByRole("region", { name: "Depends on" }));
   expect(list.getByText("Draft")).toBeInTheDocument();
-  expect(list.getByRole("button", { name: "Confirm postgres" })).toBeInTheDocument();
-  expect(list.getByRole("button", { name: "Discard postgres" })).toBeInTheDocument();
+  const item = list.getByText("Draft").closest("li")!;
+  expect(rowButtons(item)).toEqual(["Confirm postgres", "Actions for postgres"]);
+  await userEvent.click(within(item).getByRole("button", { name: "Actions for postgres" }));
+  expect(menuItems()).toEqual(["Discard", "Remove"]);
 });
 
 test("Code lists the code projects it is built from; Add picks one in a sheet; Remove asks first", async () => {
@@ -423,7 +430,7 @@ test("Code lists the code projects it is built from; Add picks one in a sheet; R
       ],
     ]),
   );
-  await userEvent.click(list.getByRole("button", { name: "Remove payments-repo" }));
+  await rowAction(userEvent, "payments-repo", "Remove", list);
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(writes(calls).at(-1)).toEqual(["DELETE /api/relations/rel3?revision=5", null]));
 });

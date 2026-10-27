@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
-import { FileText, KeyRound, Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
+import { FileText, KeyRound, Pencil, Plug, Plus, RefreshCw, Server } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteServer, getServers, type ServerAsset } from "./api";
 import { getSSH, testSSH } from "./operations";
 import ServerForm from "./ServerForm";
 import ServerSSHForm from "./ServerSSHForm";
-import { RowAction, RowActions } from "./RowAction";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -243,52 +243,44 @@ export default function ServersView() {
                         {server.ssh_allowed ? "Enabled" : "Disabled"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="align-top">
-                      <RowActions>
-                        <RowAction
-                          label="SSH settings"
-                          name={server.name}
-                          disabled={loading || form !== null || sshServer !== null}
-                          onClick={() => {
-                            setTestResult(null);
-                            setSshServer(server.id);
-                          }}
-                        >
-                          <KeyRound />
-                        </RowAction>
-                        <RowAction
-                          label="Test SSH"
-                          name={server.name}
-                          tip={server.ssh_allowed ? undefined : "Enable agent SSH to test"}
-                          disabled={!server.ssh_allowed || testing !== null || sshServer !== null}
-                          onClick={() => void testConnection(server)}
-                        >
-                          {testing === server.id ? <Spinner /> : <Plug />}
-                        </RowAction>
-                        <RowAction label="Documents" name={server.name} to={`/documents?server_id=${server.id}`}>
-                          <FileText />
-                        </RowAction>
-                        <RowAction
-                          label="Edit"
-                          name={server.name}
-                          disabled={loading || error !== null || form !== null}
-                          onClick={() => openForm(server)}
-                        >
-                          <Pencil />
-                        </RowAction>
-                        <RowAction
-                          label="Delete"
-                          name={server.name}
-                          destructive
-                          disabled={loading || error !== null || form !== null}
-                          onClick={() => {
-                            setDeleteTarget(server);
-                            setDeleteError(null);
-                          }}
-                        >
-                          <Trash2 />
-                        </RowAction>
-                      </RowActions>
+                    <TableCell className="text-right align-top">
+                      {testing === server.id && (
+                        <Spinner className="mr-2 inline" aria-label={`Testing SSH on ${server.name}`} />
+                      )}
+                      <RowMenu
+                        name={server.name}
+                        items={[
+                          {
+                            label: "SSH settings",
+                            icon: KeyRound,
+                            disabled: loading || form !== null || sshServer !== null,
+                            onSelect: () => {
+                              setTestResult(null);
+                              setSshServer(server.id);
+                            },
+                          },
+                          {
+                            label: "Test SSH",
+                            icon: Plug,
+                            disabled: !server.ssh_allowed || testing !== null || sshServer !== null,
+                            onSelect: () => void testConnection(server),
+                          },
+                          { label: "Documents", icon: FileText, to: `/documents?server_id=${server.id}` },
+                          {
+                            label: "Edit",
+                            icon: Pencil,
+                            disabled: loading || error !== null || form !== null,
+                            onSelect: () => openForm(server),
+                          },
+                          {
+                            ...deleteMenuItem(() => {
+                              setDeleteTarget(server);
+                              setDeleteError(null);
+                            }),
+                            disabled: loading || error !== null || form !== null,
+                          },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

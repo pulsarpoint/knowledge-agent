@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Pencil, Plug, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { getMCPServers, saveMCPServer, testMCPServer, deleteMCPServer, type MCPServer } from "./mcp";
@@ -16,6 +16,7 @@ import { Switch } from "~/components/ui/switch";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import LeaveGuard from "~/components/LeaveGuard";
 
 export default function MCPServersView() {
@@ -228,7 +229,7 @@ export default function MCPServersView() {
               <TableHead>Connection</TableHead>
               <TableHead>Enabled</TableHead>
               <TableHead>Tools</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -285,38 +286,35 @@ export default function MCPServersView() {
                     </p>
                   )}
                 </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !!editing}
-                      onClick={() =>
-                        void act(async () => {
-                          const result = await testMCPServer(server);
-                          await refresh();
-                          if (result.ok) toast.success(result.message);
-                          else setError(result.message);
-                        })
-                      }
-                    >
-                      Test connection
-                    </Button>
-                    <Button size="sm" variant="outline" disabled={busy || !!editing} onClick={() => edit(server)}>
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      disabled={busy || !!editing}
-                      onClick={() => {
+                <TableCell className="text-right">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Test ${server.name}`}
+                    disabled={busy || !!editing}
+                    onClick={() =>
+                      void act(async () => {
+                        const result = await testMCPServer(server);
+                        await refresh();
+                        if (result.ok) toast.success(result.message);
+                        else setError(result.message);
+                      })
+                    }
+                  >
+                    <Plug data-icon="inline-start" />
+                    Test connection
+                  </Button>
+                  <RowMenu
+                    name={server.name}
+                    disabled={busy || !!editing}
+                    items={[
+                      { label: "Edit", icon: Pencil, onSelect: () => edit(server) },
+                      deleteMenuItem(() => {
                         setError(null);
                         setRemoving(server);
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </div>
+                      }),
+                    ]}
+                  />
                 </TableCell>
               </TableRow>
             ))}

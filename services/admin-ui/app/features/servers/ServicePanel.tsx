@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   deleteItem,
@@ -21,8 +21,7 @@ import { serviceRoles, serviceTypes } from "./serviceClassification";
 import ServiceFields, { serviceFields, serviceValue } from "./ServiceFields";
 import AddConnectionDialog from "./AddConnectionDialog";
 import AddRelationDialog from "./AddRelationDialog";
-import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
-import { RowAction, RowActions } from "./RowAction";
+import { DraftBadge, DraftRowMenu } from "./ConfirmDraftSheet";
 import { CONFLICT, draftOf, List, Row, removeItem } from "./rows";
 import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
 import EntryDocuments from "./EntryDocuments";
@@ -219,18 +218,15 @@ export default function ServicePanel({
             Service page
           </Link>
         </div>
-        <RowActions>
-          {service.status === "draft" && (
-            <DraftActions
-              name={service.name}
-              confirm={{ kind: "service", id: service.id, revision: service.revision }}
-              onDone={changed}
-            />
-          )}
-          <RowAction label="Edit" name={service.name} onClick={() => setOpen({ kind: "fields" })}>
-            <Pencil />
-          </RowAction>
-        </RowActions>
+        <DraftRowMenu
+          name={service.name}
+          draft={
+            service.status === "draft"
+              ? { confirm: { kind: "service", id: service.id, revision: service.revision }, onDone: changed }
+              : undefined
+          }
+          items={[{ label: "Edit", icon: Pencil, onSelect: () => setOpen({ kind: "fields" }) }]}
+        />
       </div>
 
       <Part title="Deployment here">

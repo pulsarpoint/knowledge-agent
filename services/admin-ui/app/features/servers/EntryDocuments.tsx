@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import {
   getEntryDocuments,
   newDocumentPath,
@@ -8,7 +8,7 @@ import {
   type EntryDocuments as Documents,
   type MapEntry,
 } from "./inventoryMap";
-import { RowAction, RowActions } from "./RowAction";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { deleteDocument } from "~/features/documents/api";
 import { discardDraft } from "~/features/documents/drafts";
 import Markdown from "~/components/Markdown";
@@ -116,20 +116,10 @@ export default function EntryDocuments({
                   </div>
                   {item.description_short && <p className="text-muted-foreground">{item.description_short}</p>}
                 </div>
-                <RowActions>
-                  {/* a new document's draft opens at /documents/{id} too (the id it keeps when published) */}
-                  <RowAction label="Edit" name={item.title} to={`/documents/${encodeURIComponent(item.id)}`}>
-                    <Pencil />
-                  </RowAction>
-                  <RowAction
-                    label={item.is_draft ? "Discard draft" : "Delete"}
-                    name={item.title}
-                    destructive
-                    onClick={() => setDeleting(item)}
-                  >
-                    <Trash2 />
-                  </RowAction>
-                </RowActions>
+                <RowMenu
+                  name={item.title}
+                  items={[deleteMenuItem(() => setDeleting(item), item.is_draft ? "Discard" : "Delete")]}
+                />
               </li>
             ))}
           </ul>

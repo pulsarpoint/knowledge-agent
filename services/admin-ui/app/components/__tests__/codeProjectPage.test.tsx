@@ -157,7 +157,7 @@ test("the Documents sub-page lists the code project's documents with New documen
     "href",
     "/documents/new?resource=code_project&resource_id=c1",
   );
-  expect(documents.getByRole("button", { name: "Delete Shop overview" })).toBeInTheDocument();
+  expect(documents.getByRole("button", { name: "Actions for Shop overview" })).toBeInTheDocument();
 });
 
 test("Chat opens the chat panel on the code project, and it stays open across sub-pages", async () => {
@@ -222,5 +222,5 @@ test("the code projects list links each name to its page", async () => {
   );
   show("/code-projects");
   expect(await screen.findByRole("link", { name: "Shop" })).toHaveAttribute("href", "/code-projects/c1");
-  expect(screen.getByRole("button", { name: "Delete Shop" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Actions for Shop" })).toBeInTheDocument();
 });

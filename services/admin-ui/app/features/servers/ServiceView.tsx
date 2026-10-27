@@ -7,8 +7,7 @@ import type { ServiceAsset, ServiceDeployment } from "./services";
 import { builtFrom, RELATION_TABS, tabRelations, useServicePage, type RelationTab } from "./ServiceLayout";
 import { connectionRows, DeploymentSheet, deploymentText, Description, servicePath } from "./ServicePanel";
 import { draftOf, List, Row } from "./rows";
-import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
-import { RowActions } from "./RowAction";
+import { DraftBadge, DraftRowMenu } from "./ConfirmDraftSheet";
 import { getStorage } from "~/lib/storage";
 import { Button } from "~/components/ui/button";
 
@@ -66,13 +65,11 @@ export default function ServiceView() {
         <div className="flex items-center gap-2 text-sm">
           <DraftBadge />
           <span className="text-muted-foreground">An agent recorded this service.</span>
-          <RowActions>
-            <DraftActions
-              name={service.name}
-              confirm={{ kind: "service", id: service.id, revision: service.revision }}
-              onDone={changed}
-            />
-          </RowActions>
+          <DraftRowMenu
+            name={service.name}
+            draft={{ confirm: { kind: "service", id: service.id, revision: service.revision }, onDone: changed }}
+            items={[]}
+          />
         </div>
       )}
       <section aria-label="Details" className="flex flex-col gap-2 text-sm">

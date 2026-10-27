@@ -315,9 +315,9 @@ test("Update from upload is offered for every skill: it sends the zip and shows 
   });
   show();
   const row = (await screen.findByText("notes")).closest("tr")!;
-  expect(within(screen.getByText("pdf-forms").closest("tr")!).getByLabelText("Zip for pdf-forms")).toBeInTheDocument();
+  expect(within(screen.getByText("pdf-forms").closest("tr")!).getByLabelText("File for pdf-forms")).toBeInTheDocument();
   const zip = new File(["zip"], "notes2.zip", { type: "application/zip" });
-  fireEvent.change(within(row).getByLabelText("Zip for notes"), { target: { files: [zip] } });
+  fireEvent.change(within(row).getByLabelText("File for notes"), { target: { files: [zip] } });
   await screen.findByText("notes updated to version 20261026T100000Z. Changed: SKILL.md (modified).");
   const call = calls.find((item) => item.key.startsWith("POST /api/skills/s2/update/upload"))!;
   expect(call.body).toBe(zip);

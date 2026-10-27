@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCw } from "lucide-react";
 import { getCodeProjects, pullCodeProject, removeCodeProject, type CodeProject } from "./api";
 import { useCodeProjectsPage } from "./CodeProjectsLayout";
 import { graphStatus, syncStatus, syncing } from "./status";
 import DataTable from "~/components/DataTable";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -207,7 +208,7 @@ export default function CodeProjectsList() {
       id: "actions",
       header: "Actions",
       cell: ({ row: { original: project } }) => (
-        <div className="flex gap-1">
+        <div className="flex justify-end gap-1">
           {project.remote_url && (
             <Button
               variant="ghost"
@@ -220,20 +221,16 @@ export default function CodeProjectsList() {
               Sync now
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`Delete ${project.name}`}
-            className="text-destructive"
+          <RowMenu
+            name={project.name}
             disabled={busy || syncing(project)}
-            onClick={() => {
-              setDeleteFiles(false);
-              setRemoving(project);
-            }}
-          >
-            <Trash2 data-icon="inline-start" />
-            Delete
-          </Button>
+            items={[
+              deleteMenuItem(() => {
+                setDeleteFiles(false);
+                setRemoving(project);
+              }),
+            ]}
+          />
         </div>
       ),
     },

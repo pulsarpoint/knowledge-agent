@@ -1,18 +1,17 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
-import { Eye, FileText, Layers, Network, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { FileText, Layers, Network, Pencil, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteEnvironment, getEnvironments, type EnvironmentAsset } from "./environments";
 import { environmentMapPath } from "./inventoryMap";
-import { RowAction, RowActions } from "./RowAction";
+import { deleteMenuItem } from "~/components/RowMenu";
 import EnvironmentForm from "./EnvironmentForm";
-import { DraftActions, DraftBadge } from "./ConfirmDraftSheet";
+import { DraftBadge, DraftRowMenu } from "./ConfirmDraftSheet";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -27,7 +26,6 @@ export default function EnvironmentsView() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<{ environment: EnvironmentAsset | null } | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EnvironmentAsset | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -53,7 +51,6 @@ export default function EnvironmentsView() {
 
   function openForm(environment: EnvironmentAsset | null) {
     setForm({ environment });
-    setSelected(null);
   }
   async function confirmDelete() {
     if (deleteTarget === null || deleting) return;
@@ -67,7 +64,6 @@ export default function EnvironmentsView() {
           ? { ...current, environments: current.environments.filter((environment) => environment.id !== target.id) }
           : null,
       );
-      setSelected((current) => (current === target.id ? null : current));
       setDeleteTarget(null);
       toast.success(`Environment “${target.name}” deleted.`);
       setRefresh((value) => value + 1);
@@ -87,7 +83,6 @@ export default function EnvironmentsView() {
         ...environment.servers.flatMap((server) => [server.name, server.hostname]),
       ].some((value) => value.toLowerCase().includes(query.trim().toLowerCase())),
     ) ?? [];
-  const detail = data?.environments.find((environment) => environment.id === selected);
 
   return (
     <div className="flex flex-col gap-6">
@@ -131,7 +126,6 @@ export default function EnvironmentsView() {
           }}
           onSaved={(environment) => {
             setForm(null);
-            setSelected(environment.id);
             toast.success(`Environment “${environment.name}” saved.`);
             setRefresh((value) => value + 1);
           }}
@@ -196,53 +190,39 @@ export default function EnvironmentsView() {
                         </TableCell>
                         <TableCell className="align-top">{environment.services.length}</TableCell>
                         <TableCell className="align-top">{environment.servers.length}</TableCell>
-                        <TableCell className="align-top">
-                          <RowActions>
-                            {environment.status === "draft" && (
-                              <DraftActions
-                                name={environment.name}
-                                confirm={{ kind: "environment", id: environment.id, revision: environment.revision }}
-                                onDone={() => setRefresh((value) => value + 1)}
-                              />
-                            )}
-                            <RowAction
-                              label="Details"
-                              name={environment.name}
-                              onClick={() => setSelected(environment.id)}
-                            >
-                              <Eye />
-                            </RowAction>
-                            <RowAction label="Map" name={environment.name} to={environmentMapPath(environment.id)}>
-                              <Network />
-                            </RowAction>
-                            <RowAction
-                              label="Documents"
-                              name={environment.name}
-                              to={`/documents?environment_id=${environment.id}`}
-                            >
-                              <FileText />
-                            </RowAction>
-                            <RowAction
-                              label="Edit"
-                              name={environment.name}
-                              disabled={loading || error !== null || deleting}
-                              onClick={() => openForm(environment)}
-                            >
-                              <Pencil />
-                            </RowAction>
-                            <RowAction
-                              label="Delete"
-                              name={environment.name}
-                              destructive
-                              disabled={loading || error !== null || deleting}
-                              onClick={() => {
-                                setDeleteTarget(environment);
-                                setDeleteError(null);
-                              }}
-                            >
-                              <Trash2 />
-                            </RowAction>
-                          </RowActions>
+                        <TableCell className="text-right align-top">
+                          <DraftRowMenu
+                            name={environment.name}
+                            draft={
+                              environment.status === "draft"
+                                ? {
+                                    confirm: {
+                                      kind: "environment",
+                                      id: environment.id,
+                                      revision: environment.revision,
+                                    },
+                                    onDone: () => setRefresh((value) => value + 1),
+                                  }
+                                : undefined
+                            }
+                            items={[
+                              { label: "Map", icon: Network, to: environmentMapPath(environment.id) },
+                              { label: "Documents", icon: FileText, to: `/documents?environment_id=${environment.id}` },
+                              {
+                                label: "Edit",
+                                icon: Pencil,
+                                disabled: loading || error !== null || deleting,
+                                onSelect: () => openForm(environment),
+                              },
+                              {
+                                ...deleteMenuItem(() => {
+                                  setDeleteTarget(environment);
+                                  setDeleteError(null);
+                                }),
+                                disabled: loading || error !== null || deleting,
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -259,61 +239,6 @@ export default function EnvironmentsView() {
             </div>
           )}
         </>
-      )}
-      {detail && !form && (
-        <Card aria-label="Environment details">
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <CardTitle>{detail.name}</CardTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Close environment details"
-                onClick={() => setSelected(null)}
-              >
-                <X />
-              </Button>
-            </div>
-            <CardDescription className="whitespace-pre-wrap">{detail.description || "No description"}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6 md:grid-cols-2">
-            <section aria-label="Environment services" className="flex flex-col gap-3">
-              <h3 className="font-semibold">Services</h3>
-              {detail.services.length ? (
-                <ul className="flex flex-wrap gap-2">
-                  {detail.services.map((service) => (
-                    <li key={service.id}>
-                      <Badge variant="secondary">{service.name}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No services deployed here.</p>
-              )}
-              <Link to="/services" className="text-sm underline">
-                Manage services
-              </Link>
-            </section>
-            <section aria-label="Environment servers" className="flex flex-col gap-3">
-              <h3 className="font-semibold">Servers</h3>
-              {detail.servers.length ? (
-                <ul className="flex flex-col gap-2">
-                  {detail.servers.map((server) => (
-                    <li key={server.id} className="text-sm">
-                      <span className="font-medium">{server.name}</span>
-                      <span className="text-muted-foreground"> · {server.hostname}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No servers deployed here.</p>
-              )}
-              <Link to="/servers" className="text-sm underline">
-                Manage servers
-              </Link>
-            </section>
-          </CardContent>
-        </Card>
       )}
       <ConfirmRemove
         removal={
