@@ -290,7 +290,7 @@ export default function MCPServersView() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    aria-label={`Test ${server.name}`}
+                    aria-label={`Test connection for ${server.name}`}
                     disabled={busy || !!editing}
                     onClick={() =>
                       void act(async () => {

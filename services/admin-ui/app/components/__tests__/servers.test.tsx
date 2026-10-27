@@ -327,7 +327,9 @@ test("Test SSH shows why a server cannot connect", async () => {
 
 test("Test SSH is unavailable when SSH is not allowed", async () => {
   setup([server]);
-  expect(await menuItem("App host", "Test SSH")).toHaveAttribute("aria-disabled", "true");
+  const item = await menuItem("App host", "Test SSH");
+  expect(item).toHaveAttribute("aria-disabled", "true");
+  expect(item).toHaveAccessibleDescription("Enable agent SSH to test");
 });
 
 test("the server name links to the server page", async () => {

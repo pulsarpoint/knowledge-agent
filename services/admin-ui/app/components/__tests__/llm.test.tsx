@@ -119,7 +119,7 @@ test("connection test is explicit and uses the saved revision", async () => {
   );
   vi.stubGlobal("fetch", fetch);
   page();
-  const button = await screen.findByRole("button", { name: "Test Bedrock Claude" });
+  const button = await screen.findByRole("button", { name: "Test connection for Bedrock Claude" });
   expect(fetch.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
   fireEvent.click(button);
   await screen.findByText("Bedrock Claude: Model responded successfully.");
@@ -136,7 +136,7 @@ test("a model row keeps Test inline and Edit in its menu; Edit opens the model's
   );
   page();
   const row = (await screen.findByRole("cell", { name: "Bedrock Claude" })).closest("tr")!;
-  expect(rowButtons(row)).toEqual(["Test Bedrock Claude", "Actions for Bedrock Claude"]);
+  expect(rowButtons(row)).toEqual(["Test connection for Bedrock Claude", "Actions for Bedrock Claude"]);
   await user.click(within(row).getByRole("button", { name: "Actions for Bedrock Claude" }));
   expect(menuItems()).toEqual(["Edit"]);
   await user.keyboard("{Escape}");

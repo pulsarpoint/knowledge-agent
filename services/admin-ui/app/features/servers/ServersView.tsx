@@ -263,6 +263,7 @@ export default function ServersView() {
                             label: "Test SSH",
                             icon: Plug,
                             disabled: !server.ssh_allowed || testing !== null || sshServer !== null,
+                            hint: server.ssh_allowed ? undefined : "Enable agent SSH to test",
                             onSelect: () => void testConnection(server),
                           },
                           { label: "Documents", icon: FileText, to: `/documents?server_id=${server.id}` },

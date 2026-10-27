@@ -139,6 +139,7 @@ test("an agent row keeps Run inline and Clone and Delete in its menu; no Open be
   app("/agents");
   const row = (await screen.findByRole("link", { name: "Payments code" })).closest("tr")!;
   expect(rowButtons(row)).toEqual(["Run Payments code", "Actions for Payments code"]);
+  expect(within(row).getByRole("button", { name: "Run Payments code" })).toHaveTextContent("Run");
   expect(within(row).queryByRole("link", { name: "Open Payments code" })).toBeNull();
   await user.click(within(row).getByRole("button", { name: "Actions for Payments code" }));
   expect(menuItems()).toEqual(["Clone", "Delete"]);

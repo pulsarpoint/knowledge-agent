@@ -163,7 +163,7 @@ test("the Code projects table shows source, ref, commit, sync and code graph sta
   expect(billing.getByText("Local folders")).toBeInTheDocument();
   expect(billing.getByText("not indexed")).toBeInTheDocument();
   expect(billing.getByText("0")).toBeInTheDocument();
-  expect(billing.queryByRole("button", { name: "Sync Billing now" })).toBeNull(); // nothing to pull
+  expect(billing.queryByRole("button", { name: "Sync now for Billing" })).toBeNull(); // nothing to pull
 });
 
 test("the table searches name and source, filters by statuses and sorts by header click", async () => {
@@ -223,7 +223,7 @@ test("a code project row keeps Sync now inline and Delete in its menu", async ()
   api([project]);
   show();
   const row = (await screen.findByRole("link", { name: "Payments" })).closest("tr")!;
-  expect(rowButtons(row)).toEqual(["Sync Payments now", "Actions for Payments"]);
+  expect(rowButtons(row)).toEqual(["Sync now for Payments", "Actions for Payments"]);
   await user.click(within(row).getByRole("button", { name: "Actions for Payments" }));
   expect(menuItems()).toEqual(["Delete"]);
 });
@@ -232,7 +232,7 @@ test("Sync now queues a pull from the row", async () => {
   const user = userEvent.setup();
   const fetch = api([project]);
   show();
-  await user.click(await screen.findByRole("button", { name: "Sync Payments now" }));
+  await user.click(await screen.findByRole("button", { name: "Sync now for Payments" }));
   await screen.findByText("Git pull queued.");
   expect(
     fetch.mock.calls.some(([url, init]) => url === "/api/code-projects/code-1/pull" && init?.method === "POST"),

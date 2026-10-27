@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Link } from "react-router";
 import { MoreHorizontal, Trash2, type LucideIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
@@ -10,9 +10,10 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 
-/** One item of a row menu: a link (`to`), an action (`onSelect`) or a file picker (`accept` + `onFile`). A
- * `destructive` item (Delete, Remove, Discard) opens the page's confirmation. */
-export type RowMenuItem = { label: string; icon: LucideIcon; disabled?: boolean } & (
+/** One item of a row menu: a link (`to`), an action (`onSelect`) or a file picker (`accept` + `onFile`; one per menu).
+ * A `destructive` item (Delete, Remove, Discard) opens the page's confirmation. A disabled item shows its `hint` (why
+ * it is off) under the label. */
+export type RowMenuItem = { label: string; icon: LucideIcon; disabled?: boolean; hint?: string } & (
   { to: string } | { onSelect: () => void; destructive?: boolean } | { accept: string; onFile: (file: File) => void }
 );
 
@@ -45,6 +46,29 @@ export default function RowMenu({
   const plain = present.filter((item) => !isDestructive(item));
   const destructive = present.filter(isDestructive);
   const picker = present.find((item) => "onFile" in item);
+  const ids = useId();
+  if (present.length === 0) return null;
+  /** The item's icon and label, with its hint under the label when it is disabled (its description). */
+  const content = (item: RowMenuItem, key: string): { body: ReactNode; describedBy?: string } => {
+    const Icon = item.icon;
+    const hint = item.disabled && item.hint ? `${ids}-${key}` : undefined;
+    return {
+      describedBy: hint,
+      body: (
+        <>
+          <Icon />
+          <span className="flex flex-col">
+            <span>{item.label}</span>
+            {hint && (
+              <span id={hint} className="text-xs text-muted-foreground">
+                {item.hint}
+              </span>
+            )}
+          </span>
+        </>
+      ),
+    };
+  };
   return (
     <>
       {picker && "onFile" in picker && (
@@ -71,40 +95,41 @@ export default function RowMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {plain.map((item) => {
-            const Icon = item.icon;
+          {plain.map((item, index) => {
+            const { body, describedBy } = content(item, `p${index}`);
             if ("to" in item)
               return (
-                <DropdownMenuItem key={item.label} asChild disabled={item.disabled}>
-                  <Link to={item.to}>
-                    <Icon />
-                    {item.label}
+                <DropdownMenuItem key={`${item.label}-${index}`} asChild disabled={item.disabled}>
+                  <Link to={item.to} aria-label={item.label} aria-describedby={describedBy}>
+                    {body}
                   </Link>
                 </DropdownMenuItem>
               );
             return (
               <DropdownMenuItem
-                key={item.label}
+                key={`${item.label}-${index}`}
+                aria-label={item.label}
+                aria-describedby={describedBy}
                 disabled={item.disabled}
                 onSelect={"onSelect" in item ? item.onSelect : () => file.current?.click()}
               >
-                <Icon />
-                {item.label}
+                {body}
               </DropdownMenuItem>
             );
           })}
           {plain.length > 0 && destructive.length > 0 && <DropdownMenuSeparator />}
-          {destructive.map((item) => {
-            const Icon = item.icon;
+          {destructive.map((item, index) => {
+            const { body, describedBy } = content(item, `d${index}`);
             return (
               <DropdownMenuItem
-                key={item.label}
+                key={`${item.label}-${index}`}
+                aria-label={item.label}
+                aria-describedby={describedBy}
                 className="text-destructive focus:text-destructive"
                 disabled={item.disabled}
                 onSelect={"onSelect" in item ? item.onSelect : undefined}
               >
-                <Icon />
-                {item.label}
+                {body}
               </DropdownMenuItem>
             );
           })}

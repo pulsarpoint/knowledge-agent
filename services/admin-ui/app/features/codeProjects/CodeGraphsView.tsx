@@ -135,7 +135,7 @@ export default function CodeGraphsView() {
                   <TableCell>{index ? new Date(index.processed_at).toLocaleString() : "—"}</TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
-                      {index && (
+                      {index ? (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -145,14 +145,30 @@ export default function CodeGraphsView() {
                           <Network data-icon="inline-start" />
                           View graph
                         </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Generate graph for ${project.name}`}
+                          disabled={busy || active(project)}
+                          onClick={() => void generate(project)}
+                        >
+                          {active(project) ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : (
+                            <RefreshCw data-icon="inline-start" />
+                          )}
+                          Generate graph
+                        </Button>
                       )}
                       <RowMenu
                         name={project.name}
                         items={[
-                          {
-                            label: "Generate graph",
+                          index && {
+                            label: "Regenerate graph",
                             icon: RefreshCw,
                             disabled: busy || active(project),
+                            hint: active(project) ? "Generating…" : undefined,
                             onSelect: () => void generate(project),
                           },
                         ]}

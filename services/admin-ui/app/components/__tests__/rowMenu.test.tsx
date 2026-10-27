@@ -103,3 +103,60 @@ test("RowMenu: without a destructive item there is no separator, and Delete alon
   expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
   expect(screen.queryByRole("separator")).toBeNull();
 });
+
+test("RowMenu: a disabled item shows its hint under the label; an enabled one does not; the name stays the label", async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <RowMenu
+        name="app"
+        items={[
+          { label: "Test SSH", icon: Pencil, onSelect: () => {}, disabled: true, hint: "Enable agent SSH to test" },
+          { label: "Edit", icon: Pencil, onSelect: () => {}, hint: "Never shown" },
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  await user.click(screen.getByRole("button", { name: "Actions for app" }));
+  const test = screen.getByRole("menuitem", { name: "Test SSH" });
+  expect(test).toHaveAttribute("aria-disabled", "true");
+  expect(test).toHaveTextContent("Enable agent SSH to test");
+  expect(test).toHaveAccessibleDescription("Enable agent SSH to test");
+  expect(screen.getByRole("menuitem", { name: "Edit" })).not.toHaveTextContent("Never shown");
+});
+
+test("RowMenu: works from the keyboard (Enter opens, arrows move, Enter chooses)", async () => {
+  const user = userEvent.setup();
+  const { run } = show();
+  screen.getByRole("button", { name: "Actions for notes" }).focus();
+  await user.keyboard("{Enter}");
+  await screen.findByRole("menu");
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(run).toHaveBeenCalled();
+});
+
+test("RowMenu: no items, no menu", () => {
+  render(
+    <MemoryRouter>
+      <RowMenu name="empty" items={[false, null]} />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole("button", { name: "Actions for empty" })).toBeNull();
+});
+
+test("RowMenu: items with the same label both show", async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <RowMenu
+        name="dup"
+        items={[
+          { label: "Edit", icon: Pencil, onSelect: () => {} },
+          { label: "Edit", icon: Pencil, onSelect: () => {} },
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  await user.click(screen.getByRole("button", { name: "Actions for dup" }));
+  expect(screen.getAllByRole("menuitem", { name: "Edit" })).toHaveLength(2);
+});

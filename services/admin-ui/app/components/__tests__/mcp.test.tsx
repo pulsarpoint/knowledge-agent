@@ -96,7 +96,7 @@ it("tests a saved connection and shows discovered tools", async () => {
     server: connection,
   });
   page();
-  await user.click(await screen.findByRole("button", { name: "Test Deployment tools" }));
+  await user.click(await screen.findByRole("button", { name: "Test connection for Deployment tools" }));
   await screen.findByText("Connected. Discovered 1 tools.");
   expect(api.testMCPServer).toHaveBeenCalledWith(connection);
   await user.click(screen.getByText("1 tools · Connection verified"));
@@ -106,7 +106,7 @@ it("an MCP server row keeps Test inline and Edit and Delete in its menu", async 
   const user = userEvent.setup();
   page();
   const row = (await screen.findByText("Deployment tools")).closest("tr")!;
-  expect(rowButtons(row)).toEqual(["Test Deployment tools", "Actions for Deployment tools"]);
+  expect(rowButtons(row)).toEqual(["Test connection for Deployment tools", "Actions for Deployment tools"]);
   await user.click(within(row).getByRole("button", { name: "Actions for Deployment tools" }));
   expect(menuItems()).toEqual(["Edit", "Delete"]);
 });

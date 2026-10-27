@@ -177,8 +177,9 @@ the screen; errors stay on the page, next to the form or list, until you act aga
 
 Every list row keeps its actions in one **⋯** menu (*Actions for <name>*): the actions as icon and label, then
 **Delete** (or **Remove** / **Discard**) last, in red, which always asks first. A row's name opens its page, so the menu
-has no Open. At most one quick action stays in the row itself: **Run** on agents, **Sync now** on code projects,
-**Run now** on schedules, **Test connection** on models and MCP servers, **View graph** on code graphs, **Publish** on
+has no Open. An action that is off says why under its label (for example *Enable agent SSH to test*). At most one quick action stays in the row itself: **Run** on agents, **Sync now** on code projects,
+**Run now** on schedules, **Test connection** on models and MCP servers, **View graph** on code graphs (**Generate
+graph** before there is one), **Publish** on
 a new document's draft and **Confirm** on an inventory draft.
 
 ### 4.2 LLM Settings
@@ -250,7 +251,8 @@ are shown as a safe summary ("Check the URL, branch, token permissions…").
 symbols, relationships, routes, languages and parse errors. It skips `.env*`, keys,
 dependency/build folders, binaries and files over 1 MiB, and reuses unchanged files.
 **Code → Code graphs** lists every project's graph (status, files, symbols, relationships, languages, last
-generated) with **View graph** (an explorer: files → symbols, filter, paging) and, in the row's ⋯ menu, **Generate graph**; on a project's page,
+generated) with **View graph** (an explorer: files → symbols, filter, paging) and, in the row's ⋯ menu, **Regenerate graph**;
+a project without a graph has **Generate graph** in its row instead; on a project's page,
 **Overview → Re-index** generates it again. `/code-graphs?project=<id>` opens one
 directly. The graph is a
 prerequisite for code documentation phases ([4.11](#411-write-a-new-document-with-an-agent)).

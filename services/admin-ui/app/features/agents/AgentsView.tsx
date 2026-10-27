@@ -192,13 +192,14 @@ export default function AgentsView() {
                   <TableCell className="text-right">
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="sm"
                       disabled={!a.enabled}
                       aria-label={`Run ${a.name}`}
-                      title={a.enabled ? "Run" : "Enable the agent to run it"}
+                      title={a.enabled ? undefined : "Enable the agent to run it"}
                       onClick={() => chat(a.id)}
                     >
-                      <Play />
+                      <Play data-icon="inline-start" />
+                      Run
                     </Button>
                     <RowMenu
                       name={a.name}

@@ -213,7 +213,7 @@ export default function CodeProjectsList() {
             <Button
               variant="ghost"
               size="sm"
-              aria-label={`Sync ${project.name} now`}
+              aria-label={`Sync now for ${project.name}`}
               disabled={busy || syncing(project)}
               onClick={() => void pull(project)}
             >

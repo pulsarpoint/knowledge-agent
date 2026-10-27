@@ -162,7 +162,7 @@ export default function LlmSettingsView() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            aria-label={`Test ${model.name}`}
+                            aria-label={`Test connection for ${model.name}`}
                             disabled={!model.enabled || testing !== null || editing !== undefined}
                             onClick={() => void test(model)}
                           >
