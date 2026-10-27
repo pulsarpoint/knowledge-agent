@@ -30,7 +30,7 @@ with their active link arrays and `draft_count`) and `ka.document_drafts_view` (
 title and slug, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
 a run's document that points at a draft, and a `built_for` link on a draft of a live document (migration 0130).
 
-**Links.** A brand-new draft (a person's Save, a new-document run's first save, a discovery run's `new_document`) gets its links as `built_for`, with `added_how` person, agent_run or discovery. A built-for link cannot
+**Links.** A brand-new draft (a person's Save, an agent's `new_document` in Write with an agent, a chat or a discovery run) gets its links as `built_for`, with `added_how` person, agent_run or discovery. A built-for link cannot
 be removed: unticking it is a 409 "This document was built for
 {type} {name}; that link can't be removed." and nothing changes. A person's links never go through drafts: **Save links**
 (`PUT /documents/{id}/links`, on a live document or a brand-new draft) applies them directly. It compares the ticked

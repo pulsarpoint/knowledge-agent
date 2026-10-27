@@ -162,10 +162,13 @@ export default function AgentChat({
   useEffect(() => {
     setText(readDraft(draftKey(scope, runId)));
   }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A mention goes into the message box at the cursor (or at the end), and the box keeps the focus after it.
+  // A mention goes into the message box at the cursor (or at the end), and the box keeps the focus after it. Each
+  // mention is used once: one made before this chat mounted (New chat remounts it) belongs to another conversation.
   const input = useRef<HTMLTextAreaElement>(null);
+  const usedMention = useRef(mention?.key);
   useEffect(() => {
-    if (!mention) return;
+    if (!mention || mention.key === usedMention.current) return;
+    usedMention.current = mention.key;
     const box = input.current;
     const next = insertMention(
       message,

@@ -703,7 +703,7 @@ the main turn's Worked line counts only the agent's own work. **Stop** stops the
 
 **Experts.** Turn on **Offer as an expert** on an agent's General tab (it needs a When to use text, which tells other
 agents when to call it; the agent must be enabled and have a model). Every other native agent, including the agent of a
-new-document run, then gets a tool `ask_<name>` for it; an expert itself calls no experts. A run may narrow the
+Write with an agent run, then gets a tool `ask_<name>` for it; an expert itself calls no experts. A run may narrow the
 experts in its chat **Settings**. An expert works on
 its own resources, or on those the caller passes, which must be the caller's own and in the expert's resources. An expert starts without the
 conversation, may start its own subagents, uses its own model and keys, and returns its final
@@ -750,7 +750,8 @@ resource (`?resource=server&resource_id=…`).
 width: **Documents in this chat** on the left, the chat on the right.
 
 1. **The resources.** From a resource's New document the chat is on that resource (a server without SSH is held too: the
-   agent reads it and writes about it, but cannot run commands on it). Without one, open **Settings** and pick the
+   agent reads it and writes about it, but cannot run commands on it, and does not see the services deployed on it, as
+   it would with SSH). Such a server cannot be picked in Settings, though: a picked server needs SSH. Without one, open **Settings** and pick the
    resources to write about (code projects, environments, services, servers); until one is picked nothing starts
    ("Pick at least one resource in Settings for the agent to write about.").
 2. **Message the agent**: what to write and what to read. It creates a document with `new_document` (built for one of

@@ -220,12 +220,12 @@ configuration references (SSH private
 keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at
 most 16 helpers, subagents and expert calls together ("This turn already started 16 helpers."), and runs
 `AGENT_MAX_SUBAGENTS` (default 4) at once, shared with expert calls; later calls wait. The result is the subagent's final answer, redacted, or `Subagent failed: <reason>`; refusals are tool
-errors naming the tool or resource. Subagents run only in native agent sessions (Test, Ask agent and new-document runs). Their
+errors naming the tool or resource. Subagents run only in native agent sessions (Test, Ask agent and Write with an agent runs). Their
 events go into the turn's record (`cc:<session>:<turn>`) with `payload.parent_call_id` (the `run_subagent` call id; the
 first is `input {task, subagent}`), their model calls into the session's totals and their tool calls into the tool
 counts. **Stop** stops the agent and every subagent; a subagent of an ended turn starts no model or tool call.
 
-**Experts (`ask_<slug>`).** A native agent, including the ad-hoc agent of a new-document run, gets one tool per offered expert
+**Experts (`ask_<slug>`).** A native agent, including the ad-hoc agent of a Write with an agent run, gets one tool per offered expert
 (see [agent configuration](agent-profiles.md)): an agent with **Offer as an expert** that is enabled, has a model and
 is not the caller (a run's `expert_ids` may narrow them). The name is `ask_` plus the expert's name lowercased with
 every run of characters other than `a-z0-9` replaced by `_`, trimmed of `_`, at most 50 characters (an empty slug gives
@@ -235,7 +235,7 @@ code projects, servers, services).` (the kinds in its access object) or, with no
 ` It uses its own resources.` Parameters: `task` (non-empty, at most 20,000 characters) and, for an expert that accepts
 a kind, `resources` (`code_project_ids`, `server_ids`, `service_ids`; null: all of its own). The experts a session may call are pinned with its
 configuration (`config['experts']`: id, name, tool, When to use, accepts); later changes to the expert list apply to
-new sessions, and a new-document run pins every offered expert. The expert's own configuration is loaded when it is
+new sessions, and a Write with an agent run pins every offered expert. The expert's own configuration is loaded when it is
 called. Refusals are tool errors: `Expert <name> is not available.` (deleted, no longer an expert, disabled or without
 a model), `<kind> <id> is not one of your resources.`, a resource outside the expert's access (`<type> <id> is not in the agent's access`), the 16-helper limit, an empty
 or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin. A failure returns `Expert <name>

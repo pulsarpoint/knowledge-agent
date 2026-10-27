@@ -386,3 +386,67 @@ test("Conversations lists the earlier Write with an agent conversations; opening
   expect(await within(documents()).findByText("Backups")).toBeVisible();
   expect(within(documents()).queryByText("Disk layout")).toBeNull();
 });
+
+test("after a Mention, New chat starts with an empty message box", async () => {
+  live.sessions.r1 = detail("r1");
+  api({ ...plain, "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts }] });
+  show("/documents/new/agent?chat=r1");
+  const list = await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByRole("list", {
+    name: "Documents",
+  });
+  fireEvent.click(within(list).getByRole("button", { name: "Mention Disk layout" }));
+  await waitFor(() =>
+    expect((within(chat()).getByLabelText("Message") as HTMLTextAreaElement).value).toContain("· d1]"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+  await waitFor(() => expect(screen.getByTestId("conversation-title")).toHaveTextContent("New conversation"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect((within(chat()).getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+});
+
+test("opening another conversation clears the old documents at once while the new ones load", async () => {
+  live.sessions.r1 = detail("r1");
+  live.sessions.r2 = detail("r2");
+  let answer: (value: Response) => void = () => {};
+  api({
+    ...plain,
+    "GET /api/sessions?purpose=documents": () => [200, { sessions: [run("r2", "Write the backups")] }],
+    "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts: [drafts[0]] }],
+  });
+  const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+  const inner = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+    url === "/api/documentation/drafts?session_id=r2"
+      ? new Promise<Response>((resolve) => (answer = resolve))
+      : inner(url, init),
+  );
+  show("/documents/new/agent?chat=r1");
+  expect(
+    await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText("Disk layout"),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Conversations" }));
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /Write the backups/ }));
+  await waitFor(() => expect(within(documents()).queryByText("Disk layout")).toBeNull());
+  expect(within(documents()).queryByRole("button", { name: /Mention/ })).toBeNull();
+  await act(async () => answer(new Response(JSON.stringify({ drafts: [drafts[2]] }), { status: 200 })));
+  expect(await within(documents()).findByText("Backups")).toBeVisible();
+});
+
+test("the Write with an agent tab keeps the open conversation", async () => {
+  live.sessions.r1 = detail("r1", ["servers/s1"]);
+  api({ ...onServer, "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts: [] }] });
+  const router = show("/documents/new/agent?resource=server&resource_id=s1&chat=r1");
+  const tabs = screen.getByRole("navigation", { name: "New document" });
+  expect(within(tabs).getByRole("link", { name: "Write with an agent" })).toHaveAttribute(
+    "href",
+    "/documents/new/agent?resource=server&resource_id=s1&chat=r1",
+  );
+  expect(within(tabs).getByRole("link", { name: "Write" })).toHaveAttribute(
+    "href",
+    "/documents/new?resource=server&resource_id=s1",
+  );
+  await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText(
+    "The agent has not written a document in this conversation yet.",
+  );
+  expect(router.state.location.search).toContain("chat=r1");
+});

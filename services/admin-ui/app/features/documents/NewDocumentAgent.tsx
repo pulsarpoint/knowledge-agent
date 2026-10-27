@@ -58,8 +58,8 @@ export default function NewDocumentAgent() {
   );
 }
 
-/** Documents in this chat: every draft the shown conversation created or edited, loaded when it is shown and again
- * when `version` changes (its turns, its status, or a document write's result in its events). Each title opens in a
+/** Documents in this chat: every draft the shown conversation created or edited, loaded when it is shown (cleared at
+ * once when another one is) and again when `version` changes (its turns, its status, or a document write's result in its events). Each title opens in a
  * new tab; New or Edit of <document>; its state; Mention puts its reference into the message box. */
 function ChatDrafts({
   sessionId,
@@ -72,6 +72,13 @@ function ChatDrafts({
 }) {
   const [drafts, setDrafts] = useState<SessionDraft[] | null>(null);
   const [error, setError] = useState("");
+  // Another conversation: its documents load from nothing (never another conversation's rows with their Mention).
+  const [listed, setListed] = useState(sessionId);
+  if (listed !== sessionId) {
+    setListed(sessionId);
+    setDrafts(null);
+    setError("");
+  }
   useEffect(() => {
     if (sessionId === null) {
       setDrafts([]);

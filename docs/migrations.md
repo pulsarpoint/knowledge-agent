@@ -678,4 +678,5 @@ seeded **Write a document** prompt gets a new version (create with `new_document
 seeded; its description follows where it is still the seeded one. New workspaces get the new text as version 1. The
 down migration adds `document_name` back (at the end of the table, with its length check; existing documents runs get
 their title, test data), restores the check, drops the index, and removes the new prompt version where it is still the
-active, newest, untouched one, restoring the 0131 seed for new workspaces.
+active, newest, untouched one, restoring the 0131 seed for new workspaces. A workspace created while 0145 was applied
+keeps the 0145 text as its version 1 after down (only the seed function goes back; test data).

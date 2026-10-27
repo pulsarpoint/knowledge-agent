@@ -7,6 +7,9 @@ import { newDocumentResource, newDocumentSearch } from "./api";
 export default function NewDocumentLayout() {
   const [params] = useSearchParams();
   const search = newDocumentSearch(newDocumentResource(params));
+  // the agent tab keeps its open conversation (?chat=)
+  const chat = params.get("chat");
+  const agentSearch = chat ? `${search ? `${search}&` : "?"}${new URLSearchParams({ chat })}` : search;
   return (
     <section className="flex min-w-0 flex-col gap-4">
       <h1 className="text-2xl font-semibold">New document</h1>
@@ -14,7 +17,7 @@ export default function NewDocumentLayout() {
         label="New document"
         sections={[
           { to: { pathname: "/documents/new", search }, label: "Write", end: true },
-          { to: { pathname: "/documents/new/agent", search }, label: "Write with an agent" },
+          { to: { pathname: "/documents/new/agent", search: agentSearch }, label: "Write with an agent" },
         ]}
       />
       <Outlet />
