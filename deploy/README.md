@@ -169,6 +169,10 @@ make status
 docker compose --env-file .env -f deploy/compose.yaml logs --tail=80 keycloak admin-oauth2-proxy
 ```
 
+To log more about failed requests, set `LOG_LEVEL=debug` in root `.env` and run `make up`; see
+[Debugging errors](../README.md#debugging-errors) for reading the error lines and finding a request by its
+`X-Request-ID`.
+
 The smoke check uses the bootstrap application admin. If its password has changed
 in Keycloak, update APP_ADMIN_PASSWORD to the current credential before running the
 check. Smoke does not issue an AI prompt or verify provider credentials.
