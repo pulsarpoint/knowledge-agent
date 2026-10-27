@@ -3,7 +3,7 @@ import { ApiError } from "~/lib/api";
 import { isResourceScope, previewSession, type AgentOptions, type ChatScope, type SessionDetail } from "./api";
 import { AGENT_KINDS } from "~/lib/resources";
 import ResourceTabs, { type ResourceGroup, type ResourceItem } from "~/features/agents/ResourceTabs";
-import { OWN, startInput, withScope, type AgentSettings } from "./agentSettings";
+import { OWN, scopeResource, startInput, withScope, type AgentSettings } from "./agentSettings";
 import ToolsList from "~/features/agents/ToolsList";
 import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -43,12 +43,10 @@ export default function AgentSettingsSheet({
   onStartNew: () => void;
 }) {
   // Memoised: a fresh object every render would clear the preview on unrelated re-renders.
-  const scopeResource = isResourceScope(scope)
-    ? `${scope.kind}:${scope.id}`
-    : scope.kind === "new-document" && scope.resourceFor
-      ? `${scope.resourceFor.type}:${scope.resourceFor.id}`
-      : null;
-  const settings = useMemo(() => withScope(scope, given, options), [scopeResource, given, options]);
+  const on = scopeResource(scope);
+  const settings = useMemo(() => withScope(scope, given, options), [on?.type, on?.id, given, options]);
+  // writing from a resource: the chat is on it ("what the agent may use to write about web-1")
+  const onName = on ? options.resources[`${on.type}s`].find((item) => item.id === on.id)?.name : undefined;
   const agent = options.agent;
   const locked = session !== null && session.status !== "closed";
   // A saved agent's model and prompt: the run's own while it is open, else the agent's current ones.
@@ -104,7 +102,7 @@ export default function AgentSettingsSheet({
         return {
           id: item.id,
           name: item.name,
-          locked: isResourceScope(scope) && key === `${scope.kind}s` && item.id === scope.id,
+          locked: on !== undefined && key === `${on.type}s` && item.id === on.id,
           disabled: unusable && !agent,
           note: unusable ? server.reason : null,
         };
@@ -129,7 +127,9 @@ export default function AgentSettingsSheet({
               : agent
                 ? "What the agent may use in the next conversation."
                 : scope.kind === "new-document"
-                  ? `What the agent may use for “${scope.title}”.`
+                  ? on
+                    ? `What the agent may use to write documents about “${onName ?? on.id}”.`
+                    : "What the agent may use to write documents. Pick the resources to write about."
                   : isResourceScope(scope)
                     ? `What the agent may use in a chat on “${scope.name}”.`
                     : `What the agent may use in the next conversation on “${scope.kind === "document" ? scope.title : ""}”.`}

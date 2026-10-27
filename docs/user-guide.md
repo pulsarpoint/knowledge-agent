@@ -130,7 +130,8 @@ Most features depend on earlier ones. A sensible order in the Administration app
 5. **Environments** → group servers and services (e.g. `production`, `staging`).
 6. **Services** → **New service**: describe applications; on the service page link code projects, record
    relations and add deployments.
-7. **Docs → Documents** → **New** → **Write with an agent**: give a title, then tell the agent what to write.
+7. **Docs → Documents** → **New** → **Write with an agent**: pick the resources in **Settings**, then tell the agent
+   what to write.
 8. **Agents** → create agents, assign a model, enable capabilities, test them.
 
 ---
@@ -320,9 +321,9 @@ most recently updated one when several; the others are in its Documents list): t
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"); without one
 there is no box. **New document** in the tab's header opens the New document page built for the resource
 (`/documents/new?resource=server&resource_id=…`: "New document for server web-1.", the resource locked in Linked
-resources, no tags), and **Save** creates its draft; **Write with an agent** there writes a document built for that
-resource alone (untagged; it is listed on the resource's Documents tab as a draft and linked to it when published —
-unless its name matches a published document, whose new version it then drafts instead). Below it, the **Documents** list shows every
+resources, no tags), and **Save** creates its draft; its **Write with an agent** tab is a chat on that resource
+(4.11): the documents the agent creates there are built for the resource, listed on its Documents tab as drafts and
+linked to it when published. Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
 the title (opens the document), its tags (each opens the Documents list filtered by it), the first line of its
@@ -741,28 +742,39 @@ See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent rece
 
 ### 4.11 Write a new document with an agent
 
-**Documents → New** has a **Write with an agent** button (`/documents/new`). It opens a chat with an agent that writes a document that does not
-exist yet. It is the same chat as **Ask agent** on a document ([4.12](#412-documents)): the page takes the full width, the
-document takes two thirds and the chat one third.
+**Documents → New** has two tabs: **Write** (`/documents/new`, the form: title, name, tags, content) and **Write with an
+agent** (`/documents/new/agent`, a chat). Opened from a resource's Documents tab (**New document**), both keep the
+resource (`?resource=server&resource_id=…`).
 
-1. Give a **Title**. Without it, nothing starts. The title needs ASCII letters or digits (the document's name, its slug,
-   is made from them).
-2. Message the agent: what to write and what to read. It writes the document with `update_document` and changes it with
-   `edit_document`. Each save updates the run's draft; you can ask for more changes.
-3. A bar above the editor shows the draft. **Compare** opens the draft page. **Promote** creates the document and opens it.
+**Write with an agent** starts with no title and no name: the agent creates the documents itself. The page takes the full
+width: **Documents in this chat** on the left, the chat on the right.
 
-If the title matches an existing document's name, the agent's saves become a draft of that document. Nothing goes live until
-you promote the draft. There is one conversation per page visit; **New chat** closes it.
+1. **The resources.** From a resource's New document the chat is on that resource (a server without SSH is held too: the
+   agent reads it and writes about it, but cannot run commands on it). Without one, open **Settings** and pick the
+   resources to write about (code projects, environments, services, servers); until one is picked nothing starts
+   ("Pick at least one resource in Settings for the agent to write about.").
+2. **Message the agent**: what to write and what to read. It creates a document with `new_document` (built for one of
+   the chat's resources) and changes it, or an existing document, with `update_document` and `edit_document`. Every
+   write is a draft; nothing goes live until you publish or promote it.
+3. **Documents in this chat** lists every draft the conversation created or edited, and refreshes as the agent writes:
+   the title (opens the draft, or the published document, in a new tab), **New** or **Edit of <document>** (linking to
+   the original), and the state (Draft, Published, Discarded, Replaced). **Mention** puts `[Draft "<title>" · <id>]`
+   into the message box at the cursor (or at the end): the agent can pass that id to `get_document`, `update_document`
+   and `edit_document`.
+
+**Conversations** (beside **New chat** above the chat) opens a side sheet with the earlier Write with an agent
+conversations, of the resource when there is one, newest first; opening one shows its documents on the left. **New chat**
+starts a new conversation. The URL keeps the open conversation (`?chat=<id>`).
 
 **Settings** in the chat opens what the agent may use: the model, the resources (code projects,
 environments, services and servers), the experts, and under **Advanced** the prompt. A server whose SSH
 is not set up or not allowed cannot be chosen. The prompts offered are those tagged `documentation`; the default is **Write a
-document** (Administration → Prompts). It tells the agent to read what it was given, write with `update_document`, change a passage
-with `edit_document`, and never say the document is published. If you write your own prompt, tell the agent to write with
-`update_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
-JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) are offered only when you tick them. The run gets
-every tool, including `run_subagent`; what each may reach follows the resources you chose (for example `ssh_run` only
-on the chosen servers), as in an agent's Chat page.
+document** (Administration → Prompts). It tells the agent to look for an existing document first, create documents with
+`new_document`, change them with `update_document` or `edit_document`, use the ids of mentioned drafts, and never say a
+document is published. If you write your own prompt, tell the agent to write with those tools; a final answer is not
+turned into a draft. **Preview** shows exactly what the next message will start with, as JSON. Experts (`ask_<name>`)
+are offered only when you tick them. The run gets every tool, including `run_subagent`; what each may reach follows the
+resources you chose (for example `ssh_run` only on the chosen servers), as in an agent's Chat page.
 
 **The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Chat page: the
 main pane shows each turn (your message, a collapsed **Worked** block with thinking, tool calls and results, and the answer)
@@ -1222,7 +1234,7 @@ run a handler started records it in that event's chain, so handler loops stop at
 2. **Code projects**: add the Git repository; wait for the clone.
 3. **Services**: create the service, link the code project.
 4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
-5. **Docs → Documents → New → Write with an agent**: give a title, open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
+5. **Docs → Documents → New → Write with an agent**: open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
 6. Follow the chat, send messages such as "shorten the API section", then **Promote** the draft.
 
 ### B. Document deployments and infrastructure
@@ -1243,9 +1255,10 @@ run a handler started records it in that event's chain, so handler loops stop at
 
 ### D. Write documentation interactively with an agent
 
-1. **Docs → Documents → New → Write with an agent** → give a title, choose the resources and the prompt in **Settings**, and tell the agent what to write.
-2. Follow the stream and send a message such as "shorten the API section".
-3. **Promote** the draft.
+1. **Docs → Documents → New → Write with an agent** → choose the resources and the prompt in **Settings**, and tell the agent what to write.
+2. Follow the stream; the drafts appear under **Documents in this chat**. **Mention** one and send a message such as
+   "shorten the API section".
+3. Open the draft (a new tab) and **Publish** it.
 
 ---
 

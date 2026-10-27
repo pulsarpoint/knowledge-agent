@@ -73,7 +73,7 @@ function api(extra = {}) {
     "GET /api/code-projects/c1": () => [200, project],
     "GET /api/code-projects/c1/dependencies": () => [200, dependencies],
     "GET /api/sessions/options?code_project_id=c1": () => [200, { ...shared, discovery_prompts: [] }],
-    "GET /api/sessions?tag=code_projects%2Fc1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=code_projects%2Fc1&purpose=resource": () => [200, { sessions: [] }],
     "GET /api/repositories": () => [
       200,
       { repositories: [project, repository("ui-kit", "Ui-kit"), repository("lodash", "Lodash")] },

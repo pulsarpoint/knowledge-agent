@@ -123,17 +123,6 @@ test("a run with no resources says so", async () => {
   expect(within(resources).getByText("None.")).toBeInTheDocument();
 });
 
-test("what the start left out is said above the instructions", async () => {
-  const note = "Server prod-1 is not given to this run: it has no usable SSH connection.";
-  api({ "GET /api/sessions/r1/debug": () => [200, { ...view, notes: [note] }] });
-  render(
-    <MemoryRouter>
-      <DebugPanel runId="r1" input={null} />
-    </MemoryRouter>,
-  );
-  expect(await screen.findByText(note)).toBeInTheDocument();
-});
-
 test("the agent's instructions and skills are labelled", async () => {
   api({
     "GET /api/sessions/r1/debug": () => [
@@ -184,7 +173,7 @@ function chat(initialRunId: string | null) {
 
 test("in a chat: Debug before the first message previews the next start", async () => {
   const calls = api({
-    "GET /api/sessions?tag=servers%2Fs1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=servers%2Fs1&purpose=resource": () => [200, { sessions: [] }],
     "POST /api/sessions/preview": () => [200, { config: {}, first_message: "(your next message)", ...view }],
   });
   chat(null);
@@ -212,7 +201,7 @@ test("in a chat: Debug of an open run reads GET /api/sessions/{id}/debug", async
     document_draft: null,
   };
   const calls = api({
-    "GET /api/sessions?tag=servers%2Fs1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=servers%2Fs1&purpose=resource": () => [200, { sessions: [] }],
     "GET /api/sessions/r1/debug": () => [200, view],
   });
   chat("r1");

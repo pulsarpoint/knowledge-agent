@@ -665,3 +665,17 @@ folder too: `agent_sessions.folder` and its check go, and `agent_sessions_docume
 The down migration adds both columns back (nullable, at the end of their tables), restores the checks, the index and
 the views; documents come back without a folder, renamed slugs keep their new names, and existing new-document runs
 get the folder `documents` (test data).
+
+## 0145_write_with_an_agent
+
+Write with an agent names no document up front: the agent creates documents with `new_document`. A new-document run
+(`agent_sessions.purpose = 'documents'`) no longer has a document name: `agent_sessions.document_name` and its check go,
+and `agent_sessions_documentation` only keeps `draft`, `draft_turn` and `document_id` empty for other purposes. The
+partial index `audit_events_draft_session` on `(details->>'session_id', created_at, id) WHERE action =
+'document.draft.created'` serves the drafts of one conversation (`GET /api/documentation/drafts?session_id=`). The
+seeded **Write a document** prompt gets a new version (create with `new_document`, change with `update_document` or
+`edit_document`, a mentioned draft's id works), but only where its active, newest version is still the text 0131
+seeded; its description follows where it is still the seeded one. New workspaces get the new text as version 1. The
+down migration adds `document_name` back (at the end of the table, with its length check; existing documents runs get
+their title, test data), restores the check, drops the index, and removes the new prompt version where it is still the
+active, newest, untouched one, restoring the 0131 seed for new workspaces.

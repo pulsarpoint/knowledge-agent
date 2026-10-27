@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { PanelRight } from "lucide-react";
 import { cancelWakeup, formatTokens, statusLabels } from "./api";
 import { toolUsageLine } from "./runs";
@@ -33,6 +33,8 @@ export interface WorkspaceComposer {
   label?: string;
   placeholder?: string;
   sendLabel?: string;
+  /** The message box (a page puts text in at its cursor). */
+  inputRef?: Ref<HTMLTextAreaElement>;
 }
 export interface RunWorkspaceProps {
   run: SessionRun;
@@ -533,6 +535,7 @@ export default function RunWorkspace({
         <Field>
           <FieldLabel htmlFor={id}>{composer.label ?? "Message"}</FieldLabel>
           <Textarea
+            ref={composer.inputRef}
             id={id}
             rows={2}
             maxLength={20000}

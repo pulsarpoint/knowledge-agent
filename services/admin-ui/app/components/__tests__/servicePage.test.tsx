@@ -196,7 +196,7 @@ function api(extra: Record<string, Route> = {}, list = services, rels = relation
       { repositories: [repository("r1", "payments-repo"), repository("r2", "shared-lib")] },
     ],
     "GET /api/storage": () => [200, { locations: [] }],
-    "GET /api/sessions?tag=services%2Fv1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=services%2Fv1&purpose=resource": () => [200, { sessions: [] }],
     "GET /api/environments": () => [200, { environments }],
     "GET /api/servers": () => [200, { servers }],
     "POST /api/relations": (body) => [201, { ...body, id: "rel-new", status: "confirmed", revision: 1 }],

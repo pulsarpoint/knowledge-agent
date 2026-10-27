@@ -182,36 +182,37 @@ review** (`GET /api/environments/{id}/document-drafts`).
 
 ## Write a new document with an agent
 
-**Documents → New → Write with an agent** opens the same chat pane as Ask agent, on a document that does not exist yet.
-The page asks for a **Title**. The run is started by
-`POST /api/sessions` with `started_from.new_document {name}` and the new document in the run's access,
-`resources.documents[{new: {name}}]` (an `editable` key is refused: 422). Such runs have `purpose = 'documents'`. A run starts from a document or
-from a new document, not both (`GET /api/sessions/options` takes `new_document=1` without `agent_id` or `document_id`).
+**Documents → New** has two sub-pages with tab links: **Write** (`/documents/new`, the form) and **Write with an agent**
+(`/documents/new/agent`). Both keep a resource's New document query (`?resource=<type>&resource_id=<id>`). Write with an
+agent is a chat with no title or name up front: the agent creates documents with `new_document` (built for one of the
+run's resources) and changes them, or existing documents, with `update_document` and `edit_document`. The run is started
+by `POST /api/sessions` with `started_from: {new_document: true}`, on at most one resource
+(`{new_document: true, server_id | service_id | environment_id | code_project_id}`: the chat is on that resource,
+tagged with it like a chat on it; a server without SSH is held as the run's own resource, without SSH) and never with
+a document. Without a resource the request must pick at least one (`resources.server_ids`, …): "Pick at least one
+resource for the agent to write about." (400). Such runs have `purpose = 'documents'` and `context_snapshot`
+`{new_document: true}` plus the resource's id. The old form-bound start (`started_from.new_document {name}` and
+`resources.documents[{new: …}]`) is gone (400), and so is `agent_sessions.document_name` (migration 0145).
 
-`GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects,
-environments, services, servers), the experts, and the prompts tagged
-`documentation`. The default prompt is **Write a document** (tags `documentation` and `new-document`, seeded by migration
-0101; 0131 gave it a new version): read what you were given, write the document with `update_document`, change a
-passage with `edit_document`, and never say it is published. Custom prompts tagged `documentation` should tell the agent
-to write with `update_document`. No
-resource is chosen until it is ticked; experts are offered only when ticked (`expert_ids`). The run gets every tool
-that is not switched off (Advanced → Tools), including `run_subagent`; the run's access (what was chosen, and the new document) decides what each may do.
+`GET /api/sessions/options?new_document=1` (with one resource id, or none) says what the chat may offer: the models,
+the resources (the start's resource marked linked), the experts, and the prompts tagged `documentation` (no discovery
+prompts). The default prompt is **Write a document** (tags `documentation` and `new-document`; 0145 gave it a new
+version): look for an existing document first, create documents with `new_document`, change them with
+`update_document` or `edit_document`, use the ids of mentioned drafts, and never say a document is published. The run
+gets every tool that is not switched off (Advanced → Tools), including `run_subagent`; the run's access decides what
+each may do.
 
-The agent writes the document with `update_document(document_id, content, title?, description?, resource?)` and
-`edit_document(document_id, old_text, new_text)`, using the new document's id from its context. Both write the run's draft. The agent's final answer is not turned into a
-draft. If a document with the title's slug already exists, the saves become a draft of that document.
-Otherwise the first save creates a brand-new draft whose links are built-for (`added_how = 'agent_run'`, the run's
-`session_id`): the environments, services, servers and code projects chosen (for a run started from a server page, that
-server). What they bring along for the agent (an environment's services and servers, a service's code projects and the
-servers it is deployed on) is not linked; the agent may use it, but the document is not about it. A save that drafts an
-existing document never changes that document's links. Later saves update the same draft until a person saves (edits), promotes or discards it,
-or another draft of the document is promoted (which deletes this one); the next save then starts a new draft of the
-live version, and the tool result says what happened to the earlier draft. A person's edit of a run's brand-new draft
-makes it theirs: the run's next save is refused until they promote or discard it. The draft's sources are the documents the run read with `get_document`,
-at the version live at the first read. Nothing goes live until a person promotes the draft.
-
-There is one conversation per page visit. Earlier runs stay readable at `/sessions/{id}` and in Activity → Agent runs, including the runs of the
-removed Docs → Generate documents.
+**Documents in this chat.** `GET /api/documentation/drafts?session_id=<uuid>` (no other filter: 400) lists every draft
+the conversation created (its `document.draft.created` audit events, oldest first; migration 0145 indexes them): `id`,
+`title` (the open draft's, else the published document's; null for a discarded new document), `draft_of` and
+`draft_of_title` (the original of a draft of an existing document), `state` (`open`, `published`, `discarded`,
+`replaced`, or null when its document was deleted) and `updated_at`. The page lists them on the left (the title opens
+the draft, or the published document, in a new tab; **New** or **Edit of <document>**; the state) and reloads them
+when a conversation is shown, after each of its turns and whenever a result of `new_document`, `update_document` or
+`edit_document` arrives in its event stream. **Mention** puts `[Draft "<title>" · <id>]` into the message box; the
+document tools take the run's own draft id. **Conversations** lists the earlier Write with an agent runs
+(`GET /api/sessions?purpose=documents`, with the resource's `tag` when there is one). A resource's chats
+(`?tag=…&purpose=resource`) leave them out.
 
 **Removed.** The Docs → Generate documents form and list pages (`/documentation/generations`), `POST /api/generations/sessions`,
 `POST /api/generations/context` and the rule that a run's final answer becomes the draft are gone (the routes now return 404).
@@ -223,12 +224,11 @@ came from, or null); `agent_config` is the ad-hoc configuration (credential refe
 `access`): what the run was picked, each checked and loaded, and what that brings, built as a saved agent's run is
 (`sessions/run_access.run_access`). `history` holds the Agents SDK items of successful turns, redacted; listing and detail
 never return `agent_config` or `history`. These sessions have `agent_id` NULL (migration 0082), and their run records carry
-the agent `ad-hoc`. `context_snapshot` holds where the run started (`new_document`, `document_id`, or the resource's id;
-`{}` for a saved agent's run). The session detail returns `given_resources`, the access entries the run was given
-(`[{type, id}]`: what the person chose, an environment rather than what it brings); Start new chat with these settings
-restores them. A new document is built for the same choice; one that names a single server, service or environment (an inventory
-document always does) is built for that resource alone (its entry's `built_for`). Credentials are never included. Migration 0116 dropped the ids-only `run_resources` column.
-A saved agent's chat sessions (its Chat tab) share the table with `purpose = 'chat'` (no document name or draft).
+the agent `ad-hoc`. `context_snapshot` holds where the run started (`new_document: true` with its resource's id,
+`document_id`, or the resource's id; `{}` for a saved agent's run). The session detail returns `given_resources`, the
+access entries the run was given (`[{type, id}]`: what the person chose, an environment rather than what it brings);
+Start new chat with these settings restores them. Credentials are never included. Migration 0116 dropped the ids-only
+`run_resources` column. A saved agent's chat sessions (its Chat tab) share the table with `purpose = 'chat'`.
 
 **Turns.** `agent-session-worker` claims sessions (`session_worker.claim`), decrypts the pinned
 config's credentials per turn, runs `agents.agent(config, text, session=HistorySession, hooks=SessionEvents, stream=False,

@@ -52,13 +52,13 @@ export const resourceChatPath = (resource: { type: ResourceType; id: string }, c
     resource.type === "code_project" ? "/overview" : resource.type === "service" ? "/view" : ""
   }${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
 
-/** What a chat is about: a document (Ask agent), a saved agent (its Chat tab), a new document (Documents → New: the
- * Title the editor holds now; `resourceFor`: from a resource's New document, the resource it is built for) or
- * a server, service or environment (its page's chats). */
+/** What a chat is about: a document (Ask agent), a saved agent (its Chat tab), writing documents (Documents → New →
+ * Write with an agent; `resource`: from a resource's New document, the resource the chat is on) or a server, service
+ * or environment (its page's chats). */
 export type ChatScope =
   | { kind: "document"; id: string; title: string }
   | { kind: "agent"; id: string; name: string }
-  | { kind: "new-document"; title: string; resourceFor?: { type: ResourceType; id: string } }
+  | { kind: "new-document"; resource?: { type: ResourceType; id: string } }
   | { kind: ResourceType; id: string; name: string };
 export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
 export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>
@@ -131,7 +131,6 @@ export interface SessionDetail extends SessionSummary {
   /** The id of the last tool_call event the counts include (0: none). */
   tool_counts_through_id?: number;
   server_id?: string | null;
-  document_name: string | null;
   draft: string | null;
   draft_turn: number | null;
   model_id: string;
@@ -142,8 +141,9 @@ export interface SessionDetail extends SessionSummary {
     context?: string;
     prompt_id?: string | null;
   };
-  /** Where the run started: `{server_id | service_id | environment_id}` (a chat on a resource), `{new_document}`
-   *  (Documents → New), `{document_id}` (Ask agent); `{}` for a saved agent's run. */
+  /** Where the run started: `{server_id | service_id | environment_id}` (a chat on a resource), `{new_document: true}`
+   *  with its resource's id when it has one (Write with an agent), `{document_id}` (Ask agent); `{}` for a saved
+   *  agent's run. */
   context_snapshot: Record<string, unknown>;
   /** What the run was given: what the person chose, an environment rather than what it brings (Start new chat with
    *  these settings restores it). */
@@ -284,8 +284,6 @@ export interface SessionDebug {
    * the roles. */
   access: RunAccess;
   model: { id: string; name: string } | null;
-  /** What the start left out, and why (an inventory document's server without usable SSH). */
-  notes?: string[];
 }
 export const getSessionDebug = (id: string, signal?: AbortSignal) =>
   request<SessionDebug>(`${session(id)}/debug`, { signal });
@@ -339,20 +337,11 @@ export interface AgentOptions {
   experts: { id: string; name: string; when_to_use: string }[];
 }
 export type AgentResources = ResourceIds<AgentKey>;
-/** A document a run writes from scratch: its name and tags; with one resource id it is built
- * for that server, service or environment alone (tagged `inventory`: that resource's inventory document). */
-export interface NewDocument {
-  name: string;
-  tags?: string[];
-  server_id?: string;
-  service_id?: string;
-  environment_id?: string;
-  code_project_id?: string;
-}
 export interface StartInput {
+  /** Write with an agent: `{new_document: true}`, with the id of the resource it is on when it has one. */
   started_from?:
     | { document_id: string }
-    | { new_document: NewDocument }
+    | { new_document: true; server_id?: string; service_id?: string; environment_id?: string; code_project_id?: string }
     | { server_id: string }
     | { service_id: string }
     | { environment_id: string }
@@ -365,9 +354,7 @@ export interface StartInput {
   prompt_id?: string | null;
   system_prompt?: string;
   context: string;
-  resources: AgentResources & {
-    documents: ({ id: string } | { new: NewDocument })[];
-  };
+  resources: AgentResources & { documents: { id: string }[] };
   expert_ids: string[];
   /** Catalog tools this run never offers (more than the saved agent's own). */
   disabled_tools: string[];
@@ -392,3 +379,21 @@ export const savedIn = (turn: Turn) =>
       !item.isError &&
       (item.preview ?? "").startsWith("Saved draft"),
   );
+
+/** The tools that write a document draft. */
+const WRITE_TOOLS = ["new_document", ...SAVE_TOOLS];
+/** How many results of new_document, update_document and edit_document calls the events hold (a result names its
+ * call by call_id; without one it answers the call before it). A change means the conversation's drafts changed. */
+export function documentWrites(events: readonly SessionEvent[]): number {
+  const names = new Map<string, string>();
+  let last = "";
+  let count = 0;
+  for (const event of events) {
+    const id = typeof event.payload.call_id === "string" ? event.payload.call_id : "";
+    if (event.kind === "tool_call") {
+      last = typeof event.payload.name === "string" ? event.payload.name : "";
+      if (id) names.set(id, last);
+    } else if (event.kind === "tool_result" && WRITE_TOOLS.includes(id ? (names.get(id) ?? "") : last)) count += 1;
+  }
+  return count;
+}

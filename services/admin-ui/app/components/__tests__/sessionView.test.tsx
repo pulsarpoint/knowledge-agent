@@ -43,7 +43,6 @@ const detail = {
   id: "s1",
   title: "Payments – API reference",
   purpose: "documents",
-  document_name: "Payments – API reference",
   agent_id: "writer",
   agent_name: "Technical writer",
   model_id: "claude",
@@ -363,7 +362,11 @@ test("the session page has one page heading, the session title", async () => {
   );
   expect(await screen.findByRole("heading", { name: "Payments – API reference", level: 1 })).toBeVisible();
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-  expect(screen.getByText(/Started from the new document Payments – API reference/)).toBeVisible();
+  // a Write with an agent run links back to its conversation there
+  expect(screen.getByRole("link", { name: "Write with an agent" })).toHaveAttribute(
+    "href",
+    "/documents/new/agent?chat=s1",
+  );
   expect(screen.queryByRole("link", { name: "Generate documents" })).toBeNull();
 });
 

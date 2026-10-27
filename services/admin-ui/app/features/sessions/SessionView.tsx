@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { agentPath } from "~/features/agents/api";
 import { Link } from "react-router";
+import { writeWithAgentPath } from "~/features/documents/api";
 import { draftPath } from "~/features/documents/drafts";
 import {
   agentRunPath,
@@ -86,8 +87,10 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     );
   const resource = resourceOf(session.tags);
   const startedFrom =
-    session.purpose === "documents" && session.document_name ? (
-      <>the new document {session.document_name}</>
+    session.purpose === "documents" ? (
+      <Link className="underline" to={writeWithAgentPath(resource, session.id)}>
+        Write with an agent
+      </Link>
     ) : session.target_document_id ? (
       <Link className="underline" to={agentRunPath(session.target_document_id, session.id)}>
         the document

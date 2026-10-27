@@ -84,7 +84,7 @@ const detail = (id: string, status: string, tags = ["services/v1"]) => ({
   document_draft: null,
 });
 
-const RUNS = "GET /api/sessions?tag=services%2Fv1";
+const RUNS = "GET /api/sessions?tag=services%2Fv1&purpose=resource";
 const base = (): Record<string, (body: any) => [number, unknown]> => ({
   "GET /api/sessions/options?service_id=v1": () => [200, options],
   [RUNS]: () => [200, { sessions: [] }],
@@ -183,7 +183,8 @@ test("the page shows Info and Chat, no Chats list; no chat until one is asked fo
   });
   show("/services/v1");
   expect(screen.getByText("The payments service.")).toBeInTheDocument();
-  await waitFor(() => expect(fetch).toHaveBeenCalled());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(fetch).not.toHaveBeenCalled(); // the chats load when the chat panel opens
   expect(screen.queryByRole("region", { name: "Chats" })).toBeNull();
   expect(screen.queryByText(/Disk usage/)).toBeNull();
   expect(screen.queryByText(/No chats yet/)).toBeNull();
@@ -227,7 +228,6 @@ test("Chat opens the panel and puts the chat in the URL; at 2xl Info and chat ar
   live.sessions.r1 = detail("r1", "waiting");
   api({ ...base(), [RUNS]: () => [200, { sessions: [run("r1", "waiting", "Is it up?")] }] });
   show();
-  await waitFor(() => expect(fetch).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "Chat" }));
   const pane = await screen.findByRole("region", { name: "Ask agent" });
   expect(await within(pane).findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
@@ -277,7 +277,6 @@ test("Chat opens the latest open chat", async () => {
   live.sessions.r2 = detail("r2", "waiting");
   api({ ...base(), [RUNS]: () => [200, { sessions: [run("r2", "waiting", "Open one")] }] });
   show();
-  await waitFor(() => expect(fetch).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "Chat" }));
   expect(await screen.findByRole("heading", { name: "Chat r2" })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r2"));
@@ -296,7 +295,6 @@ test("New chat in the chat panel starts a new conversation from the resource and
     },
   });
   show();
-  await waitFor(() => expect(fetch).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "Chat" })); // the panel opens on the latest open chat
   expect(await screen.findByRole("heading", { name: "Chat r2" })).toBeInTheDocument();
   fireEvent.click(within(screen.getByTestId("resource-chat")).getByRole("button", { name: "New chat" }));
@@ -327,7 +325,6 @@ test("New chat in the chat panel starts a new conversation from the resource and
 test("with no conversations yet the Conversations sheet says so", async () => {
   api(base());
   show();
-  await waitFor(() => expect(fetch).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "Chat" }));
   const menu = await openConversations();
   expect(menu.getByText("No earlier conversations.")).toBeInTheDocument();
@@ -384,7 +381,7 @@ test("the environment page shows its workspace of servers and services; no Chats
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
-    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
   render(
     <MemoryRouter initialEntries={["/environments/e1?server=s1&view=chats"]}>
@@ -429,7 +426,7 @@ test("the environment header links its drafts to the workspace's Drafts filter",
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
-    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
   render(
     <MemoryRouter initialEntries={["/environments/e1?view=documents"]}>
@@ -464,7 +461,7 @@ test("the header counts document drafts: apart in the text, and alone they link 
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
-    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
   const { unmount } = render(
     <MemoryRouter initialEntries={["/environments/e1"]}>
@@ -511,7 +508,7 @@ test("the header link to the drafts keeps the open chat and goes to the workspac
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
-    "GET /api/sessions?tag=environments%2Fe1": () => [
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [
       200,
       { sessions: [run("r1", "waiting", "Chat r1", ["environments/e1"])] },
     ],
@@ -552,7 +549,7 @@ test("a turn of the page chat reloads the workspace and the drafts count (its ag
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
-    "GET /api/sessions?tag=environments%2Fe1": () => [
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [
       200,
       { sessions: [run("r1", "waiting", "Chat r1", ["environments/e1"])] },
     ],
@@ -609,7 +606,7 @@ test("the environment's Documents tab lists only the environment's own documents
         ],
       },
     ],
-    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
   let location = "";
   function Where() {
@@ -659,7 +656,7 @@ test("the header's document drafts link opens the Documents tab, where Drafts to
       },
     ],
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
-    "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
   render(
     <MemoryRouter initialEntries={["/environments/e1"]}>

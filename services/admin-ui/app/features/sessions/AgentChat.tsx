@@ -5,6 +5,7 @@ import { MessageSquarePlus, Settings2 } from "lucide-react";
 import {
   agentRunPath,
   closeSession,
+  documentWrites,
   getSessions,
   isResourceScope,
   resourceTag,
@@ -23,8 +24,10 @@ import {
   settingsSummary,
   startInput,
   withScope,
+  writeReason,
   type useAgentSettings,
 } from "./agentSettings";
+import { insertMention } from "~/features/documents/drafts";
 import { runPath } from "./runs";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
@@ -80,15 +83,16 @@ function writeDraft(key: string | null, text: string) {
  * New chat closes the run; Earlier runs opens another. A changed initialRunId (a run link) opens that run; onRunChange
  * reports the shown run (the page keeps it in the URL). Documents: confirmUnsaved wraps the first message, and
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
- * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. A new document
- * (Documents → New): one conversation per page visit (no run list, no Earlier runs), started with the Title of the moment
- * (needed); the open run shows the document it writes, and reports its draft like a document's. A server,
- * service or environment (its page): the runs tagged with it; the page lists them and has New chat, so the pane has neither
- * New chat nor Earlier runs; `fresh` starts on a new conversation instead of the latest open run; blockedReason (a server
- * whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the same version; Chat opens
- * the latest open chat. Every chat has a Debug tab beside the conversation: what the
- * model receives (DebugPanel). */
-const NEEDS_NAME = "Give the document a title first.";
+ * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. Writing with
+ * an agent (Documents → New → Write with an agent): its runs (purpose documents; on a resource, tagged with it); the
+ * page lists them and has New chat, so the pane has neither; it opens the run the page hands it (initialRunId) or a new
+ * conversation; without a resource it needs a picked resource (writeReason); `mention` puts a draft's reference into
+ * the message box at the cursor, and onDocumentWrite reports how many document writes the shown run's events hold. A
+ * server, service or environment (its page): the runs tagged with it; the page lists them and has New chat, so the pane
+ * has neither New chat nor Earlier runs; `fresh` starts on a new conversation instead of the latest open run;
+ * blockedReason (a server whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the
+ * same version; Chat opens the latest open chat. Every chat has a Debug tab beside the conversation: what the model
+ * receives (DebugPanel). */
 export default function AgentChat({
   scope,
   settings,
@@ -100,6 +104,8 @@ export default function AgentChat({
   blockedReason = null,
   onAgentChanged,
   fresh = false,
+  mention = null,
+  onDocumentWrite,
 }: {
   scope: ChatScope;
   settings: ReturnType<typeof useAgentSettings>;
@@ -111,11 +117,15 @@ export default function AgentChat({
   blockedReason?: string | null;
   onAgentChanged?: () => void;
   fresh?: boolean;
+  mention?: { text: string; key: number } | null;
+  onDocumentWrite?: (sessionId: string, writes: number) => void;
 }) {
   const isAgent = scope.kind === "agent";
   const isNew = scope.kind === "new-document";
   const resource = isResourceScope(scope) ? scope : null;
   const tag = resource ? resourceTag({ type: resource.kind, id: resource.id }) : null;
+  const writeTag = scope.kind === "new-document" && scope.resource ? resourceTag(scope.resource) : null;
+  const pageChat = resource !== null || isNew; // the page lists its chats and has New chat
   const scopeId = scope.kind === "new-document" ? null : scope.id;
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunSummary[] | null>(isNew ? [] : null);
@@ -127,16 +137,19 @@ export default function AgentChat({
   // useSessionEvents resets the session on an id change and fills it after the load: only a session of the selected run counts.
   const loaded = run.session?.id === runId ? run.session : null;
   // A run of another document (or not an Ask agent run) is not this document's: it is not shown, and its draft never reaches
-  // the page. For a saved agent: a run of another agent, or not a chat or event run. A new document's runs are only the
-  // ones this page started. A server's, service's or environment's: a run without its tag.
+  // the page. For a saved agent: a run of another agent, or not a chat or event run. Writing: a run that is not a Write
+  // with an agent run (on a resource: or without its tag). A server's, service's or environment's: a run without its
+  // tag, or a Write with an agent run on it.
   const foreign =
     loaded !== null &&
     (scope.kind === "document"
       ? loaded.purpose !== "revision" || loaded.target_document_id !== scope.id
       : tag !== null
-        ? !(loaded.tags ?? []).includes(tag)
-        : scope.kind === "agent" &&
-          (loaded.agent_id !== scope.id || (loaded.purpose !== "chat" && loaded.purpose !== "event")))
+        ? !(loaded.tags ?? []).includes(tag) || loaded.purpose === "documents"
+        : isNew
+          ? loaded.purpose !== "documents" || (writeTag !== null && !(loaded.tags ?? []).includes(writeTag))
+          : scope.kind === "agent" &&
+            (loaded.agent_id !== scope.id || (loaded.purpose !== "chat" && loaded.purpose !== "event")))
       ? loaded
       : null;
   const session = foreign ? null : loaded;
@@ -149,6 +162,22 @@ export default function AgentChat({
   useEffect(() => {
     setText(readDraft(draftKey(scope, runId)));
   }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A mention goes into the message box at the cursor (or at the end), and the box keeps the focus after it.
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!mention) return;
+    const box = input.current;
+    const next = insertMention(
+      message,
+      mention.text,
+      box ? { start: box.selectionStart, end: box.selectionEnd } : null,
+    );
+    setMessage(next.value);
+    requestAnimationFrame(() => {
+      box?.focus();
+      box?.setSelectionRange(next.cursor, next.cursor);
+    });
+  }, [mention?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState("");
   const [sheet, setSheet] = useState(false);
@@ -168,7 +197,11 @@ export default function AgentChat({
     const controller = new AbortController();
     setListFailed(false);
     getSessions(
-      scope.kind === "document" ? { documentId: scopeId } : tag !== null ? { tag } : { agentId: scopeId },
+      scope.kind === "document"
+        ? { documentId: scopeId }
+        : tag !== null
+          ? { tag, purpose: "resource" }
+          : { agentId: scopeId },
       controller.signal,
     )
       .then((value) => {
@@ -189,6 +222,10 @@ export default function AgentChat({
   useEffect(() => {
     onRunChange?.(runId);
   }, [runId]);
+  const writes = documentWrites(foreign ? [] : run.events);
+  useEffect(() => {
+    if (session) onDocumentWrite?.(session.id, writes);
+  }, [session?.id, writes]);
   // A run link followed on the page: open that run. A link without a run keeps the shown run (and puts it back in the URL).
   useEffect(() => {
     if (initialRunId !== null && initialRunId !== runId) pick(initialRunId);
@@ -223,13 +260,13 @@ export default function AgentChat({
       setBusy(false);
     }
   }
-  // Before a run: a new document needs its Title; a saved agent may be blocked by the page.
-  // A saved agent with resources needs at least one picked (none picked would give it all of them).
+  // Before a run: the page may block it. A saved agent with resources needs at least one picked (none picked would give
+  // it all of them); writing without a resource needs one picked (new_document needs a resource of the run).
   const blocked =
-    isNew && !scope.title.trim()
-      ? NEEDS_NAME
-      : (blockedReason ??
-        (settings.options && settings.settings ? pickReason(settings.options, settings.settings) : null));
+    blockedReason ??
+    (settings.options && settings.settings
+      ? (pickReason(settings.options, settings.settings) ?? writeReason(scope, settings.settings))
+      : null);
   async function send() {
     const text = message.trim();
     if (!text || !settings.options || !settings.settings || waiting || foreign || (!open && blocked)) return;
@@ -330,19 +367,17 @@ export default function AgentChat({
                   : foreign
                     ? isAgent
                       ? "Another agent's run"
-                      : resource
+                      : pageChat
                         ? "Another page's chat"
                         : "Another document's run"
-                    : isNew && session
-                      ? `Writing: ${session.document_name ?? ""}`
-                      : (session?.title ?? "Loading the conversation…")}
+                    : (session?.title ?? "Loading the conversation…")}
               </h2>
               {foreign &&
                 (isAgent ? (
                   <Alert variant="destructive">
                     <AlertDescription>This run belongs to another agent.</AlertDescription>
                   </Alert>
-                ) : resource ? (
+                ) : pageChat ? (
                   <Alert variant="destructive">
                     <AlertDescription>This chat belongs to another page.</AlertDescription>
                   </Alert>
@@ -402,7 +437,7 @@ export default function AgentChat({
                 <Settings2 data-icon="inline-start" />
                 Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}
               </Button>
-              {!resource && (
+              {!pageChat && (
                 <Button
                   type="button"
                   size="sm"
@@ -413,7 +448,7 @@ export default function AgentChat({
                   New chat
                 </Button>
               )}
-              {!isNew && !resource && (
+              {!pageChat && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button type="button" size="sm" variant="ghost" disabled={earlier.length === 0}>
@@ -444,7 +479,7 @@ export default function AgentChat({
           }
           answerActions={(turn) => (
             <>
-              {(scope.kind === "document" || isNew) && !savedIn(turn) && (
+              {scope.kind === "document" && !savedIn(turn) && (
                 <span className="text-xs text-muted-foreground">No draft saved in this turn</span>
               )}
               {session && (
@@ -480,6 +515,7 @@ export default function AgentChat({
           composer={{
             value: message,
             onChange: setMessage,
+            inputRef: input,
             busy: busy || waiting || !settings.settings,
             label: "Message",
             placeholder: isAgent
@@ -502,7 +538,7 @@ export default function AgentChat({
                   })
               : undefined,
             blockedReason: foreign
-              ? resource
+              ? pageChat
                 ? "This chat belongs to another page. Start a New chat."
                 : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
               : session?.status === "closed"

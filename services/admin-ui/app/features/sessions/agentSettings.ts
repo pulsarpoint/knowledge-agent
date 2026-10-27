@@ -8,7 +8,7 @@ import {
   type AgentOptions,
   type AgentResources,
   type ChatScope,
-  type NewDocument,
+  type ResourceType,
   type SessionDetail,
   type StartInput,
 } from "./api";
@@ -16,7 +16,7 @@ import {
 /** The prompt choice for "my own text, no library prompt". */
 export const OWN = "own";
 /** Where a scope's settings are remembered in this browser: per document, per saved agent, per server, service or
- * environment, one for every new document. */
+ * environment, one for all writing with an agent. */
 const STORAGE = (scope: ChatScope) =>
   scope.kind === "document"
     ? `ask-agent-settings:${scope.id}`
@@ -191,15 +191,18 @@ const SCOPE_FIELD = {
   environment: "environment_ids",
   code_project: "code_project_ids",
 } as const;
-/** A server, service or environment scope always has its resource chosen (the run is about it); so does a new
- * document's resource (Start adds it too), a server only when the run can use it (one without usable SSH is left out,
- * and the start says so). */
-export function withScope(scope: ChatScope, settings: AgentSettings, options?: AgentOptions): AgentSettings {
-  const resource = isResourceScope(scope)
+/** The resource a chat is on: a server's, service's, environment's or code project's chat, or writing from one. */
+export const scopeResource = (scope: ChatScope): { type: ResourceType; id: string } | undefined =>
+  isResourceScope(scope)
     ? { type: scope.kind, id: scope.id }
     : scope.kind === "new-document"
-      ? scope.resourceFor
+      ? scope.resource
       : undefined;
+/** A server, service or environment scope always has its resource chosen (the run is about it); so does the resource
+ * writing starts from (Start adds it too), a server only when the run can use it (one without usable SSH is not
+ * chosen: the API gives it to the run as its own resource, without SSH). */
+export function withScope(scope: ChatScope, settings: AgentSettings, options?: AgentOptions): AgentSettings {
+  const resource = scopeResource(scope);
   if (!resource) return settings;
   if (
     !isResourceScope(scope) &&
@@ -210,6 +213,14 @@ export function withScope(scope: ChatScope, settings: AgentSettings, options?: A
   const field = SCOPE_FIELD[resource.type];
   if (settings.chosen[field].includes(resource.id)) return settings;
   return { ...settings, chosen: { ...settings.chosen, [field]: [...settings.chosen[field], resource.id] } };
+}
+
+export const PICK_TO_WRITE = "Pick at least one resource in Settings for the agent to write about.";
+/** Why writing with an agent cannot start: it is on no resource and none is picked (new_document needs a resource of
+ * the run). Null otherwise. */
+export function writeReason(scope: ChatScope, settings: AgentSettings): string | null {
+  if (scope.kind !== "new-document" || scope.resource) return null;
+  return AGENT_KINDS.some(({ field }) => settings.chosen[field].length > 0) ? null : PICK_TO_WRITE;
 }
 
 export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
@@ -257,19 +268,18 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (scope.kind === "new-document") {
-    // the Title becomes the one document the run may write (from a resource's New document: built for it)
-    const document: NewDocument = {
-      name: scope.title.trim(),
-      ...(scope.resourceFor ? { [`${scope.resourceFor.type}_id`]: scope.resourceFor.id } : {}),
-    };
+    // writing: on the resource it starts from, or on the resources picked for it; it names no document
     return {
-      started_from: { new_document: document },
+      started_from: {
+        new_document: true,
+        ...(scope.resource ? { [`${scope.resource.type}_id`]: scope.resource.id } : {}),
+      },
       message: message.trim(),
       model_id: settings.modelId,
       prompt_id: settings.promptKey === OWN ? null : settings.promptKey,
       system_prompt: settings.systemPrompt.trim(),
       context: "",
-      resources: { ...settings.chosen, documents: [{ new: document }] },
+      resources: { ...settings.chosen, documents: [] },
       expert_ids: settings.experts,
       disabled_tools: settings.disabledTools,
     };
@@ -304,16 +314,17 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
   return `${model} · ${resources}${schema}`;
 }
 
-/** The Ask agent settings of a document, the chat settings of a saved agent, or the settings for writing a new document:
+/** The Ask agent settings of a document, the chat settings of a saved agent, or the settings for writing with an agent:
  * loaded with the options, remembered in this browser per scope. Null: nothing is loaded (the pane is closed). A changed
- * revision (a saved agent's) reloads the options. A new document's options load once per page (not per typed title). */
+ * revision (a saved agent's) reloads the options. */
 export function useAgentSettings(scope: ChatScope | null, revision?: number) {
   // The loaded state carries the storage key it belongs to, so a save never writes one scope's settings under another's key.
   // A saved agent's new revision loads its options again (remembered settings of the old revision are dropped).
+  const writingOn = scope?.kind === "new-document" ? scope.resource : undefined;
   const key = !scope
     ? null
     : scope.kind === "new-document"
-      ? "new-document"
+      ? `new-document${writingOn ? `:${writingOn.type}:${writingOn.id}` : ""}`
       : `${scope.kind}:${scope.id}${revision === undefined ? "" : `@${revision}`}`;
   const storage = scope ? STORAGE(scope) : null;
   const [loaded, setLoaded] = useState<{
@@ -328,9 +339,12 @@ export function useAgentSettings(scope: ChatScope | null, revision?: number) {
   useEffect(() => {
     if (!key || !kind || !storage) return;
     const controller = new AbortController();
+    const on = writingOn
+      ? { [`${writingOn.type === "code_project" ? "codeProject" : writingOn.type}Id`]: writingOn.id }
+      : {};
     const which =
       kind === "new-document"
-        ? { newDocument: true }
+        ? { newDocument: true, ...on }
         : kind === "document"
           ? { documentId: id! }
           : kind === "server"

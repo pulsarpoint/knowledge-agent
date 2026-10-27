@@ -58,10 +58,12 @@ limit, no per-turn time limit, no 300-second limit).
   afterwards. `update_document(document_id, content, title?, description?, resource?)` saves the run's draft with the
   whole text; `resource` adds a link that the draft holds and publishing adds to the document (migration 0130 lets a
   draft of a live document hold `linked` links). `edit_document(document_id, old_text, new_text)` replaces one exact
-  passage. The write tools are offered only in a session turn: never to a subagent or an expert. A run started from
-  Documents → New (`resources.documents[{new: {name}}]`) writes its new document (`new:<uuid>`) with
-  `update_document`, which creates the draft of a new document built for the resources the run was started for, not
-  for what they bring along (see [documentation](documentation.md)). A run keeps updating its own draft
+  passage. `get_document`, `update_document` and `edit_document` also take the id of one of the run's own drafts (a
+  person mentions a draft in the chat as `[Draft "<title>" · <id>]`): a draft of a live document stands for that
+  document (its run's draft of it), a new document's draft id is the document's id; another run's or a person's draft
+  id is refused like any other document. The write tools are offered only in a session turn: never to a subagent or an
+  expert. Documents → New → Write with an agent is a chat that creates documents with `new_document` for its resources
+  (see [documentation](documentation.md)). A run keeps updating its own draft
   (`agent_sessions.last_draft_id`). Promote and discard delete drafts, and promoting one draft of a document deletes the
   others; the run's next save then starts a new draft of the live version, and the tool result says what happened to
   the earlier one: promoted, discarded, or removed because another draft was promoted. A person's edit makes a run's

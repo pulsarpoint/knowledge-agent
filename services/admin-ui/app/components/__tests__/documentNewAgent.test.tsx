@@ -1,23 +1,31 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import routes from "~/routes";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
+import NewDocumentAgent from "~/features/documents/NewDocumentAgent";
+import NewDocumentLayout from "~/features/documents/NewDocumentLayout";
+import { PICK_TO_WRITE } from "~/features/sessions/agentSettings";
 import { WidePageContext } from "~/lib/widePage";
 import { options } from "~/lib/__tests__/agentOptionsFixture";
 
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
-const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
+const live = vi.hoisted(() => ({
+  sessions: {} as Record<string, any>,
+  setEvents: null as null | ((events: any[]) => void),
+}));
 vi.mock("~/features/sessions/useSessionEvents", async () => {
   const { useState } = await import("react");
   return {
     useSessionEvents: (id: string | null) => {
-      live.requested.push(id);
       const [error, setError] = useState("");
+      const [events, setEvents] = useState<any[]>([]);
+      live.setEvents = setEvents;
       return {
         session: id ? (live.sessions[id] ?? null) : null,
         setSession: vi.fn(),
         error,
         setError,
-        events: [],
+        events,
         older: "start",
         loadOlder: vi.fn(),
         toolCounts: undefined,
@@ -35,7 +43,7 @@ vi.mock("~/features/sessions/RunWorkspace", () => ({
       {empty}
       <label>
         Message
-        <textarea value={composer.value} onChange={(e) => composer.onChange(e.target.value)} />
+        <textarea ref={composer.inputRef} value={composer.value} onChange={(e) => composer.onChange(e.target.value)} />
       </label>
       {composer.blockedReason && <p>{composer.blockedReason}</p>}
       <button type="button" onClick={composer.onSend}>
@@ -63,57 +71,72 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   live.sessions = {};
-  live.requested = [];
+  live.setEvents = null;
 });
 
-const at = "2026-10-13T10:00:00Z";
-const resources = { code_projects: [], services: [], servers: [], deployments: [], environments: [] };
-const fresh = { ...options, resources: { ...options.resources, documents: [] } };
-const detail = (draft: unknown = null) => ({
-  id: "r1",
-  title: "Write Payments API",
+const at = "2026-10-27T10:00:00Z";
+const resources = {
+  code_projects: [],
+  services: [],
+  servers: [{ id: "s1", name: "web-1" }],
+  deployments: [],
+  environments: [],
+};
+const writing = { ...options, resources: { ...options.resources, documents: [] } };
+const unlinked = {
+  ...writing,
+  resources: {
+    ...writing.resources,
+    servers: writing.resources.servers.map((item) => ({ ...item, linked: false })),
+    services: writing.resources.services.map((item) => ({ ...item, linked: false })),
+  },
+};
+const run = (id: string, title: string) => ({
+  id,
+  title,
   status: "waiting",
   purpose: "documents",
-  document_name: "Payments API",
+  tags: [],
+  model_name: "GPT",
+  started_by: null,
+  created_at: at,
+  last_activity_at: at,
+  draft_id: null,
+});
+const detail = (id: string, tags: string[] = []) => ({
+  id,
+  title: `Write ${id}`,
+  status: "waiting",
+  purpose: "documents",
+  tags,
   target_document_id: null,
   agent_name: "Ad-hoc agent",
-  model_name: "Claude",
+  model_name: "GPT",
   turns: 1,
   config: {},
-  document_draft: draft,
+  document_draft: null,
 });
-const draft = {
-  id: "d9",
-  document_id: null,
-  slug: "payments-api",
-  title: "Payments API",
-  origin: "agent",
-  session_id: "r1",
-  session_title: "x",
-  session_purpose: "documents",
-  author: null,
-  edited: false,
-  revision: 1,
-  base_version: null,
-  live_version: null,
-  stale: false,
-  created_at: at,
-  updated_at: at,
-  description: "",
-  purpose: "explanation",
-  audience: "both",
-  tags: [],
-  markdown: "# Payments API",
-  resource_ids: {},
-  live_markdown: null,
-  document_title: null,
-  sources: [],
-};
-const base: Record<string, (body: any) => [number, unknown]> = {
-  "GET /api/documentation/resources": () => [200, resources],
-  "GET /api/sessions/options?new_document=1": () => [200, fresh],
-};
-function api(routes: Record<string, (body: any) => [number, unknown]>) {
+const drafts = [
+  {
+    id: "d1",
+    title: "Disk layout",
+    draft_of: null,
+    draft_of_title: null,
+    state: "open",
+    updated_at: at,
+  },
+  {
+    id: "d2",
+    title: "Runbook",
+    draft_of: "doc-1",
+    draft_of_title: "Runbook",
+    state: "open",
+    updated_at: at,
+  },
+  { id: "d3", title: "Backups", draft_of: null, draft_of_title: null, state: "published", updated_at: at },
+];
+type Routes = Record<string, (body: any) => [number, unknown]>;
+function api(routes: Routes) {
   const calls: { key: string; body: any }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -128,12 +151,26 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
   );
   return calls;
 }
+const plain: Routes = {
+  "GET /api/sessions/options?new_document=1": () => [200, writing],
+  "GET /api/sessions?purpose=documents": () => [200, { sessions: [] }],
+};
+const onServer: Routes = {
+  "GET /api/sessions/options?server_id=s1&new_document=1": () => [200, writing],
+  "GET /api/sessions?tag=servers%2Fs1&purpose=documents": () => [200, { sessions: [] }],
+};
 const wide = { value: false };
-function show(url = "/documents/new") {
+function show(url: string) {
   const router = createMemoryRouter(
     [
-      { path: "/documents/new", element: <DocumentEditorView /> },
-      { path: "/documents/drafts/:draftId", element: <p>draft page</p> },
+      {
+        path: "/documents/new",
+        element: <NewDocumentLayout />,
+        children: [
+          { index: true, element: <DocumentEditorView /> },
+          { path: "agent", element: <NewDocumentAgent /> },
+        ],
+      },
       { path: "/documents/:documentId", element: <p>document page</p> },
     ],
     { initialEntries: [url] },
@@ -149,177 +186,203 @@ function show(url = "/documents/new") {
   );
   return router;
 }
-async function openPane() {
-  const toggle = await screen.findByRole("button", { name: "Write with an agent" });
-  expect(toggle).toHaveAttribute("aria-pressed", "false");
-  fireEvent.click(toggle);
-  expect(toggle).toHaveAttribute("aria-pressed", "true");
-  return screen.findByRole("region", { name: "Ask agent" });
-}
+const chat = () => screen.getByRole("region", { name: "Ask agent" });
+const documents = () => screen.getByRole("region", { name: "Documents in this chat" });
 
-test("Write with an agent opens the pane beside the editor; without a title nothing starts", async () => {
-  const calls = api(base);
-  show();
-  const pane = await openPane();
-  expect(wide.value).toBe(true);
-  expect(screen.getByTestId("document-split")).toHaveClass("lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]");
-  expect(await within(pane).findByText("Give the document a title first.")).toBeInTheDocument();
-  expect(within(pane).queryByRole("button", { name: "Earlier runs" })).toBeNull();
-  expect(screen.queryByLabelText("Folder")).toBeNull(); // documents have no folders
-  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
-  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
-  expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(false);
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
-  await waitFor(() => expect(within(pane).queryByText("Give the document a title first.")).toBeNull());
-  expect(calls.some((c) => c.key.startsWith("GET /api/sessions?"))).toBe(false); // one conversation per visit: no run list
-  // the settings sheet speaks of the new document and lists no Documents group; the settings are remembered once for all new documents
-  fireEvent.click(within(pane).getByRole("button", { name: "Settings" }));
-  const sheet = await screen.findByRole("dialog");
-  expect(within(sheet).getByText("What the agent may use for “Payments API”.")).toBeInTheDocument();
-  expect(
-    within(within(sheet).getByRole("group", { name: "Servers and resources" })).queryByText("Documents"),
-  ).toBeNull();
-  expect(JSON.parse(localStorage.getItem("agent-settings:new-document") ?? "null")).toMatchObject({ v: 2 });
-  expect(calls.filter((c) => c.key === "GET /api/sessions/options?new_document=1")).toHaveLength(1); // not per typed title
+test("routes: the New document page has Write and Write with an agent as sub-pages", () => {
+  const page = routes.find((item) => item.path === "documents/new")!;
+  expect(page.file).toBe("./routes/documentNew.tsx");
+  expect(page.children?.map((item) => [item.index ?? false, item.path, item.file])).toEqual([
+    [true, undefined, "./routes/documentNewWrite.tsx"],
+    [false, "agent", "./routes/documentNewAgent.tsx"],
+  ]);
 });
 
-test("the first message starts the run with the title as the new document", async () => {
+test("Write is the form alone; the tabs keep the resource and lead to Write with an agent", async () => {
+  api({ "GET /api/documentation/resources": () => [200, resources], ...onServer });
+  const router = show("/documents/new?resource=server&resource_id=s1");
+  const tabs = screen.getByRole("navigation", { name: "New document" });
+  const write = within(tabs).getByRole("link", { name: "Write" });
+  const agent = within(tabs).getByRole("link", { name: "Write with an agent" });
+  expect(write).toHaveAttribute("href", "/documents/new?resource=server&resource_id=s1");
+  expect(write).toHaveAttribute("aria-current", "page");
+  expect(agent).toHaveAttribute("href", "/documents/new/agent?resource=server&resource_id=s1");
+  expect(await screen.findByLabelText("Title")).toBeInTheDocument();
+  expect(screen.getByText("New document for server web-1.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Write with an agent" })).toBeNull(); // no agent toggle on the form
+  expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
+  fireEvent.click(agent);
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/new/agent"));
+  expect(router.state.location.search).toBe("?resource=server&resource_id=s1");
+  expect(await screen.findByRole("region", { name: "Ask agent" })).toBeInTheDocument();
+  expect(within(tabs).getByRole("link", { name: "Write with an agent" })).toHaveAttribute("aria-current", "page");
+});
+
+test("without a resource the chat needs a picked resource, then starts writing from the picked ones", async () => {
+  const calls = api({ ...plain, "GET /api/sessions/options?new_document=1": () => [200, unlinked] });
+  show("/documents/new/agent");
+  expect(
+    await within(await screen.findByRole("region", { name: "Ask agent" })).findByText(PICK_TO_WRITE),
+  ).toBeVisible();
+  expect(wide.value).toBe(true);
+  expect(screen.getByTestId("write-layout")).toHaveClass("lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]");
+  expect(within(documents()).getByText("The documents the agent writes in this conversation show here.")).toBeVisible();
+  fireEvent.change(within(chat()).getByLabelText("Message"), { target: { value: "Write it." } });
+  fireEvent.click(within(chat()).getByRole("button", { name: "Send message" }));
+  expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(false);
+  expect(within(chat()).queryByRole("button", { name: "New chat" })).toBeNull(); // the page has New chat
+  expect(screen.getAllByRole("button", { name: "New chat" })).toHaveLength(1);
+});
+
+test("the first message starts writing with started_from new_document and the picked resources", async () => {
   const calls = api({
-    ...base,
+    ...plain,
     "POST /api/sessions": () => {
-      live.sessions.r1 = detail();
-      return [201, detail()];
+      live.sessions.r1 = detail("r1");
+      return [201, live.sessions.r1];
     },
-    "POST /api/sessions/r1/close": () => [200, { id: "r1" }],
+    "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts: [] }],
   });
-  show();
-  const pane = await openPane();
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
-  await waitFor(() => expect(within(pane).queryByText("Give the document a title first.")).toBeNull());
+  const router = show("/documents/new/agent");
+  const pane = await screen.findByRole("region", { name: "Ask agent" });
+  await waitFor(() => expect(within(pane).queryByText(PICK_TO_WRITE)).toBeNull());
   fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
+  await waitFor(() => expect(within(pane).getByRole("button", { name: "Send message" })).toBeEnabled());
   fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
-      started_from: { new_document: { name: "Payments API" } },
+      started_from: { new_document: true },
       message: "Write it.",
       context: "",
-      resources: { documents: [{ new: { name: "Payments API" } }] },
+      resources: { server_ids: ["s1"], service_ids: ["v1"], documents: [] },
     }),
   );
-  expect(await within(pane).findByText("Writing: Payments API")).toBeInTheDocument();
-  // changing the fields does not change the open run
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Other" } });
-  expect(within(pane).getByText("Writing: Payments API")).toBeInTheDocument();
-  fireEvent.click(within(pane).getByRole("button", { name: "New chat" }));
-  await waitFor(() => expect(calls.some((c) => c.key === "POST /api/sessions/r1/close")).toBe(true));
-  await waitFor(() => expect(live.requested.at(-1)).toBeNull());
-  expect(within(pane).queryByText("Writing: Payments API")).toBeNull();
+  await waitFor(() => expect(router.state.location.search).toBe("?chat=r1"));
+  expect(
+    await within(documents()).findByText("The agent has not written a document in this conversation yet."),
+  ).toBeVisible();
 });
 
-test("on a resource's New document page the run writes a document built for the resource", async () => {
+test("on a resource the chat is on it: started_from carries the resource", async () => {
   const calls = api({
-    ...base,
+    ...onServer,
     "POST /api/sessions": () => {
-      live.sessions.r1 = detail();
-      return [201, detail()];
-    },
-  });
-  show("/documents/new?resource=server&resource_id=s1");
-  const pane = await openPane();
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
-  await waitFor(() => expect(within(pane).queryByText("Give the document a title first.")).toBeNull());
-  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
-  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
-  const written = { name: "Payments API", server_id: "s1" };
-  await waitFor(() =>
-    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
-      started_from: { new_document: written },
-      resources: { documents: [{ new: written }] },
-    }),
-  );
-  expect(calls.find((c) => c.key === "POST /api/sessions")?.body.started_from.new_document.tags).toBeUndefined();
-});
-
-test("on a code project's New document page the run writes a document built for the code project", async () => {
-  const calls = api({
-    ...base,
-    "POST /api/sessions": () => {
-      live.sessions.r1 = detail();
-      return [201, detail()];
-    },
-  });
-  show("/documents/new?resource=code_project&resource_id=c1");
-  const pane = await openPane();
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Shop overview" } });
-  await waitFor(() => expect(within(pane).queryByText("Give the document a title first.")).toBeNull());
-  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
-  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
-  const written = { name: "Shop overview", code_project_id: "c1" };
-  await waitFor(() =>
-    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
-      started_from: { new_document: written },
-      resources: { code_project_ids: ["c1"], documents: [{ new: written }] },
-    }),
-  );
-});
-
-test("the agent draft shows above the editor; Promote opens the new document", async () => {
-  const calls = api({
-    ...base,
-    "POST /api/sessions": () => {
-      live.sessions.r1 = detail({ id: "d9", document_id: null, status: "open" });
+      live.sessions.r1 = detail("r1", ["servers/s1"]);
       return [201, live.sessions.r1];
     },
-    "GET /api/documentation/drafts/d9": () => [200, draft],
-    "POST /api/documentation/drafts/d9/promote": () => [
-      200,
-      { document_id: "d9", version: 1, revision: 2, deleted_drafts: 0 },
-    ],
+    "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts: [] }],
   });
-  const router = show();
-  const pane = await openPane();
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
-  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
-  await waitFor(() => expect(within(pane).queryByText("Give the document a title first.")).toBeNull());
+  const router = show("/documents/new/agent?resource=server&resource_id=s1");
+  const pane = await screen.findByRole("region", { name: "Ask agent" });
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write the runbook." } });
+  await waitFor(() => expect(within(pane).queryByText(PICK_TO_WRITE)).toBeNull());
   fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
-  const bar = await screen.findByRole("region", { name: "Agent draft" });
-  await waitFor(() => expect(within(bar).getByRole("button", { name: "Promote" })).toBeEnabled());
-  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d9"));
-  expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d9/promote")?.body).toEqual({
-    revision: 1,
-    confirm_stale: false,
-  });
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
+      started_from: { new_document: true, server_id: "s1" },
+      resources: { server_ids: ["s1"], documents: [] },
+    }),
+  );
+  await waitFor(() => expect(router.state.location.search).toBe("?resource=server&resource_id=s1&chat=r1"));
 });
 
-test.each([
-  ["a new document", { document_id: null }, "/documents/d9", ""],
-  [
-    "an existing document (its title named one)",
-    { document_id: "doc-1", base_version: 1, live_version: 1 },
-    "/documents/doc-1",
-    "?tab=drafts&draft=d9",
-  ],
-])("Compare on the New page opens the draft of %s", async (_, shape, pathname, search) => {
-  const shaped = { ...draft, ...shape };
+test("Documents in this chat: titles open in a new tab, New or Edit of, the state, and Mention puts the reference at the cursor", async () => {
+  live.sessions.r1 = detail("r1");
+  api({ ...plain, "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts }] });
+  show("/documents/new/agent?chat=r1");
+  const list = await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByRole("list", {
+    name: "Documents",
+  });
+  const items = within(list).getAllByRole("listitem");
+  const disk = within(items[0]).getByRole("link", { name: "Disk layout" });
+  expect(disk).toHaveAttribute("href", "/documents/drafts/d1");
+  expect(disk).toHaveAttribute("target", "_blank");
+  expect(disk).toHaveAttribute("rel", "noopener");
+  expect(items[0]).toHaveTextContent("New");
+  expect(items[0]).toHaveTextContent("Draft");
+  expect(items[1]).toHaveTextContent("Edit of Runbook");
+  const [edit, original] = within(items[1]).getAllByRole("link", { name: "Runbook" });
+  expect(edit).toHaveAttribute("href", "/documents/drafts/d2");
+  expect(original).toHaveAttribute("href", "/documents/doc-1");
+  expect(original).toHaveAttribute("target", "_blank");
+  expect(within(items[2]).getByRole("link", { name: "Backups" })).toHaveAttribute("href", "/documents/d3");
+  expect(items[2]).toHaveTextContent("Published");
+
+  const box = within(chat()).getByLabelText("Message") as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: "Fix  please" } });
+  box.setSelectionRange(4, 4);
+  fireEvent.click(within(items[0]).getByRole("button", { name: "Mention Disk layout" }));
+  await waitFor(() => expect(box.value).toBe('Fix [Draft "Disk layout" · d1] please'));
+  box.setSelectionRange(box.value.length, box.value.length);
+  fireEvent.click(within(items[1]).getByRole("button", { name: "Mention Runbook" }));
+  await waitFor(() => expect(box.value).toBe('Fix [Draft "Disk layout" · d1] please [Draft "Runbook" · d2]'));
+});
+
+test("the list loads again when a document write's result arrives in the conversation's events", async () => {
+  live.sessions.r1 = detail("r1");
+  let listed = [drafts[0]];
+  const calls = api({ ...plain, "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts: listed }] });
+  show("/documents/new/agent?chat=r1");
+  await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText("Disk layout");
+  const loads = () => calls.filter((c) => c.key === "GET /api/documentation/drafts?session_id=r1").length;
+  const before = loads();
+  const event = (id: number, kind: string, payload: Record<string, unknown>) => ({
+    id,
+    turn: 2,
+    seq: id,
+    kind,
+    payload,
+    created_at: at,
+  });
+  act(() =>
+    live.setEvents!([
+      event(1, "tool_call", { name: "get_document", call_id: "a" }),
+      event(2, "tool_result", { call_id: "a", preview: "{}" }),
+    ]),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(loads()).toBe(before); // a read writes nothing
+  listed = drafts;
+  act(() =>
+    live.setEvents!([
+      event(1, "tool_call", { name: "get_document", call_id: "a" }),
+      event(2, "tool_result", { call_id: "a", preview: "{}" }),
+      event(3, "tool_call", { name: "new_document", call_id: "b" }),
+      event(4, "tool_result", { call_id: "b", preview: "Created the draft" }),
+    ]),
+  );
+  expect(await within(documents()).findByText("Backups")).toBeVisible();
+  expect(loads()).toBe(before + 1);
+});
+
+test("Conversations lists the earlier Write with an agent conversations; opening one shows its documents", async () => {
+  live.sessions.r1 = detail("r1", ["servers/s1"]);
+  live.sessions.r2 = detail("r2", ["servers/s1"]);
   api({
-    ...base,
-    "POST /api/sessions": () => {
-      live.sessions.r1 = detail({ id: "d9", document_id: shaped.document_id, status: "open" });
-      return [201, live.sessions.r1];
-    },
-    "GET /api/documentation/drafts/d9": () => [200, shaped],
+    ...onServer,
+    "GET /api/sessions?tag=servers%2Fs1&purpose=documents": () => [
+      200,
+      { sessions: [run("r2", "Write the backups"), run("r1", "Write the runbook")] },
+    ],
+    "GET /api/documentation/drafts?session_id=r1": () => [200, { drafts: [drafts[0]] }],
+    "GET /api/documentation/drafts?session_id=r2": () => [200, { drafts: [drafts[2]] }],
   });
-  const router = show();
-  const pane = await openPane();
-  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
-  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
-  await waitFor(() => expect(within(pane).queryByText("Give the document a title first.")).toBeNull());
-  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
-  const bar = await screen.findByRole("region", { name: "Agent draft" });
-  fireEvent.click(within(bar).getByRole("button", { name: "Compare" }));
-  // the typed title is an unsaved edit: leaving the page asks first, as any link away does
-  fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe(pathname));
-  expect(router.state.location.search).toBe(search);
+  const router = show("/documents/new/agent?resource=server&resource_id=s1&chat=r1");
+  expect(
+    await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText("Disk layout"),
+  ).toBeVisible();
+  expect(await screen.findByTestId("conversation-title")).toHaveTextContent("Write the runbook");
+  fireEvent.click(screen.getByRole("button", { name: "Conversations" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Every Write with an agent conversation about web-1, newest first.")).toBeVisible();
+  const listed = within(sheet).getAllByRole("button", { name: /Write the/ });
+  expect(listed.map((item) => item.textContent)).toEqual([
+    expect.stringContaining("Write the backups"),
+    expect.stringContaining("Write the runbook"),
+  ]);
+  expect(listed[1]).toHaveAttribute("aria-current", "true");
+  fireEvent.click(listed[0]);
+  await waitFor(() => expect(router.state.location.search).toBe("?resource=server&resource_id=s1&chat=r2"));
+  expect(await within(documents()).findByText("Backups")).toBeVisible();
+  expect(within(documents()).queryByText("Disk layout")).toBeNull();
 });

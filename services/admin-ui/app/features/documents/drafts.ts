@@ -132,3 +132,44 @@ export const draftPath = (draft: { id: string; document_id: string | null }) =>
 export const publishedNotice = (result: PromoteResult) => `Published as version ${result.version}.`;
 /** What the document page says after a draft was promoted. */
 export const promotedNotice = (result: PromoteResult) => `Draft promoted to version ${result.version}.`;
+
+/** A draft a conversation created or edited (GET /drafts?session_id=): a new document (draft_of null) or a draft of
+ * an existing document, and what became of it; title null: a discarded new document (nothing keeps its title). */
+export interface SessionDraft {
+  id: string;
+  title: string | null;
+  draft_of: string | null;
+  draft_of_title: string | null;
+  /** null: unknown (its document was deleted). */
+  state: "open" | "published" | "discarded" | "replaced" | null;
+  updated_at: string;
+}
+export const getSessionDrafts = (sessionId: string, signal?: AbortSignal) =>
+  request<{ drafts: SessionDraft[] }>(`${base}/drafts?${new URLSearchParams({ session_id: sessionId })}`, { signal });
+const STATE_LABELS = { open: "Draft", published: "Published", discarded: "Discarded", replaced: "Replaced" };
+export const stateLabel = (state: SessionDraft["state"]) => (state ? STATE_LABELS[state] : "Deleted");
+/** How a person mentions a draft in the chat: its title and its full id, which the document tools take. */
+export const mentionText = (draft: Pick<SessionDraft, "id" | "title">) =>
+  `[Draft "${draft.title ?? "Untitled"}" · ${draft.id}]`;
+/** `value` with `text` in place of the selection (none: at the end), set apart by a space from the words beside it;
+ * `cursor`: just after the text. */
+export function insertMention(value: string, text: string, selection: { start: number; end: number } | null) {
+  const start = selection?.start ?? value.length;
+  const end = selection?.end ?? value.length;
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const lead = before && !/\s$/.test(before) ? " " : "";
+  const trail = after && !/^\s/.test(after) ? " " : "";
+  return { value: `${before}${lead}${text}${trail}${after}`, cursor: before.length + lead.length + text.length };
+}
+/** Where a conversation's draft opens: an open draft its draft page, a published one its document (a new document
+ * keeps the draft's id); null when it is gone (discarded, replaced or deleted). */
+export const sessionDraftPath = (draft: SessionDraft) =>
+  draft.state === "open"
+    ? `/documents/drafts/${encodeURIComponent(draft.id)}`
+    : draft.state === "published"
+      ? `/documents/${encodeURIComponent(draft.draft_of ?? draft.id)}`
+      : null;
+/** Whether the draft's id still names something the agent can use: an open draft, or a published new document. */
+export const mentionable = (draft: SessionDraft) =>
+  draft.state === "open" || (draft.state === "published" && draft.draft_of === null);

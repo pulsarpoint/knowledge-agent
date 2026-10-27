@@ -6,10 +6,9 @@ import {
   getDocument,
   getDocumentResources,
   getDocumentVersion,
-  BUILT_FOR_TYPES,
   isBuiltForRefusal,
+  newDocumentResource,
   saveDocumentLinks,
-  type BuiltForType,
   type DocumentDetail,
   type DocumentIds,
   type DocumentInput,
@@ -24,7 +23,6 @@ import type { SessionDetail } from "~/features/sessions/api";
 import {
   createDraft,
   discardDraft,
-  draftPath,
   getDraft,
   promoteDraft,
   promotedNotice,
@@ -117,8 +115,7 @@ interface EditingDraft {
 /** The editor, in three modes. The New page (`document` null): Save creates a brand-new draft and opens it. A brand-new
  * draft (`document.is_draft`): Save updates it (its name too), Publish makes it the live document, Discard deletes it.
  * A live document: the first Save creates the person's draft and the editor switches to it (later Saves update it);
- * Promote on the Drafts tab makes a draft live. Links are saved apart, with Save links. On the New page, onFieldsChange
- * reports the Title (the name of the document Write with an agent writes), and registerLeave lets the page leave without the unsaved-changes question (a promoted agent draft opens the document). */
+ * Promote on the Drafts tab makes a draft live. Links are saved apart, with Save links. */
 function Editor({
   document,
   resources,
@@ -128,8 +125,6 @@ function Editor({
   agentOpen,
   onToggleAgent,
   registerConfirm,
-  onFieldsChange,
-  registerLeave,
 }: {
   document: DocumentDetail | null;
   resources: DocumentResources;
@@ -139,8 +134,6 @@ function Editor({
   agentOpen: boolean;
   onToggleAgent: () => void;
   registerConfirm: (confirm: (run: () => void) => void) => void;
-  onFieldsChange: (title: string) => void;
-  registerLeave: (leave: () => void) => void;
 }) {
   const navigate = useNavigate();
   const isDraft = document?.is_draft === true; // a brand-new draft: not published yet
@@ -148,12 +141,10 @@ function Editor({
   const [params] = useSearchParams();
   // The New page opened by a resource's New document (?resource=server&resource_id=…): built for that resource.
   const [resourceFor] = useState(() => {
-    const type = params.get("resource") as BuiltForType | null;
-    const id = params.get("resource_id");
-    if (document || !type || !BUILT_FOR_TYPES.includes(type) || !id) return null;
-    const list = type === "code_project" ? resources.code_projects : resources[`${type}s`];
-    const name = list?.find((item) => item.id === id)?.name ?? id;
-    return { type, id, name };
+    const found = document ? null : newDocumentResource(params);
+    if (!found) return null;
+    const list = found.type === "code_project" ? resources.code_projects : resources[`${found.type}s`];
+    return { ...found, name: list?.find((item) => item.id === found.id)?.name ?? found.id };
   });
   const [initial] = useState<DocumentInput>(() =>
     document
@@ -244,14 +235,6 @@ function Editor({
   // An action from the Drafts tab (Edit, Promote) waiting for the confirmation that unsaved changes may be lost.
   const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
   const leaving = useRef(false);
-  useEffect(() => {
-    onFieldsChange(value.title);
-  }, [value.title]);
-  useEffect(() => {
-    registerLeave(() => {
-      leaving.current = true;
-    });
-  }, []);
   const ids = pickIds(DOCUMENT_KINDS, value);
   const contentDirty = JSON.stringify(content()) !== JSON.stringify(savedContent);
   const linksDirty = !sameIds(ids, savedIds);
@@ -494,12 +477,6 @@ function Editor({
             <Button type="button" variant="outline" aria-pressed={agentOpen} onClick={onToggleAgent}>
               <Bot data-icon="inline-start" />
               Ask agent
-            </Button>
-          )}
-          {!document && (
-            <Button type="button" variant="outline" aria-pressed={agentOpen} onClick={onToggleAgent}>
-              <Bot data-icon="inline-start" />
-              Write with an agent
             </Button>
           )}
           {isDraft && (
@@ -999,33 +976,19 @@ function Editor({
 export default function DocumentEditorView() {
   const { documentId, runId } = useParams();
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  // A resource's New document (?resource=server&resource_id=…): Write with an agent writes a document built for it.
-  const [resourceFor] = useState(() => {
-    const type = params.get("resource") as BuiltForType | null;
-    const id = params.get("resource_id");
-    return documentId === undefined && type && BUILT_FOR_TYPES.includes(type) && id ? { type, id } : null;
-  });
+  const [, setParams] = useSearchParams();
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
-  // The New page's agent pane starts closed and is not remembered (Ask agent's choice is per document page).
+  // Ask agent's pane: a live document's (the New page writes with an agent on its own sub-page), remembered per browser.
   const [agentOpen, setAgentOpen] = useState(
     () => documentId !== undefined && (runId !== undefined || readPane() === "open"),
   );
   const [agentDraft, setAgentDraft] = useState<SessionDetail["document_draft"] | null>(null);
   const [agentVersion, setAgentVersion] = useState(""); // changes after each of the agent's turns: the bar reloads the draft
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
-  const leaveRef = useRef<() => void>(() => {});
-  const [title, setTitle] = useState(""); // the New page's Title (the name of the document the agent writes)
-  // Loads only while the pane is open; a new document's options once per page, whatever the title.
-  const settings = useAgentSettings(
-    !agentOpen
-      ? null
-      : documentId
-        ? { kind: "document", id: documentId, title: "" }
-        : { kind: "new-document", title, ...(resourceFor ? { resourceFor } : {}) },
-  );
+  // Loads only while the pane is open.
+  const settings = useAgentSettings(agentOpen && documentId ? { kind: "document", id: documentId, title: "" } : null);
   // A notice handed over in the navigation state (the new-document draft page's Promote).
   const location = useLocation();
   const handed = (location.state as { notice?: unknown } | null)?.notice;
@@ -1102,10 +1065,6 @@ export default function DocumentEditorView() {
       registerConfirm={(confirm) => {
         confirmRef.current = confirm;
       }}
-      onFieldsChange={setTitle}
-      registerLeave={(leave) => {
-        leaveRef.current = leave;
-      }}
     />
   );
   // The pane lives outside the editor and is rendered whenever it is open, so it keeps its conversation across the
@@ -1117,15 +1076,9 @@ export default function DocumentEditorView() {
   // A brand-new draft has no Ask agent (its runs are the New page's): the pane is a live document's.
   const paneTitle =
     agentOpen && documentId && titled?.id === documentId && loaded?.document?.is_draft !== true ? titled.title : null;
-  const writing = agentOpen && !documentId && loaded !== null; // the New page's Write with an agent
-  const split = paneTitle !== null || writing;
+  const split = paneTitle !== null;
   // With the pane open the page takes the full width: the document 2/3, the chat 1/3 (below the editor on small screens).
   useWidePage(split);
-  // A new document's promoted draft is the document: open it (the editor's fields were the agent's input).
-  const onNewPromoted = (result: PromoteResult) => {
-    leaveRef.current();
-    navigate(`/documents/${encodeURIComponent(result.document_id)}`, { state: { notice: promotedNotice(result) } });
-  };
   return (
     <>
       {notice && (
@@ -1144,15 +1097,6 @@ export default function DocumentEditorView() {
               version={agentVersion}
               confirm={(run) => confirmRef.current(run)}
               onPromoted={onPromoted}
-            />
-          )}
-          {writing && agentDraft && (
-            <AgentDraftBar
-              draft={agentDraft}
-              version={agentVersion}
-              confirm={(run) => run()}
-              onPromoted={onNewPromoted}
-              onCompare={(d) => navigate(draftPath(d))}
             />
           )}
           {error ? (
@@ -1183,20 +1127,6 @@ export default function DocumentEditorView() {
                 setAgentVersion(version);
               }}
               onRunChange={followRun}
-            />
-          </div>
-        )}
-        {writing && (
-          <div className="min-w-0 lg:sticky lg:top-4">
-            <AgentChat
-              key="new"
-              scope={{ kind: "new-document", title, ...(resourceFor ? { resourceFor } : {}) }}
-              settings={settings}
-              initialRunId={null}
-              onDraftChange={(draft, version) => {
-                setAgentDraft(draft);
-                setAgentVersion(version);
-              }}
             />
           </div>
         )}

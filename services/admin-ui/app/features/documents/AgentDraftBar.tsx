@@ -13,20 +13,17 @@ import { Button } from "~/components/ui/button";
  * check: the server's message, then Promote anyway). A draft another draft's promote replaced says so; a promoted or
  * discarded one hides the bar. The agent may
  * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Promote
- * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. A page without
- * a Drafts tab (Documents → New) passes `onCompare` to decide where Compare goes. */
+ * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. */
 export default function AgentDraftBar({
   draft,
   version,
   confirm,
   onPromoted,
-  onCompare,
 }: {
   draft: NonNullable<SessionDetail["document_draft"]>;
   version?: string;
   confirm: (run: () => void) => void;
   onPromoted: (result: PromoteResult) => void;
-  onCompare?: (draft: NonNullable<SessionDetail["document_draft"]>) => void;
 }) {
   const [, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -93,11 +90,9 @@ export default function AgentDraftBar({
             size="sm"
             variant="outline"
             onClick={() =>
-              onCompare
-                ? onCompare(draft)
-                : draft.document_id === null
-                  ? navigate(draftPath(draft))
-                  : setParams({ tab: "drafts", draft: draft.id }, { replace: true })
+              draft.document_id === null
+                ? navigate(draftPath(draft))
+                : setParams({ tab: "drafts", draft: draft.id }, { replace: true })
             }
           >
             Compare

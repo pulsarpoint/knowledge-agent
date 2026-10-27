@@ -19,7 +19,11 @@ export default [
   route("code-graphs", "./routes/codeGraphs.tsx"),
   route("storage", "./routes/storage.tsx"),
   route("documents", "./routes/documents.tsx"),
-  route("documents/new", "./routes/documentNew.tsx"),
+  // New document: Write (the form) and Write with an agent (a chat) are sub-pages.
+  route("documents/new", "./routes/documentNew.tsx", [
+    index("./routes/documentNewWrite.tsx"),
+    route("agent", "./routes/documentNewAgent.tsx"),
+  ]),
   route("documents/drafts/:draftId", "./routes/documentDraft.tsx"),
   // The run link is a child of the document page: following one (or the pane changing run) keeps the page mounted.
   route("documents/:documentId", "./routes/documentDetail.tsx", [

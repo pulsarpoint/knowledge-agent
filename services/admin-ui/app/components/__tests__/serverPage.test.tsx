@@ -115,7 +115,7 @@ const detail = (id: string, status: string, serverId = "s1") => ({
   config: {},
   document_draft: null,
 });
-const RUNS = "GET /api/sessions?tag=servers%2Fs1";
+const RUNS = "GET /api/sessions?tag=servers%2Fs1&purpose=resource";
 const base = (ready = true, reason: string | null = null): Record<string, (body: any) => [number, unknown]> => ({
   "GET /api/servers/s1": () => [200, page(ready, reason)],
   "GET /api/inventory/server/s1/documents": () => [200, { inventory_document: null, documents: [] }],

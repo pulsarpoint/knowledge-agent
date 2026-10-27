@@ -30,7 +30,6 @@ const detail: SessionDetail = {
   created_at: "2026-10-08T10:00:00Z",
   last_activity_at: "2026-10-08T10:00:00Z",
   closed_at: null,
-  document_name: null,
   draft: null,
   draft_turn: null,
   model_id: "gpt",

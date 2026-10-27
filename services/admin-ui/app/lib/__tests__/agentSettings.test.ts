@@ -1,5 +1,6 @@
 import {
   OWN,
+  PICK_TO_WRITE,
   defaultSettings,
   pickReason,
   restoreSettings,
@@ -7,6 +8,7 @@ import {
   settingsSummary,
   startInput,
   withScope,
+  writeReason,
 } from "~/features/sessions/agentSettings";
 import type { SessionDetail } from "~/features/sessions/api";
 import { options } from "./agentOptionsFixture";
@@ -316,16 +318,11 @@ test("settings saved for an older revision of the agent are dropped", () => {
   expect(restoreSettings(agentOptions, { ...saved, revision: 3 }).experts).toEqual([]);
 });
 
-test("a new document: the start body names it as started_from and as the one document it writes", () => {
+test("writing with an agent: the start body starts from no document, with the picked resources", () => {
   const fresh = { ...options, resources: { ...options.resources, documents: [] } };
-  const body = startInput(
-    { kind: "new-document", title: "Payments API" },
-    fresh,
-    defaultSettings(fresh),
-    " Write it. ",
-  );
+  const body = startInput({ kind: "new-document" }, fresh, defaultSettings(fresh), " Write it. ");
   expect(body).toEqual({
-    started_from: { new_document: { name: "Payments API" } },
+    started_from: { new_document: true },
     message: "Write it.",
     model_id: "m2",
     prompt_id: "p2",
@@ -336,11 +333,20 @@ test("a new document: the start body names it as started_from and as the one doc
       service_ids: ["v1"],
       environment_ids: [],
       code_project_ids: [],
-      documents: [{ new: { name: "Payments API" } }],
+      documents: [],
     },
     expert_ids: [],
     disabled_tools: [],
   });
+});
+
+test("writing with an agent without a resource needs a picked resource", () => {
+  const settings = defaultSettings(options);
+  const none = { ...settings, chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [] } };
+  expect(writeReason({ kind: "new-document" }, settings)).toBeNull();
+  expect(writeReason({ kind: "new-document" }, none)).toBe(PICK_TO_WRITE);
+  expect(writeReason({ kind: "new-document", resource: { type: "service", id: "v1" } }, none)).toBeNull();
+  expect(writeReason({ kind: "server", id: "s1", name: "web-1" }, none)).toBeNull();
 });
 
 test("the start body for a server: the server is chosen even when not linked", () => {
@@ -359,23 +365,20 @@ test("the start body for a server: the server is chosen even when not linked", (
   });
 });
 
-test("the start body for a resource's new document: its resource is chosen, a server only when the run can use it", () => {
+test("writing with an agent from a resource: it starts from the resource, chosen too (a server only when usable)", () => {
   const base = defaultSettings(options);
   const settings = { ...base, chosen: { ...base.chosen, server_ids: [], service_ids: [] } };
-  const scope = (type: "server" | "service", id: string) => ({
-    kind: "new-document" as const,
-    title: "Payments API",
-    resourceFor: { type, id },
-  });
+  const scope = (type: "server" | "service", id: string) => ({ kind: "new-document" as const, resource: { type, id } });
   const server = startInput(scope("server", "s1"), options, settings, "Write it.");
+  expect(server.started_from).toEqual({ new_document: true, server_id: "s1" });
   expect(server.resources.server_ids).toEqual(["s1"]);
-  const written = { name: "Payments API", server_id: "s1" };
-  expect(server.started_from).toEqual({ new_document: written });
-  expect(server.resources.documents).toEqual([{ new: written }]);
-  // prod-1 has no usable SSH: the run starts without it (the start says so)
+  expect(server.resources.documents).toEqual([]);
+  // prod-1 has no usable SSH: the run holds it without it (the API gives it as the run's own resource)
   const unusable = startInput(scope("server", "s2"), options, settings, "Write it.");
+  expect(unusable.started_from).toEqual({ new_document: true, server_id: "s2" });
   expect(unusable.resources.server_ids).toEqual([]);
   const service = startInput(scope("service", "v1"), options, settings, "Write it.");
+  expect(service.started_from).toEqual({ new_document: true, service_id: "v1" });
   expect(service.resources.service_ids).toEqual(["v1"]);
 });
 
@@ -384,7 +387,7 @@ test("off tools go into every kind of start request, and come back with Start ne
   expect(startInput(doc(), options, off, "x").disabled_tools).toEqual(["ssh_run"]);
   const server = { kind: "server" as const, id: "s1", name: "web-1" };
   expect(startInput(server, options, off, "x").disabled_tools).toEqual(["ssh_run"]);
-  const newDoc = { kind: "new-document" as const, title: "T" };
+  const newDoc = { kind: "new-document" as const };
   expect(startInput(newDoc, options, off, "x").disabled_tools).toEqual(["ssh_run"]);
   const agent = { kind: "agent" as const, id: "ops", name: "Operations" };
   const agentOff = { ...defaultSettings(agentOptions), disabledTools: ["get_document"] };

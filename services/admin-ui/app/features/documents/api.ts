@@ -158,6 +158,21 @@ export type InventoryType = (typeof INVENTORY_TYPES)[number];
  * code project. */
 export const BUILT_FOR_TYPES = [...INVENTORY_TYPES, "code_project"] as const;
 export type BuiltForType = (typeof BUILT_FOR_TYPES)[number];
+/** The resource a New document page is for, from its query (?resource=<type>&resource_id=<id>), or null. */
+export function newDocumentResource(params: URLSearchParams): { type: BuiltForType; id: string } | null {
+  const type = params.get("resource") as BuiltForType | null;
+  const id = params.get("resource_id");
+  return type && BUILT_FOR_TYPES.includes(type) && id ? { type, id } : null;
+}
+/** The New document page's query for a resource ("" for none): both sub-pages carry it. */
+export const newDocumentSearch = (resource: { type: string; id: string } | null | undefined) =>
+  resource ? `?${new URLSearchParams({ resource: resource.type, resource_id: resource.id })}` : "";
+/** Write with an agent (/documents/new/agent), on a resource when given; `chat`: the conversation it opens. */
+export const writeWithAgentPath = (resource?: { type: string; id: string } | null, chat?: string | null) => {
+  const search = new URLSearchParams(newDocumentSearch(resource));
+  if (chat) search.set("chat", chat);
+  return `/documents/new/agent${search.size ? `?${search}` : ""}`;
+};
 /** The tag of an inventory document: a resource's inventory document is the one tagged so that is built for it. */
 export const INVENTORY_TAG = "inventory";
 /** The Documents list filtered by one tag (what every tag badge links to). */

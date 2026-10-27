@@ -77,7 +77,7 @@ function api(prompts = [overview]) {
       const routes: Record<string, unknown> = {
         "GET /api/code-projects/c1": project,
         "GET /api/sessions/options?code_project_id=c1": { ...shared, discovery_prompts: prompts },
-        "GET /api/sessions?tag=code_projects%2Fc1": { sessions: [] },
+        "GET /api/sessions?tag=code_projects%2Fc1&purpose=resource": { sessions: [] },
         "GET /api/inventory/code_project/c1/documents": {
           inventory_document: null,
           documents: [
@@ -165,7 +165,7 @@ test("Chat opens the chat panel on the code project, and it stays open across su
   show();
   await userEvent.click(await screen.findByRole("button", { name: "Chat" }));
   expect(await screen.findByTestId("resource-chat")).toBeInTheDocument();
-  expect(calls).toContain("GET /api/sessions?tag=code_projects%2Fc1");
+  expect(calls).toContain("GET /api/sessions?tag=code_projects%2Fc1&purpose=resource");
   expect(calls).toContain("GET /api/sessions/options?code_project_id=c1");
   await userEvent.click(sectionLink("Code project sections", "Documents"));
   expect(await screen.findByRole("region", { name: "Documents" })).toBeInTheDocument();
