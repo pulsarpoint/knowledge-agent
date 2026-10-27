@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import { Eye, FileText, Layers, Network, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -24,7 +25,6 @@ export default function EnvironmentsView() {
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<{ environment: EnvironmentAsset | null } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -54,7 +54,6 @@ export default function EnvironmentsView() {
   function openForm(environment: EnvironmentAsset | null) {
     setForm({ environment });
     setSelected(null);
-    setNotice(null);
   }
   async function confirmDelete() {
     if (deleteTarget === null || deleting) return;
@@ -70,7 +69,7 @@ export default function EnvironmentsView() {
       );
       setSelected((current) => (current === target.id ? null : current));
       setDeleteTarget(null);
-      setNotice(`Environment “${target.name}” deleted.`);
+      toast.success(`Environment “${target.name}” deleted.`);
       setRefresh((value) => value + 1);
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the environment. Try again.");
@@ -112,7 +111,7 @@ export default function EnvironmentsView() {
             onClick={() => openForm(null)}
           >
             <Plus data-icon="inline-start" />
-            Add environment
+            New environment
           </Button>
         </div>
       </div>
@@ -120,11 +119,6 @@ export default function EnvironmentsView() {
         <Alert variant="destructive">
           <AlertTitle>Environments unavailable</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
       {form && data && (
@@ -138,7 +132,7 @@ export default function EnvironmentsView() {
           onSaved={(environment) => {
             setForm(null);
             setSelected(environment.id);
-            setNotice(`Environment “${environment.name}” saved.`);
+            toast.success(`Environment “${environment.name}” saved.`);
             setRefresh((value) => value + 1);
           }}
         />
@@ -244,7 +238,6 @@ export default function EnvironmentsView() {
                               onClick={() => {
                                 setDeleteTarget(environment);
                                 setDeleteError(null);
-                                setNotice(null);
                               }}
                             >
                               <Trash2 />

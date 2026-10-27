@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 import { Brain, Plus, RefreshCw, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
@@ -43,7 +44,7 @@ export default function MemoryView() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reembedding, setReembedding] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [embedFailure, setEmbedFailure] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [params] = useSearchParams();
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
@@ -117,10 +118,11 @@ export default function MemoryView() {
   }
   async function reembed() {
     setReembedding(true);
-    setNotice(null);
+    setEmbedFailure(null);
     try {
       const result = await reembedMemories();
-      setNotice(result.failed ? `${result.failed} entries could not be embedded.` : null);
+      if (result.failed) setEmbedFailure(`${result.failed} entries could not be embedded.`);
+      else toast.success(`${result.embedded} entries re-embedded.`);
       refresh();
     } catch (reason) {
       setError(text(reason, "Could not re-embed the entries."));
@@ -197,15 +199,14 @@ export default function MemoryView() {
       {!embeddingModel && (
         <p className="text-sm text-muted-foreground">No embedding model selected: entries are found by words only.</p>
       )}
-      {notice && (
+      {embedFailure && (
         <Alert variant="destructive">
           <AlertTitle>Re-embed</AlertTitle>
-          <AlertDescription>{notice}</AlertDescription>
+          <AlertDescription>{embedFailure}</AlertDescription>
         </Alert>
       )}
       {error && (
         <Alert variant="destructive">
-          <AlertTitle>Memory</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}

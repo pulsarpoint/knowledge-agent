@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { useNavigate } from "react-router";
 import { ApiError } from "~/lib/api";
 import { createItem, isStale, updateItem } from "./inventory";
@@ -18,7 +19,7 @@ const same = (a: ServiceFieldValues, b: ServiceFieldValues) =>
 /** The service's own fields edited in place: Save (sends the revision it read; a stale one reloads and says so), or
  * Discard to drop the changes. Leaving with unsaved changes asks first. */
 export default function ServiceEdit() {
-  const { service, changed, conflict, setNotice } = useServicePage();
+  const { service, changed, conflict } = useServicePage();
   const [started, setStarted] = useState(0);
   return (
     // Discard starts the form afresh; a save does when the reloaded service comes with its new revision (so does a
@@ -30,7 +31,7 @@ export default function ServiceEdit() {
       onDiscard={() => setStarted((n) => n + 1)}
       onSaved={() => {
         changed();
-        setNotice("Service saved.");
+        toast.success(`Service “${service.name}” saved.`);
       }}
       onStale={conflict}
     />

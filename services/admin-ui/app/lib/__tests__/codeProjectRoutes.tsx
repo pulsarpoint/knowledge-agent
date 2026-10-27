@@ -11,6 +11,7 @@ import {
 import { CodeProjectDependenciesPage } from "~/features/codeProjects/CodeProjectDependencies";
 import CodeProjectsLayout from "~/features/codeProjects/CodeProjectsLayout";
 import CodeProjectsList from "~/features/codeProjects/CodeProjectsList";
+import { Toaster } from "~/components/ui/sonner";
 
 /** The code projects routes as routes.ts declares them: the list's sub-pages and the project page's. */
 export const codeProjectRoutes: RouteObject[] = [
@@ -35,7 +36,7 @@ export const codeProjectRoutes: RouteObject[] = [
   },
 ];
 
-/** Renders the code projects routes (and `routes`) in a data router at `path`. It stubs the global Request: the test
+/** Renders the code projects routes (and `routes`) in a data router at `path`, with the toaster. It stubs the global Request: the test
  * file restores it with `vi.unstubAllGlobals()` in an afterEach. */
 export function renderCodeProjects(path: string, routes: RouteObject[] = []) {
   // A data router's navigation builds a Request with jsdom's AbortSignal, which Node's Request refuses.
@@ -49,7 +50,15 @@ export function renderCodeProjects(path: string, routes: RouteObject[] = []) {
     },
   );
   const router = createMemoryRouter([...codeProjectRoutes, ...routes], { initialEntries: [path] });
-  return { router, ...render(<RouterProvider router={router} />) };
+  return {
+    router,
+    ...render(
+      <>
+        <RouterProvider router={router} />
+        <Toaster />
+      </>,
+    ),
+  };
 }
 
 /** One section link of a code projects page (`nav`: the navigation's name). */

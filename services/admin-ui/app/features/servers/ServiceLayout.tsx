@@ -64,7 +64,7 @@ export const builtFrom = (serviceId: string, relations: Relation[]) =>
 /** What the service's sub-pages get from the layout: the service and every service (for names), its relations,
  * deployments and connections (loaded once, reloaded after a change or a turn of the page chat), `version` (counts
  * reloads), `changed` (after a change: clears the error and reloads), `conflict` (a stale revision: reloads and says
- * so), `ask` (a removal, confirmed first) and `setNotice`. */
+ * so) and `ask` (a removal, confirmed first). */
 export interface ServicePageContext {
   service: ServiceAsset;
   services: ServiceAsset[];
@@ -75,7 +75,6 @@ export interface ServicePageContext {
   changed: () => void;
   conflict: () => void;
   ask: (kind: ItemKind, item: { id: string; revision: number }, what: string, description: string) => void;
-  setNotice: (notice: string) => void;
 }
 export const useServicePage = () => useOutletContext<ServicePageContext>();
 
@@ -103,12 +102,9 @@ function ServicePage({ serviceId }: { serviceId: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
   const [version, setVersion] = useState(0);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const reload = () => setVersion((value) => value + 1);
-  // A notice belongs to the tab it was given on.
-  useEffect(() => setNotice(""), [pathname]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -132,7 +128,6 @@ function ServicePage({ serviceId }: { serviceId: string }) {
 
   const changed = () => {
     setError(null);
-    setNotice("");
     reload();
   };
   const conflict = () => {
@@ -200,11 +195,6 @@ function ServicePage({ serviceId }: { serviceId: string }) {
         sections={sections.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
       />
       {SECTION_HELP[page] && <p className="text-sm text-muted-foreground">{SECTION_HELP[page]}</p>}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
-        </Alert>
-      )}
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -219,7 +209,6 @@ function ServicePage({ serviceId }: { serviceId: string }) {
             changed,
             conflict,
             ask,
-            setNotice,
           } satisfies ServicePageContext
         }
       />

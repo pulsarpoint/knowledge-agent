@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { saveAgentPrompt, type AgentProfile } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -22,7 +23,6 @@ export default function AgentPromptCard({
   const [text, setText] = useState(profile.system_prompt);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   useEffect(() => {
     setText(profile.system_prompt);
   }, [profile.id, profile.system_prompt]);
@@ -33,10 +33,9 @@ export default function AgentPromptCard({
   async function save() {
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       onSaved(await saveAgentPrompt(profile.id, profile.revision, text));
-      setNotice("System prompt saved.");
+      toast.success("System prompt saved.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the system prompt.");
     } finally {
@@ -54,8 +53,8 @@ export default function AgentPromptCard({
         <CardHeader>
           <CardTitle>System prompt</CardTitle>
           <CardDescription>
-            Required. What this agent runs with: changes apply to new conversations and runs; running conversations keep
-            the configuration they started with.
+            Required. What this agent runs with: changes apply to new chats and runs; running chats keep the
+            configuration they started with.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -72,20 +71,12 @@ export default function AgentPromptCard({
               maxLength={PROMPT_LIMIT}
               value={text}
               disabled={busy}
-              onChange={(event) => {
-                setText(event.target.value);
-                setNotice("");
-              }}
+              onChange={(event) => setText(event.target.value)}
             />
             <FieldDescription>
               {text.length.toLocaleString()} / {PROMPT_LIMIT.toLocaleString()} characters
             </FieldDescription>
           </Field>
-          {notice && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {notice}
-            </p>
-          )}
         </CardContent>
         <CardFooter className="flex-wrap gap-2">
           <Button disabled={busy || !dirty || !text.trim()}>

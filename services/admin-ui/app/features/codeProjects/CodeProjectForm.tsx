@@ -16,7 +16,7 @@ import { Textarea } from "~/components/ui/textarea";
 const errorMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : "Could not reach administration.";
 
-/** The code project form: New project on the list (in a sheet; Cancel) and a project's Settings (edited in place: Save
+/** The code project form: New code project on the list (in a sheet; Cancel) and a project's Settings (edited in place: Save
  * and Discard, enabled once something changed; onDirtyChange reports it): its name, description, source (existing
  * folders or a Git repository: URL, clone folder, ref, authentication, automatic pulls) and mapped folders. Save calls
  * onSaved with the notice to show; with `saveBlocked`, Save waits and the reason is shown. */

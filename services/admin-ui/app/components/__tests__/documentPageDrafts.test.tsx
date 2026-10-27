@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { Toaster } from "~/components/ui/sonner";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
 
+beforeEach(() => {
+  render(<Toaster />);
+});
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
 beforeEach(() =>
@@ -84,7 +88,7 @@ const detail = {
     },
   ],
 };
-const STALE = "This draft was based on version 1; the live version is now 2. Promoting replaces version 2's text.";
+const STALE = "This draft was based on version 1; the live version is now 2. Publishing replaces version 2's text.";
 const base: Record<string, (body: any) => [number, unknown]> = {
   "GET /api/documentation/documents/doc-1": () => [200, document],
   "GET /api/documentation/resources": () => [200, resources],
@@ -170,7 +174,7 @@ test("Save on a new document creates a brand-new draft and opens it at /document
   });
 });
 
-test("a stale draft shows the diff against the live version and promotes only on Promote anyway", async () => {
+test("a stale draft shows the diff against the live version and publishes only on Publish anyway", async () => {
   const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 };
   const calls = api({
     ...base,
@@ -185,16 +189,16 @@ test("a stale draft shows the diff against the live version and promotes only on
   expect(view.getByText("# Runbook draft text", { selector: "ins" })).toBeInTheDocument();
   expect(view.getByText("# Runbook v2 live", { selector: "del" })).toBeInTheDocument();
   expect(view.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/sessions/s1");
-  fireEvent.click(view.getByRole("button", { name: "Promote" }));
+  fireEvent.click(view.getByRole("button", { name: "Publish" }));
   expect(await view.findByText(STALE)).toBeInTheDocument();
-  fireEvent.click(view.getByRole("button", { name: "Promote anyway" }));
+  fireEvent.click(view.getByRole("button", { name: "Publish anyway" }));
   await waitFor(() =>
     expect(calls.filter((c) => c.key === "POST /api/documentation/drafts/d1/promote").map((c) => c.body)).toEqual([
       { revision: 1, confirm_stale: false },
       { revision: 1, confirm_stale: true },
     ]),
   );
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
 });
 
 test("Edit loads a draft into the editor and Save then updates that draft", async () => {
@@ -267,21 +271,11 @@ test("Connections adds and removes dependencies and shows what uses the document
   );
 });
 
-test("version history notes the versions promoted from a draft", async () => {
+test("version history notes the versions published from a draft", async () => {
   api(base);
   show("/documents/doc-1?tab=history");
   expect(await screen.findByRole("button", { name: /Version 2 · Current · from draft/ })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^Version 1/ })).not.toHaveTextContent("from draft");
-});
-
-test("a notice handed over by the draft page shows on the document page", async () => {
-  api(base);
-  const notice = "Draft promoted to version 1.";
-  const router = createMemoryRouter([{ path: "/documents/:documentId", element: <DocumentEditorView /> }], {
-    initialEntries: [{ pathname: "/documents/doc-1", state: { notice } }],
-  });
-  render(<RouterProvider router={router} />);
-  expect(await screen.findByText(notice)).toBeInTheDocument();
 });
 
 test("with unsaved changes, Edit on a draft asks first; Cancel keeps the text, Discard changes loads the draft", async () => {
@@ -302,25 +296,25 @@ test("with unsaved changes, Edit on a draft asks first; Cancel keeps the text, D
   expect(screen.getByText(/Editing your draft/)).toBeInTheDocument();
 });
 
-test("with unsaved changes, Promote on the Drafts tab asks first; Cancel promotes nothing", async () => {
+test("with unsaved changes, Publish on the Drafts tab asks first; Cancel publishes nothing", async () => {
   const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 };
   const calls = api({ ...base, "POST /api/documentation/drafts/d1/promote": () => [200, promoted] });
   show("/documents/doc-1?tab=drafts&draft=d1");
   const view = within(await screen.findByRole("region", { name: "Draft" }));
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# My unsaved text" } });
-  fireEvent.click(view.getByRole("button", { name: "Promote" }));
+  fireEvent.click(view.getByRole("button", { name: "Publish" }));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
-  fireEvent.click(view.getByRole("button", { name: "Promote" }));
+  fireEvent.click(view.getByRole("button", { name: "Publish" }));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
   await waitFor(() =>
     expect(calls.filter((c) => c.key === "POST /api/documentation/drafts/d1/promote").map((c) => c.body)).toEqual([
       { revision: 1, confirm_stale: false },
     ]),
   );
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
 });
 
 test("without unsaved changes, Edit loads the draft at once", async () => {
@@ -352,7 +346,7 @@ test("with unsaved changes, Ask agent opens the pane and keeps the text; only th
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
 });
 
-test("the Drafts tab lists drafts newest first; Promote with two other drafts asks first", async () => {
+test("the Drafts tab lists drafts newest first; Publish with two other drafts asks first", async () => {
   const older = { ...summary, id: "d0", title: "First try", created_at: "2026-10-11T10:00:00Z", stale: false };
   const newer = { ...summary, id: "d2", title: "Third try", created_at: "2026-10-13T10:00:00Z", stale: false };
   const fresh = { ...detail, stale: false };
@@ -376,20 +370,20 @@ test("the Drafts tab lists drafts newest first; Promote with two other drafts as
     "First try",
   ]);
   const view = within(await screen.findByRole("region", { name: "Draft" }));
-  fireEvent.click(view.getByRole("button", { name: "Promote" }));
+  fireEvent.click(view.getByRole("button", { name: "Publish" }));
   const dialog = within(await screen.findByRole("alertdialog"));
-  expect(dialog.getByText("Promote and delete 2 other draft(s)?")).toBeInTheDocument();
+  expect(dialog.getByText("Publish and delete 2 other draft(s)?")).toBeInTheDocument();
   expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
-  fireEvent.click(dialog.getByRole("button", { name: "Promote" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Publish" }));
   await waitFor(() =>
     expect(calls.filter((c) => c.key === "POST /api/documentation/drafts/d1/promote").map((c) => c.body)).toEqual([
       { revision: 1, confirm_stale: false },
     ]),
   );
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
 });
 
-test("a Save whose draft was promoted or discarded elsewhere keeps the text and the next Save starts a new draft", async () => {
+test("a Save whose draft was published or discarded elsewhere keeps the text and the next Save starts a new draft", async () => {
   let gone = false;
   const calls = api({
     ...base,
@@ -410,7 +404,7 @@ test("a Save whose draft was promoted or discarded elsewhere keeps the text and 
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# My text" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(
-    await screen.findByText("Your draft was promoted or discarded elsewhere. Save starts a new draft from version 3."),
+    await screen.findByText("Your draft was published or discarded elsewhere. Save starts a new draft from version 3."),
   ).toBeInTheDocument();
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My text");
   expect(screen.queryByText(/Editing your draft/)).toBeNull();

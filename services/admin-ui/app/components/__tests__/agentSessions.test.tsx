@@ -294,7 +294,7 @@ test("applying a suggestion to the agent says so and reloads the agent", async (
   const sheet = within(await screen.findByRole("dialog", { name: "Apply suggestions" }));
   await waitFor(() => expect(sheet.getByRole("button", { name: /this agent/i })).toBeEnabled());
   fireEvent.click(sheet.getByRole("button", { name: /this agent/i }));
-  expect(await screen.findByText("Applied to this agent. New conversations use it.")).toBeVisible();
+  expect(await screen.findByText("Applied to this agent. New chats use it.")).toBeVisible();
   expect(onAgentChanged).toHaveBeenCalled();
 });
 

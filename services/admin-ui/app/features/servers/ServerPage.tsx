@@ -72,7 +72,7 @@ export default function ServerPage({ serverId }: { serverId: string }) {
             {data.ssh_ready ? "SSH set up" : "SSH not set up"}
           </Badge>
           <Badge variant={server.ssh_allowed ? "secondary" : "outline"}>
-            {server.ssh_allowed ? "Agent SSH allowed" : "Agent SSH off"}
+            {server.ssh_allowed ? "Agent SSH enabled" : "Agent SSH disabled"}
           </Badge>
         </div>
         {discovery.reason && <p className="text-sm text-muted-foreground">{discovery.reason}</p>}

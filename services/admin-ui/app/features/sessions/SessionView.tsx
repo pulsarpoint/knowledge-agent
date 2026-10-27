@@ -145,7 +145,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         }
         headerActions={
           <Button type="button" variant="outline" size="sm" disabled={busy || closed} onClick={() => void close()}>
-            Close session
+            Close chat
           </Button>
         }
         sidebar={
@@ -192,18 +192,18 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
                 </div>
                 {documentDraft?.status === "open" && (
                   <p className="text-xs text-muted-foreground">
-                    Each finished turn updates this draft until someone saves it. Promote it on its page to make it the
+                    Each finished turn updates this draft until someone saves it. Publish it on its page to make it the
                     live document.
                   </p>
                 )}
                 {documentDraft?.status === "promoted" && (
                   <p className="text-xs text-muted-foreground">
-                    The document draft was promoted. The agent's next finished turn starts a new draft.
+                    The document draft was published. The agent's next finished turn starts a new draft.
                   </p>
                 )}
                 {documentDraft?.status === "replaced" && (
                   <p className="text-xs text-muted-foreground">
-                    Replaced by another promoted draft. The agent's next finished turn starts a new draft.
+                    Replaced by another published draft. The agent's next finished turn starts a new draft.
                   </p>
                 )}
                 {documentDraft?.status === "discarded" && (
@@ -227,7 +227,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           onSend: () => void send(),
           onStop: () => void stop(),
           busy,
-          blockedReason: closed ? "This session is closed. Start a new session to continue." : null,
+          blockedReason: closed ? "This chat is closed. Start a new chat to continue." : null,
           label: "Message",
           placeholder: "For example: shorten the API section",
         }}
@@ -239,7 +239,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
               <SheetTitle>{draftTitle}</SheetTitle>
               <SheetDescription>
                 The agent's latest complete document. It is kept as a document draft; open the draft to compare it with
-                the live version and promote it.
+                the live version and publish it.
               </SheetDescription>
             </SheetHeader>
             <div className="mt-4">

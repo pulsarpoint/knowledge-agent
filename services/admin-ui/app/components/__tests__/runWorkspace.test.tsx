@@ -185,9 +185,7 @@ test("the worker, the stream and errors are reported in the header", () => {
       error: "Could not load earlier activity",
     }),
   });
-  expect(
-    screen.getByText("Waiting for the agent session worker. The session starts when the worker is running."),
-  ).toBeVisible();
+  expect(screen.getByText("Waiting for the agent worker. The chat starts when the worker is running.")).toBeVisible();
   expect(screen.getByText("Reconnecting…")).toBeVisible();
   expect(screen.getByText("Could not load earlier activity")).toBeVisible();
 });
@@ -379,7 +377,7 @@ test("while a subagent is shown, earlier pages are not loaded and the paging lin
   expect(loadOlder).not.toHaveBeenCalled();
   expect(screen.queryByText("Loading earlier activity…")).toBeNull();
   view.rerender(workspace({ session: working, events: delegated, older: "start", loadOlder }));
-  expect(screen.queryByText("Beginning of the session")).toBeNull();
+  expect(screen.queryByText("Beginning of the chat")).toBeNull();
 });
 
 test("switching between the main agent and a subagent scrolls the pane to the latest", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 import { History } from "lucide-react";
+import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import {
   checkOutputSchema,
@@ -159,9 +160,13 @@ export default function OutputSchemaEditorView() {
     if (schema === undefined) return;
     const draft = { name: name.trim(), description: description.trim(), schema };
     void run(async () => {
-      if (entry) show((await saveOutputSchema(entry.id, draft, entry.revision)).schema);
-      else {
+      if (entry) {
+        const saved = (await saveOutputSchema(entry.id, draft, entry.revision)).schema;
+        show(saved);
+        toast.success(`Output schema “${saved.name}” saved.`);
+      } else {
         const created = (await createOutputSchema(draft)).schema;
+        toast.success(`Output schema “${created.name}” created.`);
         leaving.current = true;
         navigate(`/output-schemas/${encodeURIComponent(created.id)}`, { replace: true });
       }
@@ -174,6 +179,7 @@ export default function OutputSchemaEditorView() {
     } catch (reason) {
       throw new Error(message(reason, "Could not delete the output schema."));
     }
+    toast.success(`Output schema “${entry.name}” deleted.`);
     leaving.current = true;
     navigate("/output-schemas");
   };

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { toast } from "sonner";
 import { Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getLlmSettings, providerLabels, testModel, type LlmSettings, type ModelProfile } from "./api";
@@ -17,7 +18,6 @@ export default function LlmSettingsView() {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   async function refresh() {
     setBusy(true);
@@ -37,10 +37,9 @@ export default function LlmSettingsView() {
   async function test(model: ModelProfile) {
     setTesting(model.id);
     setError(null);
-    setNotice(null);
     try {
       const result = await testModel(model);
-      if (result.ok) setNotice(`${model.name}: ${result.message}`);
+      if (result.ok) toast.success(`${model.name}: ${result.message}`);
       else setError(`${model.name}: ${result.message}`);
     } catch (error) {
       setError(error instanceof ApiError ? error.message : "Could not test this model.");
@@ -59,7 +58,7 @@ export default function LlmSettingsView() {
         },
     );
     setEditing(undefined);
-    setNotice(`${model.name} saved.`);
+    toast.success(`Model “${model.name}” saved.`);
   }
   return (
     <div className="flex flex-col gap-6">
@@ -81,29 +80,18 @@ export default function LlmSettingsView() {
             disabled={busy || editing !== undefined || testing !== null}
             onClick={() => void refresh()}
           >
-            <RefreshCw />
+            <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>
-          <Button
-            disabled={editing !== undefined || !settings}
-            onClick={() => {
-              setEditing(null);
-              setNotice(null);
-            }}
-          >
-            <Plus />
-            Add model
+          <Button disabled={editing !== undefined || !settings} onClick={() => setEditing(null)}>
+            <Plus data-icon="inline-start" />
+            New model
           </Button>
         </div>
       </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
       {editing !== undefined && (
@@ -182,10 +170,7 @@ export default function LlmSettingsView() {
                             size="sm"
                             variant="outline"
                             disabled={editing !== undefined || testing !== null}
-                            onClick={() => {
-                              setEditing(model);
-                              setNotice(null);
-                            }}
+                            onClick={() => setEditing(model)}
                           >
                             Edit<span className="sr-only"> {model.name}</span>
                           </Button>

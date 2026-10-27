@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import MemoryView from "~/features/memory/MemoryView";
+import { Toaster } from "~/components/ui/sonner";
 import { tooLongToCompare } from "~/features/memory/MemorySheet";
 
 const entry = (name: string, extra = {}) => ({
@@ -54,6 +55,7 @@ const view = (url = "/memory") =>
   render(
     <MemoryRouter initialEntries={[url]}>
       <MemoryView />
+      <Toaster />
     </MemoryRouter>,
   );
 
@@ -171,6 +173,7 @@ test("history restores an earlier version", async () => {
       expect.objectContaining({ body: JSON.stringify({ revision: 1, current_revision: 2 }) }),
     ),
   );
+  expect(await screen.findByText("Revision 1 of “a” restored.")).toBeInTheDocument();
 });
 
 test("delete asks for confirmation and sends the revision", async () => {
@@ -187,6 +190,7 @@ test("delete asks for confirmation and sends the revision", async () => {
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith("/api/memories/id-a?revision=1", expect.objectContaining({ method: "DELETE" })),
   );
+  expect(await screen.findByText("Entry “a” deleted.")).toBeInTheDocument();
 });
 
 test("a new entry is created from the sheet", async () => {
@@ -206,6 +210,7 @@ test("a new entry is created from the sheet", async () => {
       expect.objectContaining({ body: JSON.stringify({ name: "new/one", metadata: {}, content: "Text" }) }),
     ),
   );
+  expect(await screen.findByText("Entry “new/one” saved.")).toBeInTheDocument();
 });
 
 test("a partial re-embed failure stays visible after the list reloads", async () => {

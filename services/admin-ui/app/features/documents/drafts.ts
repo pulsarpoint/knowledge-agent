@@ -78,7 +78,7 @@ export interface Connections {
   used_by: LinkedDocument[];
   built_from: DraftSource[];
 }
-/** The error code of a promote refused because the live version moved on; Promote anyway confirms it. */
+/** The error code of a promote refused because the live version moved on; Publish anyway confirms it. */
 export const STALE_BASE = "STALE_BASE";
 
 const json = (method: string, value: unknown) => ({
@@ -117,7 +117,7 @@ export async function otherDrafts(draft: { id: string; document_id: string | nul
   return drafts.filter((item) => item.id !== draft.id).length;
 }
 /** The question before a promote that deletes other drafts. */
-export const promoteWarning = (others: number) => `Promote and delete ${others} other draft(s)?`;
+export const promoteWarning = (others: number) => `Publish and delete ${others} other draft(s)?`;
 export const getConnections = (documentId: string, signal?: AbortSignal) =>
   request<Connections>(`${documentUrl(documentId)}/connections`, { signal });
 export const addLink = (documentId: string, toId: string) =>
@@ -130,8 +130,8 @@ export const draftPath = (draft: { id: string; document_id: string | null }) =>
   draft.document_id ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/${draft.id}`;
 /** What a page says after Publish made a brand-new draft the live document. */
 export const publishedNotice = (result: PromoteResult) => `Published as version ${result.version}.`;
-/** What the document page says after a draft was promoted. */
-export const promotedNotice = (result: PromoteResult) => `Draft promoted to version ${result.version}.`;
+/** What the document page says after a draft of a live document was published (promoted). */
+export const promotedNotice = (result: PromoteResult) => `Draft published as version ${result.version}.`;
 
 /** A draft a conversation created or edited (GET /drafts?session_id=): a new document (draft_of null) or a draft of
  * an existing document, and what became of it; title null: a discarded new document (nothing keeps its title). */

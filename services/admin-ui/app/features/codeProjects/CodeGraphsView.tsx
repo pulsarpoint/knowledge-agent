@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router";
 import { RefreshCw } from "lucide-react";
 import CodeGraphExplorer from "./CodeGraphExplorer";
@@ -29,7 +30,6 @@ export default function CodeGraphsView() {
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -52,10 +52,9 @@ export default function CodeGraphsView() {
   async function generate(project: CodeProject) {
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       await processCodeProject(project.id);
-      setNotice(`Code graph generation queued for ${project.name}.`);
+      toast.success(`Code graph generation queued for ${project.name}.`);
       setRefresh((n) => n + 1);
     } catch (reason) {
       setError(errorMessage(reason));
@@ -79,11 +78,6 @@ export default function CodeGraphsView() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
-        </Alert>
-      )}
       {projects === null ? (
         <Spinner />
       ) : projects.length === 0 ? (
@@ -91,7 +85,7 @@ export default function CodeGraphsView() {
           <EmptyHeader>
             <EmptyTitle>No code projects yet</EmptyTitle>
             <EmptyDescription>
-              <Link to="/code-projects">Add a project</Link>, then generate its graph here.
+              <Link to="/code-projects">Add a code project</Link>, then generate its graph here.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -99,7 +93,7 @@ export default function CodeGraphsView() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Project</TableHead>
+              <TableHead>Code project</TableHead>
               <TableHead>Graph</TableHead>
               <TableHead>Files</TableHead>
               <TableHead>Symbols</TableHead>

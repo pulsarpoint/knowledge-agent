@@ -158,7 +158,7 @@ export default function ResourceChats({
               scope={scope}
               settings={settings}
               filter={{ tag, purpose: "resource" }}
-              description={`Every conversation about ${resource.name}, newest first.`}
+              description={`Every chat about ${resource.name}, newest first.`}
               blockedReason={blockedReason}
               actions={
                 <Button type="button" size="sm" variant="ghost" onClick={hide}>

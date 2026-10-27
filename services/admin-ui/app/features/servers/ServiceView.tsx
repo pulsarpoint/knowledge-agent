@@ -30,9 +30,9 @@ function useCodeFolder(needed: boolean) {
 const checkoutText = (checkoutPath: string, codeFolder: string | null) =>
   codeFolder ? `${codeFolder}/${checkoutPath}` : `${checkoutPath} (in the code folder)`;
 
-/** A deployment's server access: "SSH allowed: On · Connection: Enabled · Sudo: Disabled". */
+/** A deployment's server access: "Agent SSH: Enabled · Connection: Enabled · Sudo: Disabled". */
 const sshText = ({ server }: ServiceDeployment) =>
-  `SSH allowed: ${server.ssh_allowed ? "On" : "Off"} · Connection: ${
+  `Agent SSH: ${server.ssh_allowed ? "Enabled" : "Disabled"} · Connection: ${
     server.access_enabled ? "Enabled" : "Not configured / disabled"
   } · Sudo: ${server.allow_sudo ? "Allowed by server policy" : "Disabled"}`;
 

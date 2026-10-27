@@ -149,7 +149,7 @@ test("the session page follows the turn, sends messages, stops, previews the dra
     </MemoryRouter>,
   );
   expect((await screen.findAllByText("Starting"))[0]).toBeVisible();
-  expect(screen.getByText(/Waiting for the agent session worker/)).toBeVisible();
+  expect(screen.getByText(/Waiting for the agent worker/)).toBeVisible();
   const stream = await opened();
   expect(stream.url).toBe("/api/sessions/s1/events?after=0");
   act(() => {
@@ -183,7 +183,7 @@ test("the session page follows the turn, sends messages, stops, previews the dra
       payload: { name: "Read", preview: "import app", is_error: false },
     });
   });
-  expect(screen.queryByText(/Waiting for the agent session worker/)).toBeNull();
+  expect(screen.queryByText(/Waiting for the agent worker/)).toBeNull();
   const run = within(screen.getByRole("region", { name: "Run" }));
   expect(await run.findByLabelText("Your message")).toHaveTextContent("Document the payments API.");
   fireEvent.click(run.getByText("Working · 1 tool call · 0 tokens"));
@@ -224,7 +224,7 @@ test("the session page follows the turn, sends messages, stops, previews the dra
   expect(sheet.getByTestId("markdown")).toHaveTextContent("# Payments API Retries back off.");
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close chat" }));
   await waitFor(() => expect(posts.map((p) => p.url)).toContain("/api/sessions/s1/close"));
   act(() => {
     stream.emit("session", { ...state, status: "closed", turns: 1, draft: "# Payments API\n\nRetries back off." });
@@ -232,6 +232,7 @@ test("the session page follows the turn, sends messages, stops, previews the dra
   });
   expect(screen.getAllByText("Finished")[0]).toBeVisible();
   expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  expect(screen.getByText("This chat is closed. Start a new chat to continue.")).toBeInTheDocument();
   expect(stream.close).toHaveBeenCalled();
 });
 
@@ -254,7 +255,7 @@ test("opening shows the latest page, streams after its newest event and loads ea
   expect(await screen.findByText("Message 151")).toBeVisible();
   const stream = await opened();
   expect(stream.url).toBe("/api/sessions/s1/events?after=151");
-  expect(screen.queryByText("Beginning of the session")).toBeNull();
+  expect(screen.queryByText("Beginning of the chat")).toBeNull();
   const panel = screen.getByTestId("run-scroll");
   Object.defineProperty(panel, "scrollHeight", {
     configurable: true,
@@ -264,7 +265,7 @@ test("opening shows the latest page, streams after its newest event and loads ea
   Object.defineProperty(panel, "scrollTop", { configurable: true, writable: true, value: 0 });
   fireEvent.scroll(panel); // near the top, away from the bottom
   expect(await screen.findByText("Message 120")).toBeVisible();
-  expect(screen.getByText("Beginning of the session")).toBeVisible();
+  expect(screen.getByText("Beginning of the chat")).toBeVisible();
   expect(panel.scrollTop).toBe(100); // the earlier turn went above: what was on screen stays in place
   const history = () => urls.filter((url) => url.includes("/events/history"));
   expect(history()).toEqual([
@@ -335,7 +336,7 @@ test("a short history fills the main pane by loading earlier pages until it over
       "/api/sessions/s1/events/history?before=150&limit=100",
       "/api/sessions/s1/events/history?before=120&limit=100",
     ]);
-    expect(screen.queryByText("Beginning of the session")).toBeNull();
+    expect(screen.queryByText("Beginning of the chat")).toBeNull();
   } finally {
     restore();
   }
@@ -387,7 +388,7 @@ test("a native session waits for the agent session worker, and a comment to a wo
     </MemoryRouter>,
   );
   expect(
-    await screen.findByText("Waiting for the agent session worker. The session starts when the worker is running."),
+    await screen.findByText("Waiting for the agent worker. The chat starts when the worker is running."),
   ).toBeVisible();
   view.unmount();
   working = true;
@@ -447,7 +448,7 @@ test("a run whose turn wrote a document draft links to it; a new document's draf
   expect(draft.getByRole("button", { name: "Preview draft" })).toBeEnabled();
 });
 
-test("a run whose document draft was promoted links to the document and offers no Save as draft", async () => {
+test("a run whose document draft was published links to the document and offers no Save as draft", async () => {
   const promoted = {
     ...detail,
     status: "waiting",
@@ -472,7 +473,7 @@ test("a run whose document draft was promoted links to the document and offers n
   expect(draft.queryByRole("link", { name: "Open draft" })).toBeNull();
 });
 
-test("a run whose document draft another promoted draft replaced says so and links to the document", async () => {
+test("a run whose document draft another published draft replaced says so and links to the document", async () => {
   const replaced = {
     ...detail,
     status: "waiting",
@@ -491,7 +492,7 @@ test("a run whose document draft another promoted draft replaced says so and lin
     </MemoryRouter>,
   );
   const draft = within(await screen.findByRole("region", { name: "Draft" }));
-  expect(await draft.findByText(/Replaced by another promoted draft/)).toBeVisible();
+  expect(await draft.findByText(/Replaced by another published draft/)).toBeVisible();
   expect(draft.getByRole("link", { name: "Open document" })).toHaveAttribute("href", "/documents/doc1");
   expect(draft.queryByRole("link", { name: "Open draft" })).toBeNull();
 });
@@ -590,7 +591,7 @@ test("a new-document run without final-answer text shows Open draft from its doc
   expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/x3");
 });
 
-test("a promoted new-document run opens the document", async () => {
+test("a published new-document run opens the document", async () => {
   serve({
     ...detail,
     purpose: "documents",

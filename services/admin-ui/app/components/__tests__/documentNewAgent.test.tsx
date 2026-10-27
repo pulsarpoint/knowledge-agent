@@ -226,7 +226,7 @@ test("without a resource the chat needs a picked resource, then starts writing f
   ).toBeVisible();
   expect(wide.value).toBe(true);
   expect(screen.getByTestId("write-layout")).toHaveClass("lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]");
-  expect(within(documents()).getByText("The documents the agent writes in this conversation show here.")).toBeVisible();
+  expect(within(documents()).getByText("The documents the agent writes in this chat show here.")).toBeVisible();
   fireEvent.change(within(chat()).getByLabelText("Message"), { target: { value: "Write it." } });
   fireEvent.click(within(chat()).getByRole("button", { name: "Send message" }));
   expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(false);
@@ -258,9 +258,7 @@ test("the first message starts writing with started_from new_document and the pi
     }),
   );
   await waitFor(() => expect(router.state.location.search).toBe("?chat=r1"));
-  expect(
-    await within(documents()).findByText("The agent has not written a document in this conversation yet."),
-  ).toBeVisible();
+  expect(await within(documents()).findByText("The agent has not written a document in this chat yet.")).toBeVisible();
 });
 
 test("on a resource the chat is on it: started_from carries the resource", async () => {
@@ -355,7 +353,7 @@ test("the list loads again when a document write's result arrives in the convers
   expect(loads()).toBe(before + 1);
 });
 
-test("Conversations lists the earlier Write with an agent conversations; opening one shows its documents", async () => {
+test("Chats lists the earlier Write with an agent chats; opening one shows its documents", async () => {
   live.sessions.r1 = detail("r1", ["servers/s1"]);
   live.sessions.r2 = detail("r2", ["servers/s1"]);
   api({
@@ -372,9 +370,9 @@ test("Conversations lists the earlier Write with an agent conversations; opening
     await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText("Disk layout"),
   ).toBeVisible();
   expect(await screen.findByTestId("conversation-title")).toHaveTextContent("Write the runbook");
-  fireEvent.click(screen.getByRole("button", { name: "Conversations" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   const sheet = await screen.findByRole("dialog");
-  expect(within(sheet).getByText("Every Write with an agent conversation about web-1, newest first.")).toBeVisible();
+  expect(within(sheet).getByText("Every Write with an agent chat about web-1, newest first.")).toBeVisible();
   const listed = within(sheet).getAllByRole("button", { name: /Write the/ });
   expect(listed.map((item) => item.textContent)).toEqual([
     expect.stringContaining("Write the backups"),
@@ -399,7 +397,7 @@ test("after a Mention, New chat starts with an empty message box", async () => {
     expect((within(chat()).getByLabelText("Message") as HTMLTextAreaElement).value).toContain("· d1]"),
   );
   fireEvent.click(screen.getByRole("button", { name: "New chat" }));
-  await waitFor(() => expect(screen.getByTestId("conversation-title")).toHaveTextContent("New conversation"));
+  await waitFor(() => expect(screen.getByTestId("conversation-title")).toHaveTextContent("New chat"));
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect((within(chat()).getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
 });
@@ -424,7 +422,7 @@ test("opening another conversation clears the old documents at once while the ne
   expect(
     await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText("Disk layout"),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Conversations" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /Write the backups/ }));
   await waitFor(() => expect(within(documents()).queryByText("Disk layout")).toBeNull());
   expect(within(documents()).queryByRole("button", { name: /Mention/ })).toBeNull();
@@ -446,7 +444,7 @@ test("the Write with an agent tab keeps the open conversation", async () => {
     "/documents/new?resource=server&resource_id=s1",
   );
   await within(await screen.findByRole("region", { name: "Documents in this chat" })).findByText(
-    "The agent has not written a document in this conversation yet.",
+    "The agent has not written a document in this chat yet.",
   );
   expect(router.state.location.search).toContain("chat=r1");
 });

@@ -170,8 +170,8 @@ test("Chat opens the chat panel on the code project, and it stays open across su
   await userEvent.click(sectionLink("Code project sections", "Documents"));
   expect(await screen.findByRole("region", { name: "Documents" })).toBeInTheDocument();
   expect(screen.getByTestId("resource-chat")).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("button", { name: "Conversations" }));
-  expect(await screen.findByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Chats" }));
+  expect(await screen.findByRole("dialog", { name: "Chats" })).toBeInTheDocument();
 });
 
 test("Discover… is shown only when discovery prompts for code projects exist", async () => {

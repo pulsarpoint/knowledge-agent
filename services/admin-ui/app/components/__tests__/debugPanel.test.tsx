@@ -177,7 +177,7 @@ test("in a chat: Debug before the first message previews the next start", async 
     "POST /api/sessions/preview": () => [200, { config: {}, first_message: "(your next message)", ...view }],
   });
   chat(null);
-  expect(screen.getByRole("tab", { name: "Conversation" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
   expect(calls.some((call) => call.key === "POST /api/sessions/preview")).toBe(false); // only once Debug is open
   const debug = screen.getByRole("tab", { name: "Debug" });
   fireEvent.mouseDown(debug);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import LeaveGuard from "~/components/LeaveGuard";
@@ -111,7 +112,7 @@ interface EditingDraft {
 /** The editor, in three modes. The New page (`document` null): Save creates a brand-new draft and opens it. A brand-new
  * draft (`document.is_draft`): Save updates it (its name too), Publish makes it the live document, Discard deletes it.
  * A live document: the first Save creates the person's draft and the editor switches to it (later Saves update it);
- * Promote on the Drafts tab makes a draft live. Links are saved apart, with Save links. */
+ * Publish on the Drafts tab makes a draft live. Links are saved apart, with Save links. */
 function Editor({
   document,
   resources,
@@ -203,7 +204,7 @@ function Editor({
     const wanted = params.get("tab") ?? "";
     return document && tabs.includes(wanted) ? wanted : "write";
   });
-  // The URL may change after this editor mounted (Promote sets ?tab= while the editor reloads).
+  // The URL may change after this editor mounted (Publish sets ?tab= while the editor reloads).
   const wantedTab = params.get("tab") ?? "";
   useEffect(() => {
     if (document && tabs.includes(wantedTab)) setTab(wantedTab);
@@ -225,11 +226,10 @@ function Editor({
   const [error, setError] = useState("");
   // The New page's name refused (a live document or a brand-new draft holds it): shown under Slug.
   const [nameError, setNameError] = useState("");
-  const [notice, setNotice] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // An action from the Drafts tab (Edit, Promote) waiting for the confirmation that unsaved changes may be lost.
-  // An in-page action that would replace unsaved text (Edit or Promote a draft, the agent's first message) asks
+  // An action from the Drafts tab (Edit, Publish) waiting for the confirmation that unsaved changes may be lost.
+  // An in-page action that would replace unsaved text (Edit or Publish a draft, the agent's first message) asks
   // "Discard unsaved changes?" here; leaving the page is asked by LeaveGuard (Stay / Leave).
   const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
   const leaving = useRef(false);
@@ -249,7 +249,7 @@ function Editor({
     setValue((old) => ({ ...old, [key]: next }));
   const failed = (e: unknown, fallback: string) => setError(e instanceof Error ? e.message : fallback);
 
-  /** The draft being edited is gone (promoted or discarded elsewhere): edit no draft, keep the person's text, reload the
+  /** The draft being edited is gone (published or discarded elsewhere): edit no draft, keep the person's text, reload the
    * document's version, revision and drafts count; the next Save starts a new draft from that version. */
   async function draftGone(documentId: string) {
     setEditingDraft(null);
@@ -264,7 +264,7 @@ function Editor({
     } catch {
       /* the message still shows; a page reload loads the document */
     }
-    setError(`Your draft was promoted or discarded elsewhere. Save starts a new draft from version ${version}.`);
+    setError(`Your draft was published or discarded elsewhere. Save starts a new draft from version ${version}.`);
   }
 
   async function save(event: React.FormEvent) {
@@ -272,7 +272,6 @@ function Editor({
     setPending(true);
     setError("");
     setNameError("");
-    setNotice("");
     const now = content();
     const text = {
       title: value.title,
@@ -317,7 +316,7 @@ function Editor({
         setDraftCount((n) => n + 1);
       }
       setSavedContent(now);
-      setNotice("Draft saved.");
+      toast.success("Draft saved.");
     } catch (e) {
       if (!document && e instanceof ApiError && e.status === 409) setNameError(e.message);
       else failed(e, "Could not save the draft");
@@ -515,12 +514,7 @@ function Editor({
       )}
       {editingDraft && (
         <Alert role="status">
-          <AlertDescription>{`Editing your draft (created ${new Date(editingDraft.created_at).toLocaleString()}, from version ${editingDraft.base_version ?? "?"}). Save updates it; Promote makes it live.`}</AlertDescription>
-        </Alert>
-      )}
-      {notice && (
-        <Alert role="status">
-          <AlertDescription>{notice}</AlertDescription>
+          <AlertDescription>{`Editing your draft (created ${new Date(editingDraft.created_at).toLocaleString()}, from version ${editingDraft.base_version ?? "?"}). Save updates it; Publish makes it live.`}</AlertDescription>
         </Alert>
       )}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-6">
@@ -677,7 +671,7 @@ function Editor({
               />
               <FieldDescription>
                 {isLive
-                  ? "Save keeps your changes as your draft of this document; Promote on the Drafts tab makes a draft the live version."
+                  ? "Save keeps your changes as your draft of this document; Publish on the Drafts tab makes a draft the live version."
                   : "Save keeps the document as a draft until it is published."}
               </FieldDescription>
             </Field>
@@ -776,7 +770,7 @@ function Editor({
                             });
                             setTags(historical.tags.join(", "));
                             setTab("write");
-                            setNotice(
+                            toast.success(
                               `Version ${historical.version} loaded into the editor. Save keeps it as your draft.`,
                             );
                           }}
@@ -854,7 +848,7 @@ function Editor({
                     base_version: draft.base_version,
                   });
                   setTab("write");
-                  setNotice(`Draft “${draft.title}” loaded into the editor.`);
+                  toast.success(`Draft “${draft.title}” loaded into the editor.`);
                 }}
               />
             </TabsContent>
@@ -926,10 +920,7 @@ export default function DocumentEditorView() {
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
   // Loads only while the pane is open.
   const settings = useAgentSettings(agentOpen && documentId ? { kind: "document", id: documentId, title: "" } : null);
-  // A notice handed over in the navigation state (the new-document draft page's Promote).
   const location = useLocation();
-  const handed = (location.state as { notice?: unknown } | null)?.notice;
-  const [notice, setNotice] = useState(typeof handed === "string" ? handed : "");
   useEffect(() => {
     const controller = new AbortController();
     setLoaded(null);
@@ -975,7 +966,7 @@ export default function DocumentEditorView() {
     } // a closed pane keeps no run in the URL
   };
   const onPromoted = (result: PromoteResult) => {
-    setNotice(promotedNotice(result));
+    toast.success(promotedNotice(result));
     // The promote deleted every draft of the document: the pane's run's draft was promoted or replaced.
     setAgentDraft((d) =>
       d && d.id === result.draft_id
@@ -993,7 +984,7 @@ export default function DocumentEditorView() {
       {...current}
       onCreated={(id) => navigate(`/documents/${encodeURIComponent(id)}`)}
       onPublished={(result) => {
-        setNotice(publishedNotice(result));
+        toast.success(publishedNotice(result));
         setRefresh((n) => n + 1);
       }}
       onPromoted={onPromoted}
@@ -1018,11 +1009,6 @@ export default function DocumentEditorView() {
   useWidePage(split);
   return (
     <>
-      {notice && (
-        <Alert role="status">
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      )}
       <div
         data-testid="document-split"
         className={split ? "grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start" : "min-w-0"}

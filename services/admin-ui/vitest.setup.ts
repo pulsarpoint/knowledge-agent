@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { toast } from "sonner";
+
+// Sonner keeps its toasts in module state and replays the active ones to a newly mounted Toaster: dismiss them after
+// each test so one test's toast never shows up in the next.
+afterEach(() => {
+  toast.dismiss();
+});
 
 // Radix form controls measure their hidden inputs; jsdom has no layout observer.
 if (typeof globalThis.ResizeObserver === "undefined") {

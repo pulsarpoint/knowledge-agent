@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import SchedulesView from "~/features/events/SchedulesView";
 import type { Schedule } from "~/features/events/schedules";
+import { Toaster } from "~/components/ui/sonner";
 
 const schedule: Schedule = {
   id: "s-1",
@@ -62,6 +63,7 @@ const view = () =>
   render(
     <MemoryRouter>
       <SchedulesView />
+      <Toaster />
     </MemoryRouter>,
   );
 
@@ -148,6 +150,7 @@ test("delete asks first and removes the row", async () => {
   expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete schedule" }));
   expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
+  expect(await screen.findByText("Schedule “Jira auto pull” deleted.")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
 
@@ -186,8 +189,10 @@ test("pausing sends the revision and shows the paused row", async () => {
     ],
   });
   view();
+  expect(await screen.findByRole("columnheader", { name: "Enabled" })).toBeInTheDocument();
   await user.click(await screen.findByRole("switch", { name: "Enabled: Jira auto pull" }));
   expect(await screen.findByText("Paused")).toBeInTheDocument();
+  expect(await screen.findByText("Schedule “Jira auto pull” disabled.")).toBeInTheDocument();
   expect(body(fetch, "PUT /api/schedules/s-1")).toEqual({
     cron: "*/15 * * * *",
     timezone: "Europe/Belgrade",
@@ -255,6 +260,7 @@ test("editor shows and saves the Jira query and number of tickets", async () => 
   await waitFor(() =>
     expect(body(fetch, "PUT /api/schedules/s-1").params).toEqual({ jql: "project = AUTO", limit: 50 }),
   );
+  expect(await screen.findByText("Schedule “Jira auto pull” saved.")).toBeInTheDocument();
 });
 
 test("editor saves empty query and number of tickets as the fallback", async () => {
@@ -438,7 +444,7 @@ test("an emit schedule shows the handlers that run it", async () => {
   );
   expect(within(one).queryByRole("button", { name: "Add handler" })).toBeNull();
   const off = screen.getByText("Daily backup").closest("tr")!;
-  expect(within(off).getByRole("link", { name: "Handled by: Paused (off)" })).toHaveAttribute(
+  expect(within(off).getByRole("link", { name: "Handled by: Paused (disabled)" })).toHaveAttribute(
     "href",
     "/events/handlers?handler=h-5",
   );

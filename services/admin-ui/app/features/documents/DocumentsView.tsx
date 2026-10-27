@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router";
 import { FileText, Plus, RefreshCw } from "lucide-react";
 import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from "./api";
@@ -55,7 +56,6 @@ export default function DocumentsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [discardError, setDiscardError] = useState("");
-  const [published, setPublished] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const offset = Number(params.get("offset") || 0);
@@ -120,10 +120,9 @@ export default function DocumentsView() {
   async function publish(draft: DraftSummary) {
     setBusy(true);
     setDiscardError("");
-    setPublished("");
     try {
       await promoteDraft(draft.id, draft.revision, false);
-      setPublished(`Published “${draft.title}”.`);
+      toast.success(`Published “${draft.title}”.`);
     } catch (e) {
       setDiscardError(e instanceof Error ? e.message : "Could not publish the draft");
     } finally {
@@ -225,11 +224,6 @@ export default function DocumentsView() {
       {(error || discardError) && (
         <Alert variant="destructive">
           <AlertDescription>{error || discardError}</AlertDescription>
-        </Alert>
-      )}
-      {published && (
-        <Alert role="status">
-          <AlertDescription>{published}</AlertDescription>
         </Alert>
       )}
       {draftsView &&

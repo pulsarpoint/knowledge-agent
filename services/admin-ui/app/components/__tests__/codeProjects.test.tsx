@@ -83,9 +83,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 /** A code projects page at `path` (the list by default). */
 const show = (path = "/code-projects") => renderCodeProjects(path);
-/** The New project sheet, opened from the list. */
+/** The New code project sheet, opened from the list. */
 async function newProject() {
-  await userEvent.setup().click(await screen.findByRole("button", { name: "New project" }));
+  await userEvent.setup().click(await screen.findByRole("button", { name: "New code project" }));
   return within(await screen.findByRole("dialog", { name: "New code project" }));
 }
 /** The project's Settings page. */
@@ -108,23 +108,23 @@ const local: CodeProject = {
 const rows = () => screen.getAllByRole("row").slice(1);
 const names = () => rows().map((row) => within(row).getAllByRole("cell")[0].textContent);
 
-test("the list has Projects and Code folder sub-pages; folder is not taken as a project id", async () => {
+test("the list has Code projects and Code folder sub-pages; folder is not taken as a project id", async () => {
   const user = userEvent.setup();
   const fetch = api([project]);
   const { router } = show();
   expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute("href", "/code-projects/code-1");
-  expect(sectionLink("Code projects sections", "Projects")).toHaveAttribute("aria-current", "page");
-  expect(screen.getByRole("button", { name: "New project" })).toBeInTheDocument();
+  expect(sectionLink("Code projects sections", "Code projects")).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: "New code project" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Code root" })).toBeNull(); // no folders on the list
   await user.click(sectionLink("Code projects sections", "Code folder"));
   expect(router.state.location.pathname).toBe("/code-projects/folder");
   expect(await screen.findByText("/host/code → /work/code")).toBeInTheDocument();
   expect(sectionLink("Code projects sections", "Code folder")).toHaveAttribute("aria-current", "page");
-  expect(screen.queryByRole("button", { name: "New project" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "New code project" })).toBeNull();
   expect(fetch.mock.calls.some(([url]) => String(url).includes("/api/code-projects/folder"))).toBe(false);
 });
 
-test("the Projects table shows source, ref, commit, sync and code graph status and the Built into count", async () => {
+test("the Code projects table shows source, ref, commit, sync and code graph status and the Built into count", async () => {
   api([
     {
       ...project,
@@ -298,7 +298,7 @@ test("a refused Delete shows the reason and keeps the project", async () => {
   expect(screen.getByRole("button", { name: "Delete Payments" })).toBeInTheDocument();
 });
 
-test("New project maps multiple existing folders into a local code project in a sheet", async () => {
+test("New code project maps multiple existing folders into a local code project in a sheet", async () => {
   const fetch = api();
   show();
   const sheet = await newProject();

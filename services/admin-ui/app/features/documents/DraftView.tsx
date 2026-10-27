@@ -85,7 +85,7 @@ export function SourceList({ sources, empty }: { sources: DraftSource[]; empty: 
   );
 }
 
-/** Asks before a promote that deletes the document's other drafts: "Promote and delete {n} other draft(s)?". */
+/** Asks before a publish that deletes the document's other drafts: "Publish and delete {n} other draft(s)?". */
 export function PromoteWarning({
   others,
   busy = false,
@@ -109,7 +109,7 @@ export function PromoteWarning({
         <AlertDialogHeader>
           <AlertDialogTitle>{promoteWarning(others ?? 0)}</AlertDialogTitle>
           <AlertDialogDescription>
-            Promoting makes this draft the live version and deletes the document's other drafts.
+            Publishing makes this draft the live version and deletes the document's other drafts.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -121,7 +121,7 @@ export function PromoteWarning({
               onConfirm();
             }}
           >
-            Promote
+            Publish
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -129,7 +129,7 @@ export function PromoteWarning({
   );
 }
 
-/** Promote after asking when it deletes other drafts: `ask` counts them fresh (an agent may have added one) and either
+/** Publish after asking when it deletes other drafts: `ask` counts them fresh (an agent may have added one) and either
  * opens the warning (`others`) or runs `promote` at once. */
 export function usePromoteWarning(promote: () => void, onError: (message: string) => void) {
   const [others, setOthers] = useState<number | null>(null);
@@ -153,8 +153,8 @@ export function usePromoteWarning(promote: () => void, onError: (message: string
 }
 
 /** One draft: who wrote it and when, the diff against the live version (a draft of a document) and the preview, its
- * sources, and Edit, Promote (asking first when it deletes other drafts; a stale draft asks again: Promote anyway) and
- * Discard. Promote and Discard delete the draft; a draft gone meanwhile (404) shows the server's message. */
+ * sources, and Edit, Publish (asking first when it deletes other drafts; a stale draft asks again: Publish anyway) and
+ * Discard. Publish and Discard delete the draft; a draft gone meanwhile (404) shows the server's message. */
 export default function DraftView({
   draftId,
   reloadKey = 0,
@@ -170,7 +170,7 @@ export default function DraftView({
   onPromoted: (result: PromoteResult) => void;
   onDiscarded: () => void;
   onLoaded?: (draft: DraftDetail) => void;
-  /** Runs Edit and Promote; the document page asks first when its editor has unsaved changes. */
+  /** Runs Edit and Publish; the document page asks first when its editor has unsaved changes. */
   confirm?: (run: () => void) => void;
 }) {
   const [draft, setDraft] = useState<DraftDetail | null>(null);
@@ -212,7 +212,7 @@ export default function DraftView({
         setLoad((n) => n + 1);
       } else {
         setStale("");
-        setError(failure(e, "Could not promote the draft"));
+        setError(failure(e, "Could not publish the draft"));
         setLoad((n) => n + 1);
       }
     } finally {
@@ -277,7 +277,7 @@ export default function DraftView({
               })
             }
           >
-            {busy && <Spinner data-icon="inline-start" />}Promote
+            {busy && <Spinner data-icon="inline-start" />}Publish
           </Button>
         </div>
       </div>
@@ -287,7 +287,7 @@ export default function DraftView({
             <span>{stale}</span>
             <span className="flex gap-2">
               <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => void promote(true)}>
-                Promote anyway
+                Publish anyway
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setStale("")}>
                 Cancel

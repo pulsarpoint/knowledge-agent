@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { CalendarClock, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router";
+import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import {
   EMIT,
@@ -18,7 +19,7 @@ import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
 import HandlerSheet from "./HandlerSheet";
 import ConfirmRemove from "~/components/ConfirmRemove";
-import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
+import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
@@ -59,7 +60,7 @@ function HandledBy({ schedule, onAdd }: { schedule: Schedule; onAdd: () => void 
       to={handlers.length === 1 ? `${HANDLERS}?handler=${encodeURIComponent(only.id)}` : HANDLERS}
     >
       {handlers.length === 1
-        ? `Handled by: ${only.name}${only.enabled ? "" : " (off)"}`
+        ? `Handled by: ${only.name}${only.enabled ? "" : " (disabled)"}`
         : `Handled by: ${handlers.length} handlers`}
     </Link>
   );
@@ -121,11 +122,12 @@ export default function SchedulesView() {
         ) ?? null,
     );
   };
-  async function change(schedule: Schedule, action: () => Promise<{ schedule: Schedule }>) {
+  async function change(schedule: Schedule, action: () => Promise<{ schedule: Schedule }>, done: string) {
     setBusy(schedule.id);
     setError(null);
     try {
       replace((await action()).schedule);
+      toast.success(done);
     } catch (reason) {
       setError(text(reason, "Could not change the schedule."));
     } finally {
@@ -142,6 +144,7 @@ export default function SchedulesView() {
       changes.current += 1;
       setSchedules((current) => current?.filter((item) => item.id !== doomed.id) ?? null);
       setHistory((current) => (current?.id === doomed.id ? null : current));
+      toast.success(`Schedule “${doomed.name}” deleted.`);
     } catch (reason) {
       setError(text(reason, "Could not delete the schedule."));
     } finally {
@@ -174,7 +177,6 @@ export default function SchedulesView() {
       </div>
       {error && (
         <Alert variant="destructive">
-          <AlertTitle>Schedules</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -194,7 +196,7 @@ export default function SchedulesView() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>On</TableHead>
+              <TableHead>Enabled</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Runs</TableHead>
               <TableHead>When</TableHead>
@@ -215,13 +217,16 @@ export default function SchedulesView() {
                       checked={schedule.enabled}
                       disabled={busy === schedule.id}
                       onCheckedChange={(enabled) =>
-                        change(schedule, () =>
-                          saveSchedule(schedule.id, {
-                            ...(schedule.run_at ? { run_at: schedule.run_at } : { cron: schedule.cron ?? "" }),
-                            timezone: schedule.timezone,
-                            enabled,
-                            revision: schedule.revision,
-                          }),
+                        change(
+                          schedule,
+                          () =>
+                            saveSchedule(schedule.id, {
+                              ...(schedule.run_at ? { run_at: schedule.run_at } : { cron: schedule.cron ?? "" }),
+                              timezone: schedule.timezone,
+                              enabled,
+                              revision: schedule.revision,
+                            }),
+                          `Schedule “${schedule.name}” ${enabled ? "enabled" : "disabled"}.`,
                         )
                       }
                     />
@@ -254,7 +259,9 @@ export default function SchedulesView() {
                         size="sm"
                         variant="outline"
                         disabled={busy === schedule.id || schedule.running}
-                        onClick={() => change(schedule, () => runSchedule(schedule.id))}
+                        onClick={() =>
+                          change(schedule, () => runSchedule(schedule.id), `Schedule “${schedule.name}” started.`)
+                        }
                       >
                         <Play data-icon="inline-start" />
                         Run now
@@ -322,6 +329,7 @@ export default function SchedulesView() {
             changes.current += 1;
             setSchedules((current) => [...(current ?? []), created].sort((a, b) => a.name.localeCompare(b.name)));
             setCreating(false);
+            toast.success(`Schedule “${created.name}” created.`);
           }}
         />
       )}
@@ -346,8 +354,9 @@ export default function SchedulesView() {
         handler={null}
         schedule={adding ?? undefined}
         onClose={() => setAdding(null)}
-        onSaved={() => {
+        onSaved={(saved) => {
           setAdding(null);
+          toast.success(`Handler “${saved.name}” saved.`);
           void load(); // the list is what knows which handlers run each schedule
         }}
       />
@@ -357,6 +366,7 @@ export default function SchedulesView() {
         onSaved={(saved) => {
           replace(saved);
           setEditing(null);
+          toast.success(`Schedule “${saved.name}” saved.`);
         }}
       />
     </div>

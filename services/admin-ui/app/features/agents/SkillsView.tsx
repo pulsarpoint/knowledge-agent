@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import { BookOpen, Download, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -37,7 +38,6 @@ export default function SkillsView() {
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sheet, setSheet] = useState<"new" | "import" | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -63,9 +63,8 @@ export default function SkillsView() {
 
   async function act(skill: SkillSummary, run: () => Promise<string>, fallback: string) {
     setPending(skill.id);
-    setNotice(null);
     try {
-      setNotice(await run());
+      toast.success(await run());
       setError(null);
       setRefresh((value) => value + 1);
     } catch (reason) {
@@ -149,18 +148,13 @@ export default function SkillsView() {
           <AlertDescription role="alert">{error}</AlertDescription>
         </Alert>
       )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
-        </Alert>
-      )}
       <NewSkillSheet open={sheet === "new"} onClose={() => setSheet(null)} />
       <ImportSkillsSheet
         open={sheet === "import"}
         onClose={() => setSheet(null)}
         onImported={(names) => {
           setSheet(null);
-          setNotice(`Imported ${names.join(", ")}.`);
+          toast.success(`Imported ${names.join(", ")}.`);
           setRefresh((value) => value + 1);
         }}
       />

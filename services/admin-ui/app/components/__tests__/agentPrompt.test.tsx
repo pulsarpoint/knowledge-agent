@@ -1,8 +1,9 @@
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderAgentApp, sectionNames } from "~/lib/__tests__/agentRoutes";
 import * as profiles from "~/features/agents/api";
 import * as llm from "~/features/llm/api";
+import { Toaster } from "~/components/ui/sonner";
 
 vi.mock("~/features/agents/api", async () => ({
   ...(await vi.importActual("~/features/agents/api")),
@@ -50,7 +51,10 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
-const open = (path: string) => renderAgentApp(path);
+const open = (path: string) => {
+  render(<Toaster />);
+  return renderAgentApp(path);
+};
 
 test("the agent page has no Prompts or Versions tab", async () => {
   open("/agents/custom");

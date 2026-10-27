@@ -424,7 +424,7 @@ export default function RunWorkspace({
         {session?.status === "starting" && !session.worker_active && (
           <Alert>
             <AlertDescription>
-              Waiting for the agent session worker. The session starts when the worker is running.
+              Waiting for the agent worker. The chat starts when the worker is running.
             </AlertDescription>
           </Alert>
         )}
@@ -462,7 +462,7 @@ export default function RunWorkspace({
             className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
           >
             {!shown && older === "start" && events.length > 0 && (
-              <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>
+              <p className="text-center text-xs text-muted-foreground">Beginning of the chat</p>
             )}
             {!shown && older === "loading" && (
               <p role="status" className="text-center text-xs text-muted-foreground">

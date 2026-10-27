@@ -1,9 +1,10 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import MCPServersView from "~/features/llm/MCPServersView";
 import * as api from "~/features/llm/mcp";
+import { Toaster } from "~/components/ui/sonner";
 vi.mock("~/features/llm/mcp");
 vi.mock("../Markdown", () => ({ default: () => null }));
 const connection: api.MCPServer = {
@@ -19,14 +20,16 @@ const connection: api.MCPServer = {
   last_test_error: null,
 };
 /** The MCP servers page in a data router (its form's leave guard needs one), with a page to leave to. */
-const page = () =>
-  renderRoutes(
+const page = () => {
+  render(<Toaster />);
+  return renderRoutes(
     [
       { path: "/mcp-servers", element: <MCPServersView /> },
       { path: "/other", element: <p>Other page</p> },
     ],
     "/mcp-servers",
   ).router;
+};
 afterEach(() => vi.unstubAllGlobals());
 it("leaving with unsaved changes in the MCP server form asks Stay / Leave; an untouched form does not", async () => {
   const user = userEvent.setup();
@@ -69,6 +72,9 @@ it("preserves a saved token on edit and requires confirmation to remove a connec
       revision: 2,
     }),
   );
+  expect(
+    await screen.findByText("MCP server “Deployment tools” saved. Test the connection to discover its tools."),
+  ).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: /^Delete$/ }));
   const dialog = screen.getByRole("alertdialog");
   expect(dialog).toHaveTextContent("removed from all agent configurations");
@@ -79,6 +85,7 @@ it("preserves a saved token on edit and requires confirmation to remove a connec
   await user.click(screen.getByRole("button", { name: /^Delete$/ }));
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete MCP server" }));
   await waitFor(() => expect(api.deleteMCPServer).toHaveBeenCalledWith(connection));
+  expect(await screen.findByText("MCP server “Deployment tools” deleted.")).toBeInTheDocument();
 });
 it("tests a saved connection and shows discovered tools", async () => {
   const user = userEvent.setup();

@@ -3,6 +3,7 @@ import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import LeaveGuard from "~/components/LeaveGuard";
 import { Link, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 import { Plus, Save, Trash2 } from "lucide-react";
 import {
   activateDocumentationPrompt,
@@ -63,12 +64,12 @@ export default function DocumentationPromptsView() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Reusable instructions for agents, organised by tags. New prompt versions remain drafts until activated.
+          Reusable instructions for agents, organised by tags. New prompt versions stay inactive until activated.
         </p>
         <Button asChild>
           <Link to="/prompts/new">
             <Plus data-icon="inline-start" />
-            Create prompt
+            New prompt
           </Link>
         </Button>
       </div>
@@ -152,7 +153,7 @@ export default function DocumentationPromptsView() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {prompt.active_version ? `v${prompt.active_version}` : "None — draft only"}
+                    {prompt.active_version ? `v${prompt.active_version}` : "None — inactive versions only"}
                     <p className="text-xs text-muted-foreground">{prompt.version_count} saved versions</p>
                   </TableCell>
                 </TableRow>
@@ -172,7 +173,7 @@ function PromptEditor({
 }: {
   prompt: DocumentationPromptDetail | null;
   tagsInUse: string[];
-  onSaved: (id: string) => void;
+  onSaved: (id: string, done: string) => void;
 }) {
   const navigate = useNavigate();
   const [initial] = useState<DocumentationPromptInput>(() => ({
@@ -197,7 +198,7 @@ function PromptEditor({
     try {
       const saved = await saveDocumentationPrompt(value, prompt?.id);
       leaving.current = true;
-      onSaved(saved.id);
+      onSaved(saved.id, `Prompt “${value.name.trim()}” ${prompt ? "saved" : "created"}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save prompt");
     } finally {
@@ -210,7 +211,8 @@ function PromptEditor({
     setError("");
     try {
       await activateDocumentationPrompt(prompt.id, versionId, prompt.revision);
-      onSaved(prompt.id);
+      const version = prompt.versions.find((item) => item.id === versionId)?.version;
+      onSaved(prompt.id, `Version ${version} of “${prompt.name}” activated.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not activate version");
     } finally {
@@ -226,8 +228,11 @@ function PromptEditor({
       throw e instanceof Error ? e : new Error("Could not delete prompt");
     }
     leaving.current = true;
-    if (deleting.version) onSaved(prompt.id);
-    else navigate("/prompts");
+    if (deleting.version) onSaved(prompt.id, `Version ${deleting.version.version} of “${prompt.name}” deleted.`);
+    else {
+      toast.success(`Prompt “${prompt.name}” deleted.`);
+      navigate("/prompts");
+    }
   }
   return (
     <form onSubmit={save} className="flex flex-col gap-6">
@@ -311,7 +316,7 @@ function PromptEditor({
             onChange={(e) => setValue({ ...value, content: e.target.value })}
           />
           <FieldDescription>
-            Saving changed text creates a new draft version. The active version stays unchanged until you activate
+            Saving changed text creates a new inactive version. The active version stays unchanged until you activate
             another version.
           </FieldDescription>
         </Field>
@@ -339,7 +344,7 @@ function PromptEditor({
                       {version.id === prompt.active_version_id ? (
                         <Badge>Active</Badge>
                       ) : (
-                        <Badge variant="outline">{version.activated_at ? "Inactive" : "Draft"}</Badge>
+                        <Badge variant="outline">Inactive version</Badge>
                       )}
                     </TableCell>
                     <TableCell>{new Date(version.created_at).toLocaleString()}</TableCell>
@@ -392,7 +397,7 @@ function PromptEditor({
                   disabled={pending}
                   onClick={() => setValue({ ...value, content: viewVersion.content })}
                 >
-                  Use as draft
+                  Copy to editor
                 </Button>
               </div>
               <pre className="whitespace-pre-wrap break-words text-sm">{viewVersion.content}</pre>
@@ -427,7 +432,6 @@ export function DocumentationPromptEditorView() {
   const [loaded, setLoaded] = useState<{ prompt: DocumentationPromptDetail | null } | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [tagsInUse, setTagsInUse] = useState<string[]>([]);
   useEffect(() => {
     const controller = new AbortController();
@@ -453,11 +457,6 @@ export function DocumentationPromptEditorView() {
   }, [promptId, refresh]);
   return (
     <>
-      {notice && (
-        <Alert role="status">
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      )}
       {error ? (
         <Alert variant="destructive">
           <AlertDescription>
@@ -472,8 +471,8 @@ export function DocumentationPromptEditorView() {
           key={`${promptId}-${refresh}`}
           prompt={loaded.prompt}
           tagsInUse={tagsInUse}
-          onSaved={(id) => {
-            setNotice("Prompt updated. Review the active version below.");
+          onSaved={(id, done) => {
+            toast.success(done);
             if (promptId === id) setRefresh((n) => n + 1);
             else navigate(`/prompts/${id}`);
           }}

@@ -1,10 +1,11 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import LlmSettingsView from "~/features/llm/LlmSettingsView";
 import LlmModelForm from "~/features/llm/LlmModelForm";
 import type { ModelProfile } from "~/features/llm/api";
+import { Toaster } from "~/components/ui/sonner";
 
 afterEach(() => vi.unstubAllGlobals());
 const bedrock: ModelProfile = {
@@ -25,14 +26,16 @@ const bedrock: ModelProfile = {
 /** A model form alone, in a data router (its leave guard needs one). */
 const form = (element: React.ReactElement) => renderRoutes([{ path: "/", element }], "/");
 /** The model settings page in a data router, with the Agents page to leave to. */
-const page = () =>
-  renderRoutes(
+const page = () => {
+  render(<Toaster />);
+  return renderRoutes(
     [
       { path: "/llm-settings", element: <LlmSettingsView /> },
       { path: "/agents", element: <p>Agents list</p> },
     ],
     "/llm-settings",
   ).router;
+};
 
 test("leaving with unsaved changes in the model form asks Stay / Leave; an untouched form does not", async () => {
   vi.stubGlobal(
@@ -40,14 +43,14 @@ test("leaving with unsaved changes in the model form asks Stay / Leave; an untou
     vi.fn(async () => new Response(JSON.stringify({ models: [bedrock], assignments: { revision: 1 } }))),
   );
   const router = page();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Add model" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "New model" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "New model" }));
   fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
   expect(await screen.findByText("Agents list")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   await router.navigate("/llm-settings");
-  await waitFor(() => expect(screen.getByRole("button", { name: "Add model" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "New model" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "New model" }));
   fireEvent.change(screen.getByLabelText("Connection name"), { target: { value: "Search" } });
   fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
   const dialog = within(await screen.findByRole("alertdialog"));

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getLlmSettings, type ModelProfile } from "~/features/llm/api";
@@ -33,6 +34,7 @@ export default function EmbeddingModelSelect({
     try {
       const saved = await saveMemorySettings(value === "none" ? null : value);
       setModelId(saved.embedding_model_id);
+      toast.success("Embedding model saved.");
       onChange();
     } catch (reason) {
       onError(reason instanceof ApiError ? reason.message : "Could not save the embedding model.");

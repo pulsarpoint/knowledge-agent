@@ -1,9 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { Toaster } from "~/components/ui/sonner";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
 import DocumentsView from "~/features/documents/DocumentsView";
 import DraftPageView from "~/features/documents/DraftPageView";
 
+beforeEach(() => {
+  render(<Toaster />);
+});
 // Every save is a draft: one Save, the brand-new draft page, editing your draft of a live document, Save links.
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
@@ -209,7 +213,7 @@ test("the brand-new draft page: banner, Save/Publish/Discard, an editable name, 
   expect(await screen.findByText("Draft saved.")).toBeInTheDocument();
 });
 
-test("Publish promotes the brand-new draft and the page shows the live document", async () => {
+test("Publish publishes the brand-new draft and the page shows the live document", async () => {
   let published = false;
   const calls = api({
     "GET /api/documentation/documents/d5": () => [
@@ -276,7 +280,7 @@ test("on a live document the first Save creates your draft; the second Save upda
   expect(screen.queryByRole("button", { name: "Save new version" })).toBeNull();
   fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: "# Runbook v3" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  const banner = `Editing your draft (created ${new Date(created).toLocaleString()}, from version 2). Save updates it; Promote makes it live.`;
+  const banner = `Editing your draft (created ${new Date(created).toLocaleString()}, from version 2). Save updates it; Publish makes it live.`;
   expect(await screen.findByText(banner)).toBeInTheDocument();
   expect(calls.find((c) => c.key === "POST /api/documentation/drafts")!.body).toEqual({
     document_id: "doc-1",

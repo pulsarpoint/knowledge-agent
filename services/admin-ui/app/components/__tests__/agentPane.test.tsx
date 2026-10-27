@@ -201,7 +201,7 @@ test("New chat closes the open run; while the agent works it asks first", async 
   const pane = await screen.findByRole("region", { name: "Ask agent" });
   await waitFor(() => expect(within(pane).getByRole("button", { name: "New chat" })).toBeEnabled());
   fireEvent.click(within(pane).getByRole("button", { name: "New chat" }));
-  const dialog = await screen.findByRole("alertdialog", { name: "Close this conversation?" });
+  const dialog = await screen.findByRole("alertdialog", { name: "Close this chat?" });
   expect(dialog).toHaveTextContent("The agent is still working. Closing stops it.");
   fireEvent.click(within(dialog).getByRole("button", { name: "Keep it" }));
   expect(calls.some((c) => c.key === "POST /api/sessions/r2/close")).toBe(false);
@@ -230,7 +230,7 @@ test("a closed run blocks the message box and points to New chat", async () => {
   live.sessions.r3 = detail("r3", "closed");
   api({ [RUNS]: () => [200, { sessions: [run("r3", "closed")] }] });
   show({ initialRunId: "r3" });
-  expect(await screen.findByText("This conversation is closed. Start a New chat.")).toBeInTheDocument();
+  expect(await screen.findByText("This chat is closed. Start a new chat.")).toBeInTheDocument();
 });
 
 test("Earlier runs opens another run", async () => {

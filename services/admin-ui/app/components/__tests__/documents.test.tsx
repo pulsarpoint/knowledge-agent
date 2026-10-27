@@ -4,7 +4,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
 import DocumentsView from "~/features/documents/DocumentsView";
 import { DocumentationPromptEditorView } from "~/features/documents/DocumentationPromptsView";
+import { Toaster } from "~/components/ui/sonner";
 
+beforeEach(() => {
+  render(<Toaster />);
+});
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
 // React Router's Node Request cannot consume jsdom's AbortSignal. Fetch is mocked in this suite.
@@ -196,7 +200,7 @@ test("document deletion requires confirmation and Cancel never sends DELETE", as
   );
 });
 
-test("prompt edits create drafts and active versions cannot be deleted", async () => {
+test("prompt edits create inactive versions, a save shows a toast, active versions cannot be deleted", async () => {
   const prompt = {
     id: "prompt-1",
     name: "Architecture",
@@ -206,7 +210,7 @@ test("prompt edits create drafts and active versions cannot be deleted", async (
     revision: 3,
     active_version_id: "p1",
     versions: [
-      { id: "p2", version: 2, content: "Draft instructions", activated_at: null, created_at: first.created_at },
+      { id: "p2", version: 2, content: "Newer instructions", activated_at: null, created_at: first.created_at },
       {
         id: "p1",
         version: 1,
@@ -226,7 +230,8 @@ test("prompt edits create drafts and active versions cannot be deleted", async (
   render(<RouterProvider router={router} />);
   await screen.findByLabelText("Name");
   expect(screen.getByRole("button", { name: "Delete v1" })).toBeDisabled();
-  expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument();
+  expect(screen.getByText("Inactive version", { exact: true })).toBeInTheDocument();
+  expect(screen.queryByText(/draft/i)).toBeNull();
   fireEvent.change(screen.getByLabelText("Prompt text"), { target: { value: "Improved instructions" } });
   expect(screen.getByRole("button", { name: "Activate v2" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Save prompt" }));
@@ -234,4 +239,5 @@ test("prompt edits create drafts and active versions cannot be deleted", async (
   const saved = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string);
   expect(saved).toMatchObject({ revision: 3, content: "Improved instructions" });
   expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  expect(await screen.findByText("Prompt “Architecture” saved.")).toBeInTheDocument();
 });

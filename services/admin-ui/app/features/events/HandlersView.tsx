@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Plus, Trash2, Workflow } from "lucide-react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { deleteHandler, boundToSchedule, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
 import HandlerSheet from "./HandlerSheet";
 import ConfirmRemove from "~/components/ConfirmRemove";
-import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
+import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
@@ -63,6 +64,7 @@ export default function HandlersView() {
     setError(null);
     try {
       replace((await saveHandler(handler.id, { ...toDraft(handler), enabled, revision: handler.revision })).handler);
+      toast.success(`Handler “${handler.name}” ${enabled ? "enabled" : "disabled"}.`);
     } catch (reason) {
       setError(text(reason, "Could not change the handler."));
     } finally {
@@ -77,6 +79,7 @@ export default function HandlersView() {
     try {
       await deleteHandler(doomed.id);
       setHandlers((current) => current?.filter((item) => item.id !== doomed.id) ?? null);
+      toast.success(`Handler “${doomed.name}” deleted.`);
     } catch (reason) {
       setError(text(reason, "Could not delete the handler."));
     } finally {
@@ -95,7 +98,6 @@ export default function HandlersView() {
       </div>
       {error && (
         <Alert variant="destructive">
-          <AlertTitle>Handlers</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -118,7 +120,7 @@ export default function HandlersView() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>On</TableHead>
+                <TableHead>Enabled</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>When</TableHead>
                 <TableHead>Action</TableHead>
@@ -195,6 +197,7 @@ export default function HandlersView() {
         onSaved={(saved) => {
           replace(saved);
           close();
+          toast.success(`Handler “${saved.name}” saved.`);
         }}
       />
       <ConfirmRemove

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, Trash2 } from "lucide-react";
@@ -55,11 +56,11 @@ const errorMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : "Could not reach administration.";
 const when = (value: string) => new Date(value).toLocaleString();
 
-/** Code projects → Projects: a table (name linking to the project's page, source, ref, commit and when it was synced,
+/** Code projects → Code projects: a table (name linking to the project's page, source, ref, commit and when it was synced,
  * sync and code graph status, how many services are built from it; Sync now and Delete) with search, status filters,
  * sorting by a header's click and 20 rows a page. Reloads while a sync or indexing runs, or automatic pulls are on. */
 export default function CodeProjectsList() {
-  const { reloaded, setNotice } = useCodeProjectsPage();
+  const { reloaded } = useCodeProjectsPage();
   const [projects, setProjects] = useState<CodeProject[]>([]);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -106,9 +107,8 @@ export default function CodeProjectsList() {
   async function act(run: () => Promise<string>) {
     setBusy(true);
     setError("");
-    setNotice("");
     try {
-      setNotice(await run());
+      toast.success(await run());
       setRefresh((n) => n + 1);
     } catch (reason) {
       setError(errorMessage(reason));
@@ -312,7 +312,7 @@ export default function CodeProjectsList() {
         rowId={(project) => project.id}
         empty={
           projects.length === 0
-            ? "No code projects yet. New project maps existing folders or clones a Git repository."
+            ? "No code projects yet. New code project maps existing folders or clones a Git repository."
             : "No code projects match."
         }
       />

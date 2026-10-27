@@ -38,7 +38,7 @@ DRAFT_CHANGED = 'This draft changed. Reload it before saving; your text has not 
 STALE_BASE = 'STALE_BASE'
 BASE_AHEAD = 'The base version is newer than the live version {live}. Reload the document.'
 STALE_MESSAGE = (
-    "This draft was based on version {base}; the live version is now {live}. Promoting replaces version {live}'s text."
+    "This draft was based on version {base}; the live version is now {live}. Publishing replaces version {live}'s text."
 )
 NEW_DOCUMENT_REVISION = 'New documents cannot reuse a revision'
 NAME_IN_USE = 'A document or draft named {slug} already exists. Choose another name.'

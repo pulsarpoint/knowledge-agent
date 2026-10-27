@@ -6,6 +6,11 @@ import JiraSettingsView from "~/features/jira/JiraSettingsView";
 import JiraTicketsView from "~/features/jira/JiraTicketsView";
 import type { JiraConnection, JiraTickets } from "~/features/jira/api";
 import type { Schedule } from "~/features/events/schedules";
+import { Toaster } from "~/components/ui/sonner";
+
+beforeEach(() => {
+  render(<Toaster />);
+});
 
 const connection: JiraConnection = {
   id: "jira-1",

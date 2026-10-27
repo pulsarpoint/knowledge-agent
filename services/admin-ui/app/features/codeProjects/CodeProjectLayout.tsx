@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import BackLink from "~/components/BackLink";
 import { Outlet, useLocation, useOutletContext, useParams } from "react-router";
 import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { getCodeProject, pullCodeProject, type CodeProjectDetail } from "./api";
 import { graphStatus, syncing } from "./status";
@@ -15,13 +16,13 @@ import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
 /** What the project's sub-pages get from the layout: the project (loaded once, reloaded while a job runs), `version`
- * (counts reloads), a reload, `act` (runs an action, shows its notice and reloads) and whether one is running. */
+ * (counts reloads), a reload, `act` (runs an action, shows a toast when it is done and reloads) and whether one is
+ * running. */
 export interface CodeProjectPageContext {
   project: CodeProjectDetail;
   version: number;
   reload: () => void;
   act: (run: () => Promise<unknown>, done: string) => Promise<void>;
-  setNotice: (notice: string) => void;
   busy: boolean;
 }
 export const useCodeProjectPage = () => useOutletContext<CodeProjectPageContext>();
@@ -50,7 +51,6 @@ function CodeProjectPage({ codeProjectId }: { codeProjectId: string }) {
   const { search } = useLocation();
   const [project, setProject] = useState<CodeProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [discover, setDiscover] = useState(false); // the library has discovery prompts for code projects
@@ -88,11 +88,10 @@ function CodeProjectPage({ codeProjectId }: { codeProjectId: string }) {
 
   async function act(run: () => Promise<unknown>, done: string) {
     setBusy(true);
-    setNotice("");
     setError(null);
     try {
       await run();
-      setNotice(done);
+      toast.success(done);
       reload();
     } catch (reason) {
       setError(message(reason, "Could not reach administration."));
@@ -177,17 +176,12 @@ function CodeProjectPage({ codeProjectId }: { codeProjectId: string }) {
         label="Code project sections"
         sections={SECTIONS.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
       />
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
-        </Alert>
-      )}
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <Outlet context={{ project, version, reload, act, setNotice, busy } satisfies CodeProjectPageContext} />
+      <Outlet context={{ project, version, reload, act, busy } satisfies CodeProjectPageContext} />
     </ResourceChats>
   );
 }

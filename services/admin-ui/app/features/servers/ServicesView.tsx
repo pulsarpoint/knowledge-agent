@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import { FileText, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -20,7 +21,6 @@ export default function ServicesView() {
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ServiceAsset | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -56,7 +56,7 @@ export default function ServicesView() {
         current ? { ...current, services: current.services.filter((service) => service.id !== target.id) } : null,
       );
       setDeleteTarget(null);
-      setNotice(`Service “${target.name}” deleted.`);
+      toast.success(`Service “${target.name}” deleted.`);
       setRefresh((value) => value + 1);
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the service. Try again.");
@@ -111,11 +111,6 @@ export default function ServicesView() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
-        </Alert>
-      )}
       {data === null && loading && <Skeleton className="h-48 w-full" />}
       {data !== null && (
         <>
@@ -143,7 +138,7 @@ export default function ServicesView() {
             <>
               <Input
                 aria-label="Filter services"
-                placeholder="Filter by service, repository, server, or environment…"
+                placeholder="Filter by service, code project, server, or environment…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -152,7 +147,7 @@ export default function ServicesView() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Service</TableHead>
-                      <TableHead>Source</TableHead>
+                      <TableHead>Code projects</TableHead>
                       <TableHead>Environments</TableHead>
                       <TableHead>Deployments</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -227,7 +222,6 @@ export default function ServicesView() {
                               onClick={() => {
                                 setDeleteTarget(service);
                                 setDeleteError(null);
-                                setNotice(null);
                               }}
                             >
                               <Trash2 />

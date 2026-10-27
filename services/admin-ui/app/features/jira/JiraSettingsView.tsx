@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import { PlugZap, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -23,7 +24,6 @@ export default function JiraSettingsView() {
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -36,7 +36,6 @@ export default function JiraSettingsView() {
           setToken("");
           setRemoveToken(false);
           setError(null);
-          setNotice(null);
         }
       })
       .catch((error) => {
@@ -60,7 +59,6 @@ export default function JiraSettingsView() {
     event.preventDefault();
     setBusy("save");
     setError(null);
-    setNotice(null);
     try {
       const result = await saveJiraSettings({
         base_url: baseUrl,
@@ -73,7 +71,7 @@ export default function JiraSettingsView() {
       setUsername(result.connection.username);
       setToken("");
       setRemoveToken(false);
-      setNotice("Jira settings saved.");
+      toast.success("Jira settings saved.");
     } catch (error) {
       setError(error instanceof ApiError ? error.message : "Could not save Jira settings.");
     } finally {
@@ -83,10 +81,9 @@ export default function JiraSettingsView() {
   async function test() {
     setBusy("test");
     setError(null);
-    setNotice(null);
     try {
       const result = await testJiraConnection();
-      setNotice(`Connected as ${result.user.display_name} (${result.user.username}). Ticket search is accessible.`);
+      toast.success(`Connected as ${result.user.display_name} (${result.user.username}). Ticket search is accessible.`);
     } catch (error) {
       setError(error instanceof ApiError ? error.message : "Could not test the Jira connection.");
     } finally {
@@ -111,11 +108,6 @@ export default function JiraSettingsView() {
         <Alert variant="destructive">
           <AlertTitle>Jira request failed</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
       {connection === undefined && loading && <Skeleton className="h-64 w-full" />}

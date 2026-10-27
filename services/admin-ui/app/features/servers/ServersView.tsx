@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router";
 import { FileText, KeyRound, Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
@@ -22,7 +23,6 @@ export default function ServersView() {
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<{ server: ServerAsset | null } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ServerAsset | null>(null);
@@ -53,7 +53,6 @@ export default function ServersView() {
 
   function openForm(server: ServerAsset | null) {
     setForm({ server });
-    setNotice(null);
   }
   async function confirmDelete() {
     if (deleteTarget === null || deleting) return;
@@ -64,7 +63,7 @@ export default function ServersView() {
       await deleteServer(target.id, target.revision);
       setServers((current) => current?.filter((server) => server.id !== target.id) ?? null);
       setDeleteTarget(null);
-      setNotice(`Server “${target.name}” deleted.`);
+      toast.success(`Server “${target.name}” deleted.`);
       setRefresh((value) => value + 1);
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the server. Try again.");
@@ -76,7 +75,6 @@ export default function ServersView() {
   async function testConnection(server: ServerAsset) {
     setTesting(server.id);
     setTestResult(null);
-    setNotice(null);
     try {
       const saved = await getSSH(server.id);
       const result = await testSSH(server.id, {
@@ -125,7 +123,7 @@ export default function ServersView() {
             onClick={() => openForm(null)}
           >
             <Plus data-icon="inline-start" />
-            Add server
+            New server
           </Button>
         </div>
       </div>
@@ -133,11 +131,6 @@ export default function ServersView() {
         <Alert variant="destructive">
           <AlertTitle>Server inventory unavailable</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
       {testResult && (
@@ -171,7 +164,7 @@ export default function ServersView() {
           onSaved={() => {
             setForm(null);
             setQuery("");
-            setNotice("Server saved. Linked services now use its updated details.");
+            toast.success("Server saved. Linked services now use its updated details.");
             setRefresh((value) => value + 1);
           }}
         />
@@ -215,7 +208,7 @@ export default function ServersView() {
                   <TableHead>Server</TableHead>
                   <TableHead>Hostname / IP</TableHead>
                   <TableHead className="min-w-40">Tags</TableHead>
-                  <TableHead>SSH allowed</TableHead>
+                  <TableHead>Agent SSH</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -247,7 +240,7 @@ export default function ServersView() {
                     </TableCell>
                     <TableCell className="align-top">
                       <Badge variant={server.ssh_allowed ? "secondary" : "outline"}>
-                        {server.ssh_allowed ? "On" : "Off"}
+                        {server.ssh_allowed ? "Enabled" : "Disabled"}
                       </Badge>
                     </TableCell>
                     <TableCell className="align-top">
@@ -266,7 +259,7 @@ export default function ServersView() {
                         <RowAction
                           label="Test SSH"
                           name={server.name}
-                          tip={server.ssh_allowed ? undefined : "Enable SSH allowed to test"}
+                          tip={server.ssh_allowed ? undefined : "Enable agent SSH to test"}
                           disabled={!server.ssh_allowed || testing !== null || sshServer !== null}
                           onClick={() => void testConnection(server)}
                         >
@@ -291,7 +284,6 @@ export default function ServersView() {
                           onClick={() => {
                             setDeleteTarget(server);
                             setDeleteError(null);
-                            setNotice(null);
                           }}
                         >
                           <Trash2 />

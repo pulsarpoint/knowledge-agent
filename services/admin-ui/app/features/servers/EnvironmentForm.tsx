@@ -52,7 +52,7 @@ export default function EnvironmentForm({
     <form onSubmit={submit} className="flex flex-col gap-6 rounded-lg border p-6">
       <LeaveGuard dirty={dirty} />
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">{environment ? "Edit environment" : "Add environment"}</h2>
+        <h2 className="text-lg font-semibold">{environment ? "Edit environment" : "New environment"}</h2>
         <Button
           type="button"
           variant="ghost"

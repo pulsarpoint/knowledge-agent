@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import HandlersView from "~/features/events/HandlersView";
+import { Toaster } from "~/components/ui/sonner";
 
 const handler = (extra = {}) => ({
   id: "h-1",
@@ -65,6 +66,7 @@ const view = () =>
   render(
     <MemoryRouter>
       <HandlersView />
+      <Toaster />
     </MemoryRouter>,
   );
 afterEach(() => vi.unstubAllGlobals());
@@ -175,6 +177,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
     }),
   );
   expect(await screen.findByText("Emit triage.requested")).toBeInTheDocument();
+  expect(await screen.findByText("Handler “Triage” saved.")).toBeInTheDocument();
 });
 
 test("closing the handler sheet with unsaved changes asks Stay / Leave; an untouched sheet closes at once", async () => {
@@ -276,12 +279,15 @@ test("the switch saves enabled with the revision; delete asks first", async () =
   view();
   await user.click(await screen.findByRole("switch", { name: "Enabled: Triage" }));
   await waitFor(() => expect([saved.enabled, saved.revision]).toEqual([false, 1]));
+  expect(await screen.findByText("Handler “Triage” disabled.")).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "Enabled" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Delete Triage" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText("Delete “Triage”?")).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "Delete handler" })).toHaveClass("bg-destructive");
   await user.click(within(dialog).getByRole("button", { name: "Delete handler" }));
   await waitFor(() => expect(screen.queryByText("Triage")).toBeNull());
+  expect(await screen.findByText("Handler “Triage” deleted.")).toBeInTheDocument();
   expect(
     fetch.mock.calls.some(
       ([url, init]) => url === "/api/event-handlers/h-1" && (init as RequestInit)?.method === "DELETE",

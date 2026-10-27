@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider, type RouteObject } from "react-router";
+import { Toaster } from "~/components/ui/sonner";
 import routes from "~/routes";
 import ServiceLayout from "~/features/servers/ServiceLayout";
 import ServiceIndex from "~/features/servers/ServiceIndex";
@@ -87,7 +88,12 @@ function show(path: string) {
     },
   );
   const router = createMemoryRouter(serviceRoutes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  render(
+    <>
+      <RouterProvider router={router} />
+      <Toaster />
+    </>,
+  );
   return router;
 }
 
@@ -292,7 +298,7 @@ test("View keeps the agent context link, each code project's folder and each dep
     "/api/services/v1/context",
   );
   expect(await extras.findByText("payments-repo: /code/pay")).toBeInTheDocument();
-  expect(extras.getByText(/^prod \/ app-1: SSH allowed: Off/)).toBeInTheDocument();
+  expect(extras.getByText(/^prod \/ app-1: Agent SSH: Disabled/)).toBeInTheDocument();
 });
 
 test("Depends on lists the services it depends on with their descriptions; Remove asks first", async () => {
@@ -615,14 +621,14 @@ test("View: a refused Add deployment keeps the sheet open with the API's message
   expect(await sheet.findByText("This service already runs there")).toBeInTheDocument();
 });
 
-test("Chat on a sub-page opens the chat panel with Conversations; a new chat starts from the service", async () => {
+test("Chat on a sub-page opens the chat panel with Chats; a new chat starts from the service", async () => {
   const calls = api({
     "POST /api/sessions": () => [201, { id: "r9", title: "Chat r9", status: "starting", tags: ["services/v1"] }],
   });
   show("/services/v1/code");
   await userEvent.click(await screen.findByRole("button", { name: "Chat" }));
   const panel = within(await screen.findByTestId("resource-chat"));
-  expect(panel.getByRole("button", { name: "Conversations" })).toBeInTheDocument();
+  expect(panel.getByRole("button", { name: "Chats" })).toBeInTheDocument();
   const pane = within(await screen.findByRole("region", { name: "Ask agent" }));
   await waitFor(() => expect(pane.getByRole("button", { name: "Settings" })).toBeEnabled());
   await userEvent.type(pane.getByLabelText("Message"), "What does it need?");
@@ -656,7 +662,7 @@ test("Edit: a stale save says the service changed meanwhile and reloads", async 
   await waitFor(() => expect(loads()).toBe(2));
 });
 
-test("a notice does not follow to another tab", async () => {
+test("a save shows a toast, which stays out of the page", async () => {
   const list = [...services];
   api(
     {
@@ -670,10 +676,8 @@ test("a notice does not follow to another tab", async () => {
   show("/services/v1/edit");
   await userEvent.type(await screen.findByLabelText("Owner"), " B");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findByText("Service saved.")).toBeInTheDocument();
-  await userEvent.click(nav().getByRole("link", { name: "Code (1)" }));
-  await screen.findByRole("region", { name: "Built from" });
-  expect(screen.queryByText("Service saved.")).toBeNull();
+  expect(await screen.findByText("Service “payments-api” saved.")).toBeInTheDocument();
+  expect(screen.queryByRole("status")).toBeNull();
 });
 
 test("each tab explains what it means under the tab links", async () => {

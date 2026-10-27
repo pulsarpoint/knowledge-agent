@@ -155,7 +155,7 @@ def test_a_stale_draft_is_promoted_only_when_confirmed(docs):
     refused = promote(docs, draft)
     message = STALE_MESSAGE.format(base=1, live=2)
     assert (
-        message == "This draft was based on version 1; the live version is now 2. Promoting replaces version 2's text."
+        message == "This draft was based on version 1; the live version is now 2. Publishing replaces version 2's text."
     )
     assert refused.status_code == 409 and refused.json()['error'] == {'message': message, 'code': STALE_BASE}
     confirmed = promote(docs, draft, confirm_stale=True)

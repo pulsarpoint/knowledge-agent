@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { Toaster } from "~/components/ui/sonner";
 import DocumentsView from "~/features/documents/DocumentsView";
 import DraftPageView from "~/features/documents/DraftPageView";
 
+beforeEach(() => {
+  render(<Toaster />);
+});
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
 // React Router's Node Request cannot consume jsdom's AbortSignal. Fetch is mocked in this suite.
@@ -146,7 +150,7 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   );
 });
 
-test("the draft page of a live document's draft shows its changes and sources; Promote opens the document", async () => {
+test("the draft page of a live document's draft shows its changes and sources; Publish opens the document with a toast", async () => {
   const calls = api({
     ...drafts3,
     "GET /api/documentation/drafts/d3": () => [200, ofLive],
@@ -159,8 +163,9 @@ test("the draft page of a live document's draft shows its changes and sources; P
   expect(await screen.findByRole("link", { name: "Overview" })).toHaveAttribute("href", "/documents/doc-3");
   expect(screen.getByText("# Overview v2", { selector: "ins" })).toBeInTheDocument();
   expect(screen.getByText("Old overview v4 (deleted)")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Promote" }));
+  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-3"));
+  expect(await screen.findByText("Draft published as version 2.")).toBeInTheDocument();
   expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d3/promote")!.body).toEqual({
     revision: 1,
     confirm_stale: false,
@@ -196,8 +201,8 @@ test("Edit on the draft page saves the draft with its revision", async () => {
   });
 });
 
-test("a stale promote keeps the warning, reloads the draft and sends confirm_stale on Promote anyway", async () => {
-  const STALE = "This draft was based on version 1; the live version is now 2. Promoting replaces version 2's text.";
+test("a stale publish keeps the warning, reloads the draft and sends confirm_stale on Publish anyway", async () => {
+  const STALE = "This draft was based on version 1; the live version is now 2. Publishing replaces version 2's text.";
   let reloaded = false;
   const stale = {
     ...detail,
@@ -222,12 +227,12 @@ test("a stale promote keeps the warning, reloads the draft and sends confirm_sta
     },
   });
   show("/documents/drafts/d2");
-  fireEvent.click(await screen.findByRole("button", { name: "Promote" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Publish" }));
   expect(await screen.findByText(STALE)).toBeInTheDocument();
   expect(await screen.findByText("stale")).toBeInTheDocument();
   expect(screen.getByText("# v2 live", { selector: "del" })).toBeInTheDocument();
   expect(screen.getByText(STALE)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Promote anyway" }));
+  fireEvent.click(screen.getByRole("button", { name: "Publish anyway" }));
   await waitFor(() =>
     expect(calls.filter((c) => c.key.endsWith("/promote")).map((c) => c.body)).toEqual([
       { revision: 1, confirm_stale: false },

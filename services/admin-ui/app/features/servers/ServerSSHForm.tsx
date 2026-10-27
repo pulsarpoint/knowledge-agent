@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { getSSH, saveSSH, testSSH, type SSHServer, type SSHInput, type SSHTestResult } from "./operations";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -18,7 +19,6 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<SSHTestResult | null>(null);
   useEffect(() => {
     let live = true;
@@ -35,7 +35,6 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
   }, [id]);
   const hasChanges = dirty || key.trim().length > 0 || removeKey;
   function clearFeedback() {
-    setNotice(null);
     setError(null);
     setTestResult(null);
   }
@@ -59,7 +58,6 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
     if (!server) return;
     setBusy(true);
     setError(null);
-    setNotice(null);
     setTestResult(null);
     try {
       const saved = await saveSSH(id, input(server));
@@ -68,7 +66,7 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
       setRemoveKey(false);
       setReplaceKey(false);
       setDirty(false);
-      setNotice("SSH settings saved.");
+      toast.success("SSH settings saved.");
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "Could not save SSH settings.");
     } finally {
@@ -79,12 +77,11 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
     if (!server) return;
     setBusy(true);
     setError(null);
-    setNotice(null);
     setTestResult(null);
     try {
       const result = await testSSH(id, input(server));
       setTestResult(result);
-      if (result.ok) setNotice(result.message);
+      if (result.ok) toast.success(result.message);
       else setError(result.message);
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "Could not test SSH.");
@@ -110,16 +107,11 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          {notice && (
-            <Alert>
-              <AlertDescription role="status">{notice}</AlertDescription>
-            </Alert>
-          )}
           {!server && !error && <Spinner />}
           {server && (
             <>
               <p className="break-all font-mono text-sm text-muted-foreground">
-                {server.hostname} · SSH {server.ssh_allowed ? "allowed" : "disabled in server inventory"}
+                {server.hostname} · Agent SSH {server.ssh_allowed ? "enabled" : "disabled in server inventory"}
               </p>
               <fieldset disabled={busy}>
                 <FieldGroup>
@@ -316,7 +308,7 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
                       const line = testResult.host_key?.known_hosts_line;
                       if (!line) return;
                       update({ known_hosts: [server.known_hosts.trim(), line].filter(Boolean).join("\n") });
-                      setNotice(
+                      toast.success(
                         "Public host key added to the field. Save settings to trust it for future connections.",
                       );
                     }}

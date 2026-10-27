@@ -332,8 +332,8 @@ export default function AgentChat({
       className="flex min-w-0 flex-col gap-2"
     >
       <Tabs value={view} onValueChange={(value) => setView(value === "debug" ? "debug" : "conversation")}>
-        <TabsList aria-label="Conversation or debug">
-          <TabsTrigger value="conversation">Conversation</TabsTrigger>
+        <TabsList aria-label="Chat or debug">
+          <TabsTrigger value="conversation">Chat</TabsTrigger>
           <TabsTrigger value="debug">Debug</TabsTrigger>
         </TabsList>
       </Tabs>
@@ -366,14 +366,14 @@ export default function AgentChat({
             <div className="flex flex-col gap-1">
               <h2 className="break-words font-semibold">
                 {runId === null
-                  ? "New conversation"
+                  ? "New chat"
                   : foreign
                     ? isAgent
                       ? "Another agent's run"
                       : pageChat
                         ? "Another page's chat"
                         : "Another document's run"
-                    : (session?.title ?? "Loading the conversation…")}
+                    : (session?.title ?? "Loading the chat…")}
               </h2>
               {foreign &&
                 (isAgent ? (
@@ -545,7 +545,7 @@ export default function AgentChat({
                 ? "This chat belongs to another page. Start a New chat."
                 : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
               : session?.status === "closed"
-                ? "This conversation is closed. Start a New chat."
+                ? "This chat is closed. Start a new chat."
                 : !open
                   ? blocked
                   : null,
@@ -583,7 +583,7 @@ export default function AgentChat({
           onApplied={(target, id) => {
             if (target === "clone") navigate(agentPath(id, "chat"));
             else {
-              setInfo("Applied to this agent. New conversations use it.");
+              setInfo("Applied to this agent. New chats use it.");
               onAgentChanged?.();
             }
           }}
@@ -592,7 +592,7 @@ export default function AgentChat({
       <AlertDialog open={confirmNew} onOpenChange={setConfirmNew}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Close this conversation?</AlertDialogTitle>
+            <AlertDialogTitle>Close this chat?</AlertDialogTitle>
             <AlertDialogDescription>The agent is still working. Closing stops it.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

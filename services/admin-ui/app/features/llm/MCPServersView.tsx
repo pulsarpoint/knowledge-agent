@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { getMCPServers, saveMCPServer, testMCPServer, deleteMCPServer, type MCPServer } from "./mcp";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -31,14 +32,12 @@ export default function MCPServersView() {
   const [removing, setRemoving] = useState<MCPServer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   async function refresh() {
     setServers((await getMCPServers()).servers);
   }
   async function act(fn: () => Promise<void>) {
     setBusy(true);
     setError(null);
-    setNotice(null);
     try {
       await fn();
     } catch (e) {
@@ -60,7 +59,6 @@ export default function MCPServersView() {
       editing.removeToken);
   function edit(server: MCPServer | null) {
     setError(null);
-    setNotice(null);
     setEditing({
       server,
       name: server?.name ?? "",
@@ -75,7 +73,7 @@ export default function MCPServersView() {
     <div className="flex flex-col gap-6">
       <LeaveGuard dirty={dirty} />
       <div className="flex justify-between gap-3">
-        <p className="text-sm text-muted-foreground">{servers?.length ?? 0} connections</p>
+        <p className="text-sm text-muted-foreground">{servers ? `${servers.length} connections` : ""}</p>
         <div className="flex gap-2">
           <Button variant="outline" disabled={busy || !!editing} onClick={() => void act(refresh)}>
             <RefreshCw data-icon="inline-start" />
@@ -83,7 +81,7 @@ export default function MCPServersView() {
           </Button>
           <Button disabled={busy || !!editing} onClick={() => edit(null)}>
             <Plus data-icon="inline-start" />
-            Add MCP server
+            New MCP server
           </Button>
         </div>
       </div>
@@ -92,15 +90,10 @@ export default function MCPServersView() {
           <AlertDescription role="alert">{error}</AlertDescription>
         </Alert>
       )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
-        </Alert>
-      )}
       {editing && (
         <Card>
           <CardHeader>
-            <CardTitle>{editing.server ? "Edit MCP server" : "Add MCP server"}</CardTitle>
+            <CardTitle>{editing.server ? "Edit MCP server" : "New MCP server"}</CardTitle>
             <CardDescription>
               Streamable HTTP with an optional bearer token. Save, test the connection, then add it on an agent's
               Resources tab.
@@ -120,7 +113,7 @@ export default function MCPServersView() {
                 });
                 setEditing(null);
                 await refresh();
-                setNotice("MCP server saved. Test the connection to discover its tools.");
+                toast.success(`MCP server “${editing.name}” saved. Test the connection to discover its tools.`);
               });
             }}
           >
@@ -302,7 +295,7 @@ export default function MCPServersView() {
                         void act(async () => {
                           const result = await testMCPServer(server);
                           await refresh();
-                          if (result.ok) setNotice(result.message);
+                          if (result.ok) toast.success(result.message);
                           else setError(result.message);
                         })
                       }
@@ -345,7 +338,7 @@ export default function MCPServersView() {
               }
               setRemoving(null);
               await act(refresh);
-              setNotice("MCP server deleted.");
+              toast.success(`MCP server “${removing.name}” deleted.`);
             },
           }
         }

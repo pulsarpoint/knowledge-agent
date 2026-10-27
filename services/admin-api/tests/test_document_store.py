@@ -469,7 +469,7 @@ def test_a_stale_draft_needs_confirmation(store):
             promote_draft(conn, project, None, draft, revision=1, confirm_stale=False)
         assert error.value.status_code == 409
         assert error.value.detail == {
-            'message': "This draft was based on version 1; the live version is now 2. Promoting replaces version 2's text.",
+            'message': "This draft was based on version 1; the live version is now 2. Publishing replaces version 2's text.",
             'code': 'STALE_BASE',
         }
         result = promote_draft(conn, project, None, draft, revision=1, confirm_stale=True)

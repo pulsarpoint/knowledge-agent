@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import CodeGraphsView from "~/features/codeProjects/CodeGraphsView";
 import type { CodeProject } from "~/features/codeProjects/api";
+import { Toaster } from "~/components/ui/sonner";
 
 vi.mock("~/features/codeProjects/CodeGraphExplorer", () => ({
   default: ({ projectId, sourceHash }: { projectId: string; sourceHash: string }) => (
@@ -79,6 +80,7 @@ test("lists every project with its graph summary and opens a graph", async () =>
   render(
     <MemoryRouter>
       <CodeGraphsView />
+      <Toaster />
     </MemoryRouter>,
   );
   const row = (await screen.findByRole("cell", { name: "Payments" })).closest("tr")!;
@@ -106,6 +108,7 @@ test("Generate graph queues processing and reloads", async () => {
   render(
     <MemoryRouter>
       <CodeGraphsView />
+      <Toaster />
     </MemoryRouter>,
   );
   await user.click(await screen.findByRole("button", { name: "Generate graph for Billing" }));
@@ -118,15 +121,16 @@ test("Generate graph queues processing and reloads", async () => {
   expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/api/code-projects")).length).toBeGreaterThan(1);
 });
 
-test("empty state points to Projects", async () => {
+test("empty state points to Code projects", async () => {
   api([]);
   render(
     <MemoryRouter>
       <CodeGraphsView />
+      <Toaster />
     </MemoryRouter>,
   );
   expect(await screen.findByText("No code projects yet")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Add a project" })).toHaveAttribute("href", "/code-projects");
+  expect(screen.getByRole("link", { name: "Add a code project" })).toHaveAttribute("href", "/code-projects");
 });
 
 test("a project in the URL opens its graph", async () => {
@@ -134,6 +138,7 @@ test("a project in the URL opens its graph", async () => {
   render(
     <MemoryRouter initialEntries={["/code-graphs?project=p1"]}>
       <CodeGraphsView />
+      <Toaster />
     </MemoryRouter>,
   );
   expect(await screen.findByText("Explorer p1 h1")).toBeInTheDocument();

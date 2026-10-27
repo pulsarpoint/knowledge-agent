@@ -67,7 +67,7 @@ export default function ServerForm({
       {guard.dialog}
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{server ? "Edit server" : "Register server"}</SheetTitle>
+          <SheetTitle>{server ? "Edit server" : "New server"}</SheetTitle>
           <SheetDescription>
             {server
               ? "Update this host's inventory. Linked service deployments use these details automatically."
@@ -132,7 +132,7 @@ export default function ServerForm({
               </Field>
               <Field orientation="horizontal" data-disabled={saving}>
                 <FieldContent>
-                  <FieldLabel htmlFor="server-ssh-allowed">SSH allowed</FieldLabel>
+                  <FieldLabel htmlFor="server-ssh-allowed">Agent SSH</FieldLabel>
                   <FieldDescription id="server-ssh-description">
                     Allow agents to use SSH for this server. Connection credentials are configured separately.
                   </FieldDescription>
@@ -156,7 +156,7 @@ export default function ServerForm({
           <div className="flex gap-2">
             <Button disabled={saving}>
               {saving && <Spinner data-icon="inline-start" />}
-              {server ? "Save changes" : "Register server"}
+              {server ? "Save changes" : "Create server"}
             </Button>
             <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel

@@ -1,8 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { Toaster } from "~/components/ui/sonner";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
 import { WidePageContext } from "~/lib/widePage";
 
+beforeEach(() => {
+  render(<Toaster />);
+});
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const pane = vi.hoisted(() => ({ mounts: 0, props: [] as any[] }));
 vi.mock("~/features/sessions/AgentChat", async () => {
@@ -216,7 +220,7 @@ test("the first message asks about unsaved changes first", async () => {
   expect(pane.props.some((p) => p.started)).toBe(true);
 });
 
-test("the draft bar shows the agent draft; Compare opens it; a stale Promote asks, then promotes", async () => {
+test("the draft bar shows the agent draft; Compare opens it; a stale Publish asks, then publishes", async () => {
   let promoted = 0;
   const calls = api({
     ...base,
@@ -233,14 +237,14 @@ test("the draft bar shows the agent draft; Compare opens it; a stale Promote ask
   const bar = await screen.findByRole("region", { name: "Agent draft" });
   expect(await within(bar).findByText("Agent draft · based on version 1")).toBeInTheDocument();
   expect(within(bar).getByText("stale")).toBeInTheDocument();
-  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
+  fireEvent.click(within(bar).getByRole("button", { name: "Publish" }));
   expect(await within(bar).findByText(STALE)).toBeInTheDocument();
-  fireEvent.click(within(bar).getByRole("button", { name: "Promote anyway" }));
+  fireEvent.click(within(bar).getByRole("button", { name: "Publish anyway" }));
   await waitFor(() => expect(promoted).toBe(2));
   expect(
     calls.filter((c) => c.key === "POST /api/documentation/drafts/d1/promote").map((c) => c.body.confirm_stale),
   ).toEqual([false, true]);
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Agent draft" })).toBeNull(); // the bar goes at once
   expect(pane.mounts).toBe(1); // the pane keeps its conversation when a draft is promoted
   fireEvent.click(screen.getByRole("button", { name: "Agent saved" }));
@@ -274,7 +278,7 @@ test("a run link opens a closed pane", async () => {
   expect(await screen.findByText("run r3")).toBeInTheDocument();
 });
 
-test("Promote sends the draft's latest revision after the agent saved into it again", async () => {
+test("Publish sends the draft's latest revision after the agent saved into it again", async () => {
   let revision = 3;
   const calls = api({
     ...base,
@@ -290,8 +294,8 @@ test("Promote sends the draft's latest revision after the agent saved into it ag
   const bar = await screen.findByRole("region", { name: "Agent draft" });
   await within(bar).findByText("Agent draft · based on version 1");
   revision = 4; // the agent saves into the same draft again
-  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  fireEvent.click(within(bar).getByRole("button", { name: "Publish" }));
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
   expect(
     calls.filter((c) => c.key === "POST /api/documentation/drafts/d1/promote").map((c) => c.body.revision),
   ).toEqual([4]);
@@ -313,7 +317,7 @@ test("the bar reloads the draft after each of the agent's turns", async () => {
   await waitFor(() => expect(loads).toBe(2));
 });
 
-test("Promote on the bar asks first when it deletes the document's other drafts; without others it promotes at once", async () => {
+test("Publish on the bar asks first when it deletes the document's other drafts; without others it publishes at once", async () => {
   const others = [draft, { ...draft, id: "d2", title: "Other" }, { ...draft, id: "d3", title: "Third" }];
   let listed = others;
   const calls = api({
@@ -329,26 +333,26 @@ test("Promote on the bar asks first when it deletes the document's other drafts;
   fireEvent.click(await screen.findByRole("button", { name: "Agent saved" }));
   const bar = await screen.findByRole("region", { name: "Agent draft" });
   await within(bar).findByText("Agent draft · based on version 1");
-  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
+  fireEvent.click(within(bar).getByRole("button", { name: "Publish" }));
   const dialog = within(await screen.findByRole("alertdialog"));
-  expect(dialog.getByText("Promote and delete 2 other draft(s)?")).toBeInTheDocument();
+  expect(dialog.getByText("Publish and delete 2 other draft(s)?")).toBeInTheDocument();
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
-  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
-  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Promote" }));
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  fireEvent.click(within(bar).getByRole("button", { name: "Publish" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish" }));
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
   expect(calls.filter((c) => c.key.endsWith("/promote"))).toHaveLength(1);
   listed = [draft]; // the agent saves again: no other drafts now
   fireEvent.click(screen.getByRole("button", { name: "Agent saved" }));
   const again = await screen.findByRole("region", { name: "Agent draft" });
   await within(again).findByText("Agent draft · based on version 1");
-  fireEvent.click(within(again).getByRole("button", { name: "Promote" }));
+  fireEvent.click(within(again).getByRole("button", { name: "Publish" }));
   await waitFor(() => expect(calls.filter((c) => c.key.endsWith("/promote"))).toHaveLength(2));
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
-test("promoting another draft on the Drafts tab replaces the agent's draft: the bar says so", async () => {
+test("publishing another draft on the Drafts tab replaces the agent's draft: the bar says so", async () => {
   const other = { ...draft, id: "d2", title: "Other", origin: "manual", session_id: null, stale: false };
   api({
     ...base,
@@ -365,15 +369,15 @@ test("promoting another draft on the Drafts tab replaces the agent's draft: the 
     "Agent draft · based on version 1",
   );
   const view = within(await screen.findByRole("region", { name: "Draft" }));
-  fireEvent.click(await view.findByRole("button", { name: "Promote" }));
+  fireEvent.click(await view.findByRole("button", { name: "Publish" }));
   fireEvent.click(
-    within(await screen.findByRole("alertdialog", { name: "Promote and delete 1 other draft(s)?" })).getByRole(
+    within(await screen.findByRole("alertdialog", { name: "Publish and delete 1 other draft(s)?" })).getByRole(
       "button",
-      { name: "Promote" },
+      { name: "Publish" },
     ),
   );
-  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(await screen.findByText("Draft published as version 3.")).toBeInTheDocument();
   expect(
-    await within(screen.getByRole("region", { name: "Agent draft" })).findByText(/Replaced by another promoted draft/),
+    await within(screen.getByRole("region", { name: "Agent draft" })).findByText(/Replaced by another published draft/),
   ).toBeInTheDocument();
 });

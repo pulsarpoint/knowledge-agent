@@ -121,10 +121,10 @@ show state and logs.
 
 Most features depend on earlier ones. A sensible order in the Administration app:
 
-1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
+1. **LLM Settings** → **New model** (a chat model), then **Test connection**. Optionally add an
    embeddings model (AWS Bedrock Titan v2) for memory vector search.
 2. **Memory** → select the embeddings model if you added one.
-3. **Code projects** → **New project**: map local folders or clone Git repositories; then **Code graphs → Generate graph**.
+3. **Code projects** → **New code project**: map local folders or clone Git repositories; then **Code graphs → Generate graph**.
 4. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
 5. **Environments** → group servers and services (e.g. `production`, `staging`).
@@ -172,12 +172,15 @@ General conventions throughout the admin app:
 
 Footer: theme toggle and **Sign out**.
 
+A finished action (a save, a delete, Run now, a test that passed) shows a short confirmation toast in the corner of
+the screen; errors stay on the page, next to the form or list, until you act again.
+
 ### 4.2 LLM Settings
 
 `/llm-settings` — named model connections used by agents
 and memory embeddings.
 
-**Add model** fields:
+**New model** fields:
 
 | Field | Notes |
 | --- | --- |
@@ -208,17 +211,17 @@ no delete — disable a model instead.
 
 The page has two sub-pages, shown as links under the title:
 
-- **Projects** (`/code-projects`) — a table of the code projects: **Name** (opens the project's page), **Source** (the
+- **Code projects** (`/code-projects`) — a table of the code projects: **Name** (opens the project's page), **Source** (the
   Git URL, or *local folder*), **Ref**, **Commit** (short, with when it was last synced), **Sync status**, **Code graph**
   (its status), **Built into** (how many services are built from it) and the row's actions **Sync now** (a Git pull;
   Git projects only) and **Delete**. **Search** looks in the name and the source; the **Sync status** and **Code graph**
   filters keep one status; a click on **Name**, **Commit** (last synced) or **Sync status** sorts by it (again: the
-  other way round). 20 projects a page. **New project** opens the project form in a sheet on the right. The list's
+  other way round). 20 projects a page. **New code project** opens the project form in a sheet on the right. The list's
   data comes from `GET /api/code-projects` (each project with its code graph state and `built_into_count`).
 - **Code folder** (`/code-projects/folder`) — navigate the code root, preview text files (up to 512 KB). Symbolic links
   are listed but never followed.
 
-**New project**
+**New code project**
 
 | Field | Notes |
 | --- | --- |
@@ -286,7 +289,7 @@ link with `?view=documents` opens Documents:
 
 **Chat** works as on a server, service or environment page ([Chats and Discover](#chats-and-discover)): the run holds
 the code project (its folders for the file tools and `shell_run`, its code graph for `code_graph`) and is tagged
-`code_projects/<id>`, so **Conversations** lists the chats about it. Its default prompt is the seeded **Code project
+`code_projects/<id>`, so **Chats** lists the chats about it. Its default prompt is the seeded **Code project
 assistant** (tagged `assistant` and `code-project`): it answers questions about the repository by reading only the code
 that answers them (file tools, `code_graph`, read-only `shell_run`) and drafts a document only when you ask.
 **Discover…** with **Code project overview** reads the repository and drafts an overview document (purpose, structure, how to run and
@@ -297,8 +300,8 @@ it. The page's data comes from `GET /api/code-projects/{id}` (the project as the
 
 ### 4.4 Servers
 
-`/servers` — inventory of hosts. **Register server**: name, IP or hostname (no
-URL/port), description, tags (comma-separated, lowercased, up to 32), **SSH allowed**.
+`/servers` — inventory of hosts. **New server** (saved with **Create server**): name, IP or hostname (no
+URL/port), description, tags (comma-separated, lowercased, up to 32), **Agent SSH**. The list's **Agent SSH** column reads Enabled or Disabled.
 Registering does not connect to anything.
 
 **SSH settings** (per server):
@@ -343,11 +346,11 @@ was published.") and **Discard draft** discards the draft. When the document cha
 
 #### Chats and Discover
 
-**Chat** opens the chat panel on the latest open chat (or a new one). The panel's header shows the open conversation's
-title ("New conversation" for a new one not started yet), then **Conversations**, **New chat** and **Hide chat**.
-**Conversations** opens a sheet on the right (like **Run details**) listing every conversation about the server
+**Chat** opens the chat panel on the latest open chat (or a new one). The panel's header shows the open chat's
+title ("New chat" for a new one not started yet), then **Chats**, **New chat** and **Hide chat**.
+**Chats** opens a sheet on the right (like **Run details**) listing every chat about the server
 (service, environment), newest first, each with its status and last activity, the open one marked; picking one opens it
-and closes the sheet. With none: "No earlier conversations." **New chat** starts a new conversation (Conversations
+and closes the sheet. With none: "No earlier chats." **New chat** starts a new chat (Chats
 still lists the old ones). There is no Chats tab. The chat stays hidden until you ask for it;
 on very wide screens (2xl) it opens beside the Info, below that as a second tab (**Info** / **Chat**). The URL keeps
 the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of another page is refused.
@@ -360,7 +363,7 @@ chat needs SSH to be set up and allowed for the server. A plain chat only drafts
 and inventory it saves are drafts for you to confirm.
 
 Every chat (here, Ask agent beside a document, Documents → New and an agent's Chat page) has a **Debug** tab beside the
-**Conversation**. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
+**Chat** tab. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
 system prompt, with **Copy**), **Prompt** (the library prompt and version it came from, linked; the agent's
 instructions and skills), **Tools** (each name and description as the model sees it),
 **Resources** and **Model**. Before the first message it shows what the next conversation would start with; secrets
@@ -388,10 +391,11 @@ member servers, and the deployments of services on them. A server is in an envir
 a deployment there; it stays a member (empty) when its last deployment there is removed. A service is in an
 environment when one of its deployments is; a service deployed in two environments is in both.
 
-- The list shows each environment with the number of services and servers in it: filter, **Map** (the System map
+- **New environment** adds one (name, description). The list shows each environment with the number of services and
+  servers in it: filter, **Map** (the System map
   rooted at the environment), **Documents**, Edit, Delete; **Details** lists what is in it.
 - An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat** and
-  **Discover** on the right; Chat opens the agent chat beside the page, its Conversations sheet lists the earlier
+  **Discover** on the right; Chat opens the agent chat beside the page, its Chats sheet lists the earlier
   chats about the environment) and two tabs, the open one kept in the URL (`?view=documents`; none: Workspace):
   - **Documents**: the environment's own inventory document and documents (a server's or service's documents are in
     its column of the workspace);
@@ -602,7 +606,7 @@ shows which skills the run used. A run keeps the skill folders it started with, 
 ### 4.9 MCP servers
 
 `/mcp-servers` — external tool servers agents can call. Only the **Streamable HTTP**
-transport is supported. Fields: name, description, HTTP(S) endpoint (use
+transport is supported. **New MCP server** opens the form: name, description, HTTP(S) endpoint (use
 `host.docker.internal` instead of `localhost`), optional bearer token (encrypted),
 enabled.
 
@@ -676,7 +680,7 @@ them for editing.
 ticked when the reviewer proposed a change) and **Memory notes** — facts for the shared memory every agent can search.
 Each note has a checkbox (ticked by default) and an editable name and content; a note whose name is already taken shows
 **Already exists — open in Memory** and starts unticked (edit that entry on the Memory page, or rename the note). With
-instructions ticked, **Apply to this agent** writes them into the agent (“Applied to this agent. New conversations use
+instructions ticked, **Apply to this agent** writes them into the agent (“Applied to this agent. New chats use
 it.”) and **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged; with
 only notes ticked, **Save memory notes**. When notes were sent, the sheet lists the saved notes (each opens its Memory
 entry) and any refused names with the reason; **Done** closes it.
@@ -762,16 +766,16 @@ width: **Documents in this chat** on the left, the chat on the right.
    ("Pick at least one resource in Settings for the agent to write about.").
 2. **Message the agent**: what to write and what to read. It creates a document with `new_document` (built for one of
    the chat's resources) and changes it, or an existing document, with `update_document` and `edit_document`. Every
-   write is a draft; nothing goes live until you publish or promote it.
+   write is a draft; nothing goes live until you publish it.
 3. **Documents in this chat** lists every draft the conversation created or edited, and refreshes as the agent writes:
    the title (opens the draft, or the published document, in a new tab), **New** or **Edit of <document>** (linking to
    the original), and the state (Draft, Published, Discarded, Replaced). **Mention** puts `[Draft "<title>" · <id>]`
    into the message box at the cursor (or at the end): the agent can pass that id to `get_document`, `update_document`
    and `edit_document`.
 
-**Conversations** (beside **New chat** above the chat) opens a side sheet with the earlier Write with an agent
-conversations, of the resource when there is one, newest first; opening one shows its documents on the left. **New chat**
-starts a new conversation. The URL keeps the open conversation (`?chat=<id>`).
+**Chats** (beside **New chat** above the chat) opens a side sheet with the earlier Write with an agent
+chats, of the resource when there is one, newest first; opening one shows its documents on the left. **New chat**
+starts a new chat. The URL keeps the open chat (`?chat=<id>`).
 
 **Settings** in the chat opens what the agent may use: the model, the resources (code projects,
 environments, services and servers), the experts, and under **Advanced** the prompt. A server whose SSH
@@ -790,7 +794,7 @@ and scrolls on its own; the message box is always visible. After you scroll up i
 in/out/cached, model calls and the status: Starting, Working, Waiting for you, Stopped, Failed or Finished; the sidebar shows
 **Agents in this run**, the draft and, for a run started with an output schema, **Output** (on a narrow screen open
 **Run details**). Each answer links to its **Full record**. A run
-that wrote a draft shows **Open draft** (or **Open document** once it is promoted; a discarded draft shows "The document draft
+that wrote a draft shows **Open draft** (or **Open document** once it is published; a discarded draft shows "The document draft
 was discarded.").
 A run a handler started says so under the title: **Started by schedule <name> through handler <name>** (or **Started
 by handler <name>** when its event chain did not start with a schedule; `(deleted)` for a schedule or handler that is
@@ -801,13 +805,13 @@ that run.
   ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn.
 - **Stop**: ends the turn within about 30 seconds; a request or command already running cannot be recalled. Queued messages are
   discarded when the turn is stopped.
-- **Close session**. Sessions continue when you leave the page and close after 24 idle hours (a session idle for 5 minutes is
+- **Close chat**. Chats continue when you leave the page and close after 24 idle hours (a session idle for 5 minutes is
   paused and resumes on your next message).
 - **Wake-ups**: an agent can schedule a wake-up to continue the session later (from 1 minute to 30 days ahead, at most 3
   pending per session), for example to check a deployment again. Each pending one is listed above the message box as
   `Wakes up at <time>: <message>` (your local time) with **Cancel**. When it is due the session gets a new turn that starts
   with `Scheduled wake-up`; if the agent is working then, it waits for that turn to end. A session with a pending wake-up
-  is not closed after 24 idle hours. **Stop** keeps the wake-ups; **Close session** cancels them.
+  is not closed after 24 idle hours. **Stop** keeps the wake-ups; **Close chat** cancels them.
 
 A turn has no time or model-call limit: it ends when the agent finishes or you press **Stop** (each model request and MCP
 connection still times out after 5 minutes). A failed or stopped turn leaves the conversation and the draft as they were.
@@ -833,7 +837,7 @@ title/slug/description and filter by linked resources and by one **Tag** (`?tag=
 filters by it too). Every tag badge — in the list, on a resource page and under a document's Tags — opens the list
 filtered by that tag. **New document** writes one manually.
 
-Every save is a draft: content goes live only by **Publish** (a document that is only a draft) or **Promote** (a draft
+Every save is a draft: content goes live only by **Publish** (a document that is only a draft, or a draft
 of a live document). The editor has fields Title, Slug, Short description, Purpose, Audience (People and agents /
 People / Agents), Tags, and tabs **Write**, **Preview**, **Linked resources** (including documented source commits)
 and, on a live document, **Version history** (**Use version as draft**), **Drafts n** (a badge counts the drafts) and
@@ -845,19 +849,19 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
   history or Drafts tab until it is published.
 - A live document shows "Version n" with **Save**, **Download document** (ZIP),
   **Delete** and **Ask agent**. The first **Save** creates your draft of the document and the editor goes on editing
-  it — "Editing your draft (created {time}, from version {n}). Save updates it; Promote makes it live." — later Saves
-  update the same draft. Promote it on the **Drafts** tab.
+  it — "Editing your draft (created {time}, from version {n}). Save updates it; Publish makes it live." — later Saves
+  update the same draft. Publish it on the **Drafts** tab.
 - **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
   was built for stays locked. If someone changed the document's links meanwhile, Save links says so and writes
   nothing.
 - **Inventory document**: a document tagged `inventory` that is built for a server, service or environment. Make one
-  an inventory document, or stop it being one, by editing its Tags like any other content (Save, then Promote or
+  an inventory document, or stop it being one, by editing its Tags like any other content (Save, then
   Publish). The tag filter `inventory` lists them.
 
 #### Drafts and connections
 
 Anything a person or an agent saves is a **draft** (a document a discovery run drafts too); a version goes live
-only when a person publishes or promotes a draft.
+only when a person publishes a draft.
 
 - The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
   documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title and tags,
@@ -866,16 +870,16 @@ only when a person publishes or promotes a draft.
 - **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
   the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the
   document it revises and the documents its author read, "(deleted)" when one is gone). **Edit** loads it into the
-  editor; **Promote** makes it the live version — a stale draft first says "This draft was based on version n; the
-  live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
-  removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Promote**
+  editor; **Publish** makes it the live version — a stale draft first says "This draft was based on version n; the
+  live version is now m. Publishing replaces version m's text." and publishes only with **Publish anyway**; **Discard**
+  removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Publish**
   first ask "Discard unsaved changes?" (**Cancel** does nothing; **Discard changes** goes on).
 - A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created meanwhile, the draft becomes a draft of it and opens
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
 - **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
   live version was built from).
-- **Version history** marks versions promoted from a draft ("from draft").
+- **Version history** marks versions published from a draft ("from draft").
 - Drafts are never exported, searched or shown to agents; deleting a document deletes its drafts and links.
 
 #### Ask agent
@@ -885,8 +889,8 @@ takes two thirds, the chat one third; on a small screen the chat sits below). Wr
 rotation; remove the old backup steps") and send it: the agent starts with the current settings, reads the document
 part by part and saves its changes as a draft — never the live version. Its replies are a normal conversation: it may
 ask you something first, and you can ask for more changes; each save updates the same draft. A bar above the editor
-shows the agent's draft (Compare opens it with the changes; Promote makes it the live version). A turn that ended
-without a save says so. If you edit, promote or discard the draft meanwhile, the agent's next save starts a new draft.
+shows the agent's draft (Compare opens it with the changes; Publish makes it the live version). A turn that ended
+without a save says so. If you edit, publish or discard the draft meanwhile, the agent's next save starts a new draft.
 How the agent works on the document is the **Revise a document** prompt (Administration → Prompts); change it there, or
 pick another prompt under Advanced.
 
@@ -950,7 +954,7 @@ schedule** creates one: choose what to run and when:
   `schedule.fired` event (source **Schedule**, subject and title the schedule's name; 4.16) and the run's result says
   `Recorded event <id>.` The schedule itself runs no agent: an event handler (4.17) sends the event to an agent with
   its task, and the answer goes to Notifications (4.18). The row says which handler runs it — **Handled by:
-  <name>** (opens the handler; `(off)` after the name when it is switched off) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
+  <name>** (opens the handler; `(disabled)` after the name when it is switched off) or **Handled by: <n> handlers** — or `No handler runs this schedule.` with **Add
   handler**, which opens a new handler already set up for this schedule (its name, event type `schedule.fired`, the
   condition `subject` equals the schedule's name, action Send to agent): choose the agent, write the prompt and
   save.
@@ -1189,7 +1193,8 @@ lowercase letters, digits and `-`, at most 10 — that features use to find it: 
 and a chat on a server, service or environment offers the enabled prompts tagged `assistant` and with its type
 (`server`, `service` or `environment`), the seeded **Server assistant**, **Service assistant** or **Environment
 assistant** first. Type a tag and press Enter to add it;
-existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
+existing tags are suggested. **New prompt** opens an empty one. Saving changed text creates an inactive version (badge *Inactive version*);
+**Activate vN** makes it the active one; **Copy to editor** puts a version's text back in the editor;
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
 `service`, `mixed`).
@@ -1242,7 +1247,7 @@ run a handler started records it in that event's chain, so handler loops stop at
 3. **Services**: create the service, link the code project.
 4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
 5. **Docs → Documents → New → Write with an agent**: open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
-6. Follow the chat, send messages such as "shorten the API section", then **Promote** the draft.
+6. Follow the chat, send messages such as "shorten the API section", then **Publish** the draft.
 
 ### B. Document deployments and infrastructure
 

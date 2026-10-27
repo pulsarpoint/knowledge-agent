@@ -6,6 +6,7 @@ import OutputSchemasView from "~/features/outputSchemas/OutputSchemasView";
 import OutputSchemaEditorView from "~/features/outputSchemas/OutputSchemaEditorView";
 import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
 import RunOutputPanel from "~/features/outputSchemas/RunOutputPanel";
+import { Toaster } from "~/components/ui/sonner";
 
 const SHAPE = {
   type: "object",
@@ -49,6 +50,7 @@ const bodyOf = (fetch: ReturnType<typeof api>, method: string, url?: string) =>
   JSON.parse(fetch.mock.calls.find(([u, init]) => init?.method === method && (!url || u === url))![1]!.body as string);
 
 function editor(url: string) {
+  render(<Toaster />);
   return renderRoutes(
     [
       { path: "/output-schemas", element: <p>Schema list</p> },
@@ -143,6 +145,7 @@ test("a new schema is created and opened on its own page", async () => {
     schema: SHAPE,
   });
   expect(await screen.findByRole("button", { name: "Versions (2)" })).toBeInTheDocument();
+  expect(await screen.findByText("Output schema “Verdict” created.")).toBeInTheDocument();
 });
 
 test("editing saves with the revision and shows the API's refusal", async () => {
@@ -163,6 +166,7 @@ test("editing saves with the revision and shows the API's refusal", async () => 
   expect(bodyOf(fetch, "PUT")).toMatchObject({ name: "Verdict", revision: 3, schema: SHAPE });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByText(/'minItems' is not supported/)).toBeNull());
+  expect(await screen.findByText("Output schema “Verdict” saved.")).toBeInTheDocument();
 });
 
 test("Versions opens a side sheet; a version's JSON can be viewed and copied into the editor", async () => {
@@ -212,6 +216,7 @@ test("Delete asks first; a schema a handler uses is refused with the handler nam
   expect(await within(dialog).findByText("Used by: Triage tickets.")).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "Delete output schema" }));
   expect(await screen.findByText("Schema list")).toBeInTheDocument();
+  expect(await screen.findByText("Output schema “Verdict” deleted.")).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(2);
 });
 

@@ -9,10 +9,10 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
 /** Above the editor while the Ask agent pane's run has an open draft: its base version and stale badge, Compare (the
- * Drafts tab with that draft) and Promote (asking first when it deletes the document's other drafts; with the stale
- * check: the server's message, then Promote anyway). A draft another draft's promote replaced says so; a promoted or
+ * Drafts tab with that draft) and Publish (asking first when it deletes the document's other drafts; with the stale
+ * check: the server's message, then Publish anyway). A draft another draft's promote replaced says so; a promoted or
  * discarded one hides the bar. The agent may
- * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Promote
+ * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Publish
  * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. */
 export default function AgentDraftBar({
   draft,
@@ -57,7 +57,7 @@ export default function AgentDraftBar({
       setStale("");
     } catch (e) {
       if (e instanceof ApiError && e.code === STALE_BASE) setStale(e.message);
-      else setError(e instanceof Error ? e.message : "Could not promote the draft.");
+      else setError(e instanceof Error ? e.message : "Could not publish the draft.");
     } finally {
       setBusy(false);
     }
@@ -69,7 +69,7 @@ export default function AgentDraftBar({
         aria-label="Agent draft"
         className="mb-4 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground"
       >
-        Replaced by another promoted draft. The agent's next save starts a new draft.
+        Replaced by another published draft. The agent's next save starts a new draft.
       </section>
     );
   if (draft.status !== "open") return null;
@@ -108,7 +108,7 @@ export default function AgentDraftBar({
               })
             }
           >
-            Promote
+            Publish
           </Button>
         </span>
       </div>
@@ -118,7 +118,7 @@ export default function AgentDraftBar({
             <span>{stale}</span>
             <span className="flex gap-2">
               <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => void promote(true)}>
-                Promote anyway
+                Publish anyway
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setStale("")}>
                 Cancel

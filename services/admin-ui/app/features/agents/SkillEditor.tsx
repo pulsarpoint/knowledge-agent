@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import LeaveGuard from "~/components/LeaveGuard";
@@ -78,7 +79,6 @@ export default function SkillEditor() {
   const [restoring, setRestoring] = useState<SkillVersion | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const leaving = useRef(false);
   const upload = useRef<HTMLInputElement>(null);
 
@@ -197,9 +197,8 @@ export default function SkillEditor() {
   async function run(work: () => Promise<string>, fallback: string) {
     setBusy(true);
     setError(null);
-    setNotice(null);
     try {
-      setNotice(await work());
+      toast.success(await work());
     } catch (reason) {
       setError(message(reason, fallback));
     } finally {
@@ -248,11 +247,6 @@ export default function SkillEditor() {
       {error && (
         <Alert variant="destructive">
           <AlertDescription role="alert">{error}</AlertDescription>
-        </Alert>
-      )}
-      {notice && (
-        <Alert>
-          <AlertDescription role="status">{notice}</AlertDescription>
         </Alert>
       )}
       {skillMdCheck !== undefined && (

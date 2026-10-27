@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import SkillsView from "~/features/agents/SkillsView";
+import { Toaster } from "~/components/ui/sonner";
 import {
   checkSkillMd,
   fileChanges,
@@ -78,7 +79,12 @@ function show() {
     ],
     { initialEntries: ["/skills"] },
   );
-  render(<RouterProvider router={router} />);
+  render(
+    <>
+      <RouterProvider router={router} />
+      <Toaster />
+    </>,
+  );
   return router;
 }
 

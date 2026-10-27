@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ServerSSHForm from "~/features/servers/ServerSSHForm";
+import { Toaster } from "~/components/ui/sonner";
 import * as api from "~/features/servers/operations";
 vi.mock("~/features/servers/operations");
 const server: api.SSHServer = {
@@ -21,6 +22,7 @@ const server: api.SSHServer = {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getSSH).mockResolvedValue(server);
+  render(<Toaster />);
 });
 describe("SSH settings", () => {
   it.each(["closed", "empty", "whitespace", "cancelled"])(
@@ -53,7 +55,7 @@ describe("SSH settings", () => {
           known_hosts: server.known_hosts,
         }),
       );
-      expect(await screen.findByRole("status")).toHaveTextContent("saved");
+      expect(await screen.findByText("SSH settings saved.")).toBeInTheDocument();
     },
   );
   it("submits a replacement key only when entered and clears the input after saving", async () => {

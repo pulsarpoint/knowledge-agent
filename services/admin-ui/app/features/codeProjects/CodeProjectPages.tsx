@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { processCodeProject } from "./api";
 import CodeProjectForm from "./CodeProjectForm";
 import { useCodeProjectPage } from "./CodeProjectLayout";
@@ -158,7 +159,7 @@ export function CodeProjectDocumentsPage() {
 /** The project's settings (name, description, Git source: clone folder, ref, authentication, automatic pulls; mapped
  * folders), edited in place: Save, or Discard to drop the changes. Leaving with unsaved changes asks first. */
 export function CodeProjectSettingsPage() {
-  const { project, reload, setNotice } = useCodeProjectPage();
+  const { project, reload } = useCodeProjectPage();
   const [dirty, setDirty] = useState(false);
   const [started, setStarted] = useState(0);
   return (
@@ -174,7 +175,7 @@ export function CodeProjectSettingsPage() {
           syncing(project) ? "A sync or code graph job is running; settings can be saved when it finishes." : null
         }
         onSaved={(saved) => {
-          setNotice(saved);
+          toast.success(saved);
           reload();
         }}
       />

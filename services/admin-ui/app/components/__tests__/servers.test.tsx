@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import ServersView from "~/features/servers/ServersView";
 import type { ServerAsset } from "~/features/servers/api";
+import { Toaster } from "~/components/ui/sonner";
+
+beforeEach(() => {
+  render(<Toaster />);
+});
 
 const server: ServerAsset = {
   id: "server-1",
@@ -131,9 +136,9 @@ test("register a server with description and several tags then display it", asyn
   fireEvent.change(dialog.getByLabelText("IP address or hostname"), { target: { value: "app.internal" } });
   fireEvent.change(dialog.getByLabelText("Description (optional)"), { target: { value: "Hosts payment workers" } });
   fireEvent.change(dialog.getByLabelText("Tags (optional)"), { target: { value: "production, eu-west, " } });
-  expect(dialog.getByRole("switch", { name: "SSH allowed" })).not.toBeChecked();
-  fireEvent.click(dialog.getByRole("switch", { name: "SSH allowed" }));
-  fireEvent.click(dialog.getByRole("button", { name: "Register server" }));
+  expect(dialog.getByRole("switch", { name: "Agent SSH" })).not.toBeChecked();
+  fireEvent.click(dialog.getByRole("switch", { name: "Agent SSH" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Create server" }));
   await screen.findByRole("status");
   const call = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
   expect(call[0]).toBe("/api/servers");
@@ -145,9 +150,9 @@ test("register a server with description and several tags then display it", asyn
     ssh_allowed: true,
   });
   expect(await screen.findByText("eu-west")).toBeInTheDocument();
-  expect(screen.getByText("On")).toBeInTheDocument();
+  expect(screen.getByText("Enabled")).toBeInTheDocument();
   expect(screen.getByText("Hosts payment workers")).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Add server" })).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "New server" })).toBeEnabled());
 });
 
 test("closing the server sheet with unsaved changes asks Stay / Leave; an unchanged sheet closes at once", async () => {
@@ -183,8 +188,8 @@ test("search includes tags, descriptions, and hostnames", async () => {
 test("edit preserves identity and revision, allowing description and tags to be cleared", async () => {
   const fetch = setup([{ ...server, ssh_allowed: true }]);
   await action("App host", "Edit");
-  expect(screen.getByRole("switch", { name: "SSH allowed" })).toBeChecked();
-  fireEvent.click(screen.getByRole("switch", { name: "SSH allowed" }));
+  expect(screen.getByRole("switch", { name: "Agent SSH" })).toBeChecked();
+  fireEvent.click(screen.getByRole("switch", { name: "Agent SSH" }));
   expect(screen.getByLabelText("Tags (optional)")).toHaveValue("production, eu-west");
   fireEvent.change(screen.getByLabelText("Tags (optional)"), { target: { value: "" } });
   fireEvent.change(screen.getByLabelText("Description (optional)"), { target: { value: "" } });
@@ -201,19 +206,19 @@ test("edit preserves identity and revision, allowing description and tags to be 
     revision: 3,
   });
   expect(await screen.findByText("No tags")).toBeInTheDocument();
-  expect(screen.getByText("Off")).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Add server" })).toBeEnabled());
+  expect(screen.getByText("Disabled")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("button", { name: "New server" })).toBeEnabled());
 });
 
 test("conflicts retain unsaved input; cancel reloads before reopening", async () => {
   const fetch = setup([server], true);
   await action("App host", "Edit");
   fireEvent.change(screen.getByLabelText("Description (optional)"), { target: { value: "Unsaved description" } });
-  fireEvent.click(screen.getByRole("switch", { name: "SSH allowed" }));
+  fireEvent.click(screen.getByRole("switch", { name: "Agent SSH" }));
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   expect(await screen.findByText("This server changed. Cancel and reopen the form.")).toBeInTheDocument();
   expect(screen.getByLabelText("Description (optional)")).toHaveValue("Unsaved description");
-  expect(screen.getByRole("switch", { name: "SSH allowed" })).toBeChecked();
+  expect(screen.getByRole("switch", { name: "Agent SSH" })).toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2));
   expect(await iconButton("App host", "Edit")).toBeEnabled();
@@ -235,10 +240,10 @@ test("failed inventory load prevents adding and can be retried", async () => {
     </MemoryRouter>,
   );
   expect(await screen.findByText("Database unavailable")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Add server" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "New server" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   expect(await screen.findByText("Build your server inventory")).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Add server" })).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "New server" })).toBeEnabled());
 });
 
 test("Test SSH runs a connection test with the saved server settings and shows the result", async () => {

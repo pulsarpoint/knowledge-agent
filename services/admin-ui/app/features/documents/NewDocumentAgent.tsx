@@ -46,8 +46,8 @@ export default function NewDocumentAgent() {
           filter={{ purpose: "documents", ...(resource ? { tag: resourceTag(resource) } : {}) }}
           description={
             name
-              ? `Every Write with an agent conversation about ${name}, newest first.`
-              : "Every Write with an agent conversation, newest first."
+              ? `Every Write with an agent chat about ${name}, newest first.`
+              : "Every Write with an agent chat, newest first."
           }
           onSessionChange={(id, version) => setShown({ id, version })}
           mention={mention}
@@ -110,8 +110,8 @@ function ChatDrafts({
       ) : drafts.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {sessionId === null
-            ? "The documents the agent writes in this conversation show here."
-            : "The agent has not written a document in this conversation yet."}
+            ? "The documents the agent writes in this chat show here."
+            : "The agent has not written a document in this chat yet."}
         </p>
       ) : (
         <ul aria-label="Documents" className="flex flex-col divide-y">

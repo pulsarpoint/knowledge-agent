@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Plus, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
@@ -173,6 +174,7 @@ function SheetBody({
     try {
       const draft = toDraft(name, rows, content);
       const saved = entry ? await saveMemory(entry.id, draft, entry.revision) : await createMemory(draft);
+      toast.success(`Entry “${saved.memory.name}” saved.`);
       onChanged();
       setEntryId(saved.memory.id);
       setReload((count) => count + 1);
@@ -190,6 +192,7 @@ function SheetBody({
     setConflict(false);
     try {
       await restoreMemory(entry.id, version.revision, entry.revision);
+      toast.success(`Revision ${version.revision} of “${entry.name}” restored.`);
       onChanged();
       setReload((count) => count + 1);
     } catch (reason) {
@@ -204,6 +207,7 @@ function SheetBody({
     setBusy(true);
     try {
       await deleteMemory(entry.id, entry.revision);
+      toast.success(`Entry “${entry.name}” deleted.`);
       onChanged();
       onClose();
     } catch (reason) {

@@ -76,9 +76,7 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {runId === null && (
-        <p className="text-xs text-muted-foreground">
-          What the next conversation starts with, from the current settings.
-        </p>
+        <p className="text-xs text-muted-foreground">What the next chat starts with, from the current settings.</p>
       )}
       <Section
         title="Instructions"

@@ -93,7 +93,7 @@ export default function ChatColumn({
   };
 
   const shown = initialRunId === null ? null : (runs?.find((item) => item.id === initialRunId) ?? null);
-  const title = initialRunId === null ? "New conversation" : (shown?.title ?? "Conversation");
+  const title = initialRunId === null ? "New chat" : (shown?.title ?? "Chat");
   return (
     <>
       <div className="flex items-center gap-2">
@@ -102,7 +102,7 @@ export default function ChatColumn({
         </h2>
         <Button type="button" size="sm" variant="ghost" onClick={() => setListing(true)}>
           <History data-icon="inline-start" />
-          Conversations
+          Chats
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={newChat}>
           <Plus data-icon="inline-start" />
@@ -113,25 +113,23 @@ export default function ChatColumn({
       <Sheet open={listing} onOpenChange={setListing}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-sm">
           <SheetHeader>
-            <SheetTitle>Conversations</SheetTitle>
+            <SheetTitle>Chats</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
           <div className="mt-4 flex flex-col gap-2 px-4">
             {listFailed && (
               <Alert variant="destructive">
                 <AlertDescription>
-                  Could not load the conversations.{" "}
+                  Could not load the chats.{" "}
                   <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
                     Retry
                   </Button>
                 </AlertDescription>
               </Alert>
             )}
-            {runs !== null && runs.length === 0 && (
-              <p className="text-sm text-muted-foreground">No earlier conversations.</p>
-            )}
+            {runs !== null && runs.length === 0 && <p className="text-sm text-muted-foreground">No earlier chats.</p>}
             {runs !== null && runs.length > 0 && (
-              <ul aria-label="Conversations" className="flex flex-col divide-y rounded-lg border">
+              <ul aria-label="Chats" className="flex flex-col divide-y rounded-lg border">
                 {runs.map((item) => (
                   <li key={item.id}>
                     <button

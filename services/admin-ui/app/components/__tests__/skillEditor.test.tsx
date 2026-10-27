@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import SkillEditor from "~/features/agents/SkillEditor";
+import { Toaster } from "~/components/ui/sonner";
 import type { Skill } from "~/features/agents/skills";
 
 const NativeRequest = globalThis.Request;
@@ -90,7 +91,12 @@ function show() {
     ],
     { initialEntries: ["/skills/s1"] },
   );
-  render(<RouterProvider router={router} />);
+  render(
+    <>
+      <RouterProvider router={router} />
+      <Toaster />
+    </>,
+  );
   return router;
 }
 const editor = () => screen.getByLabelText(/^Contents of /);

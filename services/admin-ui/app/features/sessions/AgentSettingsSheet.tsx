@@ -123,16 +123,16 @@ export default function AgentSettingsSheet({
           <SheetTitle>Agent settings</SheetTitle>
           <SheetDescription>
             {locked
-              ? "This conversation's settings. They cannot change while it is open."
+              ? "This chat's settings. They cannot change while it is open."
               : agent
-                ? "What the agent may use in the next conversation."
+                ? "What the agent may use in the next chat."
                 : scope.kind === "new-document"
                   ? on
                     ? `What the agent may use to write documents about “${onName ?? on.id}”.`
                     : "What the agent may use to write documents. Pick the resources to write about."
                   : isResourceScope(scope)
                     ? `What the agent may use in a chat on “${scope.name}”.`
-                    : `What the agent may use in the next conversation on “${scope.kind === "document" ? scope.title : ""}”.`}
+                    : `What the agent may use in the next chat on “${scope.kind === "document" ? scope.title : ""}”.`}
           </SheetDescription>
         </SheetHeader>
         <FieldGroup className="mt-4">
@@ -294,7 +294,7 @@ export default function AgentSettingsSheet({
                   onChange={(disabledTools) => onChange({ disabledTools })}
                 />
                 <FieldDescription>
-                  Applies to the next conversation; the chat keeps the tools it started with.
+                  Applies to the next chat; the open chat keeps the tools it started with.
                 </FieldDescription>
               </Field>
             </CollapsibleContent>

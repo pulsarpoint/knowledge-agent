@@ -4,6 +4,11 @@ import ServicesView from "~/features/servers/ServicesView";
 import type { Repository } from "~/features/codeProjects/api";
 import type { ServerAsset } from "~/features/servers/api";
 import type { ServiceAsset } from "~/features/servers/services";
+import { Toaster } from "~/components/ui/sonner";
+
+beforeEach(() => {
+  render(<Toaster />);
+});
 
 const repos: Repository[] = ["API", "Shared"].map((name, index) => ({
   id: `repo-${index}`,
@@ -125,7 +130,7 @@ test("deletion sends the revision, waits for success and removes the row", async
   await act(async () => {
     finish(new Response(JSON.stringify({ id: service.id })));
   });
-  expect(await screen.findByRole("status")).toHaveTextContent("Service “Payments” deleted.");
+  expect(await screen.findByText("Service “Payments” deleted.")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.queryByRole("button", { name: "Delete Payments" })).toBeNull();
   expect(await screen.findByText("Build your service inventory")).toBeInTheDocument();

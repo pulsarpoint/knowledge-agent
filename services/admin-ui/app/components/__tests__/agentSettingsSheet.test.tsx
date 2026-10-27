@@ -50,7 +50,7 @@ function Harness({
 test("before a conversation: linked resources ticked, unusable server disabled; no tool switches (every run gets every tool)", () => {
   render(<Harness />);
   expect(screen.getByRole("heading", { name: "Agent settings" })).toBeInTheDocument();
-  expect(screen.getByText("What the agent may use in the next conversation on “Runbook”.")).toBeInTheDocument();
+  expect(screen.getByText("What the agent may use in the next chat on “Runbook”.")).toBeInTheDocument();
   // an ad-hoc chat lists every resource (a type with none is left out)
   expect(tabs()).toEqual(["Documents 1/1", "Servers 1/2", "Services 1/1", "Code projects 0/1"]);
   openTab(/^Servers/);
@@ -107,7 +107,7 @@ test("read-only for an open run: its saved configuration, and Start new chat wit
   const onStartNew = vi.fn();
   const session = { id: "r1", status: "waiting", config: { model: { name: "GPT" } } } as unknown as SessionDetail;
   render(<Harness session={session} onStartNew={onStartNew} />);
-  expect(screen.getByText("This conversation's settings. They cannot change while it is open.")).toBeInTheDocument();
+  expect(screen.getByText("This chat's settings. They cannot change while it is open.")).toBeInTheDocument();
   openTab(/^Servers/); // the tabs still switch
   expect(screen.getByRole("switch", { name: "web-1" })).toBeDisabled();
   expect(screen.getByRole("textbox", { name: "Filter servers" })).toBeEnabled();
@@ -131,7 +131,7 @@ test("read-only: Advanced still opens and shows the run's system prompt, disable
 
 test("a saved agent shows its model and prompt read-only and offers only narrowing", () => {
   render(<Harness scope={agentScope} opts={agentOptions} />);
-  expect(screen.getByText("What the agent may use in the next conversation.")).toBeInTheDocument();
+  expect(screen.getByText("What the agent may use in the next chat.")).toBeInTheDocument();
   expect(screen.getByText("GPT")).toBeInTheDocument();
   expect(screen.queryByRole("combobox", { name: "Model" })).toBeNull();
   expect(screen.getAllByText("Change them in General.").length).toBeGreaterThan(0);
