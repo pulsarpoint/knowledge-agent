@@ -515,7 +515,6 @@ describe("the Documents list", () => {
       id: "d9",
       document_id: null,
       slug: "web-1",
-      folder: null,
       title: "web-1 overview",
       origin: "manual",
       session_id: null,

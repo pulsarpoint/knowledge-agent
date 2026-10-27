@@ -29,8 +29,9 @@ export default [
   route("prompts/new", "./routes/promptLibraryEditor.tsx", { id: "prompt-library-new" }),
   route("prompts/:promptId", "./routes/promptLibraryEditor.tsx"),
   route("sessions/:sessionId", "./routes/session.tsx"),
+  // Documentation folders are gone: their old links open the Documents list.
   route("documentation/folders", "./routes/documentationFolders.tsx"),
-  route("documentation/folders/*", "./routes/documentationFolder.tsx"),
+  route("documentation/folders/*", "./routes/documentationFolders.tsx", { id: "documentation-folders-any" }),
   route("services", "./routes/services.tsx"),
   route("services/new", "./routes/serviceNew.tsx"),
   // The service page holds its header; each tab is a sub-page (an old link or ?view= link redirects from the index).

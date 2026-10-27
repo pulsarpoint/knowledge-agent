@@ -1,10 +1,7 @@
-import AdminLayout from "../components/AdminLayout";
-import DocumentationFoldersView from "~/features/documents/DocumentationFoldersView";
+import { Navigate } from "react-router";
 
+/** Documentation folders are gone (documents are organized by their resources, tags and search): an old link opens the
+ * Documents list. */
 export default function Page() {
-  return (
-    <AdminLayout>
-      <DocumentationFoldersView />
-    </AdminLayout>
-  );
+  return <Navigate replace to="/documents" />;
 }

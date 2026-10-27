@@ -25,7 +25,6 @@ const detail: SessionDetail = {
   reasoning_tokens: 30,
   document_id: null,
   document_title: null,
-  folder: null,
   worker_active: true,
   queued: 0,
   created_at: "2026-10-08T10:00:00Z",

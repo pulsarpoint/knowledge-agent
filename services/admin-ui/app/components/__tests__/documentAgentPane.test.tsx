@@ -94,7 +94,6 @@ const draft = {
   id: "d1",
   document_id: "doc-1",
   slug: null,
-  folder: null,
   title: "Runbook",
   origin: "agent",
   session_id: "r1",

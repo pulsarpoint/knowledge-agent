@@ -53,12 +53,12 @@ export const resourceChatPath = (resource: { type: ResourceType; id: string }, c
   }${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
 
 /** What a chat is about: a document (Ask agent), a saved agent (its Chat tab), a new document (Documents → New: the
- * Title and Folder the editor holds now; `resourceFor`: from a resource's New document, the resource it is built for) or
+ * Title the editor holds now; `resourceFor`: from a resource's New document, the resource it is built for) or
  * a server, service or environment (its page's chats). */
 export type ChatScope =
   | { kind: "document"; id: string; title: string }
   | { kind: "agent"; id: string; name: string }
-  | { kind: "new-document"; folder: string; title: string; resourceFor?: { type: ResourceType; id: string } }
+  | { kind: "new-document"; title: string; resourceFor?: { type: ResourceType; id: string } }
   | { kind: ResourceType; id: string; name: string };
 export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
 export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>
@@ -88,7 +88,6 @@ export interface SessionSummary {
   reasoning_tokens: number;
   document_id: string | null;
   document_title: string | null;
-  folder: string | null; // null for a saved agent's chat
   worker_active: boolean;
   queued: number;
   created_at: string;
@@ -340,10 +339,9 @@ export interface AgentOptions {
   experts: { id: string; name: string; when_to_use: string }[];
 }
 export type AgentResources = ResourceIds<AgentKey>;
-/** A document a run writes from scratch: its name, documentation folder and tags; with one resource id it is built
+/** A document a run writes from scratch: its name and tags; with one resource id it is built
  * for that server, service or environment alone (tagged `inventory`: that resource's inventory document). */
 export interface NewDocument {
-  folder: string;
   name: string;
   tags?: string[];
   server_id?: string;

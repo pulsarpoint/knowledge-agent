@@ -6,7 +6,6 @@ import {
   BookOpen,
   Braces,
   CalendarClock,
-  FolderOpen,
   Bot,
   Database,
   Files,
@@ -93,11 +92,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;
   const agentPage = pathname === "/agents" || pathname.startsWith("/agents/");
-  const docsPage = pathname.startsWith("/documents") || pathname.startsWith("/documentation/");
+  const docsPage = pathname.startsWith("/documents");
   const promptsPage = pathname === "/prompts" || pathname.startsWith("/prompts/");
   const skillsPage = pathname === "/skills" || pathname.startsWith("/skills/");
   const sessionPage = pathname.startsWith("/sessions/") || pathname.startsWith("/servers/"); // its own heading is the session or server title
-  const docsFolders = pathname.startsWith("/documentation/folders");
   const runsPage = pathname.startsWith("/activity/runs");
   const schedulesPage = pathname === "/schedules";
   const eventsPage = pathname === "/events" || pathname.startsWith("/events/");
@@ -123,9 +121,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   : environments
                     ? "Environments"
                     : docsPage
-                      ? docsFolders
-                        ? "Documentation folders"
-                        : "Documents"
+                      ? "Documents"
                       : pathname === "/mcp-servers"
                         ? "MCP servers"
                         : pathname === "/llm-settings"
@@ -409,14 +405,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <Link to="/documents">
                     <Files />
                     <span>Documents</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={docsFolders}>
-                  <Link to="/documentation/folders">
-                    <FolderOpen />
-                    <span>Folders</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

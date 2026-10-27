@@ -257,9 +257,8 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (scope.kind === "new-document") {
-    // the Title and Folder become the one document the run may write (from a resource's New document: built for it)
+    // the Title becomes the one document the run may write (from a resource's New document: built for it)
     const document: NewDocument = {
-      folder: scope.folder.trim(),
       name: scope.title.trim(),
       ...(scope.resourceFor ? { [`${scope.resourceFor.type}_id`]: scope.resourceFor.id } : {}),
     };

@@ -38,7 +38,6 @@ const finishedRun = {
   document_id: null,
   document_title: null,
   document_name: null,
-  folder: null,
   worker_active: true,
   queued: 0,
   given_resources: [],

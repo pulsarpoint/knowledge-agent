@@ -81,14 +81,14 @@ function writeDraft(key: string | null, text: string) {
  * reports the shown run (the page keeps it in the URL). Documents: confirmUnsaved wraps the first message, and
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
  * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. A new document
- * (Documents → New): one conversation per page visit (no run list, no Earlier runs), started with the Title and Folder of
- * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. A server,
+ * (Documents → New): one conversation per page visit (no run list, no Earlier runs), started with the Title of the moment
+ * (needed); the open run shows the document it writes, and reports its draft like a document's. A server,
  * service or environment (its page): the runs tagged with it; the page lists them and has New chat, so the pane has neither
  * New chat nor Earlier runs; `fresh` starts on a new conversation instead of the latest open run; blockedReason (a server
  * whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the same version; Chat opens
  * the latest open chat. Every chat has a Debug tab beside the conversation: what the
  * model receives (DebugPanel). */
-const NEEDS_NAME = "Give the document a title and folder first.";
+const NEEDS_NAME = "Give the document a title first.";
 export default function AgentChat({
   scope,
   settings,
@@ -223,10 +223,10 @@ export default function AgentChat({
       setBusy(false);
     }
   }
-  // Before a run: a new document needs its Title and Folder; a saved agent may be blocked by the page.
+  // Before a run: a new document needs its Title; a saved agent may be blocked by the page.
   // A saved agent with resources needs at least one picked (none picked would give it all of them).
   const blocked =
-    isNew && (!scope.title.trim() || !scope.folder.trim())
+    isNew && !scope.title.trim()
       ? NEEDS_NAME
       : (blockedReason ??
         (settings.options && settings.settings ? pickReason(settings.options, settings.settings) : null));
@@ -334,7 +334,7 @@ export default function AgentChat({
                         ? "Another page's chat"
                         : "Another document's run"
                     : isNew && session
-                      ? `Writing: ${session.folder ?? ""}/${session.document_name ?? ""}`
+                      ? `Writing: ${session.document_name ?? ""}`
                       : (session?.title ?? "Loading the conversation…")}
               </h2>
               {foreign &&

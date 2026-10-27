@@ -253,7 +253,7 @@ export default function DraftView({
           <p className="text-sm text-muted-foreground">
             Written by <DraftAuthor draft={draft} /> · updated {new Date(draft.updated_at).toLocaleString()}
             {draft.base_version ? ` · based on version ${draft.base_version}` : ""}
-            {isNew ? ` · new document in ${draft.folder ? `${draft.folder}/` : "the top folder"}` : ""}
+            {isNew ? " · new document" : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

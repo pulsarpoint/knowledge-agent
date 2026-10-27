@@ -285,9 +285,7 @@ export default function DocumentsView() {
                             {draft.document_title ?? "Open document"}
                           </Link>
                         ) : (
-                          <span className="text-muted-foreground">
-                            New document{draft.folder ? ` in ${draft.folder}/` : ""}
-                          </span>
+                          <span className="text-muted-foreground">New document</span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -330,7 +328,6 @@ export default function DocumentsView() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  <TableHead>Folder</TableHead>
                   <TableHead>Written by</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead />
@@ -345,7 +342,6 @@ export default function DocumentsView() {
                       </Link>
                       <TagLinks tags={draft.tags} className="ml-2" />
                     </TableCell>
-                    <TableCell>{draft.folder ?? "—"}</TableCell>
                     <TableCell>
                       <DraftAuthor draft={draft} />
                     </TableCell>

@@ -716,7 +716,6 @@ test("a resource chat's session page links to its resource page on that chat", a
     worker_active: false,
     queued: 0,
     document_name: null,
-    folder: null,
     agent_id: null,
     model_id: "m1",
     document_title: null,

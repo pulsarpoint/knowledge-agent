@@ -33,7 +33,6 @@ export interface DocumentSummary extends Omit<DocumentInput, "markdown" | "revis
   content_hash: string;
   created_at: string;
   updated_at: string;
-  folder?: string | null;
   draft_count?: number;
 }
 export type DocumentOrigin = "manual" | "uploaded" | "generated";
@@ -191,21 +190,6 @@ export const deleteDocumentationPrompt = (id: string, revision: number, versionI
     `/api/documentation/prompts/${id}${versionId ? `/versions/${versionId}` : ""}?revision=${revision}&confirmed=true`,
     { method: "DELETE" },
   );
-export const SAME_DOCUMENT_NAME =
-  "A document with this name already exists in this folder. Confirm to save a new version.";
-export const FOLDER_RULE =
-  "A documentation folder is a path such as payments or team/payments: each segment uses lowercase letters, digits, '.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; at most 200 characters.";
-// Lowercase-only, unlike data folders: on case-insensitive filesystems Payments and payments are one directory.
-const FOLDER_SEGMENT = /^[a-z0-9_-][a-z0-9._-]*$/;
-/** The server's documentation folder rule: '' when valid, else the rule text. */
-export function folderError(folder: string) {
-  const parts = folder.split("/");
-  return folder.length > 200 ||
-    parts.some((part) => !FOLDER_SEGMENT.test(part) || part === "node_modules") ||
-    parts[0] === "services"
-    ? FOLDER_RULE
-    : "";
-}
 export const documentSlug = (name: string) =>
   name
     .toLowerCase()
@@ -213,39 +197,3 @@ export const documentSlug = (name: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 120)
     .replace(/-+$/, "");
-/** The default documentation folder for a code project: its name as a slug plus -docs ("Payments API" → "payments-api-docs"). */
-export function defaultFolder(name: string) {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^[-.]+|-+$/g, "")
-    .slice(0, 195)
-    .replace(/-+$/, "");
-  return base ? `${base}-docs` : "docs";
-}
-
-export interface DocumentationFolder {
-  folder: string;
-  document_count: number;
-  updated_at: string;
-  last_generated_at: string | null;
-  code_projects: string[];
-}
-export interface DocumentationFolders {
-  folders: DocumentationFolder[];
-}
-export interface FolderDocument {
-  id: string;
-  slug: string;
-  title: string;
-  version: number;
-  updated_at: string;
-  last_generated_at: string | null;
-  code_projects: string[];
-}
-const folderUrl = (folder: string) =>
-  `/api/documentation/folders/${folder.split("/").map(encodeURIComponent).join("/")}`;
-export const getDocumentationFolders = (signal?: AbortSignal) =>
-  request<DocumentationFolders>("/api/documentation/folders", { signal });
-export const getDocumentationFolder = (folder: string, signal?: AbortSignal) =>
-  request<{ folder: string; documents: FolderDocument[] }>(folderUrl(folder), { signal });

@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from "reac
 import { ArrowLeft, Bot, Save, Trash2 } from "lucide-react";
 import {
   deleteDocument,
-  folderError,
   getDocument,
   getDocumentResources,
   getDocumentVersion,
@@ -88,7 +87,6 @@ function write(key: string, value: string) {
 /** The editor's content: what Save writes into a draft (a brand-new draft's name too). */
 interface Content {
   slug: string;
-  folder: string;
   title: string;
   description: string;
   purpose: string;
@@ -119,9 +117,8 @@ interface EditingDraft {
 /** The editor, in three modes. The New page (`document` null): Save creates a brand-new draft and opens it. A brand-new
  * draft (`document.is_draft`): Save updates it (its name too), Publish makes it the live document, Discard deletes it.
  * A live document: the first Save creates the person's draft and the editor switches to it (later Saves update it);
- * Promote on the Drafts tab makes a draft live. Links are saved apart, with Save links. On the New page, Write with an
- * agent shows a Folder field (where the agent writes the document); onFieldsChange reports the Title and Folder, and
- * registerLeave lets the page leave without the unsaved-changes question (a promoted agent draft opens the document). */
+ * Promote on the Drafts tab makes a draft live. Links are saved apart, with Save links. On the New page, onFieldsChange
+ * reports the Title (the name of the document Write with an agent writes), and registerLeave lets the page leave without the unsaved-changes question (a promoted agent draft opens the document). */
 function Editor({
   document,
   resources,
@@ -142,7 +139,7 @@ function Editor({
   agentOpen: boolean;
   onToggleAgent: () => void;
   registerConfirm: (confirm: (run: () => void) => void) => void;
-  onFieldsChange: (title: string, folder: string) => void;
+  onFieldsChange: (title: string) => void;
   registerLeave: (leave: () => void) => void;
 }) {
   const navigate = useNavigate();
@@ -189,11 +186,8 @@ function Editor({
   );
   const [value, setValue] = useState(initial);
   const [tags, setTags] = useState(initial.tags.join(", "));
-  // The New page's agent and a brand-new draft's name: where the document is written.
-  const [folder, setFolder] = useState(document?.folder ?? "");
   const content = (): Content => ({
     slug: value.slug,
-    folder: folder.trim(),
     title: value.title,
     description: value.description,
     purpose: value.purpose,
@@ -206,7 +200,6 @@ function Editor({
   /** The live document's content as the page loaded it: the editor's baseline when it edits no draft. */
   const loadedContent = (): Content => ({
     slug: initial.slug,
-    folder: document?.folder ?? "",
     title: initial.title,
     description: initial.description,
     purpose: initial.purpose,
@@ -252,8 +245,8 @@ function Editor({
   const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
   const leaving = useRef(false);
   useEffect(() => {
-    onFieldsChange(value.title, folder);
-  }, [value.title, folder]);
+    onFieldsChange(value.title);
+  }, [value.title]);
   useEffect(() => {
     registerLeave(() => {
       leaving.current = true;
@@ -310,18 +303,13 @@ function Editor({
     };
     try {
       if (!document) {
-        const saved = await createDraft({
-          slug: value.slug,
-          ...(now.folder ? { folder: now.folder } : {}),
-          ...text,
-          resource_ids: ids,
-        });
+        const saved = await createDraft({ slug: value.slug, ...text, resource_ids: ids });
         leaving.current = true;
         onCreated(saved.id);
         return;
       }
       if (isDraft) {
-        const saved = await updateDraft(document.id, revision, text, { slug: value.slug, folder: now.folder || null });
+        const saved = await updateDraft(document.id, revision, text, value.slug);
         setRevision(saved.revision);
       } else if (editingDraft) {
         const saved = await updateDraft(editingDraft.id, editingDraft.revision, text).catch((e) => {
@@ -471,7 +459,6 @@ function Editor({
       setPending(false);
     }
   }
-  const showFolder = isDraft || (!document && agentOpen);
   return (
     <form onSubmit={save} className="flex flex-col gap-6">
       <UnsavedDocumentChanges dirty={dirty} leaving={leaving} />
@@ -485,7 +472,7 @@ function Editor({
         <div className="flex items-center gap-2">
           {isLive && (
             <Button asChild type="button" variant="outline">
-              <a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a>
+              <a href={`/api/documentation/documents/${document.id}/bundle`}>Download document</a>
             </Button>
           )}
           {isLive && <Badge variant="secondary">Version {liveVersion}</Badge>}
@@ -631,25 +618,6 @@ function Editor({
             {nameError && <FieldError>{nameError}</FieldError>}
           </Field>
         </FieldGroup>
-        {showFolder && (
-          <Field>
-            <FieldLabel htmlFor="doc-folder">Folder</FieldLabel>
-            <Input
-              id="doc-folder"
-              maxLength={200}
-              placeholder="payments"
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-            />
-            <FieldDescription>
-              {folder.trim() && folderError(folder.trim())
-                ? folderError(folder.trim())
-                : isDraft
-                  ? "The documentation folder the document is published in; empty: the top folder."
-                  : "The documentation folder the agent writes the document in."}
-            </FieldDescription>
-          </Field>
-        )}
         <Field>
           <FieldLabel htmlFor="doc-description">Short description</FieldLabel>
           <Textarea
@@ -1049,14 +1017,14 @@ export default function DocumentEditorView() {
   const [agentVersion, setAgentVersion] = useState(""); // changes after each of the agent's turns: the bar reloads the draft
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
   const leaveRef = useRef<() => void>(() => {});
-  const [fields, setFields] = useState({ title: "", folder: "" }); // the New page's Title and Folder (the agent writes them)
+  const [title, setTitle] = useState(""); // the New page's Title (the name of the document the agent writes)
   // Loads only while the pane is open; a new document's options once per page, whatever the title.
   const settings = useAgentSettings(
     !agentOpen
       ? null
       : documentId
         ? { kind: "document", id: documentId, title: "" }
-        : { kind: "new-document", ...fields, ...(resourceFor ? { resourceFor } : {}) },
+        : { kind: "new-document", title, ...(resourceFor ? { resourceFor } : {}) },
   );
   // A notice handed over in the navigation state (the new-document draft page's Promote).
   const location = useLocation();
@@ -1134,9 +1102,7 @@ export default function DocumentEditorView() {
       registerConfirm={(confirm) => {
         confirmRef.current = confirm;
       }}
-      onFieldsChange={(title, folder) =>
-        setFields((old) => (old.title === title && old.folder === folder ? old : { title, folder }))
-      }
+      onFieldsChange={setTitle}
       registerLeave={(leave) => {
         leaveRef.current = leave;
       }}
@@ -1224,7 +1190,7 @@ export default function DocumentEditorView() {
           <div className="min-w-0 lg:sticky lg:top-4">
             <AgentChat
               key="new"
-              scope={{ kind: "new-document", ...fields, ...(resourceFor ? { resourceFor } : {}) }}
+              scope={{ kind: "new-document", title, ...(resourceFor ? { resourceFor } : {}) }}
               settings={settings}
               initialRunId={null}
               onDraftChange={(draft, version) => {

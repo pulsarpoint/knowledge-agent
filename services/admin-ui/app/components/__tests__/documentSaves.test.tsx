@@ -32,7 +32,6 @@ const noIds = { code_project_ids: [], service_ids: [], server_ids: [], deploymen
 const live = {
   id: "doc-1",
   slug: "runbook",
-  folder: null,
   title: "Runbook",
   description: "How to run it",
   purpose: "runbook",
@@ -70,7 +69,6 @@ const live = {
 const brandNew = {
   id: "d5",
   slug: "new-runbook",
-  folder: "ops",
   title: "New runbook",
   description: "",
   purpose: "explanation",
@@ -94,7 +92,6 @@ const draftDetail = {
   id: "d7",
   document_id: "doc-1",
   slug: "runbook",
-  folder: null,
   title: "Runbook",
   origin: "manual",
   session_id: null,
@@ -194,14 +191,13 @@ test("the brand-new draft page: banner, Save/Publish/Discard, an editable name, 
   expect(screen.getByRole("tab", { name: "Agent runs" })).toBeInTheDocument();
   expect(screen.queryByText(/^Version \d/)).toBeNull();
   fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "disk-runbook" } });
-  fireEvent.change(screen.getByLabelText("Folder"), { target: { value: "platform" } });
+  expect(screen.queryByLabelText("Folder")).toBeNull(); // documents have no folders
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# How to, edited" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "PUT /api/documentation/drafts/d5")?.body).toEqual({
       revision: 1,
       slug: "disk-runbook",
-      folder: "platform",
       title: "New runbook",
       description: "",
       purpose: "explanation",
@@ -241,8 +237,7 @@ test("Publish promotes the brand-new draft and the page shows the live document"
 });
 
 test("a Publish refused because a document took the name meanwhile opens the draft page with why", async () => {
-  const TAKEN =
-    "A document named new-runbook was created in this folder meanwhile. The draft is now a draft of it. Review it again.";
+  const TAKEN = "A document named new-runbook was created meanwhile. The draft is now a draft of it. Review it again.";
   const converted = { ...draftDetail, id: "d5", document_id: "doc-9", document_title: "New runbook" };
   api({
     "GET /api/documentation/documents/d5": () => [200, brandNew],
@@ -425,7 +420,6 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
     id: "d5",
     document_id: null,
     slug: "new-runbook",
-    folder: "ops",
     title: "New runbook",
     published: false,
     document_title: null,
@@ -463,7 +457,7 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
 });
 
 test("New → Save with a name a document already uses shows the refusal under the name field", async () => {
-  const IN_USE = "A document or draft named runbook already exists in this folder. Choose another name.";
+  const IN_USE = "A document or draft named runbook already exists. Choose another name.";
   api({
     "GET /api/documentation/resources": () => [200, resources],
     "POST /api/documentation/drafts": () => [409, { error: { message: IN_USE } }],

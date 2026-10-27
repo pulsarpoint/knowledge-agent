@@ -44,7 +44,6 @@ const detail = {
   title: "Payments – API reference",
   purpose: "documents",
   document_name: "Payments – API reference",
-  folder: "payments-api-docs",
   agent_id: "writer",
   agent_name: "Technical writer",
   model_id: "claude",

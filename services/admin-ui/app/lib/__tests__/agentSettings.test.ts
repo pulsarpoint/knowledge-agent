@@ -319,13 +319,13 @@ test("settings saved for an older revision of the agent are dropped", () => {
 test("a new document: the start body names it as started_from and as the one document it writes", () => {
   const fresh = { ...options, resources: { ...options.resources, documents: [] } };
   const body = startInput(
-    { kind: "new-document", folder: "payments", title: "Payments API" },
+    { kind: "new-document", title: "Payments API" },
     fresh,
     defaultSettings(fresh),
     " Write it. ",
   );
   expect(body).toEqual({
-    started_from: { new_document: { folder: "payments", name: "Payments API" } },
+    started_from: { new_document: { name: "Payments API" } },
     message: "Write it.",
     model_id: "m2",
     prompt_id: "p2",
@@ -336,7 +336,7 @@ test("a new document: the start body names it as started_from and as the one doc
       service_ids: ["v1"],
       environment_ids: [],
       code_project_ids: [],
-      documents: [{ new: { folder: "payments", name: "Payments API" } }],
+      documents: [{ new: { name: "Payments API" } }],
     },
     expert_ids: [],
     disabled_tools: [],
@@ -364,13 +364,12 @@ test("the start body for a resource's new document: its resource is chosen, a se
   const settings = { ...base, chosen: { ...base.chosen, server_ids: [], service_ids: [] } };
   const scope = (type: "server" | "service", id: string) => ({
     kind: "new-document" as const,
-    folder: "payments",
     title: "Payments API",
     resourceFor: { type, id },
   });
   const server = startInput(scope("server", "s1"), options, settings, "Write it.");
   expect(server.resources.server_ids).toEqual(["s1"]);
-  const written = { folder: "payments", name: "Payments API", server_id: "s1" };
+  const written = { name: "Payments API", server_id: "s1" };
   expect(server.started_from).toEqual({ new_document: written });
   expect(server.resources.documents).toEqual([{ new: written }]);
   // prod-1 has no usable SSH: the run starts without it (the start says so)
@@ -385,7 +384,7 @@ test("off tools go into every kind of start request, and come back with Start ne
   expect(startInput(doc(), options, off, "x").disabled_tools).toEqual(["ssh_run"]);
   const server = { kind: "server" as const, id: "s1", name: "web-1" };
   expect(startInput(server, options, off, "x").disabled_tools).toEqual(["ssh_run"]);
-  const newDoc = { kind: "new-document" as const, title: "T", folder: "f" };
+  const newDoc = { kind: "new-document" as const, title: "T" };
   expect(startInput(newDoc, options, off, "x").disabled_tools).toEqual(["ssh_run"]);
   const agent = { kind: "agent" as const, id: "ops", name: "Operations" };
   const agentOff = { ...defaultSettings(agentOptions), disabledTools: ["get_document"] };

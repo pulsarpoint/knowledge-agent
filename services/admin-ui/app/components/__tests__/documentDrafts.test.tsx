@@ -42,7 +42,6 @@ const newDraft = {
   id: "d9",
   document_id: null,
   slug: "disk-layout",
-  folder: "servers/web-1",
   title: "Disk layout",
   origin: "agent",
   session_id: "s1",
@@ -84,7 +83,6 @@ const ofLive = {
   id: "d3",
   document_id: "doc-3",
   slug: "overview",
-  folder: null,
   title: "Overview",
   base_version: 1,
   live_version: 1,
@@ -136,7 +134,6 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   expect(await screen.findByRole("link", { name: "2 drafts" })).toHaveAttribute("href", "/documents/doc-1?tab=drafts");
   const section = within(screen.getByRole("region", { name: "New drafts" }));
   expect(section.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
-  expect(section.getByText("servers/web-1")).toBeInTheDocument();
   expect(section.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/sessions/s1");
   fireEvent.click(screen.getByRole("checkbox", { name: "Has drafts" }));
   await waitFor(() =>
@@ -207,7 +204,6 @@ test("a stale promote keeps the warning, reloads the draft and sends confirm_sta
     id: "d2",
     document_id: "doc-1",
     slug: null,
-    folder: null,
     base_version: 1,
     live_version: 1,
     live_markdown: "# v1",
@@ -269,7 +265,6 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
     id: "d4",
     document_id: "doc-1",
     slug: "runbook",
-    folder: null,
     title: "Runbook, shorter",
     origin: "manual",
     session_id: null,
@@ -291,7 +286,7 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
     "/documents/doc-1?tab=drafts&draft=d4",
   );
   expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
-  expect(list.getByText("New document in servers/web-1/")).toBeInTheDocument();
+  expect(list.getByText("New document")).toBeInTheDocument();
   expect(list.getByText("ana@example.com")).toBeInTheDocument();
   expect(list.getByRole("columnheader", { name: "Created" })).toBeInTheDocument();
   expect(list.queryByRole("columnheader", { name: "Updated" })).toBeNull();

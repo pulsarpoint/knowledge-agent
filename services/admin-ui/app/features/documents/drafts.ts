@@ -15,7 +15,6 @@ export interface DraftSummary {
   id: string;
   document_id: string | null;
   slug: string | null;
-  folder: string | null;
   title: string;
   origin: DraftOrigin;
   session_id: string | null;
@@ -47,7 +46,6 @@ export type DraftCreate = Partial<DraftContent> & {
   /** A draft of a document: the version the page loaded (default the live one). */
   base_version?: number;
   slug?: string;
-  folder?: string | null;
   resource_ids?: ResourceIds<DocumentKey>;
 };
 export interface PromoteResult {
@@ -73,7 +71,6 @@ export interface LinkedDocument {
   id: string;
   title: string;
   slug: string;
-  folder: string | null;
   version: number;
 }
 export interface Connections {
@@ -103,13 +100,9 @@ export const getDocumentDrafts = (documentId: string, signal?: AbortSignal) =>
   request<{ drafts: DraftSummary[] }>(`${documentUrl(documentId)}/drafts`, { signal });
 export const getDraft = (id: string, signal?: AbortSignal) => request<DraftDetail>(draftUrl(id), { signal });
 export const createDraft = (value: DraftCreate) => request<DraftDetail>(`${base}/drafts`, json("POST", value));
-/** A draft's text at its revision; a brand-new draft may also change its name (slug, folder) until it is published. */
-export const updateDraft = (
-  id: string,
-  revision: number,
-  content: DraftContent,
-  name?: { slug: string; folder: string | null },
-) => request<DraftDetail>(draftUrl(id), json("PUT", { revision, ...name, ...content }));
+/** A draft's text at its revision; a brand-new draft may also change its slug until it is published. */
+export const updateDraft = (id: string, revision: number, content: DraftContent, slug?: string) =>
+  request<DraftDetail>(draftUrl(id), json("PUT", { revision, ...(slug ? { slug } : {}), ...content }));
 export const promoteDraft = (id: string, revision: number, confirmStale: boolean) =>
   request<Omit<PromoteResult, "draft_id">>(
     `${draftUrl(id)}/promote`,
