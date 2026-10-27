@@ -31,10 +31,10 @@ def test_the_list_counts_open_drafts_and_filters_documents_that_have_them(docs):
 
 def test_new_document_drafts_are_listed_apart_and_a_documents_drafts_without_their_text(docs):
     of_runbook = new_draft(docs, document_id=docs.runbook, markdown='# Long text')
-    fresh = new_draft(docs, slug='disk-layout', folder='servers', title='Disk layout', markdown='# Disks')
+    fresh = new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Disks')
     listed = docs.client.get(f'{API}/drafts', params={'new': 'true'}, headers=HEADERS).json()['drafts']
-    assert [(d['id'], d['title'], d['folder'], d['slug'], d['origin'], d['author']) for d in listed] == [
-        (fresh['id'], 'Disk layout', 'servers', 'disk-layout', 'manual', 'admin@example.test')
+    assert [(d['id'], d['title'], d['slug'], d['origin'], d['author']) for d in listed] == [
+        (fresh['id'], 'Disk layout', 'disk-layout', 'manual', 'admin@example.test')
     ]
     assert 'markdown' not in listed[0]
     mine = docs.client.get(f'{API}/documents/{docs.runbook}/drafts', headers=HEADERS).json()['drafts']
@@ -54,7 +54,7 @@ def test_new_document_drafts_are_listed_apart_and_a_documents_drafts_without_the
 def test_drafts_are_never_documents(docs, monkeypatch):
     monkeypatch.setattr(inventory, '_store', docs.store)
     new_draft(docs, document_id=docs.runbook, markdown='# DRAFT ONLY TEXT')
-    new_draft(docs, slug='secret-plan', folder='plans', title='Secret plan', markdown='# DRAFT ONLY TEXT')
+    new_draft(docs, slug='secret-plan', title='Secret plan', markdown='# DRAFT ONLY TEXT')
     document = docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()
     assert (document['version'], document['markdown'], len(document['versions'])) == (
         1,
@@ -64,7 +64,6 @@ def test_drafts_are_never_documents(docs, monkeypatch):
     assert [row['slug'] for row in docs.client.get(f'{API}/documents', headers=HEADERS).json()['documents']] == [
         'runbook'
     ]
-    assert all(row['folder'] != 'plans' for row in docs.client.get(f'{API}/folders', headers=HEADERS).json()['folders'])
     with docs.store.connect() as conn:
         assert (
             conn.execute("SELECT count(*) AS n FROM ka.document_details WHERE slug='secret-plan'").fetchone()['n'] == 0

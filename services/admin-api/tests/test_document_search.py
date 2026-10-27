@@ -127,7 +127,6 @@ def test_drafts_are_never_returned(lib):
             {**content, 'title': 'Zebra plan', 'markdown': 'Zebra.'},
             origin='manual',
             slug='zebra',
-            folder=None,
             links={'server_ids': [lib.web]},
         )
     given = {**lib.config, 'access': access(('server', lib.web), ('document', new))}

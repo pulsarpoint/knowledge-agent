@@ -13,6 +13,7 @@ from session_rows import a_model, add_ad_hoc_session, add_chat_session
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0082_ad_hoc_sessions.up.sql', '0082_ad_hoc_sessions.down.sql'
 LATER = '0084_remove_claude_code.down.sql'
+NO_FOLDERS = '0144_no_document_folders.down.sql'  # gives a documents session its folder back
 
 
 def run(conn, name: str):
@@ -36,6 +37,7 @@ def test_only_documents_sessions_run_without_an_agent_and_down_removes_them(stor
         ad_hoc = add_ad_hoc_session(conn, project, actor, model, message='Document it')
         tested = add_chat_session(conn, project, actor, 'search', model)
         conn.commit()
+        run(conn, NO_FOLDERS)
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
             conn.execute(
                 "UPDATE ka.agent_sessions SET purpose='test',document_name=NULL,folder=NULL WHERE id=%s", (ad_hoc,)

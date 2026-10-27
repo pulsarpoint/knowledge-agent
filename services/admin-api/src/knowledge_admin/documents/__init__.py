@@ -1,1 +1,1 @@
-"""Documents: managed documents, drafts, documentation folders and the prompt library."""
+"""Documents: managed documents, drafts and the prompt library."""

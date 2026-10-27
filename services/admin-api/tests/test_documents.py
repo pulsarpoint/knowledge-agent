@@ -382,23 +382,18 @@ def test_document_slug_comes_from_the_name():
     assert document_slug('a' * 119 + ' b') == 'a' * 119
 
 
-def test_folder_documents_keep_their_folder_on_edit(store, tmp_path):
+def test_a_slug_names_one_document_in_the_project(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        saved = live_document(conn, project, 'api-reference', 'API reference', '# API', folder='team/payments')
+        saved = live_document(conn, project, 'api-reference', 'API reference', '# API')
     endpoint = '/api/documentation/documents/' + str(saved['id'])
-    assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
-    # A promoted draft keeps the document's folder and name.
+    # A promoted draft keeps the document's name.
     save_and_promote(client, str(saved['id']), title='API guide', markdown='# Guide')
-    assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
-    # The same slug may exist once per folder and once without a folder.
-    with store.connect() as conn:
-        for other in ('other', None):
-            live_document(conn, project, 'api-guide', 'Elsewhere', '# E', folder=other)
+    assert client.get(endpoint, headers=HEADERS).json()['slug'] == 'api-reference'
     with pytest.raises(psycopg.errors.UniqueViolation):
         with store.connect() as conn:
-            live_document(conn, project, 'api-reference', 'Twice', '# T', folder='team/payments')
+            live_document(conn, project, 'api-reference', 'Twice', '# T')
     assert client.delete(endpoint, headers=HEADERS, params={'revision': 2, 'confirmed': True}).status_code == 200
 
 
@@ -419,93 +414,6 @@ def test_publishing_and_deleting_write_no_files(store, tmp_path, monkeypatch):
         params={'revision': document['revision'], 'confirmed': True},
     )
     assert deleted.status_code == 200 and list(out.iterdir()) == []
-
-
-def test_a_folder_never_shares_a_top_level_name_with_a_document(store, tmp_path):
-    from knowledge_admin.documents.api import export_conflict
-
-    client = _client(tmp_path, repository_store=store)
-    write_live_document(store, 'payments', 'P', '# P')
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        assert (
-            export_conflict(conn, project, 'api', 'payments/api')
-            == 'The folder payments is used by the document payments. Choose another folder.'
-        )
-        assert export_conflict(conn, project, 'api', 'team/payments') is None
-        live_document(conn, project, 'api', 'A', '# A', folder='team/payments')
-    # A new document's export folder is checked when it is published.
-    draft = client.post(f'{DOCS}/drafts', headers=HEADERS, json={'slug': 'team', 'title': 'T', 'markdown': '# T'})
-    assert draft.status_code == 201, draft.text
-    refused = client.post(f'{DOCS}/drafts/{draft.json()["id"]}/promote', headers=HEADERS, json={'revision': 1})
-    assert refused.status_code == 409
-    assert refused.json()['error']['message'] == 'The slug team is used by a documentation folder. Choose another slug.'
-
-
-def test_colliding_folder_and_folderless_publishes_are_serialized(store, tmp_path):
-    import threading
-
-    client = _client(tmp_path, repository_store=store)
-    draft = client.post(
-        f'{DOCS}/drafts', headers=HEADERS, json={'slug': 'x', 'folder': 'team/x', 'title': 'X', 'markdown': '# X'}
-    ).json()
-    outcome = {}
-
-    def publish():
-        outcome['result'] = client.post(
-            f'{DOCS}/drafts/{draft["id"]}/promote', headers=HEADERS, json={'revision': draft['revision']}
-        ).status_code
-
-    with store.connect() as conn:
-        live_document(conn, store.project(conn, 'shop'), 'team', 'T', '# T')  # holds the export lock until commit
-        thread = threading.Thread(target=publish)
-        thread.start()
-        thread.join(1)
-        assert thread.is_alive()  # waits for the first transaction instead of reading around it
-    thread.join(10)
-    assert outcome == {'result': 409}
-
-
-def test_a_document_never_conflicts_with_its_own_export(store):
-    from knowledge_admin.documents.api import export_conflict
-
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        plain = live_document(conn, project, 'notes', 'N', '# N')
-        live_document(conn, project, 'x', 'X', '# X', folder='team/x')
-        assert export_conflict(conn, project, 'team', None, plain['id']) is not None
-        assert export_conflict(conn, project, 'notes', None, plain['id']) is None
-
-
-def test_nested_exports_never_share_a_folder_in_either_direction(store):
-    from knowledge_admin.documents.api import export_conflict
-
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        # Document b in folder a exports to a/b/: the folders a/b and a/b/c (at any depth) are refused.
-        live_document(conn, project, 'b', 'B', '# B', folder='a')
-        message = 'The folder a/b is used by the document b in the folder a. Choose another folder.'
-        assert export_conflict(conn, project, 'x', 'a/b') == message
-        assert export_conflict(conn, project, 'x', 'a/b/c') == message
-        assert export_conflict(conn, project, 'x', 'a/bc') is None
-        live_document(conn, project, 'x', 'X', '# X', folder='a/bc')
-        # The other direction: folder p/q/r exists, so documents q in p and r in p/q are refused.
-        live_document(conn, project, 'y', 'Y', '# Y', folder='p/q/r')
-        assert (
-            export_conflict(conn, project, 'q', 'p')
-            == 'The slug q is used by the documentation folder p/q. Choose another slug.'
-        )
-        assert (
-            export_conflict(conn, project, 'r', 'p/q')
-            == 'The slug r is used by the documentation folder p/q/r. Choose another slug.'
-        )
-        assert export_conflict(conn, project, 'q', 'p/q/r') is None
-        # '_' in a folder is matched literally, not as a LIKE wildcard: m_n/c/ is unrelated to mxn/c/d.
-        live_document(conn, project, 'y', 'Y', '# Y', folder='mxn/c/d')
-        assert export_conflict(conn, project, 'c', 'm_n') is None
-        # A document's own export does not exempt it from another folder: q in p is refused for it too.
-        doc = live_document(conn, project, 'z', 'Z', '# Z', folder='p')
-        assert export_conflict(conn, project, 'q', 'p', doc['id']) is not None
 
 
 def test_delete_takes_the_project_lock_first_as_promote_and_create_do(store, tmp_path):

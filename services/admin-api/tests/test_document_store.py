@@ -81,7 +81,6 @@ def new_live(conn, project, markdown='# One', slug='runbook', links=None, prov=N
         prov or Provenance('person', None),
         document_id=None,
         slug=slug,
-        folder=None,
         content=content(markdown),
         snapshot=EMPTY,
         origin='manual',
@@ -104,7 +103,6 @@ def test_promote_archives_the_live_content_keeps_the_id_and_deletes_every_draft(
             prov,
             document_id=None,
             slug='runbook',
-            folder=None,
             content=content('# One'),
             snapshot=EMPTY,
             origin='manual',
@@ -187,7 +185,6 @@ def test_unticking_a_built_for_link_is_refused_and_nothing_changes(store):
             Provenance('person', None),
             document_id=None,
             slug='prod',
-            folder=None,
             content=content('# Prod'),
             snapshot=EMPTY,
             origin='manual',
@@ -278,7 +275,6 @@ def test_a_new_live_document_has_built_for_links_and_version_one(store):
                 Provenance('person', None),
                 document_id=None,
                 slug='other',
-                folder=None,
                 content=content('# X'),
                 snapshot=EMPTY,
                 origin='manual',
@@ -300,7 +296,6 @@ def test_saving_a_live_document_archives_changed_content_only(store):
             prov,
             document_id=live['id'],
             slug='runbook',
-            folder='ignored',
             content=content('# Two'),
             snapshot=EMPTY,
             origin='uploaded',
@@ -309,7 +304,7 @@ def test_saving_a_live_document_archives_changed_content_only(store):
         )
         assert saved == {'id': live['id'], 'revision': 2, 'version': 2}
         row = conn.execute('SELECT * FROM ka.documents WHERE id=%s', (live['id'],)).fetchone()
-        assert row['folder'] is None and row['origin'] == 'uploaded' and row['markdown'] == '# Two'
+        assert row['origin'] == 'uploaded' and row['markdown'] == '# Two'
         archived = conn.execute('SELECT * FROM ka.document_archive WHERE document_id=%s', (live['id'],)).fetchone()
         assert (archived['version'], archived['markdown'], archived['created_by'], archived['archived_by']) == (
             1,
@@ -327,7 +322,6 @@ def test_saving_a_live_document_archives_changed_content_only(store):
             prov,
             document_id=live['id'],
             slug='runbook',
-            folder=None,
             content=content('# Two'),
             snapshot=EMPTY,
             origin='uploaded',
@@ -345,7 +339,7 @@ def test_saving_a_live_document_refuses_stale_revisions_and_drafts(store):
         prov = Provenance('person', None)
         live = new_live(conn, project)
         draft = create_draft(conn, project, prov, content('# D'), origin='manual', document_id=live['id'])
-        args = {'slug': 'runbook', 'folder': None, 'content': content('# X'), 'snapshot': EMPTY, 'origin': 'manual'}
+        args = {'slug': 'runbook', 'content': content('# X'), 'snapshot': EMPTY, 'origin': 'manual'}
         with pytest.raises(HTTPException) as error:
             write_live(conn, project, prov, document_id=live['id'], revision=7, **args)
         assert error.value.status_code == 409
@@ -372,11 +366,10 @@ def test_a_run_draft_of_a_new_document_has_built_for_links_and_sets_last_draft(s
             content('# New'),
             origin='generated',
             slug='payments',
-            folder='payments',
             links={'environment_ids': [env]},
         )
         row = conn.execute('SELECT * FROM ka.documents WHERE id=%s', (draft,)).fetchone()
-        assert row['is_draft'] and row['draft_of'] is None and (row['slug'], row['folder']) == ('payments', 'payments')
+        assert row['is_draft'] and row['draft_of'] is None and row['slug'] == 'payments'
         assert row['origin'] == 'generated' and row['session_id'] == session and row['created_by'] == actor
         link = conn.execute(
             'SELECT connection,added_how,added_by,session_id,environment_id FROM ka.document_resources'
@@ -401,7 +394,7 @@ def test_a_run_draft_of_a_new_document_has_built_for_links_and_sets_last_draft(s
         assert event['details'] == {'document_id': None, 'origin': 'generated', 'session_id': str(session)}
 
 
-def test_a_folder_and_slug_naming_a_live_document_make_a_draft_of_it(store):
+def test_a_slug_naming_a_live_document_makes_a_draft_of_it(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         prov = Provenance('person', None)
@@ -414,11 +407,10 @@ def test_a_folder_and_slug_naming_a_live_document_make_a_draft_of_it(store):
             content('# Again'),
             origin='manual',
             slug='runbook',
-            folder=None,
             links={'environment_ids': [env]},
         )
         row = conn.execute('SELECT * FROM ka.documents WHERE id=%s', (draft,)).fetchone()
-        assert (row['draft_of'], row['base_version'], row['slug'], row['folder']) == (live['id'], 1, None, None)
+        assert (row['draft_of'], row['base_version'], row['slug']) == (live['id'], 1, None)
         assert count(conn, 'SELECT count(*) AS n FROM ka.document_resources') == 0
         assert conn.execute(
             'SELECT kind,source_document_id,source_title,source_version FROM ka.document_sources WHERE document_id=%s',
@@ -443,7 +435,6 @@ def test_promoting_a_new_draft_keeps_its_id_and_links(store):
             content('# New'),
             origin='manual',
             slug='shop',
-            folder=None,
             links={'code_project_ids': [repo]},
         )
         links = conn.execute('SELECT * FROM ka.document_resources').fetchall()
@@ -469,7 +460,6 @@ def test_a_stale_draft_needs_confirmation(store):
             prov,
             document_id=live['id'],
             slug='runbook',
-            folder=None,
             content=content('# Two'),
             snapshot=EMPTY,
             origin='manual',
@@ -679,7 +669,6 @@ def test_versions_are_newest_first_and_version_reads_by_number(store):
                 prov,
                 document_id=live['id'],
                 slug='runbook',
-                folder=None,
                 content=content(text),
                 snapshot=EMPTY,
                 origin='manual',

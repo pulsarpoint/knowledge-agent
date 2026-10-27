@@ -15,7 +15,7 @@ from test_generations import sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 from test_repositories import HEADERS
 
-NEW = {'folder': 'payments-api-docs', 'name': 'Payments – API reference'}
+NEW = {'name': 'Payments – API reference'}
 
 
 def preview(s, prompt='You document.', **resources):

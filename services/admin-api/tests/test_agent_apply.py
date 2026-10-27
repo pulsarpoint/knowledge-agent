@@ -107,8 +107,8 @@ def test_apply_is_refused_when_the_original_changed_or_is_working(store, saved_a
     with store.connect() as conn:  # a documentation session of the original is working
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,document_name,folder,status,agent_config) SELECT %s,p.id,'operations',(SELECT id FROM ka.principals LIMIT 1),
-            %s,'Payments','{}','{}','Payments','payments','working','{"id": "operations"}' FROM ka.projects p WHERE p.archived_at IS NULL""",
+            context_snapshot,document_name,status,agent_config) SELECT %s,p.id,'operations',(SELECT id FROM ka.principals LIMIT 1),
+            %s,'Payments','{}','{}','Payments','working','{"id": "operations"}' FROM ka.projects p WHERE p.archived_at IS NULL""",
             (session, model['id']),
         )
     working = apply(client, copy_id, value)

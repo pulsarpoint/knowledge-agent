@@ -52,6 +52,9 @@ def test_fresh_workspace_fixture_is_active_and_edits_are_drafts(store, tmp_path)
 def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(store, tmp_path):
     with store.connect() as conn:
         # 0104's views read documents.phase_metadata, which 0073's rollback drops: roll 0104 back first (0107 before it).
+        conn.execute(
+            (MIGRATIONS / '0144_no_document_folders.down.sql').read_text(), prepare=False
+        )  # 0144 drops the folders 0109 down reads
         conn.execute((MIGRATIONS / '0134_rag_gone.down.sql').read_text(), prepare=False)  # 0073 down reads the RAG jobs
         conn.execute(
             (MIGRATIONS / '0131_proposals_gone.down.sql').read_text(), prepare=False

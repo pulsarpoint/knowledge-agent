@@ -22,7 +22,7 @@ def runner(sessions) -> tuple[UUID, shared.SessionRunner]:
 def drafts_of(sessions, sid) -> list[dict]:
     with sessions.store.connect() as conn:
         return conn.execute(
-            """SELECT id,draft_of,slug,folder,title,purpose,markdown,origin,edited,revision,base_version
+            """SELECT id,draft_of,slug,title,purpose,markdown,origin,edited,revision,base_version
             FROM ka.documents WHERE is_draft AND session_id=%s ORDER BY created_at,id""",
             (sid,),
         ).fetchall()
@@ -50,18 +50,16 @@ def tool_call(sessions, sid, turn: int, seq: int, name: str, arguments: dict, *,
         )
 
 
-def document(sessions, slug: str, folder: str | None, markdown: str) -> dict:
+def document(sessions, slug: str, markdown: str) -> dict:
     with sessions.store.connect() as conn:
-        return live_document(
-            conn, sessions.store.project(conn, 'shop'), slug, slug.replace('-', ' ').title(), markdown, folder=folder
-        )
+        return live_document(conn, sessions.store.project(conn, 'shop'), slug, slug.replace('-', ' ').title(), markdown)
 
 
 def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions):
-    alpha = document(sessions, 'alpha', 'team', '# Alpha v1')
-    beta = document(sessions, 'beta', None, '# Beta')
-    gamma = document(sessions, 'gamma', 'team/deep', '# Gamma')
-    document(sessions, 'delta', 'team', '# Delta')
+    alpha = document(sessions, 'alpha', '# Alpha v1')
+    beta = document(sessions, 'beta', '# Beta')
+    gamma = document(sessions, 'gamma', '# Gamma')
+    document(sessions, 'delta', '# Delta')
     sid, run = runner(sessions)
     tool_call(sessions, sid, 1, 1, 'get_document', {'document_id': str(alpha['id'])})
     tool_call(sessions, sid, 1, 2, 'get_document', {'document_id': str(beta['id'])}, as_text=True)
@@ -80,7 +78,6 @@ def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions)
             {**NEW_DEFAULTS, 'title': 'Payments', 'markdown': '# Agent text'},
             origin='generated',
             slug='payments',
-            folder='team',
         )
     run.finish_turn(1, 'waiting', '', usage=None)
     [draft] = drafts_of(sessions, sid)

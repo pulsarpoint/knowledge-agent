@@ -41,7 +41,7 @@ STALE_MESSAGE = (
     "This draft was based on version {base}; the live version is now {live}. Promoting replaces version {live}'s text."
 )
 NEW_DOCUMENT_REVISION = 'New documents cannot reuse a revision'
-NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
+NAME_IN_USE = 'A document or draft named {slug} already exists. Choose another name.'
 # The inventory document of a server, service or environment: the document tagged INVENTORY_TAG built for it (the
 # most recently updated live one; else a brand-new draft so tagged). Nothing enforces one per resource (0109).
 INVENTORY_TAG = 'inventory'
@@ -291,7 +291,6 @@ def write_live(
     *,
     document_id: UUID | None,
     slug: str,
-    folder: str | None,
     content: dict,
     snapshot: dict,
     origin: str,
@@ -300,25 +299,22 @@ def write_live(
     links: dict[str, list[UUID]] | None = None,
 ) -> dict:
     """Create a live document (version 1, `links` built-for) or save an existing one: a change of content, slug or
-    snapshot archives the current content and bumps the version; the revision always bumps. An existing document keeps
-    its folder. Returns {'id', 'revision', 'version'}."""
-    # Serialize saves per project, as before, so the caller's export-folder check cannot race another save.
-    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
+    snapshot archives the current content and bumps the version; the revision always bumps. Returns {'id', 'revision',
+    'version'}."""
     values = [content[key] for key in CONTENT]
     if document_id is None:
         if revision is not None:
             raise HTTPException(400, NEW_DOCUMENT_REVISION)
         document_id = uuid4()
         conn.execute(
-            """INSERT INTO ka.documents(id,project_id,slug,folder,revision,is_draft,version,title,description,purpose,
+            """INSERT INTO ka.documents(id,project_id,slug,revision,is_draft,version,title,description,purpose,
             audience,tags,markdown,content_hash,source_snapshot,origin,session_id,from_draft,version_created_at,
             version_created_by,created_by,updated_by)
-            VALUES (%s,%s,%s,%s,1,false,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now(),%s,%s,%s)""",
+            VALUES (%s,%s,%s,1,false,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now(),%s,%s,%s)""",
             (
                 document_id,
                 project,
                 slug,
-                folder,
                 *values,
                 content_hash(content['markdown']),
                 Jsonb(snapshot),
@@ -392,20 +388,17 @@ def create_draft(
     origin: str,
     document_id: UUID | None = None,
     slug: str | None = None,
-    folder: str | None = None,
     links: dict[str, list[UUID]] | None = None,
     base_version: int | None = None,
 ) -> UUID:
-    """Insert a draft: of the live document `document_id` (or the live document `folder` + `slug` name), from its
+    """Insert a draft: of the live document `document_id` (or the live document `slug` names), from its
     live version (or `base_version`, the version the person loaded: no later than the live one, so the draft is stale
-    when the document moved on), with its parent source; else a brand-new document with `slug`, `folder` and `links`
-    as built-for. A new draft tagged INVENTORY_TAG whose folder and slug a live document uses is refused (409), never
+    when the document moved on), with its parent source; else a brand-new document with `slug` and `links` as
+    built-for. A new draft tagged INVENTORY_TAG whose slug a live document uses is refused (409), never
     made a draft of it. A run's draft (prov.session_id) becomes the session's last_draft_id."""
     if document_id is None:
         named = conn.execute(
-            """SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft
-            AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
-            (project, folder, slug),
+            'SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft AND slug=%s', (project, slug)
         ).fetchone()
         if named is not None and has_inventory_tag(content['tags']):
             raise HTTPException(409, NAME_IN_USE.format(slug=slug))
@@ -421,15 +414,14 @@ def create_draft(
             raise HTTPException(404, DOCUMENT_NOT_FOUND)
         if base_version is not None and base_version > live['version']:
             raise HTTPException(400, BASE_AHEAD.format(live=live['version']))
-        base, slug, folder = live['version'] if base_version is None else base_version, None, None
+        base, slug = live['version'] if base_version is None else base_version, None
     draft_id = conn.execute(
-        """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,draft_of,base_version,title,
+        """INSERT INTO ka.documents(project_id,slug,revision,is_draft,draft_of,base_version,title,
         description,purpose,audience,tags,markdown,content_hash,origin,session_id,created_by,updated_by)
-        VALUES (%s,%s,%s,1,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        VALUES (%s,%s,1,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (
             project,
             slug,
-            folder,
             document_id,
             base,
             *(content[key] for key in CONTENT),

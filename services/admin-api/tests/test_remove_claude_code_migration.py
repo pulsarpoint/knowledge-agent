@@ -66,6 +66,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         model = a_model(conn, actor)
+        run(conn, '0144_no_document_folders.down.sql')  # 0084 down moves agent_sessions.folder
         run(conn, '0134_rag_gone.down.sql')  # 0114 down reads rag_collections
         run(conn, GROUNDED)
         run(conn, TOOLS)
@@ -132,8 +133,9 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
         assert [row['id'] for row in conn.execute('SELECT id FROM ka.agent_sessions')] == [native]
 
 
-def test_sessions_hold_status_folder_config_history_and_ordered_inputs(store):
-    """The native session checks that 0070 and 0074 created survive the rename under their new names."""
+def test_sessions_hold_status_config_history_and_ordered_inputs(store):
+    """The native session checks that 0070 and 0074 created survive the rename under their new names (the folder
+    check went with the folder in 0144)."""
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         session = add_ad_hoc_session(conn, project, actor, a_model(conn, actor), message='Document it')
@@ -165,16 +167,6 @@ def test_sessions_hold_status_folder_config_history_and_ordered_inputs(store):
                 "UPDATE ka.agent_sessions SET status='busy' WHERE id=%(s)s",
                 psycopg.errors.CheckViolation,
                 'agent_sessions_status_check',
-            ),
-            (
-                "UPDATE ka.agent_sessions SET folder='Payments' WHERE id=%(s)s",
-                psycopg.errors.CheckViolation,
-                'agent_sessions_folder_check',
-            ),
-            (
-                "UPDATE ka.agent_sessions SET folder='services/x' WHERE id=%(s)s",
-                psycopg.errors.CheckViolation,
-                'agent_sessions_folder_check',
             ),
             (
                 "UPDATE ka.agent_sessions SET agent_config='[]' WHERE id=%(s)s",

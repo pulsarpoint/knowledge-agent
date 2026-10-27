@@ -99,6 +99,7 @@ def flag(conn, document_id) -> None:
 def at_0108(store):
     """The schema before 0109: documents.inventory and its checks."""
     with store.connect() as conn:
+        run(conn, '0144_no_document_folders.down.sql')  # 0144 drops documents.folder, which 0109 down selects
         run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again
         run(conn, '0126_inventory_drop_old.down.sql')  # 0126 drops service_assets, which 0109 changes
         run(conn, TAGS_DOWN)
@@ -273,7 +274,7 @@ def test_a_new_inventory_draft_never_becomes_a_draft_of_the_live_document_its_na
             )
         assert (refused.value.status_code, refused.value.detail) == (
             409,
-            'A document or draft named runbook already exists in this folder. Choose another name.',
+            'A document or draft named runbook already exists. Choose another name.',
         )
         conn.rollback()
         assert conn.execute('SELECT count(*) AS n FROM ka.documents WHERE draft_of=%s', (named,)).fetchone()['n'] == 0

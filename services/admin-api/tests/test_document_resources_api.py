@@ -129,9 +129,9 @@ def test_readers_never_show_drafts_as_documents(store, client):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         prov = Provenance('person', None)
-        brand_new = create_draft(conn, project, prov, content, origin='manual', slug='draft-only', folder='team')
+        brand_new = create_draft(conn, project, prov, content, origin='manual', slug='draft-only')
         of_live = create_draft(conn, project, prov, content, origin='manual', document_id=UUID(live['id']))
-    write_live_document(store, 'guide', 'Payments guide', '# G', folder='team')
+    write_live_document(store, 'guide', 'Payments guide', '# G')
     listing = client.get(DOCUMENTS, params={'q': 'payments'}, headers=HEADERS).json()
     assert listing['total'] == 2
     assert {row['title'] for row in listing['documents']} == {'Payments runbook', 'Payments guide'}
@@ -154,7 +154,4 @@ def test_readers_never_show_drafts_as_documents(store, client):
     assert [(d['id'], d['title'], d['origin'], d['base_version'], d['stale']) for d in drafts] == [
         (str(of_live), 'Payments draft', 'manual', 1, False)
     ]
-    folders = client.get('/api/documentation/folders', headers=HEADERS).json()['folders']
-    assert [(f['folder'], f['document_count']) for f in folders] == [('team', 1)]
-    detail = client.get('/api/documentation/folders/team', headers=HEADERS).json()['documents']
-    assert [d['slug'] for d in detail] == ['guide']
+    assert client.get('/api/documentation/folders', headers=HEADERS).status_code == 404  # folders are gone

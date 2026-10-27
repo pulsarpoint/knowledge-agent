@@ -12,7 +12,6 @@ from psycopg import errors
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from knowledge_admin.data_root import documentation_folder
 from knowledge_admin.servers.discovery import readiness, server_row
 from knowledge_admin.documents.api import Tags, document_slug
 from knowledge_admin.documents.store import INVENTORY_TAG, NAME_IN_USE
@@ -108,12 +107,11 @@ VERSION_WITHOUT_SCHEMA = 'Choose the output schema of this version.'
 
 
 class NewDocument(BaseModel):
-    """A document the run writes: its name (a slug comes from it), its documentation folder and its tags; with one
+    """A document the run writes: its name (a slug comes from it) and its tags; with one
     server_id, service_id or environment_id it is built for that resource alone (a resource's New document page's
     Write with an agent); tagged inventory it must name one: the inventory document of that resource."""
 
     model_config = ConfigDict(extra='forbid')
-    folder: str = Field(max_length=200)
     name: str = Field(max_length=240)
     tags: Tags = Field(default_factory=list)
     server_id: UUID | None = None
@@ -128,7 +126,6 @@ class NewDocument(BaseModel):
         self.name = self.name.strip()
         if not document_slug(self.name):
             raise ValueError('Use letters or digits in the document name')
-        self.folder = documentation_folder(self.folder)
         given = [kind for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
         if INVENTORY_TAG in self.tags and (len(given) != 1 or given == ['code_project']):
             raise ValueError(INVENTORY_FOR)
@@ -340,9 +337,9 @@ def target_document(conn, project: UUID, document_id: UUID) -> dict:
 
 def document_access(conn, project: UUID, entries: list[DocumentAccess], built: list[list[str]]) -> list[dict]:
     """The access entries of the documents the run may use, with their current titles, and
-    of the new document it may write (an id of its own, 'new:<uuid>', its name, folder, slug, tags and what it is
+    of the new document it may write (an id of its own, 'new:<uuid>', its name, slug, tags and what it is
     built for: built). A brand-new draft already holding the new
-    document's folder and slug refuses the run (409): every save would fail. A live document of that name does not:
+    document's slug refuses the run (409): every save would fail. A live document of that name does not:
     the run drafts that document (an inventory document's run is refused: it never drafts another document)."""
     access = []
     for entry in entries:
@@ -351,9 +348,8 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
             # an inventory document never drafts the live document of that name: it is refused like a brand-new draft
             if conn.execute(
                 """SELECT 1 FROM ka.documents WHERE project_id=%s
-                AND (draft_of IS NULL AND is_draft OR %s AND NOT is_draft)
-                AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
-                (project, INVENTORY_TAG in entry.new.tags, entry.new.folder, slug),
+                AND (draft_of IS NULL AND is_draft OR %s AND NOT is_draft) AND slug=%s""",
+                (project, INVENTORY_TAG in entry.new.tags, slug),
             ).fetchone():
                 raise HTTPException(409, NAME_IN_USE.format(slug=slug))
             access.append(
@@ -361,7 +357,6 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess], built: l
                     'document',
                     {'id': f'new:{uuid4()}', 'name': entry.new.name},
                     new=True,
-                    folder=entry.new.folder,
                     slug=slug,
                     tags=entry.new.tags,
                     built_for=built,
@@ -695,8 +690,8 @@ def start_run(
         snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
-            target_document_id,folder,document_name,prompt_snapshot,context_snapshot,agent_config)
-            VALUES (%s,%s,NULL,%s,%s,%s,'documents',%s,NULL,%s,%s,%s,%s,%s)""",
+            target_document_id,document_name,prompt_snapshot,context_snapshot,agent_config)
+            VALUES (%s,%s,NULL,%s,%s,%s,'documents',%s,NULL,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -704,7 +699,6 @@ def start_run(
                 model['id'],
                 title,
                 tags,
-                new['folder'],
                 new['name'],
                 Jsonb(jsonable_encoder(snapshot)),
                 Jsonb({'new_document': new}),

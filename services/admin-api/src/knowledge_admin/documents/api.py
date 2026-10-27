@@ -78,42 +78,6 @@ def document_slug(name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:120].rstrip('-')
 
 
-def export_conflict(conn, project: UUID, slug: str, folder: str | None, document_id: UUID | None = None) -> str | None:
-    """Why this document's slug and folder would clash with another document or documentation folder, or None.
-
-    A folderless document is <slug>/, a folder document <folder>/<slug>/. At every level a document's
-    path is never also a documentation folder or a parent of one, in either direction. Folders and slugs are
-    lowercase-only, so these exact comparisons also hold on case-insensitive filesystems. Live documents and brand-new
-    drafts (rows with a slug) reserve their names."""
-    target = f'{folder}/{slug}' if folder else slug
-    # starts_with, not LIKE: '_' is a valid folder character and must match literally.
-    if conn.execute(
-        """SELECT 1 FROM ka.documents WHERE project_id=%s AND slug IS NOT NULL AND id IS DISTINCT FROM %s
-        AND (folder=%s OR starts_with(folder, %s)) LIMIT 1""",
-        (project, document_id, target, target + '/'),
-    ).fetchone():
-        if folder is None:
-            return f'The slug {slug} is used by a documentation folder. Choose another slug.'
-        return f'The slug {slug} is used by the documentation folder {target}. Choose another slug.'
-    if folder is None:
-        return None
-    parts = folder.split('/')
-    for depth in range(1, len(parts) + 1):
-        parent, name = '/'.join(parts[: depth - 1]) or None, parts[depth - 1]
-        if conn.execute(
-            """SELECT 1 FROM ka.documents WHERE project_id=%s AND folder IS NOT DISTINCT FROM %s AND slug=%s
-            AND id IS DISTINCT FROM %s LIMIT 1""",
-            (project, parent, name, document_id),
-        ).fetchone():
-            if parent is None:
-                return f'The folder {name} is used by the document {name}. Choose another folder.'
-            return (
-                f'The folder {parent}/{name} is used by the document {name} in the folder {parent}. '
-                'Choose another folder.'
-            )
-    return None
-
-
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation')
 
@@ -218,7 +182,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def brand_new_draft(conn, project: UUID, document_id: UUID) -> dict | None:
         """A brand-new draft read as the document it becomes when published (same id): no versions, no drafts."""
         row = conn.execute(
-            """SELECT x.id,x.slug,x.folder,x.title,x.description,x.purpose,x.audience,x.tags,x.markdown,x.revision,
+            """SELECT x.id,x.slug,x.title,x.description,x.purpose,x.audience,x.tags,x.markdown,x.revision,
             true AS is_draft,false AS published,
             CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,
             x.code_project_ids,x.service_ids,x.server_ids,x.deployment_ids,x.environment_ids,x.created_at,x.updated_at
@@ -274,9 +238,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         markdown = document['markdown']
         data = io.BytesIO()
         with zipfile.ZipFile(data, 'w', zipfile.ZIP_DEFLATED) as archive:
-            folder = document['slug']
             for name, content in document_files(markdown).items():
-                archive.writestr(f'{folder}/{name}', content)
+                archive.writestr(f'{document["slug"]}/{name}', content)
         return Response(
             data.getvalue(),
             media_type='application/zip',

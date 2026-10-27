@@ -16,7 +16,7 @@ from test_repositories import HEADERS
 from test_test_sessions import analyst, refused, start as agent_start, tester  # noqa: F401  (fixtures)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
-NEW = {'folder': 'shop-docs', 'name': 'Shop overview'}
+NEW = {'name': 'Shop overview'}
 
 
 def start(world, started_from: dict, **change) -> str:
@@ -105,8 +105,7 @@ def test_no_run_has_a_role_and_documents_carry_no_editable_flag(world):
         'resources': [
             {
                 **entry('document', document['id'], 'Shop overview', ''),
-                'new': True,  # the new document carries where it goes and what it is built for
-                'folder': document['folder'],
+                'new': True,  # the new document carries its slug and what it is built for
                 'slug': document['slug'],
                 'tags': document['tags'],
                 'built_for': [],

@@ -34,8 +34,8 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
     cc = uuid4()
     conn.execute(
         """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-        context_snapshot,document_name,folder,turns,document_id,status,agent_config) VALUES (%s,%s,%s,%s,%s,'Payments','{}','{}',
-        'Payments','payments',2,%s,'waiting',%s)""",
+        context_snapshot,document_name,turns,document_id,status,agent_config) VALUES (%s,%s,%s,%s,%s,'Payments','{}','{}',
+        'Payments',2,%s,'waiting',%s)""",
         (cc, project, agent_id, actor, model_id, document, Jsonb({'id': agent_id})),
     )
     conn.execute(

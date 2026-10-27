@@ -13,17 +13,14 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.access import refuse_use
 from knowledge_admin.capabilities.document_tools import DRAFT_NOTE, _run_links
 from knowledge_admin.sessions.run_access import built_for
-from knowledge_admin.data_root import FOLDER_RULE
 from live_documents import live_document, replace_live_document
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
-NEW = {'folder': 'payments-api-docs', 'name': 'Payments – API reference'}
-COLUMNS = (
-    'draft_of AS document_id,edited,origin,markdown,title,description,revision,base_version,folder,slug,session_id'
-)
+NEW = {'name': 'Payments – API reference'}
+COLUMNS = 'draft_of AS document_id,edited,origin,markdown,title,description,revision,base_version,slug,session_id'
 
 
 def body(s, **change):
@@ -68,9 +65,8 @@ def test_a_new_document_start_pins_a_new_entry_and_records_purpose_documents(ses
     started = sessions.client.post('/api/sessions', headers=HEADERS, json=body(sessions))
     assert started.status_code == 201, started.text
     session = started.json()
-    assert (session['purpose'], session['folder'], session['document_name'], session['target_document_id']) == (
+    assert (session['purpose'], session['document_name'], session['target_document_id']) == (
         'documents',
-        'payments-api-docs',
         'Payments – API reference',
         None,
     )
@@ -107,7 +103,6 @@ def test_the_first_save_creates_the_new_document_draft_and_later_saves_update_it
         'description': '',
         'revision': 1,
         'base_version': None,
-        'folder': 'payments-api-docs',
         'slug': 'payments-api-reference',
         'session_id': run,
     }
@@ -142,7 +137,7 @@ def test_the_first_save_creates_the_new_document_draft_and_later_saves_update_it
     )
 
 
-def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(sessions, monkeypatch):
+def test_an_existing_documents_title_makes_the_saves_a_draft_of_it(sessions, monkeypatch):
     s = sessions
     monkeypatch.setattr(inventory, '_store', s.store)
     with s.store.connect() as conn:
@@ -153,7 +148,6 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
             'payments-api-reference',
             'Payments API',
             '# Old',
-            folder='payments-api-docs',
             description='The public API',
             purpose='reference',
             audience='people',
@@ -177,7 +171,6 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
         'description': 'The public API',
         'revision': 1,
         'base_version': version,
-        'folder': None,
         'slug': None,
         'session_id': run,
     }
@@ -258,15 +251,12 @@ def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_doc
         + DRAFT_NOTE
     )
     [row] = drafts(s, run)  # the promoted draft is the live document now
-    assert {
-        key: row[key] for key in ('document_id', 'base_version', 'title', 'description', 'markdown', 'folder', 'slug')
-    } == {
+    assert {key: row[key] for key in ('document_id', 'base_version', 'title', 'description', 'markdown', 'slug')} == {
         'document_id': document,
         'base_version': version['version'],
         'title': 'API reference',
         'description': 'Endpoints',
         'markdown': '# API v2',
-        'folder': None,
         'slug': None,
     }
     assert metadata(s, run) == [('reference', 'people', ['payments'])]
@@ -394,8 +384,6 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
             'Choose one starting point: a document, a new document, a server, a service, an environment or a code project.',
         ),
         ({'started_from': {'new_document': {**NEW, 'name': '!!!'}}}, 'Use letters or digits in the document name'),
-        ({'started_from': {'new_document': {**NEW, 'folder': '../docs'}}}, FOLDER_RULE),
-        ({'started_from': {'new_document': {**NEW, 'folder': '/docs'}}}, FOLDER_RULE),
         ({'resources': {'documents': [{'new': NEW}, {'new': {**NEW, 'name': 'Other'}}]}}, 'One new document per run.'),
         (
             {'resources': {'documents': [{'new': {**NEW, 'name': 'Other'}}]}},
@@ -432,7 +420,7 @@ def test_two_runs_cannot_draft_the_same_new_document(sessions, monkeypatch):
     with pytest.raises(ValueError) as refused:
         call(other, 'update_document', document_id=other_id, content='# Theirs')
     assert str(refused.value) == (
-        'A document or draft named payments-api-reference already exists in this folder. Choose another name.'
+        'A document or draft named payments-api-reference already exists. Choose another name.'
     )
     assert drafts(s, second['id']) == [] and all_drafts(s) == 1
 
@@ -448,7 +436,7 @@ def test_a_new_document_run_is_refused_when_a_brand_new_draft_holds_its_name(ses
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s))
     assert response.status_code == 409
     assert response.json()['error']['message'] == (
-        'A document or draft named payments-api-reference already exists in this folder. Choose another name.'
+        'A document or draft named payments-api-reference already exists. Choose another name.'
     )
     with s.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == before
@@ -677,7 +665,7 @@ def test_a_resource_run_may_draft_the_live_document_of_its_name(sessions):
     s = sessions
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        live_document(conn, project, 'payments-api-reference', 'Payments', '# Old', folder='payments-api-docs')
+        live_document(conn, project, 'payments-api-reference', 'Payments', '# Old')
         conn.commit()
     response = s.client.post('/api/sessions', headers=HEADERS, json=resource_body(s))
     assert response.status_code == 201, response.text
@@ -687,12 +675,12 @@ def test_an_inventory_run_is_refused_when_a_live_document_has_its_name(sessions)
     s = sessions
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        live_document(conn, project, 'payments-api-reference', 'Payments', '# Old', folder='payments-api-docs')
+        live_document(conn, project, 'payments-api-reference', 'Payments', '# Old')
         conn.commit()
     response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
     assert (response.status_code, response.json()['error']['message']) == (
         409,
-        'A document or draft named payments-api-reference already exists in this folder. Choose another name.',
+        'A document or draft named payments-api-reference already exists. Choose another name.',
     )
 
 

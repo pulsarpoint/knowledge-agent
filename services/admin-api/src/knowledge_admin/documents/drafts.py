@@ -1,6 +1,6 @@
 """Document drafts: rows of ka.documents (is_draft) that revise a live document (draft_of) or are a brand-new
 document, which a person promotes to the live version or discards (both delete the draft). Agents only ever write
-drafts. Readers of live documents (document_details, live_documents, exports, folder statistics) never see drafts. The
+drafts. Readers of live documents (document_details, live_documents, exports) never see drafts. The
 lifecycle itself is documents/store.py; this module is the drafts API, a run's sources and document links."""
 
 from functools import partial
@@ -11,10 +11,9 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from knowledge_admin.identity import request_actor
-from knowledge_admin.data_root import documentation_folder
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as lifecycle
 from knowledge_admin.documents.api import (
@@ -27,7 +26,6 @@ from knowledge_admin.documents.api import (
     Slug,
     Tags,
     Title,
-    export_conflict,
 )
 from knowledge_admin.documents.store import CONTENT, DOCUMENT_NOT_FOUND, DRAFT_NOT_FOUND, NAME_IN_USE, Provenance
 from knowledge_admin.repositories import RepositoryStore
@@ -53,20 +51,11 @@ class DraftContent(BaseModel):
 
 
 class DraftUpdate(DraftContent):
-    """A draft's text at its revision; a brand-new draft may also change its name (slug, folder) until it is
-    published. A name field left out keeps the current one (folder null: no folder)."""
+    """A draft's text at its revision; a brand-new draft may also change its slug until it is published (left out:
+    it keeps the current one)."""
 
     revision: int = Field(ge=1, strict=True)
     slug: Slug | None = None
-    folder: str | None = Field(default=None, max_length=200)
-
-    @field_validator('folder')
-    @classmethod
-    def valid_folder(cls, value: str | None) -> str | None:
-        return None if value is None else documentation_folder(value)
-
-    def renames(self) -> bool:
-        return 'slug' in self.model_fields_set or 'folder' in self.model_fields_set
 
 
 class Resources(BaseModel):
@@ -82,14 +71,13 @@ class Resources(BaseModel):
 
 class DraftCreate(BaseModel):
     """A draft of a document (document_id; the text defaults to the live version's; base_version: the version the
-    person loaded, default the live one) or of a new document (slug, an optional folder, title and Markdown, optional
+    person loaded, default the live one) or of a new document (slug, title and Markdown, optional
     resources it is built for; a new inventory document is one tagged inventory)."""
 
     model_config = ConfigDict(extra='forbid')
     document_id: UUID | None = None
     base_version: int | None = Field(default=None, ge=1, strict=True)
     slug: Slug | None = None
-    folder: str | None = Field(default=None, max_length=200)
     title: Title | None = None
     description: Description | None = None
     purpose: Purpose | None = None
@@ -98,17 +86,12 @@ class DraftCreate(BaseModel):
     markdown: Markdown | None = None
     resource_ids: Resources | None = None
 
-    @field_validator('folder')
-    @classmethod
-    def valid_folder(cls, value: str | None) -> str | None:
-        return None if value is None else documentation_folder(value)
-
     @model_validator(mode='after')
     def target(self):
         if (self.document_id is None) == (self.slug is None):
             raise ValueError('Give a document_id, or a slug for a new document.')
-        if self.document_id is not None and (self.folder is not None or self.resource_ids is not None):
-            raise ValueError('A draft of a document keeps its folder and linked resources.')
+        if self.document_id is not None and self.resource_ids is not None:
+            raise ValueError('A draft of a document keeps its linked resources.')
         if self.document_id is None and self.base_version is not None:
             raise ValueError('Only a draft of a document has a base version.')
         if self.document_id is None and (self.title is None or self.markdown is None):
@@ -128,7 +111,7 @@ class Promotion(Decision):
 # {extra}: more columns; the only placeholder (no other braces in the SQL). A run's draft (session_id) reports origin
 # 'agent', a person's 'manual'; published: it revises a live document (false: a brand-new draft), document_title its
 # title (null for a brand-new draft), tags its tags (a draft's own); l is the live document a draft revises.
-SUMMARY = """SELECT x.id,x.document_id,x.slug,x.folder,x.title,
+SUMMARY = """SELECT x.id,x.document_id,x.slug,x.title,
     CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,s.title AS session_title,
     s.purpose AS session_purpose,p.email AS author,x.edited,x.revision,x.base_version,x.live_version,x.stale,
     x.document_id IS NOT NULL AS published,x.document_title,x.tags,x.created_at,x.updated_at{extra}
@@ -151,7 +134,7 @@ RESOURCE_FILTERS = {
 LINK_SELF = 'A document cannot depend on itself.'
 LINK_TWICE = 'This document already depends on that document.'
 LINK_NOT_FOUND = 'This link does not exist.'
-LINKED = """SELECT d.id,d.title,d.slug,d.folder,d.version FROM ka.document_links l JOIN ka.document_details d ON d.id=l.{other}
+LINKED = """SELECT d.id,d.title,d.slug,d.version FROM ka.document_links l JOIN ka.document_details d ON d.id=l.{other}
     WHERE l.{this}=%s AND l.kind='depends_on' ORDER BY lower(d.title),d.id"""
 
 
@@ -184,7 +167,7 @@ def live_document(conn, project: UUID, document_id: UUID) -> dict | None:
 def project_draft(conn, project: UUID, draft_id: UUID) -> dict:
     """The draft's session and whether it revises a live document, 404 unless it is a draft of `project`."""
     row = conn.execute(
-        'SELECT id,session_id,draft_of,slug,folder FROM ka.documents WHERE id=%s AND project_id=%s AND is_draft',
+        'SELECT id,session_id,draft_of,slug FROM ka.documents WHERE id=%s AND project_id=%s AND is_draft',
         (draft_id, project),
     ).fetchone()
     if row is None:
@@ -213,12 +196,10 @@ def live_content(conn, project: UUID, document_id: UUID) -> dict:
     return dict(row)
 
 
-def document_named(conn, project: UUID, folder: str | None, slug: str) -> dict | None:
-    """The live document (id, version) a folder and slug name, or None."""
+def document_named(conn, project: UUID, slug: str) -> dict | None:
+    """The live document (id, version) a slug names, or None."""
     return conn.execute(
-        """SELECT id,version FROM ka.documents WHERE project_id=%s AND NOT is_draft
-        AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
-        (project, folder, slug),
+        'SELECT id,version FROM ka.documents WHERE project_id=%s AND NOT is_draft AND slug=%s', (project, slug)
     ).fetchone()
 
 
@@ -261,45 +242,14 @@ def available_resources(conn, project: UUID, wanted: dict) -> dict:
     return result
 
 
-def free_slug(conn, project, folder: str, base: str) -> str:
-    """The first slug in the folder that no document has and whose export does not overlap another export."""
+def free_slug(conn, project, base: str) -> str:
+    """The first slug from `base` (base, base-2, base-3, ...) that no document or brand-new draft of the project has."""
     base = base[:110].rstrip('-') or 'document'
     for number in range(1, 1000):
         slug = base if number == 1 else f'{base}-{number}'
-        if (
-            conn.execute(
-                'SELECT 1 FROM ka.documents WHERE project_id=%s AND folder=%s AND slug=%s', (project, folder, slug)
-            ).fetchone()
-            is None
-            and export_conflict(conn, project, slug, folder) is None
-        ):
+        if not conn.execute('SELECT 1 FROM ka.documents WHERE project_id=%s AND slug=%s', (project, slug)).fetchone():
             return slug
     raise HTTPException(409, 'Too many documents with this name. Rename one and try again.')
-
-
-# The document folder roots of each resource type, in order: a root that is a document's export is skipped. A
-# top-level services folder is reserved (documents_folder_check).
-FOLDER_ROOTS = {
-    'server': ('servers', 'server-documents'),
-    'service': ('service-documents',),
-    'environment': ('environments', 'environment-documents'),
-    'code_project': ('code-projects', 'code-project-documents'),
-}
-
-
-def free_folder(conn, project, kind: str, entry_slug: str) -> str:
-    """<root>/<entry> (servers/web-1, service-documents/nginx, environments/production), or <root>/<entry>-2, -3, ...
-    when the folder itself cannot hold exports (a document is named like it, or a folder level is a document's
-    export): the conflict does not depend on the slug. When a root itself is a document's export, the next root of
-    FOLDER_ROOTS is used instead."""
-    for root in FOLDER_ROOTS[kind]:
-        for number in range(1, 100):
-            folder = f'{root}/{entry_slug}' if number == 1 else f'{root}/{entry_slug}-{number}'
-            if export_conflict(conn, project, 'probe-slug-0', folder) is None:
-                return folder
-    raise HTTPException(
-        409, f"No folder is free for this {kind}'s documents. Rename a document or folder and try again."
-    )
 
 
 # The session `s`'s last draft (agent_sessions.last_draft_id) as {id, document_id, status} (open, promoted, discarded
@@ -390,7 +340,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 given = value.model_dump(include=set(CONTENT), exclude_none=True)
                 if value.document_id is not None:
                     content = {**live_content(conn, project, value.document_id), **given}
-                elif document_named(conn, project, value.folder, value.slug) is not None:
+                elif document_named(conn, project, value.slug) is not None:
                     # A person names a new document; a live document's name is taken (a run's save drafts it).
                     raise HTTPException(409, NAME_IN_USE.format(slug=value.slug))
                 else:
@@ -403,12 +353,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     origin='manual',
                     document_id=value.document_id,
                     slug=value.slug,
-                    folder=value.folder,
                     links=value.resource_ids.model_dump() if value.resource_ids else None,
                     base_version=value.base_version,
                 )
                 return jsonable_encoder(draft_detail(conn, project, draft_id))
-        except psycopg.errors.UniqueViolation:  # a brand-new draft already holds this folder and slug
+        except psycopg.errors.UniqueViolation:  # a brand-new draft already holds this slug
             raise HTTPException(409, NAME_IN_USE.format(slug=value.slug)) from None
         except psycopg.errors.ForeignKeyViolation:  # a chosen resource is gone or not this workspace's
             raise HTTPException(400, RESOURCE_GONE) from None
@@ -426,19 +375,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         try:
             with workspace(db, app_name) as (conn, project):
                 actor = db.actor(conn, *request_actor(request))
-                if value.renames():
-                    # The export lock before the draft's row, in promote's order: the export check below cannot race
-                    # another rename or a promote.
-                    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
                 row = project_draft(conn, project, draft_id)
-                if value.renames():
-                    if row['draft_of'] is not None:
-                        raise HTTPException(400, KEEPS_NAME)
-                    slug = value.slug if 'slug' in value.model_fields_set and value.slug else row['slug']
-                    folder = value.folder if 'folder' in value.model_fields_set else row['folder']
-                    conflict = export_conflict(conn, project, slug, folder, draft_id)
-                    if conflict:
-                        raise HTTPException(409, conflict)
+                if value.slug is not None and row['draft_of'] is not None:
+                    raise HTTPException(400, KEEPS_NAME)
+                slug = value.slug or row['slug']
                 revision = lifecycle.update_draft(
                     conn,
                     draft_id,
@@ -448,9 +388,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     edited=True,
                 )
                 details = {'revision': revision}
-                if value.renames() and (slug, folder) != (row['slug'], row['folder']):
-                    conn.execute('UPDATE ka.documents SET slug=%s,folder=%s WHERE id=%s', (slug, folder, draft_id))
-                    details.update(slug=slug, folder=folder)
+                if slug != row['slug']:
+                    conn.execute('UPDATE ka.documents SET slug=%s WHERE id=%s', (slug, draft_id))
+                    details.update(slug=slug)
                 audit(conn, project, actor, 'document.draft.updated', 'document_draft', draft_id, details)
                 return jsonable_encoder(draft_detail(conn, project, draft_id))
         except psycopg.errors.UniqueViolation:  # a live document or another brand-new draft holds this name
@@ -480,12 +420,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             with workspace(db, app_name) as (conn, project):
                 row = lock_for_decision(conn, project, draft_id)
                 actor = db.actor(conn, *request_actor(request))
-                # The export lock write_live and a discovery accept take, so a promote cannot deadlock with them.
-                conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
-                if row['draft_of'] is None:  # a brand-new document's path must not be a folder
-                    conflict = export_conflict(conn, project, row['slug'], row['folder'], draft_id)
-                    if conflict:
-                        raise HTTPException(409, conflict)
                 result = lifecycle.promote_draft(
                     conn, project, actor, draft_id, revision=value.revision, confirm_stale=value.confirm_stale
                 )

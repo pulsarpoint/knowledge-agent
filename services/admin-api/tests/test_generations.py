@@ -95,7 +95,6 @@ def sessions(store, tmp_path, monkeypatch):
         'system_prompt': ' You document systems. ',
         'prompt': ' Write the API reference. ',
         'document_name': 'Payments – API reference',
-        'folder': 'payments-api-docs',
     }
     return SimpleNamespace(
         client=client,
@@ -128,7 +127,7 @@ def post(sessions, **change):
     """Start a new-document run as the Generate documents form did: `sessions.body` (the form's keys) as POST /api/sessions.
     `expert_ids` passes through when given (every run gets every tool)."""
     form = {**sessions.body, **change}
-    new = {'folder': form['folder'], 'name': form['document_name']}
+    new = {'name': form['document_name']}
     body = {
         'started_from': {'new_document': new},
         'message': form['prompt'],

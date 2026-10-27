@@ -377,9 +377,9 @@ def test_get_resource_names_the_inventory_document_apart_from_the_other_document
     with world.store.connect() as conn:
         conn.execute("UPDATE ka.documents SET tags='{}' WHERE id=%s", (saved['id'],))
         conn.execute(
-            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,title,description,purpose,
+            """INSERT INTO ka.documents(project_id,slug,revision,is_draft,title,description,purpose,
             audience,tags,markdown,content_hash,origin)
-            VALUES (%s,'web-1-draft','servers/web-1',1,true,'web-1 draft','','explanation','both','{inventory}','# d',encode(sha256('# d'),'hex'),
+            VALUES (%s,'web-1-draft',1,true,'web-1 draft','','explanation','both','{inventory}','# d',encode(sha256('# d'),'hex'),
             'generated') RETURNING id""",
             (world.project,),
         )

@@ -25,6 +25,7 @@ def column(conn, table, name):
 
 def test_reader_schema_is_gone(store):
     with store.connect() as conn:
+        conn.execute(sql('0144_no_document_folders.down.sql'), prepare=False)
         conn.execute(sql('0084_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
         assert conn.execute("SELECT to_regclass('ka.reader_settings') AS t").fetchone()['t'] is None
@@ -36,6 +37,7 @@ def test_reader_schema_is_gone(store):
 
 def test_up_deletes_reader_conversations_and_keeps_admin_sessions(store):
     with store.connect() as conn:
+        conn.execute(sql('0144_no_document_folders.down.sql'), prepare=False)
         conn.execute(sql('0084_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
         conn.execute(sql('0071_remove_reader.down.sql'), prepare=False)
@@ -65,6 +67,7 @@ def test_up_deletes_reader_conversations_and_keeps_admin_sessions(store):
 
 def test_down_restores_the_reader_schema(store):
     with store.connect() as conn:
+        conn.execute(sql('0144_no_document_folders.down.sql'), prepare=False)
         conn.execute(sql('0084_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
         conn.execute(sql('0071_remove_reader.down.sql'), prepare=False)

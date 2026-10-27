@@ -76,8 +76,8 @@ to a server, service or environment when the draft is published: the draft holds
 (one per document; a person publishes it on the document's page) and every write reply ends with `This is a draft: a
 person publishes it on the document's page.` No role: a document is usable when it is in the run's access or linked to
 a resource in it, and `new_document` needs its resource in the access (`{type, id}` or `{type, name}`, resolved among
-the run's resources by `resource_of`). `new_document` names the folder and slug from the resource as discovery did
-(`drafts.free_folder`, `drafts.free_slug`), refuses a title already used by a document linked to the resource (`A
+the run's resources by `resource_of`). `new_document` takes the first free slug in the project from the resource's name
+and the title (`drafts.free_slug`), refuses a title already used by a document linked to the resource (`A
 document titled "<title>" is already linked to this <type> (<id>); update it with update_document instead.`) and
 returns the draft's id, which only its run uses until it is published and which stays the document's id afterwards.
 

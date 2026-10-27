@@ -651,3 +651,17 @@ cycles are allowed and no transitive closure is stored. Services still relate to
 services a library affects are derived (the services built from the code projects that depend on it). Written through
 `inventory/store.py` (kind `code_dependency`: create, update, delete, confirm and discard; a draft needs nothing else and
 nothing needs it). The down migration drops the table (test data).
+
+## 0144_no_document_folders
+
+Documents lose their folder, a leftover of RAG (nothing was written to disk): a document is named by its slug in the
+project and organized by its resource links, tags and full-text search. Before the column goes, slugs that would
+collide in a project are renamed: in each project and slug the oldest row (by `created_at`, then `id`) keeps it, the
+others get the first free `-2`, `-3`, ... (the base shortened to stay within 120 characters). `documents.folder`, its
+check and the `documents_folder_slug` index go; `documents_slug` is unique on `(project_id, slug) WHERE slug IS NOT
+NULL` (live documents and brand-new drafts, as before), and `documents_kind` no longer mentions the folder. The views
+`live_documents`, `document_details` and `document_drafts_view` are recreated without it. A new-document run loses its
+folder too: `agent_sessions.folder` and its check go, and `agent_sessions_documentation` needs only the document name.
+The down migration adds both columns back (nullable, at the end of their tables), restores the checks, the index and
+the views; documents come back without a folder, renamed slugs keep their new names, and existing new-document runs
+get the folder `documents` (test data).

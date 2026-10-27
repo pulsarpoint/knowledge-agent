@@ -62,16 +62,14 @@ def test_a_new_document_draft_needs_its_name_and_text(docs):
         {'slug': 'disk-layout', 'title': 'Disk layout'},
         {'document_id': docs.runbook, 'slug': 'x'},
         {'slug': 'Disk Layout', 'title': 'D', 'markdown': '# D'},
-        {'slug': 'd', 'title': 'D', 'markdown': '# D', 'folder': 'Servers'},
-        {'document_id': docs.runbook, 'folder': 'servers'},
+        {'slug': 'd', 'title': 'D', 'markdown': '# D', 'folder': 'servers'},  # documents have no folders
         {'slug': 'd', 'title': ' ', 'markdown': '# D'},
     ):
         assert docs.client.post(f'{API}/drafts', headers=HEADERS, json=body).status_code == 400, body
-    draft = new_draft(docs, slug='disk-layout', folder='servers/web-1', title='Disk layout', markdown='# Disks')
-    assert (draft['document_id'], draft['slug'], draft['folder'], draft['base_version'], draft['sources']) == (
+    draft = new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Disks')
+    assert (draft['document_id'], draft['slug'], draft['base_version'], draft['sources']) == (
         None,
         'disk-layout',
-        'servers/web-1',
         None,
         [],
     )
@@ -81,18 +79,12 @@ def test_a_new_document_draft_needs_its_name_and_text(docs):
         f'{API}/drafts', headers=HEADERS, json={'slug': 'runbook', 'title': 'Runbook again', 'markdown': '# Again'}
     )
     assert named.status_code == 409 and named.json()['error']['message'] == NAME_IN_USE.format(slug='runbook')
-    # A brand-new draft holds its folder and slug: a second brand-new draft of that name is refused.
+    # A brand-new draft holds its slug: a second brand-new draft of that name is refused.
     taken = docs.client.post(
-        f'{API}/drafts',
-        headers=HEADERS,
-        json={'slug': 'disk-layout', 'folder': 'servers/web-1', 'title': 'D', 'markdown': '# D'},
+        f'{API}/drafts', headers=HEADERS, json={'slug': 'disk-layout', 'title': 'D', 'markdown': '# D'}
     )
     assert taken.status_code == 409 and taken.json()['error']['message'] == NAME_IN_USE.format(slug='disk-layout')
-    assert (
-        NAME_IN_USE.format(slug='x')
-        == 'A document or draft named x already exists in this folder. Choose another name.'
-    )
-    assert new_draft(docs, slug='disk-layout', title='D', markdown='# D')['folder'] is None  # another folder is free
+    assert NAME_IN_USE.format(slug='x') == 'A document or draft named x already exists. Choose another name.'
 
 
 def test_saving_a_draft_needs_its_revision_and_marks_it_edited(docs):
@@ -180,7 +172,6 @@ def test_a_new_document_draft_creates_the_document_with_the_resources_that_still
     draft = new_draft(
         docs,
         slug='disk-layout',
-        folder='servers/web-1',
         title='Disk layout',
         markdown='# Disks',
         resource_ids={'server_ids': [server['id']], 'service_ids': [str(gone)]},
@@ -190,9 +181,8 @@ def test_a_new_document_draft_creates_the_document_with_the_resources_that_still
     promoted = promote(docs, draft)
     assert promoted.status_code == 200, promoted.text
     created = docs.client.get(f'{API}/documents/{promoted.json()["document_id"]}', headers=HEADERS).json()
-    assert (created['slug'], created['folder'], created['title'], created['server_ids'], created['service_ids']) == (
+    assert (created['slug'], created['title'], created['server_ids'], created['service_ids']) == (
         'disk-layout',
-        'servers/web-1',
         'Disk layout',
         [server['id']],
         [],
@@ -212,10 +202,6 @@ def test_a_brand_new_drafts_name_cannot_be_taken_by_a_live_document(docs):
     assert taken.json()['error']['message'] == NAME_IN_USE.format(slug='overview')
     promoted = promote(docs, draft)
     assert promoted.status_code == 200 and promoted.json()['document_id'] == draft['id']
-    # Its name is checked on promote, as a save checks it: a folder named like the document is refused.
-    nested = new_draft(docs, slug='notes', folder='overview', title='Notes', markdown='# Notes')
-    refused = promote(docs, nested)
-    assert refused.status_code == 409 and 'is used by the document overview' in refused.text
 
 
 def test_promote_deletes_the_documents_other_drafts(docs):
@@ -300,7 +286,6 @@ def test_an_agent_draft_is_promoted_as_generated_text_of_its_run(docs):
             {**NEW_DEFAULTS, 'title': 'Payments', 'markdown': '# Payments'},
             origin='generated',
             slug='payments',
-            folder='payments',
         )
     draft = docs.client.get(f'{API}/drafts/{draft_id}', headers=HEADERS).json()
     assert (draft['origin'], draft['session_id'], draft['session_title'], draft['author']) == (
@@ -312,7 +297,7 @@ def test_an_agent_draft_is_promoted_as_generated_text_of_its_run(docs):
     promoted = promote(docs, draft)
     assert promoted.status_code == 200, promoted.text
     document = docs.client.get(f'{API}/documents/{promoted.json()["document_id"]}', headers=HEADERS).json()
-    assert (document['folder'], document['origin']) == ('payments', 'generated')
+    assert document['origin'] == 'generated'
     with docs.store.connect() as conn:
         assert conn.execute('SELECT document_id FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()[
             'document_id'

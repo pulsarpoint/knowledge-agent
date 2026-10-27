@@ -8,7 +8,7 @@ import psycopg
 import pytest
 from psycopg import sql
 from psycopg.rows import dict_row
-from test_rag_gone_migration import schema
+from test_rag_gone_migration import ignoring_folder_order, schema
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0143_code_project_dependencies.up.sql', '0143_code_project_dependencies.down.sql'
@@ -50,8 +50,9 @@ def depend(conn, project, start, end, **columns):
 
 def test_down_gives_back_the_0142_schema_and_up_again(store, at_0142):
     with store.connect() as conn:
+        run(conn, '0144_no_document_folders.down.sql')
         run(conn, DOWN)
-        assert schema(conn) == at_0142
+        assert ignoring_folder_order(schema(conn)) == ignoring_folder_order(at_0142)
         run(conn, UP)
         assert conn.execute("SELECT to_regclass('ka.code_project_dependencies') AS t").fetchone()['t'] is not None
 

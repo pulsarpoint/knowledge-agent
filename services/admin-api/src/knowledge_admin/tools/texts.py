@@ -51,7 +51,7 @@ LIST_DOCUMENTS = (
 )
 NEW_DOCUMENT = (
     'Create a new document about a server, service, environment or code project of this run, as a draft built for '
-    'it (linked to it for good); its folder and file name come from the resource and the title. A title already used by a document '
+    'it (linked to it for good); its name comes from the resource and the title. A title already used by a document '
     "linked to the same resource is refused with that document's id: update that one instead. Returns the new "
     "document's id: use it with update_document, edit_document and get_document; it stays the document's id once "
     f'published.\n\n{DRAFTS}\n\nFields: {RESOURCE}; title (1–240 characters); content (the whole document in '

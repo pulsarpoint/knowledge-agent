@@ -37,7 +37,6 @@ from knowledge_admin.documents.drafts import (
     audit,
     available_resources,
     document_named,
-    free_folder,
     free_slug,
     live_content,
     record_run_sources,
@@ -111,12 +110,12 @@ OWN_NEW = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown
     WHERE id=%s AND is_draft AND draft_of IS NULL AND session_id=%s"""
 LINKED = """SELECT server_id,service_id,environment_id,code_project_id FROM ka.document_resources
     WHERE document_id=%s AND removed_at IS NULL"""
-# The run's working draft of its new document: the brand-new draft with the entry's folder and slug, or its draft of
-# the live document that folder and slug now name.
+# The run's working draft of its new document: the brand-new draft with the entry's slug, or its draft of the live
+# document that slug now names.
 NEW_WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents
-    WHERE is_draft AND session_id=%s AND NOT edited AND ((draft_of IS NULL AND folder IS NOT DISTINCT FROM %s AND slug=%s)
-    OR draft_of=(SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft AND folder IS NOT DISTINCT FROM %s
-    AND slug=%s)) ORDER BY created_at DESC,id DESC LIMIT 1"""
+    WHERE is_draft AND session_id=%s AND NOT edited AND ((draft_of IS NULL AND slug=%s)
+    OR draft_of=(SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft AND slug=%s))
+    ORDER BY created_at DESC,id DESC LIMIT 1"""
 # A document linked to the resource ({column}) with this title (case does not matter): a live one, or a new document
 # this run drafted.
 SAME_TITLE = """SELECT d.id FROM ka.documents d WHERE d.project_id=%s AND d.draft_of IS NULL
@@ -356,12 +355,10 @@ def _search_documents(config: dict[str, Any], query: str, limit: int) -> str:
 
 
 def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: bool = False) -> dict | None:
-    """The run's open, unedited draft of its new document: the new-document draft with the entry's folder and slug, or
-    (when that folder and slug named an existing document at the first save) its draft of that document."""
-    folder, slug = entry['folder'], entry['slug']
-    return conn.execute(
-        NEW_WORKING + (' FOR UPDATE' if lock else ''), (session_id, folder, slug, project, folder, slug)
-    ).fetchone()
+    """The run's open, unedited draft of its new document: the new-document draft with the entry's slug, or (when that
+    slug named an existing document at the first save) its draft of that document."""
+    slug = entry['slug']
+    return conn.execute(NEW_WORKING + (' FOR UPDATE' if lock else ''), (session_id, slug, project, slug)).fetchone()
 
 
 def _get_new_document(config: dict[str, Any], document_id: str) -> tuple[dict | None, str | None]:
@@ -562,7 +559,7 @@ def _write(
 ) -> UUID:
     """Save `text` as the run's draft and return its id: update `current`, else create a draft of `document` from its
     live content (title and description from `text`, which started from it), else (no document) of the new document
-    `new` ({folder, slug, tags}; tagged inventory: the inventory document of the run's one chosen resource). Then
+    `new` ({slug, tags}; tagged inventory: the inventory document of the run's one chosen resource). Then
     recompute the draft's sources from the run's tool calls."""
     project = session['project_id']
     prov = Provenance('agent_run', None, session['id'])
@@ -597,10 +594,9 @@ def _write(
                 {**NEW_DEFAULTS, **text.model_dump(), 'tags': list(new.get('tags') or [])},
                 origin='generated',
                 slug=new['slug'],
-                folder=new['folder'],
                 links=available_resources(conn, project, _run_links(new)),
             )
-        except errors.UniqueViolation:  # another run's or a person's brand-new draft holds this folder and slug
+        except errors.UniqueViolation:  # another run's or a person's brand-new draft holds this slug
             raise ValueError(NAME_IN_USE.format(slug=new['slug'])) from None
         except HTTPException as exc:  # a live document took the name of a new document tagged inventory meanwhile
             raise ValueError(exc.detail) from None
@@ -627,7 +623,7 @@ def _save_new(
     resource: dict | None,
 ) -> str:
     """A save of the run's new document (the tool checked it): the first creates its draft, later ones update
-    that draft. When the entry's folder and slug name an existing document (also one a person promoted the run's
+    that draft. When the entry's slug names an existing document (also one a person promoted the run's
     earlier draft into), the first save creates a draft of that document from its live content instead."""
     if not config.get('session_id'):
         raise ValueError(NO_SESSION)
@@ -635,13 +631,13 @@ def _save_new(
         session = _locked_session(conn, config)
         project = session['project_id']
         current = _new_document_draft(conn, session['id'], project, entry, lock=True)
-        existing = None if current is not None else document_named(conn, project, entry['folder'], entry['slug'])
+        existing = None if current is not None else document_named(conn, project, entry['slug'])
         if current is None and existing is None:
             # The run's brand-new draft, edited by a person, holds the name: no second draft until they decide.
             owned = conn.execute(
                 """SELECT title FROM ka.documents WHERE is_draft AND session_id=%s AND draft_of IS NULL AND edited
-                AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
-                (session['id'], entry['folder'], entry['slug']),
+                AND slug=%s""",
+                (session['id'], entry['slug']),
             ).fetchone()
             if owned is not None:
                 raise ValueError(PERSON_OWNS.format(name=owned['title']))
@@ -687,8 +683,8 @@ def _replace(old_text: str, new_text: str) -> Callable[[dict[str, Any]], dict[st
 def _new_document(
     config: dict[str, Any], resource: dict, title: str, content: str, description: str | None, tags: list[str] | None
 ) -> str:
-    """Create the run's draft of a new document built for the resource (checked): folder and slug from the resource
-    and the title (as discovery named them), refused when a document linked to the resource has the title."""
+    """Create the run's draft of a new document built for the resource (checked): a free slug in the project from the
+    resource's name and the title, refused when a document linked to the resource has the title."""
     if not config.get('session_id'):
         raise ValueError(NO_SESSION)
     found = resource_of(config['access'], resource)
@@ -708,11 +704,8 @@ def _new_document(
         ).fetchone()
         if clash is not None:
             return DUPLICATE_TITLE.format(title=text.title, type=access_rules.TYPE_WORDS[kind], id=clash['id'])
-        # The export lock a promote takes, so the free name below cannot race a Publish of another draft.
-        conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
         try:
-            folder = free_folder(conn, project, kind, document_slug(row['name']) or kind)
-            slug = free_slug(conn, project, folder, document_slug(f'{row["name"]} {text.title}'))
+            slug = free_slug(conn, project, document_slug(f'{row["name"]} {text.title}'))
             draft = create_draft(
                 conn,
                 project,
@@ -720,7 +713,6 @@ def _new_document(
                 {**NEW_DEFAULTS, **text.model_dump(), 'tags': list(tags or [])},
                 origin='generated',
                 slug=slug,
-                folder=folder,
                 links={f'{kind}_ids': [row['id']]},
             )
         except errors.UniqueViolation:  # another draft took the name meanwhile

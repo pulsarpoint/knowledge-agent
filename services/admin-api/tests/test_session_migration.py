@@ -13,6 +13,7 @@ def test_rename_preserves_history_and_refuses_a_populated_downgrade(store):
     down = (repo / 'db/migrations/0036_agent_sessions.down.sql').read_text()
     session_id = uuid4()
     with store.connect() as conn:
+        conn.execute((repo / 'db/migrations/0144_no_document_folders.down.sql').read_text(), prepare=False)
         conn.execute((repo / 'db/migrations/0084_remove_claude_code.down.sql').read_text(), prepare=False)
         conn.execute((repo / 'db/migrations/0081_test_sessions.down.sql').read_text(), prepare=False)
         conn.execute(

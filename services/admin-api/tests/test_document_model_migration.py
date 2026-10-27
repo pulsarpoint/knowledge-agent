@@ -41,6 +41,7 @@ def run(conn, name):
 def before(conn):
     """Roll 0104 back (0107 and 0106 first: the inventory flag, discovery runs) so old-shape rows can be written."""
     conn.commit()
+    run(conn, '0144_no_document_folders.down.sql')  # 0144 drops the folder columns 0104 and 0109 change
     run(conn, '0131_proposals_gone.down.sql')  # 0131 drops discovery_proposals, which 0106 and 0104 change
     run(conn, '0127_environment_workspace.down.sql')  # 0127 makes environment_servers, which 0126 down makes again
     run(conn, '0126_inventory_drop_old.down.sql')  # 0126 drops what 0109 and older change

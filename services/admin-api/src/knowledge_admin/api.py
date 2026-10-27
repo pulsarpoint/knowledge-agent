@@ -10,7 +10,6 @@ from knowledge_admin.skills import api as skills
 from knowledge_admin.documents import (
     api as documents,
     drafts as document_drafts,
-    folders as documentation_folders,
     prompts as documentation_prompts,
 )
 from knowledge_admin.inventory import api as inventory_api
@@ -65,7 +64,6 @@ def build_api(
     router.include_router(documents.build_api(app_name, repository_store))
     router.include_router(document_drafts.build_api(app_name, repository_store))
     router.include_router(documentation_prompts.build_api(app_name, repository_store))
-    router.include_router(documentation_folders.build_api(app_name, repository_store))
     from knowledge_admin.llm import api as llm_api, mcp_api
     from knowledge_admin.agents import (
         profiles_api,

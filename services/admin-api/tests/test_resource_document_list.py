@@ -49,9 +49,9 @@ def documents_of(world) -> dict:
             conn, world.project, 'notes', 'Production notes', '# P', environment_ids=[world.environment]
         )['id']
         conn.execute(
-            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,title,description,purpose,
+            """INSERT INTO ka.documents(project_id,slug,revision,is_draft,title,description,purpose,
             audience,tags,markdown,content_hash,origin)
-            VALUES (%s,'web-1-draft',NULL,1,true,'A draft','','explanation','both','{}','# d',
+            VALUES (%s,'web-1-draft',1,true,'A draft','','explanation','both','{}','# d',
             encode(sha256('# d'),'hex'),'generated') RETURNING id""",
             (world.project,),
         )

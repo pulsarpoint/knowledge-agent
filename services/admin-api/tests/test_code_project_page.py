@@ -98,7 +98,7 @@ def test_the_page_data_needs_an_administrator(world):
 
 
 def test_a_new_document_can_be_built_for_a_code_project(world):
-    new = {'folder': 'code', 'name': 'Shop notes', 'code_project_id': str(world.shop)}
+    new = {'name': 'Shop notes', 'code_project_id': str(world.shop)}
     created = start(world, {'new_document': new}, resources={'documents': [{'new': new}]})
     assert created.status_code == 201, created.text
     pinned = pinned_of(world, created.json()['id'])

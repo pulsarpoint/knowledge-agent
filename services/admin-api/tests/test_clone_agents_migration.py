@@ -22,6 +22,7 @@ DROPPED = '0114_drop_agent_resource_tables.down.sql'  # the per-type tables 0080
 TOOLS_DROPPED = '0115_tools_always_on.down.sql'  # ka.agent_tools, which 0080 materialised versions' tools into
 GROUNDED_DROPPED = '0133_document_search.down.sql'  # agents.documents_grounded, which 0080 reads and writes
 RAG_GONE = '0134_rag_gone.down.sql'  # rag_collections, which 0114 down and 0080 read
+NO_FOLDERS = '0144_no_document_folders.down.sql'  # agent_sessions.folder, which 0084 down moves
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (
     ('agents', 'active_config_version_id'),
@@ -40,6 +41,10 @@ BEFORE = {
 def with_old_tables(conn) -> None:
     """0115 and 0114 down, once: these tests write and read ka.agent_tools and the per-type tables (0114 down fills
     them from each agent's access; 0115 down recreates ka.agent_tools empty)."""
+    if not conn.execute(
+        "SELECT 1 FROM information_schema.columns WHERE table_schema='ka' AND table_name='documents' AND column_name='folder'"
+    ).fetchone():
+        conn.execute((MIGRATIONS / NO_FOLDERS).read_text(), prepare=False)
     if conn.execute("SELECT to_regclass('ka.rag_collections') AS r").fetchone()['r'] is None:
         conn.execute((MIGRATIONS / RAG_GONE).read_text(), prepare=False)
     if conn.execute("SELECT to_regclass('ka.documents_search') AS r").fetchone()['r'] is not None:

@@ -73,6 +73,9 @@ def test_migration_maps_exact_labels_and_retains_unmatched_deployments(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
         conn.execute(
+            (migrations / '0144_no_document_folders.down.sql').read_text(), prepare=False
+        )  # 0144 drops the folders 0109 down reads
+        conn.execute(
             (migrations / '0127_environment_workspace.down.sql').read_text(), prepare=False
         )  # 0127 makes environment_servers, which 0126 down makes again
         conn.execute((migrations / '0126_inventory_drop_old.down.sql').read_text(), prepare=False)

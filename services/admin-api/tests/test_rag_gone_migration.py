@@ -65,6 +65,16 @@ def schema(conn) -> dict:
     }
 
 
+FOLDER_TABLES = ('documents', 'live_documents', 'agent_sessions')
+
+
+def ignoring_folder_order(described: dict) -> dict:
+    """The schema without the column positions of FOLDER_TABLES: 0144 down adds their folder column back at the end
+    (PostgreSQL cannot put a column back in its place)."""
+    columns = sorted((row[0], None, *row[2:]) if row[0] in FOLDER_TABLES else row for row in described['columns'])
+    return {**described, 'columns': columns}
+
+
 @pytest.fixture
 def at_0133(postgres):
     """A fresh database migrated up to 0133 only."""
@@ -84,6 +94,7 @@ def at_0133(postgres):
 
 def test_down_gives_back_the_0133_schema(store, at_0133):
     with store.connect() as conn:
+        run(conn, '0144_no_document_folders.down.sql')
         run(conn, '0143_code_project_dependencies.down.sql')
         run(conn, '0142_test_is_chat.down.sql')
         run(conn, '0140_code_project_prompt.down.sql')
@@ -92,7 +103,7 @@ def test_down_gives_back_the_0133_schema(store, at_0133):
         run(conn, '0136_output_schemas.down.sql')
         run(conn, '0135_agent_disabled_tools.down.sql')  # (after 0135 down)
         run(conn, DOWN)
-        assert schema(conn) == at_0133
+        assert ignoring_folder_order(schema(conn)) == ignoring_folder_order(at_0133)
 
 
 def tables(conn) -> set[str]:

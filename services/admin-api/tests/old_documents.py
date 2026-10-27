@@ -27,10 +27,13 @@ SERVICE_PROPOSALS = ('0129_service_proposals_gone.down.sql', '0129_service_propo
 # 0127 makes environment_servers again, which 0126 down makes: rolled back before 0126.
 WORKSPACE = ('0127_environment_workspace.down.sql', '0127_environment_workspace.up.sql')
 INVENTORY_DOCUMENT = ('0107_inventory_document.down.sql', '0107_inventory_document.up.sql')
+# 0144 drops the documents' and runs' folder columns, which older migrations change: rolled back first of all.
+NO_FOLDERS = ('0144_no_document_folders.down.sql', '0144_no_document_folders.up.sql')
 
 
 def roll_back_0104(store) -> None:
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / NO_FOLDERS[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / RAG_GONE[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / PROPOSALS_GONE[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / SERVICE_PROPOSALS[0]).read_text(), prepare=False)

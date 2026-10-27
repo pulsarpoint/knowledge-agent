@@ -11,7 +11,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from session_rows import a_model
-from test_rag_gone_migration import schema
+from test_rag_gone_migration import ignoring_folder_order, schema
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0139_skill_folders.up.sql', '0139_skill_folders.down.sql'
@@ -48,11 +48,12 @@ def columns(conn) -> set[str]:
 
 def test_down_gives_back_the_0138_schema(store, at_0138):
     with store.connect() as conn:
+        run(conn, '0144_no_document_folders.down.sql')
         run(conn, '0143_code_project_dependencies.down.sql')
         run(conn, '0142_test_is_chat.down.sql')
         run(conn, '0140_code_project_prompt.down.sql')
         run(conn, DOWN)
-        assert schema(conn) == at_0138
+        assert ignoring_folder_order(schema(conn)) == ignoring_folder_order(at_0138)
 
 
 def test_up_removes_the_skills_and_the_skill_access_entries(store):

@@ -86,8 +86,8 @@ def test_an_environment_chat_drafts_a_new_document_for_its_service_and_edits_it(
     assert (str(draft['id']), draft['document_id'], draft['title']) == (document, None, 'API runbook')
     assert draft['markdown'] == '# API runbook\n\nStart it with make.\n\nStop it with make.\n'
     listed = rev.docs.client.get(f'{API}/drafts?service_id={found["service"]}', headers=HEADERS).json()['drafts']
-    assert [(str(item['id']), item['published'], item['folder'], item['slug']) for item in listed] == [
-        (document, False, 'service-documents/api', 'api-api-runbook')
+    assert [(str(item['id']), item['published'], item['slug']) for item in listed] == [
+        (document, False, 'api-api-runbook')
     ]
     read = json.loads(call(rev, 'get_document', document_id=document))
     assert (read['reads'], read['title']) == ('your draft', 'API runbook')
@@ -311,13 +311,15 @@ def test_the_role_and_the_editable_flag_are_gone():
 
 
 def test_a_code_project_chat_drafts_its_overview_and_lists_its_documents(rev):
-    """A run started from a code project writes new_document for it (built for it, in code-projects/<name>)."""
+    """A run started from a code project writes new_document for it (built for it, named by the first free slug in
+    the project from its name and the title)."""
     shop = uuid4()
     with rev.docs.store.connect() as conn:
         conn.execute(
             "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'shop','Shop')",
             (shop, rev.docs.project),
         )
+    make_document(rev.docs, 'shop-overview', 'Another overview')  # not linked to the code project: its slug is taken
     rev.config['access'] = {'resources': [{**entry('code_project', shop, 'Shop'), 'source': 'given'}]}
     reply = call(
         rev,
@@ -329,8 +331,8 @@ def test_a_code_project_chat_drafts_its_overview_and_lists_its_documents(rev):
     assert reply.endswith(DRAFT_NOTE) and 'built for code project Shop' in reply
     document = created_id(reply)
     with rev.docs.store.connect() as conn:
-        draft = conn.execute('SELECT folder,slug FROM ka.documents WHERE id=%s', (document,)).fetchone()
-    assert (draft['folder'], draft['slug']) == ('code-projects/shop', 'shop-overview')
+        draft = conn.execute('SELECT slug FROM ka.documents WHERE id=%s', (document,)).fetchone()
+    assert draft['slug'] == 'shop-overview-2'
     listed = json.loads(call(rev, 'list_documents', resource={'type': 'code_project', 'id': str(shop)}))
     assert [item['id'] for item in listed['documents']] == [document]
     again = call(rev, 'new_document', resource={'type': 'code_project', 'id': str(shop)}, title='overview', content='#')

@@ -113,16 +113,13 @@ def test_links_of_a_brand_new_draft_but_not_of_a_draft_of_a_document(docs):
 
 def test_a_brand_new_draft_opens_as_a_document_and_a_draft_of_a_document_does_not(docs):
     env = resource(docs.store, 'environments', 'Production')
-    draft = new_draft(
-        docs, slug='prod', folder='ops', title='Prod', markdown='# Prod', resource_ids={'environment_ids': [env]}
-    )
+    draft = new_draft(docs, slug='prod', title='Prod', markdown='# Prod', resource_ids={'environment_ids': [env]})
     opened = docs.client.get(f'{API}/documents/{draft["id"]}', headers=HEADERS)
     assert opened.status_code == 200, opened.text
     document = opened.json()
     assert (
         document['id'],
         document['slug'],
-        document['folder'],
         document['title'],
         document['markdown'],
         document['revision'],
@@ -132,7 +129,7 @@ def test_a_brand_new_draft_opens_as_a_document_and_a_draft_of_a_document_does_no
         document['session_id'],
         document['versions'],
         document['drafts'],
-    ) == (draft['id'], 'prod', 'ops', 'Prod', '# Prod', 1, True, False, 'manual', None, [], [])
+    ) == (draft['id'], 'prod', 'Prod', '# Prod', 1, True, False, 'manual', None, [], [])
     assert [(link['name'], link['connection']) for link in document['resource_links']] == [('Production', 'built_for')]
     of_live = new_draft(docs, document_id=docs.runbook)
     missing = docs.client.get(f'{API}/documents/{of_live["id"]}', headers=HEADERS)
@@ -147,24 +144,21 @@ def test_a_brand_new_draft_can_be_renamed_until_published(docs):
     draft = new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Disks')
     url = f'{API}/drafts/{draft["id"]}'
     text = {'title': 'Disk layout', 'markdown': '# Disks'}
-    renamed = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 1, 'slug': 'disks', 'folder': 'servers'})
+    renamed = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 1, 'slug': 'disks'})
     assert renamed.status_code == 200, renamed.text
-    assert (renamed.json()['slug'], renamed.json()['folder'], renamed.json()['revision']) == ('disks', 'servers', 2)
+    assert (renamed.json()['slug'], renamed.json()['revision']) == ('disks', 2)
     kept = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 2})  # no name: it stays
-    assert (kept.json()['slug'], kept.json()['folder']) == ('disks', 'servers')
-    to_root = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 3, 'folder': None})
-    assert (to_root.json()['slug'], to_root.json()['folder']) == ('disks', None)
-    taken = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'runbook'})
+    assert (kept.json()['slug'], kept.json()['revision']) == ('disks', 3)
+    folder = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 3, 'folder': 'servers'})
+    assert folder.status_code == 400  # documents have no folders
+    taken = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 3, 'slug': 'runbook'})
     assert taken.status_code == 409 and taken.json()['error']['message'] == NAME_IN_USE.format(slug='runbook')
     other = new_draft(docs, slug='other', title='Other', markdown='# Other')
-    clash = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'other'})
+    clash = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 3, 'slug': 'other'})
     assert clash.status_code == 409 and clash.json()['error']['message'] == NAME_IN_USE.format(slug='other')
-    nested = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'x', 'folder': 'runbook'})
-    assert nested.status_code == 409 and 'is used by the document runbook' in nested.text
-    assert docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'slug': 'Bad Name'}).status_code == 400
-    assert docs.client.put(url, headers=HEADERS, json={**text, 'revision': 4, 'folder': 'Servers'}).status_code == 400
+    assert docs.client.put(url, headers=HEADERS, json={**text, 'revision': 3, 'slug': 'Bad Name'}).status_code == 400
     current = docs.client.get(url, headers=HEADERS).json()
-    assert (current['slug'], current['folder'], current['revision']) == ('disks', None, 4)
+    assert (current['slug'], current['revision']) == ('disks', 3)
     assert docs.client.get(f'{API}/drafts/{other["id"]}', headers=HEADERS).json()['slug'] == 'other'
 
 
@@ -172,9 +166,8 @@ def test_a_draft_of_a_document_keeps_its_name(docs):
     draft = new_draft(docs, document_id=docs.runbook)
     url = f'{API}/drafts/{draft["id"]}'
     text = {'title': 'Runbook', 'markdown': '# Runbook v2'}
-    for name in ({'slug': 'renamed'}, {'folder': 'ops'}, {'folder': None}):
-        refused = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 1, **name})
-        assert refused.status_code == 400 and refused.json()['error']['message'] == KEEPS_NAME, name
+    refused = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 1, 'slug': 'renamed'})
+    assert refused.status_code == 400 and refused.json()['error']['message'] == KEEPS_NAME
     saved = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 1})
     assert saved.status_code == 200 and (saved.json()['slug'], saved.json()['revision']) == ('runbook', 2)
 
@@ -202,11 +195,9 @@ def test_a_person_cannot_name_a_new_document_like_a_live_one(docs):
     assert refused.status_code == 409
     assert refused.json()['error']['message'] == NAME_IN_USE.format(slug='runbook')
     assert refused.json()['error']['message'] == (
-        'A document or draft named runbook already exists in this folder. Choose another name.'
+        'A document or draft named runbook already exists. Choose another name.'
     )
     assert docs.client.get(f'{API}/drafts', headers=HEADERS).json()['drafts'] == []
-    # The same name in another folder is free.
-    assert new_draft(docs, **body, folder='ops')['document_id'] is None
     # A run's save keeps today's rule: a live document's name drafts that document.
     with docs.store.connect() as conn:
         draft_id = create_draft(
@@ -216,7 +207,6 @@ def test_a_person_cannot_name_a_new_document_like_a_live_one(docs):
             {**NEW_DEFAULTS, 'title': 'Runbook', 'markdown': '# Run text'},
             origin='generated',
             slug='runbook',
-            folder=None,
         )
     draft = docs.client.get(f'{API}/drafts/{draft_id}', headers=HEADERS).json()
     assert (draft['document_id'], draft['base_version'], draft['markdown']) == (docs.runbook, 1, '# Run text')

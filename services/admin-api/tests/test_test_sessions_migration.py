@@ -15,6 +15,7 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0081_test_sessions.up.sql', '0081_test_sessions.down.sql'
 LATER = '0084_remove_claude_code.down.sql'
 TEST_IS_CHAT_DOWN = '0142_test_is_chat.down.sql'
+NO_FOLDERS_DOWN = '0144_no_document_folders.down.sql'  # documents sessions have a folder again
 OLD = ('agent_sessions', 'operations_runs', 'operations_commands')
 NEW_COLUMNS = {'purpose', 'model_calls', 'reasoning_tokens'}
 
@@ -71,6 +72,7 @@ def people(store, conn):
 
 def test_purpose_checks_keep_documents_and_test_sessions_apart(store):
     with store.connect() as conn:
+        run(conn, NO_FOLDERS_DOWN)
         project, actor, model = people(store, conn)
         documents = documents_session(conn, project, actor, model)
         tested = add_chat_session(conn, project, actor, 'search', model)
@@ -110,6 +112,7 @@ def test_purpose_checks_keep_documents_and_test_sessions_apart(store):
 
 def test_up_drops_the_old_test_chats_and_keeps_their_run_records(store):
     with store.connect() as conn:
+        run(conn, NO_FOLDERS_DOWN)
         run(conn, LATER)
         run(conn, DOWN)
         conn.commit()
@@ -165,6 +168,7 @@ def test_up_drops_the_old_test_chats_and_keeps_their_run_records(store):
 
 def test_down_deletes_test_sessions_and_restores_the_old_tables_empty(store):
     with store.connect() as conn:
+        run(conn, NO_FOLDERS_DOWN)
         project, actor, model = people(store, conn)
         documents = documents_session(conn, project, actor, model)
         run(conn, TEST_IS_CHAT_DOWN)  # 0142 down allows Test sessions again
