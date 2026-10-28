@@ -163,20 +163,6 @@ export default function MemoryView() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <EmbeddingModelSelect onChange={refresh} onError={setError} />
-        <Button variant="outline" onClick={refresh}>
-          <RefreshCw data-icon="inline-start" />
-          Refresh
-        </Button>
-        {notEmbedded > 0 && embeddingModel && (
-          <Button variant="outline" disabled={reembedding} onClick={() => void reembed()}>
-            {reembedding && <Spinner data-icon="inline-start" />}
-            Re-embed ({notEmbedded})
-          </Button>
-        )}
-        {newEntry}
-      </div>
       {!embeddingModel && (
         <p className="text-sm text-muted-foreground">No embedding model selected: entries are found by words only.</p>
       )}
@@ -234,6 +220,20 @@ export default function MemoryView() {
                 </button>
               </Badge>
             ))}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <EmbeddingModelSelect onChange={refresh} onError={setError} />
+              <Button variant="outline" onClick={refresh}>
+                <RefreshCw data-icon="inline-start" />
+                Refresh
+              </Button>
+              {notEmbedded > 0 && embeddingModel && (
+                <Button variant="outline" disabled={reembedding} onClick={() => void reembed()}>
+                  {reembedding && <Spinner data-icon="inline-start" />}
+                  Re-embed ({notEmbedded})
+                </Button>
+              )}
+              {newEntry}
+            </div>
           </>
         }
         empty={

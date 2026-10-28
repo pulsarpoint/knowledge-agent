@@ -91,7 +91,26 @@ test("the embedding model is chosen on the Memory page and never offers chat mod
       embedding_model_id: "embed",
     }),
   );
-  expect(screen.getByRole("link", { name: "LLM Settings" })).toHaveAttribute("href", "/llm-settings");
+  // The note on where connections are managed sits at the foot of the model list.
+  await user.click(screen.getByRole("combobox", { name: "Embedding model" }));
+  expect(await screen.findByRole("link", { name: "LLM Settings" })).toHaveAttribute("href", "/llm-settings");
+});
+
+test("search, the agent filter, the embedding model, Refresh and New entry share one toolbar row", async () => {
+  api((url) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url.startsWith("/api/memories")) return page([entry("payments/deploy")]);
+  });
+  view();
+  const row = (await screen.findByRole("searchbox", { name: "Search memory" })).closest("[data-slot='table-toolbar']")!;
+  expect(row).not.toBeNull();
+  for (const control of [
+    screen.getByRole("combobox", { name: "Saved by agent" }),
+    await screen.findByRole("combobox", { name: "Embedding model" }),
+    screen.getByRole("button", { name: "Refresh" }),
+    screen.getByRole("button", { name: "New entry" }),
+  ])
+    expect(row).toContainElement(control);
 });
 
 test("searching and clicking a metadata badge filter the list", async () => {

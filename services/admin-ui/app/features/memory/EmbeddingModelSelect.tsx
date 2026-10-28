@@ -4,10 +4,20 @@ import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getLlmSettings, type ModelProfile } from "~/features/llm/api";
 import { getMemorySettings, saveMemorySettings } from "./api";
-import { Field, FieldDescription, FieldLabel } from "~/components/ui/field";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Label } from "~/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 
-/** The embedding model memory search and saving use. A change is saved at once; `onChange` lets the page reload. */
+/** The embedding model memory search and saving use: one inline control (label beside the select) that sits in a
+ * toolbar row; the note on where connections are managed is at the foot of the list. A change is saved at once;
+ * `onChange` lets the page reload. */
 export default function EmbeddingModelSelect({
   onChange,
   onError,
@@ -42,10 +52,12 @@ export default function EmbeddingModelSelect({
   }
 
   return (
-    <Field className="w-full sm:w-64">
-      <FieldLabel htmlFor="memory-embedding-model">Embedding model</FieldLabel>
+    <div className="flex items-center gap-2">
+      <Label htmlFor="memory-embedding-model" className="whitespace-nowrap text-muted-foreground">
+        Embedding model
+      </Label>
       <Select value={modelId ?? "none"} onValueChange={(value) => void choose(value)}>
-        <SelectTrigger id="memory-embedding-model" className="w-full">
+        <SelectTrigger id="memory-embedding-model" className="w-48">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -58,15 +70,16 @@ export default function EmbeddingModelSelect({
               </SelectItem>
             ))}
           </SelectGroup>
+          <SelectSeparator />
+          <p className="px-2 py-1.5 text-xs text-muted-foreground">
+            Connections are managed in{" "}
+            <Link className="underline underline-offset-4" to="/llm-settings">
+              LLM Settings
+            </Link>
+            .
+          </p>
         </SelectContent>
       </Select>
-      <FieldDescription>
-        Connections are managed in{" "}
-        <Link className="underline underline-offset-4" to="/llm-settings">
-          LLM Settings
-        </Link>
-        .
-      </FieldDescription>
-    </Field>
+    </div>
   );
 }

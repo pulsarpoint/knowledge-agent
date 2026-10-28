@@ -164,7 +164,7 @@ export default function DataTable<T>({
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {(search || toolbar) && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div data-slot="table-toolbar" className="flex flex-wrap items-center gap-2">
           {search && (
             <Input
               type="search"
