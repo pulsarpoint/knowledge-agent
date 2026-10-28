@@ -111,7 +111,9 @@ def reason(exc: BaseException) -> str:
     status = _status(exc)
     if status is not None:
         return f'the model refused the request ({status})'
-    if isinstance(exc, ValueError) and str(exc).strip():  # configuration: a disabled agent or model, a missing key
+    # configuration: a disabled agent or model, a missing key. Only a plain ValueError: subclasses (a pydantic
+    # ValidationError, a JSONDecodeError) echo input values.
+    if type(exc) is ValueError and str(exc).strip():
         return masked(str(exc))[:200].rstrip('.')
     return f'{UNEXPECTED} ({type(exc).__name__})'
 

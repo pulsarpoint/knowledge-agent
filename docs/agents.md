@@ -136,7 +136,8 @@ limit, no per-turn time limit, no 300-second limit).
   runs the retry at once with that message (`retry_at` becomes now, a re-queued wake-up comes along). **Stop** while it
   waits cancels the retry: the re-queued inputs (wake-ups included) and queued messages are discarded, the run ends
   `stopped` with a final `end {status: "stopped"}` event, and an event run's first turn gets its notification without a
-  Jira comment. A failed attempt during which Stop was pressed also ends `stopped`, with no retry and no Jira comment.
+  Jira comment. A failed attempt during which Stop was pressed also ends `stopped`, with no retry and no Jira comment
+  (its record gets a final `end {status: "stopped"}` even when Stop came after the attempt's end event).
   **Close** ends it too (the notification is the close message) and also adds the final `end` event, so Agent runs
   never keeps showing it as retrying. Nothing is notified and nothing is posted to Jira until the turn succeeds or
   gives up. `/status` reports a retrying run as `running`, and `/output`
@@ -148,7 +149,8 @@ limit, no per-turn time limit, no 300-second limit).
   failure message). The reason is safe for the ticket: `the model could not be reached` (a transient model error), `a
   tool server could not be reached` (a transient error of an MCP connection, an exception group), a fixed label for
   other errors (`the model refused the request (401)`, `it used all its turns`, `an unexpected error (RuntimeError)`,
-  ...), and only a configuration error's own text, on one line, with every URL's userinfo, query and fragment masked
+  ...), and only a plain `ValueError`'s own text (a configuration error; subclasses such as a pydantic
+  `ValidationError` or a `JSONDecodeError` get the fixed label, since they echo input values), on one line, with every URL's userinfo, query and fragment masked
   (`http_errors.safe_url`) and the run's credentials redacted. When the reply worker retries a post, it takes only a
   comment created after the notification for an earlier attempt's, so a second identical failure comment (after a
   Retry) is still posted (this assumes Jira's clock agrees with ours). A handler that gives the ticket back gives it back after the
@@ -156,7 +158,8 @@ limit, no per-turn time limit, no 300-second limit).
   not posted (its notification shows the placeholder).
 - **Retry** (`POST /api/sessions/{id}/retry`, the session page and the chat pane when the latest turn failed): the
   failed turn's inputs are queued again for delivery now and the session becomes `retrying` (`retries` 0,
-  `retried_at` now, `retry_at` null); a worker runs it as the same turn. Any run, chats too; an event run then gets automatic retries
+  `retried_at` now, `retry_at` now and the inputs' `not_before` too, so Stop and Send find them as after an automatic
+  retry); a worker runs it as the same turn. Any run, chats too; an event run then gets automatic retries
   again. 409 `This session is closed. Start a new session.` on a closed run, `The agent is working on this run; there
   is nothing to retry.` while it starts, works or waits for a retry, and `Only a failed turn can be retried.`
   otherwise (waiting, stopped, or failed before any turn). An event run's first turn gets one notification for the

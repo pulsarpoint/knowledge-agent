@@ -378,7 +378,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['status'] == 'failed':
                 queued = conn.execute(
                     """UPDATE ka.agent_session_inputs i SET status='queued',turn=NULL,delivered_at=NULL,
-                    not_before=CASE WHEN i.kind='wakeup' THEN now() END
+                    not_before=now()
                     FROM ka.agent_sessions s WHERE s.id=i.session_id AND i.session_id=%s AND i.status='delivered'
                       AND i.turn=s.turns""",
                     (session_id,),
@@ -386,7 +386,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if not queued:
                 raise HTTPException(409, NOTHING_TO_RETRY)
             conn.execute(
-                """UPDATE ka.agent_sessions SET status='retrying',status_message='',retries=0,retried_at=now(),retry_at=NULL,
+                """UPDATE ka.agent_sessions SET status='retrying',status_message='',retries=0,retried_at=now(),retry_at=now(),
                 stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
                 (session_id,),
             )

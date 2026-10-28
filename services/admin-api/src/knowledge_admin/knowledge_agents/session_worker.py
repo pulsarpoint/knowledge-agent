@@ -122,6 +122,16 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
     return rows
 
 
+def ended_stopped(conn, key: str) -> bool:
+    """Whether a turn's record ends with `end {status: stopped}`."""
+    row = conn.execute(
+        "SELECT payload->>'status' AS status FROM ka.agent_run_events WHERE run_key=%s AND kind='end' "
+        'ORDER BY seq DESC LIMIT 1',
+        (key,),
+    ).fetchone()
+    return row is not None and row['status'] == 'stopped'
+
+
 def append_run_events(conn, session_id, items: list[tuple[str, dict]]) -> None:
     """Events added to the record of the session's latest turn after its last one, outside a running turn: a turn the
     worker lost, or a retry that Stop or Close ended (its record ends with a final `end`)."""
@@ -346,6 +356,8 @@ class SessionRunner:
             if updated is not None and updated['status'] == 'retrying':
                 self._queue_again(conn, number, retry_at)
             elif updated is not None and updated['status'] == 'stopped' and status == 'failed':
+                if not ended_stopped(conn, run_key(self.id, number)):  # Stop came after the end event was recorded
+                    append_run_events(conn, self.id, [('end', {'status': 'stopped'})])
                 notify_event_run(conn, self.id, number, 'stopped', STOPPED)
             elif updated is not None:
                 notify_event_run(

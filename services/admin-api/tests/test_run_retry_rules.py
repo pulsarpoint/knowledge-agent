@@ -198,3 +198,21 @@ def test_the_jira_failure_comment():
     assert failure_comment('') == (
         'The agent could not answer: an unexpected error. Reassign the ticket or ask in Knowledge Agent to try again.'
     )
+
+
+def test_only_a_plain_value_error_shows_its_text():
+    import json
+
+    from pydantic import BaseModel
+
+    class Port(BaseModel):
+        port: int
+
+    try:
+        Port.model_validate({'port': 'password=hunter2'})
+    except ValueError as exc:
+        assert reason(exc) == 'an unexpected error (ValidationError)'
+    try:
+        json.loads('{"token": "abc"')
+    except ValueError as exc:
+        assert reason(exc) == 'an unexpected error (JSONDecodeError)'

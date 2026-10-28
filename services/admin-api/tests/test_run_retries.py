@@ -283,7 +283,7 @@ def test_retry_queues_a_failed_chat_turn_now_and_it_runs_as_the_same_turn(worker
     assert (row['status'], row['retries'], row['turns']) == ('retrying', 0, 1)
     assert row['retried_at'] is not None
     [queued] = inputs(store, sid)
-    assert (queued['status'], queued['not_before']) == ('queued', None)
+    assert (queued['status'], queued['not_before']) == ('queued', row['retry_at'])  # due now: Stop and Send find it
     attempt(store, fake)
     row = session_row(store, sid)
     assert (row['status'], row['turns']) == ('waiting', 1)
@@ -470,3 +470,51 @@ def test_a_second_failure_comment_is_not_taken_for_an_older_identical_one(store,
     assert jira_replies.run_once(store, jira(posted=posted, comments=[a_comment(footer, '10400')])) is True
     assert posted == [footer]
     assert note(store, nid)['jira_comment_id'] == '10500'
+
+
+# Re-review: manual Retry and Stop, a Stop that turns a failure into stopped
+
+
+def test_stop_after_a_manual_retry_before_a_worker_takes_it_discards_every_input(worker):
+    sid, *_ = a_run(worker)
+    store = worker.store
+    with store.connect() as conn:  # turn 1 was a wake-up
+        conn.execute(
+            "UPDATE ka.agent_session_inputs SET kind='wakeup',not_before=now()-interval '1 second' WHERE session_id=%s",
+            (sid,),
+        )
+    attempt(store, FakeAgent([{'steps': [], 'error': RuntimeError('boom')}]))
+    assert retry(worker, sid).status_code == 202
+    row = session_row(store, sid)
+    [queued] = inputs(store, sid)
+    assert row['retry_at'] is not None and queued['not_before'] == row['retry_at']
+    assert asyncio.run(post(worker, f'/api/sessions/{sid}/stop')).status_code == 202
+    assert [item['status'] for item in inputs(store, sid)] == ['discarded']
+    assert session_row(store, sid)['status'] == 'stopped'
+    assert shared.claim(store, 'worker-1', [], 4) == []
+
+
+def test_finish_turn_ends_the_record_stopped_when_stop_turns_a_failure_into_stopped(worker):
+    from datetime import UTC, datetime
+
+    sid, _ = prepared(worker)
+    store = worker.store
+    [row] = shared.claim(store, 'worker-1', [], 4)
+    runner = shared.SessionRunner(store, row)
+    number, _ = runner.next_turn()
+    with store.connect() as conn:  # the attempt's record already ended 'retrying', then Stop was pressed
+        shared.append_run_events(conn, sid, [('end', {'status': 'retrying'})])
+        conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (sid,))
+    runner.finish_turn(
+        number,
+        'failed',
+        'Agent execution failed.',
+        usage=None,
+        reason='the model could not be reached',
+        retry_at=datetime.now(UTC) + RETRIES[0],
+        retry_status='Retry 1 of 3',
+    )
+    assert session_row(store, sid)['status'] == 'stopped'
+    assert last_end(store, sid) == {'status': 'stopped'}
+    [note_row] = jira_notes(store, sid)
+    assert note_row['jira_status'] is None
