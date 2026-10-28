@@ -134,10 +134,15 @@ export function DocumentDraftsPage() {
 /** `/documents/:id/connections`: the resources it is linked to, the documents it depends on, the ones that depend on
  * it, and what it was built from. */
 export function DocumentConnectionsPage() {
-  const { document, resourcesChanged } = useDocumentPage();
+  const { document, resources, resourcesChanged } = useDocumentPage();
   return (
     <LiveOnly>
-      <DocumentConnections documentId={document.id} onResourcesChanged={resourcesChanged} />
+      <DocumentConnections
+        documentId={document.id}
+        resources={resources}
+        sourceCommits={(document.source_snapshot?.code_projects ?? []).filter((item) => item.git_commit)}
+        onResourcesChanged={resourcesChanged}
+      />
     </LiveOnly>
   );
 }

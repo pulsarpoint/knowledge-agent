@@ -208,7 +208,7 @@ def test_built_for_names_a_deployment_by_service_server_and_environment(store):
         with pytest.raises(HTTPException) as error:
             save_links(conn, project, live['id'], {'deployment_ids': []}, Provenance('person', None))
         assert error.value.detail == (
-            "This document was built for deployment Payments on web-1 (production); that link can't be removed."
+            "This document was built for deployment Payments on web-1 (production) · app; that link can't be removed."
         )
 
 

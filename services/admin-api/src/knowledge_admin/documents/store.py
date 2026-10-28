@@ -5,6 +5,7 @@ exports. This module never imports documents.api (api.py imports it)."""
 
 import hashlib
 from dataclasses import dataclass
+from typing import Literal, get_args
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -21,13 +22,26 @@ LINK_COLUMNS = {
     'deployment_ids': 'deployment_id',
     'environment_ids': 'environment_id',
 }
-TYPE_LABEL = {
-    'environment_id': 'environment',
-    'service_id': 'service',
-    'server_id': 'server',
-    'code_project_id': 'code project',
-    'deployment_id': 'deployment',
+# A link's type (document_resources.resource_type) → its column and its table, in the order a document lists them.
+LinkType = Literal['environment', 'server', 'service', 'code_project', 'deployment']
+LINK_TYPES = {
+    'environment': ('environment_id', 'environments'),
+    'server': ('server_id', 'servers'),
+    'service': ('service_id', 'services'),
+    'code_project': ('code_project_id', 'repositories'),
+    'deployment': ('deployment_id', 'service_deployments'),
 }
+assert tuple(LINK_TYPES) == get_args(LinkType)
+assert set(LINK_COLUMNS.values()) == {column for column, _ in LINK_TYPES.values()}
+# Column → the type in words (messages): "code project".
+TYPE_LABEL = {column: type.replace('_', ' ') for type, (column, _) in LINK_TYPES.items()}
+
+
+def link_field(column: str) -> str:
+    """A document_resources column's link field: server_id → server_ids."""
+    return f'{column[:-3]}_ids'
+
+
 BUILT_FOR = "This document was built for {type} {name}; that link can't be removed."
 CONTENT = ('title', 'description', 'purpose', 'audience', 'tags', 'markdown')
 
@@ -55,12 +69,7 @@ def has_inventory_tag(tags: list[str]) -> bool:
 
 INVENTORY_TYPES = {'server': 'Server', 'service': 'Service', 'environment': 'Environment'}
 # Inventory entry kind → document_resources column (an entry's documents; deployments are not entries).
-ENTRY_COLUMNS = {
-    'server': 'server_id',
-    'service': 'service_id',
-    'environment': 'environment_id',
-    'code_project': 'code_project_id',
-}
+ENTRY_COLUMNS = {kind: LINK_TYPES[kind][0] for kind in ('server', 'service', 'environment', 'code_project')}
 
 # The snapshot key of each link field (documents/api.py builds on these; this module never imports api).
 SNAPSHOT_KEYS = {
@@ -71,9 +80,19 @@ SNAPSHOT_KEYS = {
     'environments': 'environment_ids',
 }
 
-# A link row's resource id and display name (a deployment: "<service> on <server> (<environment>)").
+
+def deployment_name(service: str, server: str, environment: str, deployment: str) -> str:
+    """SQL naming a deployment from its tables' aliases: "<service> on <server> (<environment>)", then " · <runtime>"
+    when it has a runtime name. The one name of a deployment: links, badges, the picker and snapshots."""
+    return (
+        f"{service}.name || ' on ' || {server}.name || ' (' || {environment}.name || ')' || "
+        f"CASE WHEN {deployment}.runtime_name='' THEN '' ELSE ' · ' || {deployment}.runtime_name END"
+    )
+
+
+# A link row's resource id and display name (deployment_name).
 RESOURCE_ID = 'COALESCE(r.environment_id,r.service_id,r.server_id,r.code_project_id,r.deployment_id)'
-RESOURCE_NAME = "COALESCE(e.name,s.name,h.name,c.name,ds.name || ' on ' || dh.name || ' (' || de.name || ')')"
+RESOURCE_NAME = f'COALESCE(e.name,s.name,h.name,c.name,{deployment_name("ds", "dh", "de", "d")})'
 RESOURCE_JOINS = """LEFT JOIN ka.environments e ON e.id=r.environment_id
     LEFT JOIN ka.services s ON s.id=r.service_id LEFT JOIN ka.servers h ON h.id=r.server_id
     LEFT JOIN ka.repositories c ON c.id=r.code_project_id
@@ -124,8 +143,8 @@ def build_snapshot(
             (project, chosen['server_ids']),
         ).fetchall(),
         'deployments': conn.execute(
-            """SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
-            s.name || ' / ' || h.name || ' / ' || e.name AS name
+            f"""SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
+            {deployment_name('s', 'h', 'e', 'd')} AS name
             FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id JOIN ka.servers h ON h.id=d.server_id
             JOIN ka.environments e ON e.id=d.environment_id
             WHERE d.project_id=%s AND d.id=ANY(%s) ORDER BY d.id FOR SHARE OF d""",
@@ -208,7 +227,7 @@ def save_links(
     and nothing is written. Fields missing from `wanted` stay as they are."""
     if connection not in ('built_for', 'linked'):
         raise ValueError(connection)
-    conn.execute('SELECT id FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id, project))
+    conn.execute('SELECT id FROM ka.documents WHERE id=%s AND project_id=%s FOR NO KEY UPDATE', (document_id, project))
     plan = []
     for field, column in LINK_COLUMNS.items():
         if field not in wanted:
@@ -258,28 +277,23 @@ def add_link(conn, project: UUID, document_id: UUID, kind: str, resource_id: UUI
     return row is not None
 
 
-# A link's type (document_resources.resource_type) → its column and its table, in the order a document lists them.
-LINK_TYPES = {
-    'environment': ('environment_id', 'environments'),
-    'server': ('server_id', 'servers'),
-    'service': ('service_id', 'services'),
-    'code_project': ('code_project_id', 'repositories'),
-    'deployment': ('deployment_id', 'service_deployments'),
-}
 ALREADY_LINKED = 'This document is already linked to that {type}.'
 NOT_LINKED = 'This document is not linked to that {type}.'
 RESOURCE_NOT_FOUND = 'That {type} was not found.'
 
 
 def change_link(conn, project: UUID, document_id: UUID, type: str, resource_id: UUID, actor: UUID | None, *, linked):
-    """Add (`linked`: a 'linked' link, as a person) or remove one link of a live document, as save_links does: the
-    document's revision bumps and the audit log records it. 404: the document is not a live one of `project`, the
-    resource to add is not in `project` (an archived code project neither) or the link to remove is not there; 409:
-    the link is already there or (removing) the document was built for the resource."""
+    """Add (`linked`: a 'linked' link, as a person) or remove one link of a live document in one save_links call, as
+    the picker does: adding a deployment adds its service and server too when they are missing, and removing a service
+    or server removes its deployments. The document's revision bumps once and the audit log records the change. 404:
+    the document is not a live one of `project`, the resource to add is not in `project` (an archived code project
+    neither) or the link to remove is not there; 409: the link is already there, or a link to remove (one that goes
+    with it too) is one the document was built for."""
     column, table = LINK_TYPES[type]
+    # NO KEY UPDATE, as promote_draft: serialises link changes and publishes without blocking key-share readers.
     if (
         conn.execute(
-            'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
+            'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR NO KEY UPDATE',
             (document_id, project),
         ).fetchone()
         is None
@@ -289,17 +303,33 @@ def change_link(conn, project: UUID, document_id: UUID, type: str, resource_id: 
     if linked:
         archived = ' AND archived_at IS NULL' if type == 'code_project' else ''
         found = conn.execute(
-            f'SELECT 1 FROM ka.{table} WHERE id=%s AND project_id=%s{archived} FOR SHARE', (resource_id, project)
+            f'SELECT * FROM ka.{table} WHERE id=%s AND project_id=%s{archived} FOR SHARE', (resource_id, project)
         ).fetchone()
         if found is None:
             raise HTTPException(404, RESOURCE_NOT_FOUND.format(type=label))
-    ids = _active_links(conn, document_id)[f'{column[:-3]}_ids']
-    if linked and resource_id in ids:
+    active = _active_links(conn, document_id)
+    field = link_field(column)
+    if linked and resource_id in active[field]:
         raise HTTPException(409, ALREADY_LINKED.format(type=label))
-    if not linked and resource_id not in ids:
+    if not linked and resource_id not in active[field]:
         raise HTTPException(404, NOT_LINKED.format(type=label))
-    wanted = [*ids, resource_id] if linked else [item for item in ids if item != resource_id]
-    saved = save_links(conn, project, document_id, {f'{column[:-3]}_ids': wanted}, Provenance('person', actor))
+    if linked:
+        wanted = {field: [*active[field], resource_id]}
+        if type == 'deployment':  # its service and server come along
+            for part in ('service_id', 'server_id'):
+                wanted[link_field(part)] = list(dict.fromkeys([*active[link_field(part)], found[part]]))
+    else:
+        wanted = {field: [item for item in active[field] if item != resource_id]}
+        if type in ('service', 'server'):  # its deployments go too
+            going = {
+                row['id']
+                for row in conn.execute(
+                    f'SELECT id FROM ka.service_deployments WHERE id=ANY(%s) AND {column}=%s',
+                    (active['deployment_ids'], resource_id),
+                )
+            }
+            wanted['deployment_ids'] = [item for item in active['deployment_ids'] if item not in going]
+    saved = save_links(conn, project, document_id, wanted, Provenance('person', actor))
     conn.execute('UPDATE ka.documents SET updated_by=%s,revision=revision+1 WHERE id=%s', (actor, document_id))
     audit(
         conn,
@@ -313,9 +343,10 @@ def change_link(conn, project: UUID, document_id: UUID, type: str, resource_id: 
 
 
 # A document's active links for its Connections page: each {type, id, name, connection, added_by, added_how,
-# created_at, service_id (a deployment's service, for its link; else null)}, by type (LINK_TYPES) then name.
+# created_at, service_id and server_id (a deployment's, for its link and for what goes with a service or server; else
+# null)}, by type (LINK_TYPES) then name.
 DOCUMENT_RESOURCES = f"""SELECT r.resource_type AS type,{RESOURCE_ID} AS id,{RESOURCE_NAME} AS name,r.connection,
-    COALESCE(a.display_name,a.email) AS added_by,r.added_how,r.created_at,d.service_id
+    COALESCE(a.display_name,a.email) AS added_by,r.added_how,r.created_at,d.service_id,d.server_id
     FROM ka.document_resources r {RESOURCE_JOINS} WHERE r.document_id=%s AND r.removed_at IS NULL
     ORDER BY array_position(%s::text[],r.resource_type),lower({RESOURCE_NAME}),r.id"""
 

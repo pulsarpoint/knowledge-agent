@@ -79,6 +79,8 @@ export interface DocumentPageContext {
   confirm: (run: () => void) => void;
   setDraftCount: (count: number) => void;
   draftDiscarded: (draftId: string) => void;
+  /** The resources the page loaded (Connections' Add resource offers them). */
+  resources: DocumentResources;
   resourcesChanged: (connections: Connections) => void;
 }
 export const useDocumentPage = () => useOutletContext<DocumentPageContext>();
@@ -226,25 +228,21 @@ function Editor({
   // The document's revision (a brand-new draft's is the draft's): Save links and Delete send it, a brand-new draft's
   // Save too; Save links bumps it.
   const [revision, setRevision] = useState(document?.revision ?? 0);
-  // An old ?tab=preview|resources link opens its tab (DocumentEditorView passes it in the navigation's state); a live
-  // document's links are on Connections, where its old ?tab=resources link goes.
-  const wantedTab = (location.state as { editorTab?: string } | null)?.editorTab ?? "";
-  const [tab, setTab] = useState<EditorTab>(() =>
-    EDITOR_TABS.includes(wantedTab) && !(isLive && wantedTab === "resources") ? (wantedTab as EditorTab) : "write",
-  );
-  useEffect(() => {
-    if (isLive && wantedTab === "resources" && !page)
-      navigate(`${base}/connections${location.search}`, { replace: true });
-  }, []);
+  // An old ?tab=preview|resources link opens its tab (DocumentEditorView passes it in the navigation's state; a live
+  // document's ?tab=resources goes to Connections before the editor renders: DocumentPage).
+  const [tab, setTab] = useState<EditorTab>(() => {
+    const wanted = editorTabOf(location.state);
+    return EDITOR_TABS.includes(wanted) && !(isLive && wanted === "resources") ? (wanted as EditorTab) : "write";
+  });
   // The person's draft of the live document: created by the first Save (or loaded with Edit); later Saves update it.
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [draftCount, setDraftCount] = useState(document?.drafts.length ?? 0);
   // The live version the page loaded (reloaded when the edited draft is gone): the first Save's draft is based on it,
   // so a version promoted meanwhile makes that draft stale.
   const [liveVersion, setLiveVersion] = useState(isLive ? document.version : null);
-  // The document's active links: the built-for ones are locked in Linked resources. Save links refused because it
-  // unticked a built-for link (the page was loaded before that link existed) reloads them; refusals show under the
-  // picker.
+  // The document's active links: a live document's header badges (Connections updates them); a brand-new draft's
+  // built-for ones are locked in Linked resources. Save links refused because it unticked a built-for link (the page
+  // was loaded before that link existed) reloads them; refusals show under the picker.
   const [links, setLinks] = useState(document?.resource_links ?? []);
   const [linksError, setLinksError] = useState("");
   const [linksLoad, setLinksLoad] = useState(0);
@@ -350,7 +348,7 @@ function Editor({
       setPending(false);
     }
   }
-  /** The picker's links, with every built-for link kept (it is locked; a loaded version cannot drop it). */
+  /** The picker's links, with every built-for link kept (it is locked). */
   function keptIds(): DocumentIds {
     return Object.fromEntries(
       DOCUMENT_KINDS.map(({ field }) => [
@@ -385,9 +383,8 @@ function Editor({
       setPending(false);
     }
   }
-  /** The document's current links into the picker (built-for ones locked, ticked); the text stays. A live document
-   * takes the fresh revision too (it only guards links and Delete); a brand-new draft keeps its own (it guards the
-   * text). */
+  /** A brand-new draft's current links into the picker (built-for ones locked, ticked); the text and the revision stay
+   * (the revision guards the text). */
   async function reloadLinks(id: string) {
     try {
       const fresh = await getDocument(id);
@@ -395,7 +392,6 @@ function Editor({
       setLinks(fresh.resource_links);
       setValue((old) => ({ ...old, ...freshIds }));
       setSavedIds(freshIds);
-      if (!fresh.is_draft) setRevision(fresh.revision);
       setLinksLoad((n) => n + 1);
     } catch {
       /* the refusal stays shown; a page reload loads the links */
@@ -635,6 +631,7 @@ function Editor({
                 confirm: unlessUnsaved,
                 setDraftCount,
                 draftDiscarded,
+                resources,
                 resourcesChanged: (next: Connections) => {
                   setLinks(next.resources.map((link) => ({ ...link, session_id: null })));
                   setRevision(next.revision);
@@ -886,6 +883,9 @@ function Editor({
   );
 }
 
+/** The editor tab an old ?tab= link asked for (DocumentEditorView passes it in the navigation's state), or "". */
+const editorTabOf = (state: unknown) => (state as { editorTab?: string } | null)?.editorTab ?? "";
+
 /** Where an old link to a document goes: `?tab=<sub-page>` opens that sub-page, `?tab=preview|resources` Edit with that
  * tab open (`editorTab`), and a run link (`/documents/:id/agent/:runId`) the page with the run in its query (?run=). The
  * rest of the query is kept. */
@@ -1055,6 +1055,12 @@ function DocumentPage() {
                 </Button>
               </AlertDescription>
             </Alert>
+          ) : loaded?.document && !loaded.document.is_draft && editorTabOf(location.state) === "resources" ? (
+            // A live document's old ?tab=resources link: its links are on Connections (the editor never renders).
+            <Navigate
+              replace
+              to={`/documents/${encodeURIComponent(loaded.document.id)}/connections${location.search}`}
+            />
           ) : loaded ? (
             editor(loaded)
           ) : (

@@ -102,9 +102,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     'SELECT id,name,hostname FROM ka.servers WHERE project_id=%s ORDER BY lower(name),id', (project,)
                 ).fetchall(),
                 'deployments': conn.execute(
-                    """SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
-                    s.name || ' on ' || h.name || ' (' || e.name || ')' ||
-                    CASE WHEN d.runtime_name='' THEN '' ELSE ' · ' || d.runtime_name END AS name
+                    f"""SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
+                    {documents.deployment_name('s', 'h', 'e', 'd')} AS name
                     FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
                     JOIN ka.servers h ON h.id=d.server_id JOIN ka.environments e ON e.id=d.environment_id
                     WHERE d.project_id=%s ORDER BY name,d.id""",
@@ -266,7 +265,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             actor = db.actor(conn, *request_actor(request))
             row = conn.execute(
                 """SELECT revision,is_draft FROM ka.documents WHERE id=%s AND project_id=%s AND draft_of IS NULL
-                FOR UPDATE""",
+                FOR NO KEY UPDATE""",
                 (document_id, project),
             ).fetchone()
             if row is None:

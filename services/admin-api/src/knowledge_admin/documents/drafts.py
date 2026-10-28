@@ -6,7 +6,6 @@ lifecycle itself is documents/store.py; this module is the drafts API, a run's s
 from functools import partial
 import json
 import logging
-from typing import Literal
 from uuid import UUID
 
 import psycopg
@@ -28,7 +27,14 @@ from knowledge_admin.documents.api import (
     Tags,
     Title,
 )
-from knowledge_admin.documents.store import CONTENT, DOCUMENT_NOT_FOUND, DRAFT_NOT_FOUND, NAME_IN_USE, Provenance
+from knowledge_admin.documents.store import (
+    CONTENT,
+    DOCUMENT_NOT_FOUND,
+    DRAFT_NOT_FOUND,
+    NAME_IN_USE,
+    LinkType,
+    Provenance,
+)
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -142,9 +148,6 @@ LINKED = """SELECT d.id,d.title,d.slug,d.version FROM ka.document_links l JOIN k
 class LinkInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     to_document_id: UUID
-
-
-LinkType = Literal['environment', 'server', 'service', 'code_project', 'deployment']
 
 
 class ResourceChoice(BaseModel):

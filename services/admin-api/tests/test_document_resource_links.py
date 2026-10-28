@@ -5,6 +5,7 @@ removed ones left out), and one link is added (POST /documents/{id}/resources) o
 from uuid import uuid4
 
 import pytest
+from knowledge_admin.documents.store import Provenance, add_link
 from live_documents import write_live_document
 from test_api import _client
 from test_inventory_document import message, resource
@@ -134,7 +135,10 @@ def test_add_a_deployment_and_a_code_project(store, client):
     document = live(store)
     assert add(client, document, 'deployment', run).status_code == 201
     assert add(client, document, 'code_project', code).status_code == 201
+    # a deployment brings its server and service along (as the picker ticks them)
     assert resources(client, document) == [
+        ('server', server, 'web-1', 'linked'),
+        ('service', service, 'Payments', 'linked'),
         ('code_project', code, 'Shop', 'linked'),
         ('deployment', run, 'Payments on web-1 (dev)', 'linked'),
     ]
@@ -200,11 +204,16 @@ def test_the_same_service_and_server_in_two_environments_read_differently(store,
     assert add(client, document, 'deployment', on_dev).status_code == 201
     assert add(client, document, 'deployment', on_prod).status_code == 201
     assert resources(client, document) == [
+        ('server', server, 'web-1', 'linked'),
+        ('service', service, 'Payments', 'linked'),
         ('deployment', on_dev, 'Payments on web-1 (dev)', 'linked'),
         ('deployment', on_prod, 'Payments on web-1 (prod)', 'linked'),
     ]
     links = client.get(f'{DOCUMENTS}/{document}', headers=HEADERS).json()['resource_links']
-    assert sorted(item['name'] for item in links) == ['Payments on web-1 (dev)', 'Payments on web-1 (prod)']
+    assert sorted(item['name'] for item in links if item['type'] == 'deployment') == [
+        'Payments on web-1 (dev)',
+        'Payments on web-1 (prod)',
+    ]
     picker = client.get('/api/documentation/resources', headers=HEADERS).json()['deployments']
     assert [item['name'] for item in picker] == ['Payments on web-1 (dev)', 'Payments on web-1 (prod)']
     built = live(store, 'built', 'Built', service_ids=[service], server_ids=[server], deployment_ids=[on_prod])
@@ -212,3 +221,119 @@ def test_the_same_service_and_server_in_two_environments_read_differently(store,
         409,
         "This document was built for deployment Payments on web-1 (prod); that link can't be removed.",
     )
+
+
+def deployed(store):
+    """dev, web-1, Payments and Payments on web-1 (dev)."""
+    env = resource(store, 'environments', 'dev')
+    server = resource(store, 'servers', 'web-1')
+    service = resource(store, 'services', 'Payments')
+    return env, server, service, deployment(store, service, server, env)
+
+
+def test_adding_a_deployment_adds_its_missing_service_and_server_in_one_change(store, client):
+    _, server, service, run = deployed(store)
+    document = live(store)
+    assert add(client, document, 'service', service).status_code == 201
+    added = add(client, document, 'deployment', run)
+    assert added.status_code == 201, added.text
+    assert added.json()['revision'] == 3
+    assert [row['details'] for row in audits(store, document)][-1] == {
+        'links_added': [server, run],
+        'links_removed': [],
+    }
+    assert [(item['type'], item['connection']) for item in added.json()['resources']] == [
+        ('server', 'linked'),
+        ('service', 'linked'),
+        ('deployment', 'linked'),
+    ]
+
+
+def test_a_deployment_name_carries_its_runtime_everywhere(store, client):
+    env, server, service, _ = deployed(store)
+    with store.connect() as conn:
+        worker = conn.execute(
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment_id,runtime_name)
+            VALUES (%s,%s,%s,%s,'worker') RETURNING id""",
+            (store.project(conn, 'shop'), service, server, env),
+        ).fetchone()['id']
+    document = live(store, service_ids=[service], server_ids=[server], deployment_ids=[str(worker)])
+    expected = 'Payments on web-1 (dev) · worker'
+    assert [item[2] for item in resources(client, document) if item[0] == 'deployment'] == [expected]
+    picker = client.get('/api/documentation/resources', headers=HEADERS).json()['deployments']
+    assert expected in [item['name'] for item in picker]
+    snapshot = client.get(f'{DOCUMENTS}/{document}', headers=HEADERS).json()['source_snapshot']
+    assert [item['name'] for item in snapshot['deployments']] == [expected]
+
+
+def test_removing_a_service_or_server_removes_its_linked_deployments(store, client):
+    _, server, service, run = deployed(store)
+    document = live(store)
+    add(client, document, 'deployment', run)
+    removed = remove(client, document, 'service', service)
+    assert removed.status_code == 200, removed.text
+    assert [item['type'] for item in removed.json()['resources']] == ['server']
+    assert [row['details'] for row in audits(store, document)][-1] == {
+        'links_added': [],
+        'links_removed': [service, run],
+    }
+    add(client, document, 'deployment', run)  # brings the service back
+    assert [item['type'] for item in remove(client, document, 'server', server).json()['resources']] == ['service']
+
+
+def test_removing_a_service_refuses_when_one_of_its_deployments_is_built_for(store, client):
+    _, server, service, run = deployed(store)
+    document = live(store, service_ids=[service], server_ids=[server], deployment_ids=[run])
+    with store.connect() as conn:  # the service and server linked later, the deployment built for
+        conn.execute(
+            "UPDATE ka.document_resources SET connection='linked' WHERE document_id=%s AND deployment_id IS NULL",
+            (document,),
+        )
+    assert message(remove(client, document, 'service', service)) == (
+        409,
+        "This document was built for deployment Payments on web-1 (dev); that link can't be removed.",
+    )
+    assert len(resources(client, document)) == 3 and revision(store, document) == 1
+
+
+def test_the_snapshot_keeps_an_added_deployment_at_the_next_publish(store, client):
+    _, _, _, run = deployed(store)
+    document = live(store)
+    add(client, document, 'deployment', run)
+    draft = client.post('/api/documentation/drafts', headers=HEADERS, json={'document_id': document})
+    assert draft.status_code == 201, draft.text
+    published = client.post(
+        f'/api/documentation/drafts/{draft.json()["id"]}/promote', headers=HEADERS, json={'revision': 1}
+    )
+    assert published.status_code == 200, published.text
+    snapshot = client.get(f'{DOCUMENTS}/{document}', headers=HEADERS).json()['source_snapshot']
+    assert [item['id'] for item in snapshot['deployments']] == [run]
+
+
+def test_a_link_a_draft_holds_is_carried_once_at_publish(store, client):
+    server = resource(store, 'servers', 'web-1')
+    document = live(store)
+    draft = client.post('/api/documentation/drafts', headers=HEADERS, json={'document_id': document}).json()
+    with store.connect() as conn:
+        add_link(conn, store.project(conn, 'shop'), draft['id'], 'server', server, Provenance('person', None))
+    assert add(client, document, 'server', server).status_code == 201
+    published = client.post(
+        f'/api/documentation/drafts/{draft["id"]}/promote', headers=HEADERS, json={'revision': draft['revision']}
+    )
+    assert published.status_code == 200, published.text
+    assert resources(client, document) == [('server', server, 'web-1', 'linked')]
+
+
+def test_a_brand_new_draft_and_an_archived_code_project_are_404s(store, client):
+    server = resource(store, 'servers', 'web-1')
+    code = resource(store, 'repositories', 'Shop')
+    with store.connect() as conn:
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (code,))
+    draft = client.post(
+        '/api/documentation/drafts', headers=HEADERS, json={'slug': 'new', 'title': 'New', 'markdown': '# New\n'}
+    ).json()['id']
+    assert message(add(client, draft, 'server', server)) == (404, 'Document not found')
+    assert message(remove(client, draft, 'server', server)) == (404, 'Document not found')
+    document = live(store)
+    assert message(add(client, document, 'code_project', code)) == (404, 'That code project was not found.')
+    assert message(remove(client, document, 'server', server)) == (404, 'This document is not linked to that server.')

@@ -280,3 +280,96 @@ test("the same service and server in two environments read differently in the ro
       .map((button) => button.textContent),
   ).toEqual(["Payments on web-1 (staging)"]);
 });
+
+test("removing a service names the deployments that go with it", async () => {
+  const user = userEvent.setup();
+  const onDev = link("deployment", "dep-1", "Payments on web-1 (dev)", "linked", {
+    service_id: "svc-1",
+    server_id: "srv-1",
+  });
+  const calls = api({
+    ...base([service, onDev]),
+    "GET /api/documentation/documents/doc-1/connections": () => [200, connections([service, onDev])],
+    "DELETE /api/documentation/documents/doc-1/resources/service/svc-1": () => [200, connections([], 3)],
+  });
+  show("/documents/doc-1/connections");
+  const table = await resourcesTable();
+  await user.click(table.getByRole("button", { name: "Actions for service Payments" }));
+  await user.click(screen.getByRole("menuitem", { name: "Remove" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(
+    dialog.getByText("Remove the link to service Payments and its deployment Payments on web-1 (dev)?"),
+  ).toBeInTheDocument();
+  await user.click(dialog.getByRole("button", { name: "Remove link" }));
+  await screen.findByText("Not linked to any resource yet.");
+  expect(calls.filter((c) => c.key.startsWith("DELETE"))).toHaveLength(1);
+});
+
+test("a refused Remove shows why in the dialog and keeps the link", async () => {
+  const user = userEvent.setup();
+  const REFUSED = "This document was built for deployment Payments on web-1 (dev); that link can't be removed.";
+  api({
+    ...base(),
+    "GET /api/documentation/documents/doc-1/connections": () => [200, connections([builtFor, service])],
+    "DELETE /api/documentation/documents/doc-1/resources/service/svc-1": () => [409, { error: { message: REFUSED } }],
+  });
+  show("/documents/doc-1/connections");
+  const table = await resourcesTable();
+  await user.click(table.getByRole("button", { name: "Actions for service Payments" }));
+  await user.click(screen.getByRole("menuitem", { name: "Remove" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  await user.click(dialog.getByRole("button", { name: "Remove link" }));
+  expect(await dialog.findByText(REFUSED)).toBeInTheDocument();
+  await user.click(dialog.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(table.getByRole("link", { name: "Payments" })).toBeInTheDocument();
+});
+
+test("Add resource: a refusal stays in the open sheet; a success updates the header badges; resources load once", async () => {
+  const user = userEvent.setup();
+  let tries = 0;
+  const calls = api({
+    ...base(),
+    "GET /api/documentation/documents/doc-1/connections": () => [200, connections([builtFor, service])],
+    "POST /api/documentation/documents/doc-1/resources": () =>
+      tries++ === 0
+        ? [409, { error: { message: "This document is already linked to that server." } }]
+        : [201, connections([builtFor, link("server", "srv-1", "web-1"), service], 3)],
+  });
+  show("/documents/doc-1/connections");
+  await resourcesTable();
+  await user.click(screen.getByRole("button", { name: "Add resource" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Add resource" }));
+  await user.click(sheet.getByRole("button", { name: "web-1" }));
+  expect(await sheet.findByText("This document is already linked to that server.")).toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "Add resource" })).toBeInTheDocument();
+  await user.click(sheet.getByRole("button", { name: "web-1" }));
+  await screen.findByText("Linked to server web-1.");
+  expect(screen.getByRole("link", { name: "Server · web-1" })).toHaveAttribute("href", "/servers/srv-1");
+  expect(calls.filter((c) => c.key === "GET /api/documentation/resources")).toHaveLength(1);
+});
+
+test("Connections shows the live version's documented source commits under Built from", async () => {
+  const snapshot = { code_projects: [{ id: "repo-1", name: "Shop", git_commit: "abc123" }] };
+  api({
+    "GET /api/documentation/documents/doc-1": () => [200, { ...document, source_snapshot: snapshot }],
+    "GET /api/documentation/resources": () => [200, pickable],
+    "GET /api/documentation/documents/doc-1/connections": () => [200, connections([])],
+  });
+  show("/documents/doc-1/connections");
+  const built = within(await screen.findByRole("region", { name: "Built from" }));
+  expect(built.getByText("Documented source commits")).toBeInTheDocument();
+  expect(built.getByText("abc123")).toBeInTheDocument();
+  expect(built.getByText(/Shop/)).toBeInTheDocument();
+});
+
+test("a brand-new draft's ?tab=resources stays on its Linked resources tab, with no badges", async () => {
+  api({
+    "GET /api/documentation/documents/doc-1": () => [200, { ...document, is_draft: true, published: false }],
+    "GET /api/documentation/resources": () => [200, pickable],
+  });
+  const router = show("/documents/doc-1?tab=resources");
+  expect(await screen.findByRole("tab", { name: "Linked resources", selected: true })).toBeInTheDocument();
+  expect(router.state.location.pathname).toBe("/documents/doc-1");
+  expect(screen.queryByRole("group", { name: "Linked resources" })).toBeNull();
+});

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import { getDocuments, type DocumentSummary } from "./api";
+import { getDocuments, type DocumentResources, type DocumentSummary } from "./api";
 import {
   addLink,
   addResource,
@@ -75,14 +75,19 @@ function ResourceRow({
   );
 }
 
-/** The document page's Connections tab: Resources (its resource links: Add resource, Remove, Link history), Depends on
- * (added with a document picker, removable), Used by, and what the live version was built from. `onResourcesChanged`
- * gets the answer after a resource link is added or removed (the header's badges and the document's revision). */
+/** The document page's Connections tab: Resources (its resource links: Add resource from `resources`, the ones the
+ * document page loaded; Remove; Link history), Depends on (added with a document picker, removable), Used by, and what
+ * the live version was built from with its documented source commits (`sourceCommits`). `onResourcesChanged` gets the
+ * answer after a resource link is added or removed (the header's badges and the document's revision). */
 export default function DocumentConnections({
   documentId,
+  resources,
+  sourceCommits = [],
   onResourcesChanged,
 }: {
   documentId: string;
+  resources?: DocumentResources;
+  sourceCommits?: { id: string; name: string; git_commit?: string }[];
   onResourcesChanged?: (connections: Connections) => void;
 }) {
   const [connections, setConnections] = useState<Connections | null>(null);
@@ -149,8 +154,20 @@ export default function DocumentConnections({
   };
   const askRemove = (link: DocumentResourceLink) => {
     const what = `${typeWord(link.type)} ${link.name ?? link.id}`;
+    // Removing a service or server removes its deployments too (as the picker unticks them).
+    const going = connections.resources
+      .filter(
+        (item) =>
+          item.type === "deployment" &&
+          ((link.type === "service" && item.service_id === link.id) ||
+            (link.type === "server" && item.server_id === link.id)),
+      )
+      .map((item) => item.name ?? item.id);
+    const along = going.length
+      ? ` and its ${going.length === 1 ? "deployment" : "deployments"} ${going.join(", ")}`
+      : "";
     setRemoval({
-      title: `Remove the link to ${what}?`,
+      title: `Remove the link to ${what}${along}?`,
       description: `The document and the ${typeWord(link.type)} stay.`,
       action: "Remove link",
       run: async () => {
@@ -286,10 +303,21 @@ export default function DocumentConnections({
       <section aria-label="Built from" className="flex flex-col gap-2">
         <h3 className="font-medium">Built from</h3>
         <SourceList sources={connections.built_from} empty="The live version records no sources." />
+        {sourceCommits.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <h4 className="text-sm font-medium">Documented source commits</h4>
+            {sourceCommits.map((item) => (
+              <p key={item.id} className="text-sm">
+                {item.name}: <code className="break-all">{item.git_commit}</code>
+              </p>
+            ))}
+          </div>
+        )}
       </section>
       <ConfirmRemove removal={removal} onClose={() => setRemoval(null)} />
-      {adding && (
+      {adding && resources && (
         <AddResourceSheet
+          resources={resources}
           linked={new Set(connections.resources.map((link) => `${link.type}:${link.id}`))}
           add={async (type, id, name) => {
             resourcesChanged(await addResource(documentId, type, id));

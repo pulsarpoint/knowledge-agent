@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
-import { getDocumentResources, type DocumentResources, type ResourceType } from "./api";
+import { useState } from "react";
+import type { DocumentResources, ResourceType } from "./api";
 import { LINK_TYPES } from "./ResourceBadges";
 import { ApiError } from "~/lib/api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
+import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
-import { Spinner } from "~/components/ui/spinner";
 
 const LISTS: Record<ResourceType, keyof DocumentResources> = {
   environment: "environments",
@@ -15,38 +15,28 @@ const LISTS: Record<ResourceType, keyof DocumentResources> = {
   deployment: "deployments",
 };
 
-/** Add resource: a right sheet searching servers, services, environments, code projects and deployments by name,
- * grouped by type, without the ones already linked (`linked`: "<type>:<id>"). Picking one runs `add` (a refusal stays
- * shown); the page closes the sheet when it succeeds. */
+/** Add resource: a right sheet searching `resources` (servers, services, environments, code projects and deployments,
+ * as the document page loaded them) by name, grouped by type, without the ones already linked (`linked`:
+ * "<type>:<id>"). Picking one runs `add` (a refusal stays shown); the page closes the sheet when it succeeds. */
 export default function AddResourceSheet({
+  resources,
   linked,
   add,
   onClose,
 }: {
+  resources: DocumentResources;
   linked: Set<string>;
   add: (type: ResourceType, id: string, name: string) => Promise<unknown>;
   onClose: () => void;
 }) {
-  const [resources, setResources] = useState<DocumentResources | null>(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => {
-    const controller = new AbortController();
-    getDocumentResources(controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted) setResources(value);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load the resources");
-      });
-    return () => controller.abort();
-  }, []);
   const needle = query.trim().toLowerCase();
   const groups = LINK_TYPES.map(({ type, plural }) => ({
     type,
     plural,
-    items: (resources?.[LISTS[type]] ?? [])
+    items: (resources[LISTS[type]] ?? [])
       .filter((item) => !linked.has(`${type}:${item.id}`))
       .filter((item) => `${item.name} ${item.hostname ?? ""}`.toLowerCase().includes(needle))
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -94,9 +84,7 @@ export default function AddResourceSheet({
               if (event.key === "Enter") event.preventDefault(); /* the page's form must not submit */
             }}
           />
-          {resources === null ? (
-            !error && <Spinner />
-          ) : groups.length === 0 ? (
+          {groups.length === 0 ? (
             <p className="text-sm text-muted-foreground">{needle ? "No matches." : "Nothing to add."}</p>
           ) : (
             groups.map((group) => (
@@ -105,14 +93,15 @@ export default function AddResourceSheet({
                 <ul className="flex flex-col gap-1">
                   {group.items.map((item) => (
                     <li key={item.id}>
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
                         disabled={saving}
                         onClick={() => void pick(group.type, item.id, item.name)}
-                        className="w-full rounded-md border px-3 py-2 text-left text-sm [overflow-wrap:anywhere] hover:bg-muted disabled:opacity-50"
+                        className="h-auto w-full justify-start whitespace-normal text-left [overflow-wrap:anywhere]"
                       >
                         {item.name}
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>

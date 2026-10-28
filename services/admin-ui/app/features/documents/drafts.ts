@@ -73,9 +73,12 @@ export interface LinkedDocument {
   slug: string;
   version: number;
 }
-/** A document's link to a resource on its Connections page; service_id: a deployment's service (its page). */
+/** A document's link to a resource on its Connections page; service_id: a deployment's service (its page; removing
+ * the service removes it too). */
 export interface DocumentResourceLink extends Omit<ResourceLink, "session_id"> {
   service_id: string | null;
+  /** A deployment's server (removing the server removes it too); null for the other kinds. */
+  server_id: string | null;
 }
 /** GET /documents/{id}/connections: its resource links, the documents it depends on and that depend on it, what its
  * live version was built from, and its revision (adding or removing a resource link bumps it). */

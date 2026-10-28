@@ -915,7 +915,8 @@ holds: **Edit** (the editor), and on a live document **Version history** (`/docu
 draft**), **Drafts (n)** (`/documents/{id}/drafts`, counting the drafts) and **Connections**
 (`/documents/{id}/connections`), then **Agent runs** (`/documents/{id}/agent-runs`). Edit has the fields Title, Slug,
 Short description, Purpose, Audience (People and agents / People / Agents), Tags, and the tabs **Write**, **Preview**
-and, on a new document or one that is only a draft, **Linked resources** (including documented source commits). A live
+and, on a new document or one that is only a draft, **Linked resources** (including documented source commits; a live
+document's are under Connections → Built from). A live
 document's links are on **Connections**. Above the sub-page links, a live document's header shows a badge per resource
 it is linked to, such as `Environment · dev`, each opening that resource's page; past four, **+N** opens Connections.
 The editor stays open under the other sub-pages: unsaved changes are still there when you come back to Edit, and only
@@ -957,15 +958,19 @@ only when a person publishes a draft.
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
 - **Connections**: **Resources** first: a table of the servers, services, environments, code projects and deployments
-  the document is linked to (by type, then name; a deployment is named "<service> on <server> (<environment>)" and opens its service),
+  the document is linked to (by type, then name; a deployment is named "<service> on <server> (<environment>)", then " · <runtime>" when it has one, here, in the
+  header, in Add resource and in Version history, and opens its service),
   with **Type**, **Name** (opens the resource's page), **Connection** (**Built for**: made with the document; **Linked**:
   added later) and **Added** (who and when); "Not linked to any resource yet." when there are none. **Add resource**
   opens a side sheet searching every kind by name, grouped by type, without the ones already linked; picking one links
-  it at once. **Remove** in a row's ⋯ menu asks "Remove the link to <type> <name>? The document and the <type> stay."
-  first; a built-for link can't be removed (its Remove is off, saying why). Links never go through drafts: adding or
+  it at once, and a deployment brings its service and server along when they are not linked yet. **Remove** in a
+  row's ⋯ menu asks "Remove the link to <type> <name>? The document and the <type> stay." first; removing a service or
+  server removes its deployments too, and the question names them ("…and its deployment Payments on web-1 (dev)"). A
+  built-for link can't be removed (its Remove is off, saying why), and neither can a service or server whose deployment
+  the document was built for. Links never go through drafts: adding or
   removing one changes the document at once and is in the audit log and under **Link history** (every link added or
   removed, with how, when and who). Then **Depends on** (add with **Find a document**, remove), **Used by**, and
-  **Built from** (what the live version was built from).
+  **Built from** (what the live version was built from, with its documented source commits).
 - **Version history** marks versions published from a draft ("from draft").
 - Drafts are never exported, searched or shown to agents; deleting a document deletes its drafts and links.
 
