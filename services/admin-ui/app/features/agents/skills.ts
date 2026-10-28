@@ -3,7 +3,8 @@ import { request } from "~/lib/api";
 export type SkillSource =
   | { kind: "upload"; file: string }
   | { kind: "git"; url: string; ref: string; path: string; commit: string }
-  | { kind: "editor" };
+  | { kind: "editor" }
+  | { kind: "review"; session_id: string };
 
 export interface SkillSummary {
   id: string;
@@ -125,6 +126,7 @@ export function sourceLabel(source: SkillSource | null): string {
     return `Git: ${source.url}${source.ref || source.path ? ` @ ${[source.ref, source.path].filter(Boolean).join(", ")}` : ""}`;
   if (source?.kind === "upload") return `Uploaded ${source.file || "zip"}`;
   if (source?.kind === "editor") return "Edited in the app";
+  if (source?.kind === "review") return "Created by review";
   return "Unknown";
 }
 export const changedLabel = (changed: Changed[]) =>

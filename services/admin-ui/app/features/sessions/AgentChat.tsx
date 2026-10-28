@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { agentPath } from "~/features/agents/api";
-import { Link, useNavigate } from "react-router";
-import { MessageSquarePlus, Settings2 } from "lucide-react";
+import { Link } from "react-router";
+import { Settings2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import {
   agentRunPath,
   closeSession,
@@ -33,7 +33,8 @@ import { runPath } from "./runs";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
 import AgentSettingsSheet from "./AgentSettingsSheet";
-import RunSuggestions from "./RunSuggestions";
+import ReviewSheet from "./ReviewSheet";
+import { getReviews, latestRunKey, reviewReason, sessionOfRunKey, startReview } from "./reviews";
 import RunWorkspace from "./RunWorkspace";
 import DebugPanel from "./DebugPanel";
 import RunOutputPanel from "~/features/outputSchemas/RunOutputPanel";
@@ -84,7 +85,11 @@ function writeDraft(key: string | null, text: string) {
  * New chat closes the run; Earlier runs opens another. A changed initialRunId (a run link) opens that run; onRunChange
  * reports the shown run (the page keeps it in the URL). Documents: confirmUnsaved wraps the first message, and
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
- * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. Writing with
+ * agents: blockedReason blocks starting a run; Improve agent (a finished run) opens the review chat (ReviewSheet) and
+ * onAgentChanged reports the reviewer's turns (it may have changed the agent). A review (Improve agent): the reviews
+ * of one session; ChatColumn lists them and has New review; the first message starts the review (POST …/reviews) and
+ * is sent as the person's feedback; no settings (the reviewer is pinned by the API); `inSheet` fills the Sheet instead
+ * of the screen. Writing with
  * an agent (Documents → New → Write with an agent): its runs (purpose documents; on a resource, tagged with it); the
  * page lists them and has New chat, so the pane has neither; it opens the run the page hands it (initialRunId) or a new
  * conversation; without a resource it needs a picked resource (writeReason); `mention` puts a draft's reference into
@@ -107,9 +112,11 @@ export default function AgentChat({
   fresh = false,
   mention = null,
   onDocumentWrite,
+  inSheet = false,
 }: {
   scope: ChatScope;
-  settings: ReturnType<typeof useAgentSettings>;
+  /** Not for a review (the API pins the reviewer). */
+  settings?: ReturnType<typeof useAgentSettings>;
   initialRunId: string | null;
   confirmUnsaved?: (run: () => void) => void;
   onDraftChange?: (draft: SessionDetail["document_draft"] | null, version: string) => void;
@@ -120,15 +127,16 @@ export default function AgentChat({
   fresh?: boolean;
   mention?: { text: string; key: number } | null;
   onDocumentWrite?: (sessionId: string, writes: number) => void;
+  inSheet?: boolean;
 }) {
   const isAgent = scope.kind === "agent";
+  const isReview = scope.kind === "review";
   const isNew = scope.kind === "new-document";
   const resource = isResourceScope(scope) ? scope : null;
   const tag = resource ? resourceTag({ type: resource.kind, id: resource.id }) : null;
   const writeTag = scope.kind === "new-document" && scope.resource ? resourceTag(scope.resource) : null;
-  const pageChat = resource !== null || isNew; // the page lists its chats and has New chat
+  const pageChat = resource !== null || isNew || isReview; // the page lists its chats and has New chat
   const scopeId = scope.kind === "new-document" ? null : scope.id;
-  const navigate = useNavigate();
   const [runs, setRuns] = useState<RunSummary[] | null>(isNew ? [] : null);
   const [runId, setRunId] = useState<string | null>(initialRunId);
   const [chosen, setChosen] = useState(initialRunId !== null || fresh); // the person (or the link) picked a run or New chat
@@ -140,7 +148,7 @@ export default function AgentChat({
   // A run of another document (or not an Ask agent run) is not this document's: it is not shown, and its draft never reaches
   // the page. For a saved agent: a run of another agent, or not a chat or event run. Writing: a run that is not a Write
   // with an agent run (on a resource: or without its tag). A server's, service's or environment's: a run without its
-  // tag, or a Write with an agent run on it.
+  // tag, or a Write with an agent run on it. A review: not a review of this session.
   const foreign =
     loaded !== null &&
     (scope.kind === "document"
@@ -149,8 +157,11 @@ export default function AgentChat({
         ? !(loaded.tags ?? []).includes(tag) || loaded.purpose === "documents"
         : isNew
           ? loaded.purpose !== "documents" || (writeTag !== null && !(loaded.tags ?? []).includes(writeTag))
-          : scope.kind === "agent" &&
-            (loaded.agent_id !== scope.id || (loaded.purpose !== "chat" && loaded.purpose !== "event")))
+          : isReview
+            ? loaded.purpose !== "review" ||
+              sessionOfRunKey(String(loaded.config?.review_of ?? "")) !== sessionOfRunKey(scope.id)
+            : scope.kind === "agent" &&
+              (loaded.agent_id !== scope.id || (loaded.purpose !== "chat" && loaded.purpose !== "event")))
       ? loaded
       : null;
   const session = foreign ? null : loaded;
@@ -186,11 +197,12 @@ export default function AgentChat({
   const [refused, setRefused] = useState("");
   const [sheet, setSheet] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
-  const [suggestions, setSuggestions] = useState<{ open: boolean; turn: number | null }>({ open: false, turn: null });
-  const [info, setInfo] = useState(""); // Review and apply's result
+  const [reviewing, setReviewing] = useState(false); // the Improve agent sheet is open
   const [view, setView] = useState<"conversation" | "debug">("conversation");
   const { notice, clear, stopping, sent } = useSessionNotice(session?.status);
   const fill = useFillViewport<HTMLElement>();
+  const noSettings = isReview; // the API pins a review's configuration
+  const ready = noSettings || Boolean(settings?.options && settings.settings);
 
   // The run list: on mount and after a start or a close. Until the person picks, the pane opens the latest open run.
   // A failed load keeps the list unknown (no message starts a run, which could open a second one) until Retry loads it.
@@ -200,18 +212,21 @@ export default function AgentChat({
     if (scopeId === null) return; // a new document: no run list
     const controller = new AbortController();
     setListFailed(false);
-    getSessions(
-      scope.kind === "document"
-        ? { documentId: scopeId }
-        : tag !== null
-          ? { tag, purpose: "resource" }
-          : { agentId: scopeId },
-      controller.signal,
+    (isReview
+      ? getReviews(scopeId, controller.signal)
+      : getSessions(
+          scope.kind === "document"
+            ? { documentId: scopeId }
+            : tag !== null
+              ? { tag, purpose: "resource" }
+              : { agentId: scopeId },
+          controller.signal,
+        ).then((value) => value.sessions)
     )
       .then((value) => {
         if (controller.signal.aborted) return;
-        setRuns(value.sessions);
-        if (!chosenNow.current) setRunId(value.sessions.find((item) => item.status !== "closed")?.id ?? null);
+        setRuns(value);
+        if (!chosenNow.current) setRunId(value.find((item) => item.status !== "closed")?.id ?? null);
       })
       .catch(() => {
         if (!controller.signal.aborted) setListFailed(true);
@@ -244,8 +259,6 @@ export default function AgentChat({
     setRunId(id);
     setText(readDraft(draftKey(scope, id))); // that conversation's unsent message
     setRefused("");
-    setInfo("");
-    setSuggestions({ open: false, turn: null });
     run.setError("");
     clear();
   }
@@ -253,7 +266,6 @@ export default function AgentChat({
     setBusy(true);
     run.setError("");
     clear();
-    setInfo("");
     try {
       await action();
       return true;
@@ -268,12 +280,12 @@ export default function AgentChat({
   // it all of them); writing without a resource needs one picked (new_document needs a resource of the run).
   const blocked =
     blockedReason ??
-    (settings.options && settings.settings
+    (settings?.options && settings.settings
       ? (pickReason(settings.options, settings.settings) ?? writeReason(scope, settings.settings))
       : null);
   async function send() {
     const text = message.trim();
-    if (!text || !settings.options || !settings.settings || waiting || foreign || (!open && blocked)) return;
+    if (!text || !ready || waiting || foreign || (!open && blocked)) return;
     if (open) {
       await act(async () => {
         const result = await sendMessage(runId!, text);
@@ -282,13 +294,32 @@ export default function AgentChat({
       });
       return;
     }
-    const { options, settings: current } = settings;
+    if (isReview) {
+      // The review starts empty; the person's feedback is its first message.
+      setBusy(true);
+      setRefused("");
+      try {
+        const started = await startReview(scope.id);
+        pick(started.id);
+        setListed((n) => n + 1);
+        toast.success("Review started.");
+        const result = await sendMessage(started.id, text);
+        setMessage("");
+        sent(result.working);
+      } catch (e) {
+        setRefused(e instanceof Error ? e.message : "The review could not start.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    const { options, settings: current } = settings!;
     const start = () =>
       void (async () => {
         setBusy(true);
         setRefused("");
         try {
-          const started = await startSession(startInput(scope, options, current, text));
+          const started = await startSession(startInput(scope, options!, current!, text));
           writeDraft(draftKey(scope, null), ""); // sent: the new conversation starts without a draft
           pick(started.id);
           setListed((n) => n + 1);
@@ -323,14 +354,14 @@ export default function AgentChat({
   };
   const earlier = runs?.filter((item) => item.id !== runId) ?? [];
   const working = isWorking(session?.status);
-  const reviews = session?.reviews ?? [];
+  const cannotReview = session ? reviewReason(session) : null;
 
   return (
     <section
-      aria-label={isAgent ? "Test" : "Ask agent"}
-      ref={fill.ref}
-      style={fill.style}
-      className="flex min-w-0 flex-col gap-2"
+      aria-label={isAgent ? "Test" : isReview ? "Review" : "Ask agent"}
+      ref={inSheet ? undefined : fill.ref}
+      style={inSheet ? undefined : fill.style}
+      className={inSheet ? "flex min-h-0 min-w-0 flex-1 flex-col gap-2" : "flex min-w-0 flex-col gap-2"}
     >
       <Tabs value={view} onValueChange={(value) => setView(value === "debug" ? "debug" : "conversation")}>
         <TabsList aria-label="Chat or debug">
@@ -344,7 +375,7 @@ export default function AgentChat({
           <DebugPanel
             runId={runId !== null && !foreign ? runId : null}
             input={
-              runId === null && settings.options && settings.settings
+              runId === null && settings?.options && settings.settings
                 ? startInput(scope, settings.options, settings.settings, message.trim() || "(your next message)")
                 : null
             }
@@ -356,8 +387,12 @@ export default function AgentChat({
         <RunWorkspace
           compact={!isAgent}
           run={foreign ? { ...run, session: null, events: [] } : run}
-          notice={notice || info}
-          agentName={session?.agent_name ?? (scope.kind === "agent" ? scope.name : "Ask agent")}
+          notice={notice}
+          agentName={
+            scope.kind === "review"
+              ? `Reviewer (${scope.name})`
+              : (session?.agent_name ?? (scope.kind === "agent" ? scope.name : "Ask agent"))
+          }
           sidebar={
             session?.config?.output_schema != null && (
               <RunOutputPanel sessionId={session.id} status={session.status} turns={session.turns} />
@@ -367,19 +402,27 @@ export default function AgentChat({
             <div className="flex flex-col gap-1">
               <h2 className="break-words font-semibold">
                 {runId === null
-                  ? "New chat"
+                  ? isReview
+                    ? "New review"
+                    : "New chat"
                   : foreign
                     ? isAgent
                       ? "Another agent's run"
-                      : pageChat
-                        ? "Another page's chat"
-                        : "Another document's run"
+                      : isReview
+                        ? "Another chat's review"
+                        : pageChat
+                          ? "Another page's chat"
+                          : "Another document's run"
                     : (session?.title ?? "Loading the chat…")}
               </h2>
               {foreign &&
                 (isAgent ? (
                   <Alert variant="destructive">
                     <AlertDescription>This run belongs to another agent.</AlertDescription>
+                  </Alert>
+                ) : isReview ? (
+                  <Alert variant="destructive">
+                    <AlertDescription>This review belongs to another chat.</AlertDescription>
                   </Alert>
                 ) : pageChat ? (
                   <Alert variant="destructive">
@@ -402,16 +445,18 @@ export default function AgentChat({
                   <AlertDescription>
                     {isAgent
                       ? "Could not load this agent's runs."
-                      : resource
-                        ? `Could not load this ${resource.kind}'s chats.`
-                        : "Could not load this document's runs."}{" "}
+                      : isReview
+                        ? "Could not load this chat's reviews."
+                        : resource
+                          ? `Could not load this ${resource.kind}'s chats.`
+                          : "Could not load this document's runs."}{" "}
                     <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
                       Retry
                     </Button>
                   </AlertDescription>
                 </Alert>
               )}
-              {runId === null && settings.options && settings.settings && (
+              {runId === null && settings?.options && settings.settings && (
                 <p aria-label="Current settings" className="text-xs text-muted-foreground">
                   {settingsSummary(settings.options, withScope(scope, settings.settings, settings.options))}
                 </p>
@@ -421,7 +466,7 @@ export default function AgentChat({
                   <AlertDescription>{refused}</AlertDescription>
                 </Alert>
               )}
-              {settings.error && (
+              {settings?.error && (
                 <Alert variant="destructive">
                   <AlertDescription>{settings.error}</AlertDescription>
                 </Alert>
@@ -430,17 +475,19 @@ export default function AgentChat({
           }
           headerActions={
             <>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                aria-label={refused ? "Settings (check the settings)" : "Settings"}
-                disabled={!settings.options}
-                onClick={() => setSheet(true)}
-              >
-                <Settings2 data-icon="inline-start" />
-                Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}
-              </Button>
+              {!noSettings && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  aria-label={refused ? "Settings (check the settings)" : "Settings"}
+                  disabled={!settings?.options}
+                  onClick={() => setSheet(true)}
+                >
+                  <Settings2 data-icon="inline-start" />
+                  Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}
+                </Button>
+              )}
               {!pageChat && (
                 <Button
                   type="button"
@@ -469,15 +516,20 @@ export default function AgentChat({
                 </DropdownMenu>
               )}
               {isAgent && session && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!reviews.length}
-                  onClick={() => setSuggestions({ open: true, turn: null })}
-                >
-                  Suggestions ({reviews.length})
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={cannotReview !== null}
+                    title={cannotReview ?? undefined}
+                    onClick={() => setReviewing(true)}
+                  >
+                    <Sparkles data-icon="inline-start" />
+                    Improve agent
+                  </Button>
+                  {cannotReview && <span className="text-xs text-muted-foreground">{cannotReview}</span>}
+                </>
               )}
             </>
           }
@@ -491,48 +543,40 @@ export default function AgentChat({
                   <Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link>
                 </Button>
               )}
-              {isAgent && session && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy || working}
-                  onClick={() => setSuggestions({ open: true, turn: turn.turn })}
-                >
-                  <MessageSquarePlus data-icon="inline-start" />
-                  Add feedback
-                </Button>
-              )}
             </>
           )}
           empty={
             <p className="text-sm text-muted-foreground">
               {isAgent
                 ? "Send a message to test the agent."
-                : resource
-                  ? `Ask the agent about this ${resource.kind}.`
-                  : isNew
-                    ? "Tell the agent what to write."
-                    : "Ask the agent to change this document."}
+                : isReview
+                  ? `Tell the reviewer what ${scope.name} should do differently, for example about one turn. It reads the chat, proposes where the change belongs (instructions, a skill or memory) and changes nothing until you agree.`
+                  : resource
+                    ? `Ask the agent about this ${resource.kind}.`
+                    : isNew
+                      ? "Tell the agent what to write."
+                      : "Ask the agent to change this document."}
             </p>
           }
           composer={{
             value: message,
             onChange: setMessage,
             inputRef: input,
-            busy: busy || waiting || !settings.settings,
+            busy: busy || waiting || !ready,
             label: "Message",
             placeholder: isAgent
               ? "Ask a question or give a task…"
-              : isNew
-                ? "For example: document the payments API for new developers"
-                : resource
-                  ? resource.kind === "server"
-                    ? "For example: how much disk space is free?"
-                    : resource.kind === "service"
-                      ? "For example: is it running?"
-                      : "For example: which services run here?"
-                  : "For example: add a section on log rotation",
+              : isReview
+                ? "What should the agent do differently?"
+                : isNew
+                  ? "For example: document the payments API for new developers"
+                  : resource
+                    ? resource.kind === "server"
+                      ? "For example: how much disk space is free?"
+                      : resource.kind === "service"
+                        ? "For example: is it running?"
+                        : "For example: which services run here?"
+                    : "For example: add a section on log rotation",
             onSend: () => void send(),
             onStop: open
               ? () =>
@@ -542,9 +586,11 @@ export default function AgentChat({
                   })
               : undefined,
             blockedReason: foreign
-              ? pageChat
-                ? "This chat belongs to another page. Start a New chat."
-                : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
+              ? isReview
+                ? "This review belongs to another chat. Start a New review."
+                : pageChat
+                  ? "This chat belongs to another page. Start a New chat."
+                  : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
               : session?.status === "closed"
                 ? "This chat is closed. Start a new chat."
                 : !open
@@ -553,7 +599,7 @@ export default function AgentChat({
           }}
         />
       </div>
-      {settings.options && settings.settings && (
+      {settings?.options && settings.settings && (
         <AgentSettingsSheet
           open={sheet}
           onOpenChange={setSheet}
@@ -572,22 +618,12 @@ export default function AgentChat({
         />
       )}
       {scope.kind === "agent" && session && (
-        <RunSuggestions
-          agentId={scope.id}
-          session={session}
-          turn={suggestions.turn}
-          open={suggestions.open}
-          onOpenChange={(value) => setSuggestions((current) => ({ ...current, open: value }))}
-          onReview={(review) =>
-            run.setSession((current) => current && { ...current, reviews: [...(current.reviews ?? []), review] })
-          }
-          onApplied={(target, id) => {
-            if (target === "clone") navigate(agentPath(id, "chat"));
-            else {
-              setInfo("Applied to this agent. New chats use it.");
-              onAgentChanged?.();
-            }
-          }}
+        <ReviewSheet
+          runKey={latestRunKey(session)}
+          agentName={scope.name}
+          open={reviewing}
+          onOpenChange={setReviewing}
+          onAgentChanged={onAgentChanged}
         />
       )}
       <AlertDialog open={confirmNew} onOpenChange={setConfirmNew}>

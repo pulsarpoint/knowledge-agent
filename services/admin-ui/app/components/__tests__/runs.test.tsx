@@ -154,9 +154,10 @@ test("run types have readable names in the filter and the list", async () => {
     "fetch",
     vi.fn(async (_url: string) =>
       json({
-        total: 3,
+        total: 4,
         runs: [
           { ...runs.runs[0], run_key: "cc:s1:1", kind: "native_session", title: "Payments API reference" },
+          { ...runs.runs[0], run_key: "cc:s3:1", kind: "review_session", title: "Review: Check disk" },
           { ...runs.runs[0], run_key: "cc:s1:2", kind: "retired_kind", title: "Old session" },
           { ...runs.runs[0], run_key: "cc:s2:1", kind: "claude_code", title: "Claude Code session" },
         ],
@@ -170,6 +171,9 @@ test("run types have readable names in the filter and the list", async () => {
   );
   const row = (await screen.findByText("Payments API reference")).closest("tr")!;
   expect(within(row).getByText("Native run")).toBeInTheDocument();
+  expect(
+    within((await screen.findByText("Review: Check disk")).closest("tr")!).getByText("Session review"),
+  ).toBeInTheDocument();
   // a run kind without a name shows as is
   expect(within((await screen.findByText("Old session")).closest("tr")!).getByText("retired_kind")).toBeInTheDocument();
   // a retired kind keeps its label in rows but is not offered in the filter
@@ -183,6 +187,7 @@ test("run types have readable names in the filter and the list", async () => {
     "Chat",
     "Event task",
     "Native run",
+    "Session review",
   ]);
 });
 

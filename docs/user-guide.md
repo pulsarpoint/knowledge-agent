@@ -609,8 +609,9 @@ Administration → Events), in the same transaction as the saved tickets.
 the instructions) and the files it uses, such as `references/`, `scripts/` and `assets/`. Skills from GitHub and skill
 marketplaces work as they are.
 
-- **The list** shows each skill's name, description, version (a git commit or a UTC timestamp), source (git, uploaded zip
-  or edited in the app) and when it was updated; toggle **Enabled** inline. **Delete** asks first and removes the skill,
+- **The list** shows each skill's name, description, version (a git commit or a UTC timestamp), source (git, uploaded zip,
+  edited in the app, or *Created by review*: written by a reviewer (Improve agent, 4.10), always disabled until you enable it)
+  and when it was updated; toggle **Enabled** inline. **Delete** asks first and removes the skill,
   its files and its previous versions.
 - **New skill** asks for a name (lowercase letters, digits and single hyphens, unique) and a description, writes a
   `SKILL.md` from a template and opens the editor.
@@ -708,20 +709,31 @@ ends with *Output: <schema>*. **Start new chat with these settings** keeps **Cur
 (not the version it pinned). Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's chats and event runs (**Event**
 badge) to reopen them. A Jira event run's page also lists **Earlier runs on <KEY>**: the other runs on the same
-ticket. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
-**Suggest improvements**, which runs a reviewer that proposes instruction changes and memory notes (never system
-prompt changes); **Suggestions (n)** lists them (with the names of the proposed notes), and **Review and apply** opens
-them for editing.
+ticket. Under each answer: **Full record** (the turn's record in Agent runs).
 
-**Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*: the reviewer's advice,
-**Instructions** (the current text under *Current instructions*, the proposed text to edit, and **Apply instructions**,
-ticked when the reviewer proposed a change) and **Memory notes** — facts for the shared memory every agent can search.
-Each note has a checkbox (ticked by default) and an editable name and content; a note whose name is already taken shows
-**Already exists — open in Memory** and starts unticked (edit that entry on the Memory page, or rename the note). With
-instructions ticked, **Apply to this agent** writes them into the agent (“Applied to this agent. New chats use
-it.”) and **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged; with
-only notes ticked, **Save memory notes**. When notes were sent, the sheet lists the saved notes (each opens its Memory
-entry) and any refused names with the reason; **Done** closes it.
+**Improve agent.** Once a chat or event run has finished (not while it is working: the button is disabled with "Wait
+for the agent to finish before reviewing it."), **Improve agent** in the chat's header — or on the run's record page
+in Agent runs (4.14) — opens a wide side sheet with the same chat as the Chat page, talking to a **Reviewer**.
+Your first message is your feedback, the answer to *What should the agent do differently?* (you can name a turn:
+"about turn 3"). The reviewer reads the session with the session explorer tools (the digest first, then the turns and
+tool outputs it needs); every message, tool call and result shows as it happens, and **Stop** stops it. It then says
+**where** the improvement belongs and why, with the exact text:
+
+- the agent's **instructions** (how this agent should behave) — it replaces them (the system prompt is never changed);
+  if someone changed the agent in the meantime it reads the agent again and proposes again;
+- a **skill** (a reusable procedure many agents can use) — it is created **disabled** on `/skills` with source
+  *Created by review*; read it there and switch it on to give it to every agent;
+- a **memory** note (a durable fact) — saved to the shared memory (a name that exists is refused).
+
+**Consent happens in the chat.** The reviewer proposes first and waits; it makes a change only when your **latest
+message** agrees to that specific change ("yes", "make it a memory note instead", "change the wording to …"). Each
+change is a visible tool call, recorded in the audit log (instructions with the old and new text) and reversible: the
+agent's instructions in its history, a disabled skill, a memory revision. If no change is justified, it says so.
+**Reviews** in the sheet lists the earlier reviews of that session (newest first) to reopen one; **New review**
+starts another. Reviews use the agent's model: an agent without an enabled model is refused with "Select an enabled
+model in this agent’s General tab."; a chat without a saved agent (a document's or a resource's chat) cannot be
+reviewed ("Reviews are for a saved agent's chats and event runs."). Refusals show in the sheet. Review turns are
+listed in Agent runs as **Session review**.
 
 **Tools.** Every run gets every tool it has not switched off: under **Advanced** (collapsed below the General fields) in an agent's settings, **Tools** lists the built-in tools by group; an off tool is never offered to that agent, and tools added later are on. In a chat's **Agent settings** (Advanced → Tools) a conversation can switch more tools off, never back on one its agent has off: those show as *Off for this agent* and are locked. What a tool may do follows the run's resources (there are
 no roles): a tool without what it needs refuses (for example `This run has no servers.`). Every agent can read the inventory of its resources
@@ -982,7 +994,8 @@ sessions, earlier test chats, document runs and the earlier Generate documents r
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
 characters. The run type filter offers **Chat** (turns of an agent's chats, from its Chat page), **Event run** (event run
-turns), **Agent test** (test chats from before the upgrade) and **Native run** (document run turns); you
+turns), **Agent test** (test chats from before the upgrade), **Native run** (document run turns) and **Session
+review** (the turns of an Improve agent review, 4.10); you
 can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
 finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
 started) and by user (part of the email, press Enter).
@@ -991,7 +1004,8 @@ first; **Rows per page** and the page arrows below it; an older link's 25 opens 
 document run turn.
 Records are kept until deleted; only administrators can see them.
 
-A run's page (`/activity/runs/<run key>`) has two tabs. **Record** is the list above. **Debug**
+A run's page (`/activity/runs/<run key>`) has two tabs. **Record** is the list above, with **Improve agent** beside the
+title for a finished run of a saved agent's chat or event session (4.10; disabled with the reason otherwise). **Debug**
 (`/activity/runs/<run key>/debug`) queries the run's whole session (all of its turns; a turn is one message and
 everything the agent did for it, a step is one model response in a turn) with the session explorer, the tools a
 reviewer model gets. The run's own turn is preselected. At the top, the **Digest** size against the full session's
@@ -1332,7 +1346,8 @@ run a handler started records it in that event's chain, so handler loops stop at
 1. **Agents → New agent → Generic agent** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
 3. **Chat**: run a task such as "Check disk usage on the app servers"; inspect the **Worked** block.
-4. Use **Add feedback → Suggest improvements**, then **Review and apply → Apply to this agent** (or **Apply to a new clone** to try it first).
+4. Click **Improve agent**, tell the reviewer what the agent should do differently, and agree to the change it proposes
+   (instructions, a skill — enable it on `/skills` — or a memory note).
 
 ### D. Write documentation interactively with an agent
 

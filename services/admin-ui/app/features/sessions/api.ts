@@ -10,7 +10,7 @@ const json = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 
-export type SessionPurpose = "documents" | "event" | "resource" | "revision" | "chat";
+export type SessionPurpose = "documents" | "event" | "resource" | "revision" | "chat" | "review";
 /** retrying: the latest turn failed and waits to run again (an automatic retry of an event run, or Retry). */
 export type SessionStatus = "starting" | "working" | "waiting" | "retrying" | "stopped" | "failed" | "closed";
 /** A run that has not settled: starting, working, or waiting to run its failed turn again. */
@@ -25,16 +25,6 @@ export const statusLabels: Record<SessionStatus, string> = {
   failed: "Failed",
   closed: "Finished",
 };
-/** A tuning suggestion; `response_turn` is the answer the feedback was about (none: the whole session). */
-export interface SessionReview {
-  id: string;
-  comment: string;
-  suggestion: string;
-  response_turn?: number | null;
-  created_at: string;
-  changes?: unknown;
-  memory_notes?: { name: string }[] | null;
-}
 /** A server, service, environment or code project: the resources whose pages have chats. */
 export type ResourceType = "server" | "service" | "environment" | "code_project";
 export const RESOURCE_TYPES: ResourceType[] = ["server", "service", "environment", "code_project"];
@@ -58,13 +48,15 @@ export const resourceChatPath = (resource: { type: ResourceType; id: string }, c
   }${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
 
 /** What a chat is about: a document (Ask agent), a saved agent (its Chat tab), writing documents (Documents → New →
- * Write with an agent; `resource`: from a resource's New document, the resource the chat is on) or a server, service
- * or environment (its page's chats). */
+ * Write with an agent; `resource`: from a resource's New document, the resource the chat is on), a server, service
+ * or environment (its page's chats) or a review of a saved agent's session (Improve agent: `id` is the reviewed run
+ * key, `name` the agent's name). */
 export type ChatScope =
   | { kind: "document"; id: string; title: string }
   | { kind: "agent"; id: string; name: string }
   | { kind: "new-document"; resource?: { type: ResourceType; id: string } }
-  | { kind: ResourceType; id: string; name: string };
+  | { kind: ResourceType; id: string; name: string }
+  | { kind: "review"; id: string; name: string };
 export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
 export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>
   (RESOURCE_TYPES as string[]).includes(scope.kind);
@@ -155,8 +147,6 @@ export interface SessionDetail extends SessionSummary {
   given_resources: GivenResource[];
   /** A saved agent's chat and event sessions: the configuration pinned when the session started (credential references only). */
   config?: Record<string, unknown>;
-  /** A saved agent's chat and event sessions: their saved suggestions, oldest first. */
-  reviews?: SessionReview[];
   /** The run's last document draft: open while it exists, else what became of it (promoted, discarded, or replaced:
    *  another draft of its document was promoted and deleted it); null: the run never had one. */
   document_draft?: {
@@ -262,8 +252,6 @@ export const getSessionOptions = (
     })}`,
     { signal },
   );
-export const reviewSession = (id: string, comment: string, turn?: number) =>
-  request<SessionReview>(`${session(id)}/review`, json("POST", { comment, ...(turn ? { turn } : {}) }));
 /** One resource of a run's access object. */
 export interface AccessResource {
   type: string;

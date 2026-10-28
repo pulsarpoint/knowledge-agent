@@ -27,6 +27,7 @@ const KINDS: Record<string, string> = {
   chat_session: "Chat",
   event_task: "Event task",
   native_session: "Native run",
+  review_session: "Session review",
 };
 // Kinds no longer produced, kept so old run records still read well; not offered in the filter.
 const RETIRED_KINDS: Record<string, string> = { claude_code: "Claude Code" };

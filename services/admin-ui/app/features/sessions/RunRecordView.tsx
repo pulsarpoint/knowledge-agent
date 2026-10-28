@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
+import { Sparkles } from "lucide-react";
 import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
+import { getSession, type SessionDetail } from "./api";
+import { reviewReason, sessionOfRunKey } from "./reviews";
+import ReviewSheet from "./ReviewSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
 const text = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
@@ -91,6 +96,48 @@ function Event({ event }: { event: RunEvent }) {
   return null;
 }
 
+/** Improve agent on a run of a saved agent's chat or event session: the review chat (ReviewSheet) on this run's key;
+ * disabled with the reason while the session works, or for any other run (the API refuses those with the same texts). */
+function ImproveAgent({ runKey }: { runKey: string }) {
+  const sessionId = sessionOfRunKey(runKey);
+  const [session, setSession] = useState<SessionDetail | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (sessionId === null) return;
+    const controller = new AbortController();
+    getSession(sessionId, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted) setSession(value);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFailed(true);
+      });
+    return () => controller.abort();
+  }, [sessionId]);
+  const loading = sessionId !== null && session === null && !failed;
+  const reason = loading ? null : failed ? "Could not load the run's session." : reviewReason(session);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={loading || reason !== null}
+        title={reason ?? undefined}
+        onClick={() => setOpen(true)}
+      >
+        <Sparkles data-icon="inline-start" />
+        Improve agent
+      </Button>
+      {reason && <span className="text-xs text-muted-foreground">{reason}</span>}
+      {session && reason === null && (
+        <ReviewSheet runKey={runKey} agentName={session.agent_name} open={open} onOpenChange={setOpen} />
+      )}
+    </div>
+  );
+}
+
 export default function RunRecordView({ runKey }: { runKey: string }) {
   const call = useSearchParams()[0].get("call") ?? undefined;
   const [record, setRecord] = useState<RunRecord | null>(null);
@@ -121,7 +168,10 @@ export default function RunRecordView({ runKey }: { runKey: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-semibold">{String(start.title ?? record.run_key)}</h2>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h2 className="min-w-0 break-words text-xl font-semibold">{String(start.title ?? record.run_key)}</h2>
+          <ImproveAgent runKey={record.run_key} />
+        </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Badge variant="secondary">{String(start.kind ?? "run")}</Badge>
           <span>{String(start.agent ?? record.agent_id)}</span>

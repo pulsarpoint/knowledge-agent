@@ -42,11 +42,11 @@ test("documents go live with Publish: no Promote is left in the UI", () => {
 
 test("the chat with an agent is a chat: no session or conversation is left in the chat pages' words", () => {
   const chatPages = sources.filter(([path]) =>
-    /\/(SessionView|AgentChat|ChatColumn|ResourceChats|RunWorkspace|AgentSettingsSheet|DebugPanel|NewDocumentAgent)\.tsx$/.test(
+    /\/(SessionView|AgentChat|ChatColumn|ResourceChats|RunWorkspace|AgentSettingsSheet|DebugPanel|NewDocumentAgent|ReviewSheet)\.tsx$/.test(
       path,
     ),
   );
-  expect(chatPages.length).toBe(8);
+  expect(chatPages.length).toBe(9);
   const found = chatPages.flatMap(([path, text]) =>
     visibleLines(text, /\b([Ss]ession|[Cc]onversation)s?\b/).map((line) => `${path}: ${line.trim()}`),
   );

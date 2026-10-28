@@ -271,6 +271,7 @@ test("sourceLabel names where a skill came from", () => {
   expect(sourceLabel({ kind: "git", url: "https://x/y", ref: "", path: "", commit: "c" })).toBe("Git: https://x/y");
   expect(sourceLabel({ kind: "upload", file: "" })).toBe("Uploaded zip");
   expect(sourceLabel({ kind: "editor" })).toBe("Edited in the app");
+  expect(sourceLabel({ kind: "review", session_id: "rv1" })).toBe("Created by review");
   expect(sourceLabel(null)).toBe("Unknown");
 });
 

@@ -225,6 +225,7 @@ export function writeReason(scope: ChatScope, settings: AgentSettings): string |
 
 export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
   const settings = withScope(scope, raw, options);
+  if (scope.kind === "review") throw new Error("A review starts with POST /api/agent-runs/{run_key}/reviews.");
   if (scope.kind === "agent") {
     // a saved agent keeps its own model and prompt; the run only narrows it (a document as the agent has it)
     const picked = settings.documents ?? [];

@@ -13,11 +13,18 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
  * conversation) and the page's own `actions`, above the chat (AgentChat). `?chat=<id>` opens that conversation (one of
  * another page is refused by the chat itself) and follows the shown one. A resource's page (ResourceChats) and Write
  * with an agent use it. `onSessionChange` reports the shown conversation (null: a new one) whenever its turns or status
- * change; `mention` and `onDocumentWrite` pass through to the chat. */
+ * change; `mention` and `onDocumentWrite` pass through to the chat. Improve agent (ReviewSheet) holds it in a Sheet: `list`
+ * replaces the runs list (the session's reviews), `selection` replaces `?chat=` (the Sheet keeps the shown review),
+ * `labels` names the list and New, `startFresh` starts on a new conversation and `inSheet` fills the Sheet. */
 export default function ChatColumn({
   scope,
   settings,
-  filter,
+  filter = {},
+  list,
+  selection,
+  labels = { list: "Chats", empty: "No earlier chats.", new: "New chat" },
+  startFresh = false,
+  inSheet = false,
   description,
   actions,
   blockedReason = null,
@@ -26,8 +33,14 @@ export default function ChatColumn({
   onDocumentWrite,
 }: {
   scope: ChatScope;
-  settings: ReturnType<typeof useAgentSettings>;
-  filter: { tag?: string; purpose?: SessionPurpose };
+  /** Not for a review (the API pins the reviewer). */
+  settings?: ReturnType<typeof useAgentSettings>;
+  filter?: { tag?: string; purpose?: SessionPurpose };
+  list?: (signal: AbortSignal) => Promise<RunSummary[]>;
+  selection?: [string | null, (id: string | null) => void];
+  labels?: { list: string; empty: string; new: string };
+  startFresh?: boolean;
+  inSheet?: boolean;
   /** The Conversations sheet's description. */
   description: string;
   actions?: ReactNode;
@@ -37,8 +50,8 @@ export default function ChatColumn({
   onDocumentWrite?: (sessionId: string, writes: number) => void;
 }) {
   const [params, setParams] = useSearchParams();
-  const chat = params.get("chat");
-  const [fresh, setFresh] = useState(0); // > 0: New chat was clicked (the chat starts on a new conversation)
+  const chat = selection ? selection[0] : params.get("chat");
+  const [fresh, setFresh] = useState(startFresh ? 1 : 0); // > 0: New chat was clicked (the chat starts on a new conversation)
   // The chat shown when New chat was clicked: until the URL drops it, the new chat must not be handed it (it would reopen it).
   const [left, setLeft] = useState<string | null>(null);
   const initialRunId = left !== null && chat === left ? null : chat;
@@ -51,10 +64,10 @@ export default function ChatColumn({
 
   useEffect(() => {
     const controller = new AbortController();
-    getSessions(filter, controller.signal)
+    (list ? list(controller.signal) : getSessions(filter, controller.signal).then((value) => value.sessions))
       .then((value) => {
         if (controller.signal.aborted) return;
-        setRuns(value.sessions);
+        setRuns(value);
         setListFailed(false);
       })
       .catch(() => {
@@ -68,15 +81,17 @@ export default function ChatColumn({
   }, [chat]);
 
   const setChat = (id: string | null) =>
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (id === null) next.delete("chat");
-        else next.set("chat", id);
-        return next;
-      },
-      { replace: true },
-    );
+    selection
+      ? selection[1](id)
+      : setParams(
+          (current) => {
+            const next = new URLSearchParams(current);
+            if (id === null) next.delete("chat");
+            else next.set("chat", id);
+            return next;
+          },
+          { replace: true },
+        );
   /** The URL follows the chat's run (a reload reopens it). */
   const followRun = (id: string | null) => {
     if (id !== initialRunId) setChat(id);
@@ -102,34 +117,34 @@ export default function ChatColumn({
         </h2>
         <Button type="button" size="sm" variant="ghost" onClick={() => setListing(true)}>
           <History data-icon="inline-start" />
-          Chats
+          {labels.list}
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={newChat}>
           <Plus data-icon="inline-start" />
-          New chat
+          {labels.new}
         </Button>
         {actions}
       </div>
       <Sheet open={listing} onOpenChange={setListing}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-sm">
           <SheetHeader>
-            <SheetTitle>Chats</SheetTitle>
+            <SheetTitle>{labels.list}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
           <div className="mt-4 flex flex-col gap-2 px-4">
             {listFailed && (
               <Alert variant="destructive">
                 <AlertDescription>
-                  Could not load the chats.{" "}
+                  {`Could not load the ${labels.list.toLowerCase()}.`}{" "}
                   <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
                     Retry
                   </Button>
                 </AlertDescription>
               </Alert>
             )}
-            {runs !== null && runs.length === 0 && <p className="text-sm text-muted-foreground">No earlier chats.</p>}
+            {runs !== null && runs.length === 0 && <p className="text-sm text-muted-foreground">{labels.empty}</p>}
             {runs !== null && runs.length > 0 && (
-              <ul aria-label="Chats" className="flex flex-col divide-y rounded-lg border">
+              <ul aria-label={labels.list} className="flex flex-col divide-y rounded-lg border">
                 {runs.map((item) => (
                   <li key={item.id}>
                     <button
@@ -161,6 +176,7 @@ export default function ChatColumn({
         settings={settings}
         initialRunId={initialRunId}
         fresh={fresh > 0}
+        inSheet={inSheet}
         blockedReason={blockedReason}
         onRunChange={followRun}
         mention={mention}

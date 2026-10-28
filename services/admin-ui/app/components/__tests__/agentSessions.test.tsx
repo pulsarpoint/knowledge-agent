@@ -2,10 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import AgentChatView from "~/features/agents/AgentChatView";
-import * as reviews from "~/features/agents/reviews";
 import type { RunSummary, SessionDetail } from "~/features/sessions/api";
 import { agentOptions } from "../../lib/__tests__/agentScopeFixture";
-vi.mock("~/features/agents/reviews");
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
 class Stream extends EventTarget {
@@ -47,7 +45,6 @@ const finishedRun = {
   tool_counts: [],
   tool_counts_through_id: 0,
   config: { id: "ops", tools: { items: [] } },
-  reviews: [],
   created_at: at,
   last_activity_at: at,
   closed_at: null,
@@ -65,14 +62,6 @@ const turn1 = [
   { id: 2, turn: 1, seq: 2, kind: "message", payload: { text: "Disk is 40% full." } },
   { id: 3, turn: 1, seq: 3, kind: "end", payload: { status: "completed" } },
 ];
-const review = {
-  id: "review-1",
-  comment: "Be shorter",
-  suggestion: "Answer in one line.",
-  response_turn: 1,
-  created_at: at,
-};
-
 /** The API for agent "ops": its options, its runs, a start and the run r1 (or another run). */
 function serve({
   runs = [],
@@ -89,7 +78,6 @@ function serve({
       if (key === "GET /api/sessions/options?agent_id=ops") return Response.json(options());
       if (key === "GET /api/sessions?agent_id=ops") return Response.json({ sessions: runs });
       if (key === "POST /api/sessions") return Response.json(run, { status: 201 });
-      if (key === `POST /api/sessions/${run.id}/review`) return Response.json(review, { status: 201 });
       if (key === `POST /api/sessions/${run.id}/close`) return Response.json({ id: run.id });
       if (key === `POST /api/sessions/${run.id}/messages`)
         return Response.json({ seq: 2, status: "queued", working: false }, { status: 202 });
@@ -253,57 +241,6 @@ test("a saved agent with resources cannot start with none of them picked", async
   fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Go" } });
   expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   expect(calls.some((c) => c.key === "POST /api/sessions")).toBe(false);
-});
-
-test("feedback on an answer asks for suggestions and they can be reviewed and applied", async () => {
-  vi.mocked(reviews.getReviewSource).mockReturnValue(new Promise(() => {}));
-  const calls = serve({ run: finishedRun });
-  renderChatTab({ sessionId: "r1" });
-  expect(await screen.findByRole("button", { name: "Suggestions (0)" })).toBeDisabled();
-  fireEvent.click(await screen.findByRole("button", { name: "Add feedback" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Your feedback" }), { target: { value: "Be shorter" } });
-  fireEvent.click(screen.getByRole("button", { name: "Suggest improvements" }));
-  await waitFor(() =>
-    expect(calls.find((c) => c.key === "POST /api/sessions/r1/review")?.body).toEqual({
-      comment: "Be shorter",
-      turn: 1,
-    }),
-  );
-  expect(await screen.findByText("Answer in one line.")).toBeVisible();
-  expect(screen.getByRole("textbox", { name: "Your feedback" })).toHaveValue("");
-  expect(screen.getByRole("button", { name: "Suggestions (1)", hidden: true })).toBeInTheDocument(); // behind the open sheet
-  fireEvent.click(await screen.findByRole("button", { name: "Review and apply" }));
-  expect(await screen.findByText("Apply suggestions")).toBeVisible();
-  expect(reviews.getReviewSource).toHaveBeenCalledWith("ops", "review-1");
-});
-
-test("applying a suggestion to the agent says so and reloads the agent", async () => {
-  const source = {
-    revision: 3,
-    instructions: "",
-    changes: { instructions: "Answer in one line." },
-    memory_notes: [],
-  };
-  vi.mocked(reviews.getReviewSource).mockResolvedValue(source as never);
-  vi.mocked(reviews.applyReview).mockResolvedValue({ agent_id: "ops", saved: [], refused: [] } as never);
-  serve({ run: { ...finishedRun, reviews: [review] } as SessionDetail });
-  const onAgentChanged = vi.fn();
-  renderChatTab({ sessionId: "r1", onAgentChanged });
-  fireEvent.click(await screen.findByRole("button", { name: "Suggestions (1)" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Review and apply" }));
-  const sheet = within(await screen.findByRole("dialog", { name: "Apply suggestions" }));
-  await waitFor(() => expect(sheet.getByRole("button", { name: /this agent/i })).toBeEnabled());
-  fireEvent.click(sheet.getByRole("button", { name: /this agent/i }));
-  expect(await screen.findByText("Applied to this agent. New chats use it.")).toBeVisible();
-  expect(onAgentChanged).toHaveBeenCalled();
-});
-
-test("a saved suggestion lists the memory notes it proposes", async () => {
-  const notes = [{ name: "disk/thresholds", content: "Alert at 90%.", metadata: {} }];
-  serve({ run: { ...finishedRun, reviews: [{ ...review, memory_notes: notes }] } as SessionDetail });
-  renderChatTab({ sessionId: "r1" });
-  fireEvent.click(await screen.findByRole("button", { name: "Suggestions (1)" }));
-  expect(await screen.findByText("Proposed memory notes: disk/thresholds")).toBeVisible();
 });
 
 test("earlier runs replace History", async () => {
