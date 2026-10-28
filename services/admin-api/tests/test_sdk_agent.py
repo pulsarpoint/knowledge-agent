@@ -544,7 +544,7 @@ def test_every_tool_of_an_mcp_server_in_access_is_offered(config, responses_api)
 
 
 def test_an_internal_llm_call_sends_no_tools(config, responses_api):
-    """The agent designer and the tuning reviewer call agent(tools=False): the model gets no tools at all."""
+    """The agent designer calls agent(tools=False): the model gets no tools at all."""
     _, requests = responses_api
     asyncio.run(agent(config, 'Review.', credentials={'model-key': 'fixture-api-secret'}, tools=False))
     request = next(r for r in requests if r['path'] == '/v1/responses')

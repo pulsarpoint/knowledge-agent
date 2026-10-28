@@ -108,7 +108,7 @@ export default function ChatColumn({
   };
 
   const shown = initialRunId === null ? null : (runs?.find((item) => item.id === initialRunId) ?? null);
-  const title = initialRunId === null ? "New chat" : (shown?.title ?? "Chat");
+  const title = initialRunId === null ? labels.new : (shown?.title ?? "Chat");
   return (
     <>
       <div className="flex items-center gap-2">

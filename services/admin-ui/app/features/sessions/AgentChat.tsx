@@ -302,10 +302,10 @@ export default function AgentChat({
         const started = await startReview(scope.id);
         pick(started.id);
         setListed((n) => n + 1);
-        toast.success("Review started.");
         const result = await sendMessage(started.id, text);
         setMessage("");
         sent(result.working);
+        toast.success("Review started.");
       } catch (e) {
         setRefused(e instanceof Error ? e.message : "The review could not start.");
       } finally {
@@ -528,7 +528,6 @@ export default function AgentChat({
                     <Sparkles data-icon="inline-start" />
                     Improve agent
                   </Button>
-                  {cannotReview && <span className="text-xs text-muted-foreground">{cannotReview}</span>}
                 </>
               )}
             </>

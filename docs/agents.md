@@ -639,8 +639,9 @@ like any chat (purpose `review`), built in code (`knowledge_admin/sessions/revie
 replaced the single-shot *Suggest improvements* and *Apply suggestions* (0147 drops `ka.agent_session_reviews`).
 
 - `POST /api/agent-runs/{run_key}/reviews` starts one on the run's session (`sessions/start.start_review`) and returns
-  the review session (status `waiting`, no turn yet). The person's feedback is its first message, sent with
-  `POST /api/sessions/{id}/messages`; detail, events, the stream, Stop, Close and Retry are the session API, so the
+  the review session (status `waiting`, no turn yet, titled `Review: <chat title>`). The person's feedback is its
+  first message, sent with `POST /api/sessions/{id}/messages`, which renames the review `Review: <first line of the
+  feedback>` (`review_agent.title`) so the list tells reviews apart; detail, events, the stream, Stop, Close and Retry are the session API, so the
   agent chat shows it unchanged. 404 `Run record not found.` without that run key's record (or a turn the session
   does not have); 400 `Reviews are for a saved agent's chats and event runs.` for any other run (a review too); 409
   `Wait for the agent to finish before reviewing it.` while it starts, works or waits for a retry; 409 `Select an
@@ -670,8 +671,12 @@ replaced the single-shot *Suggest improvements* and *Apply suggestions* (0147 dr
     no agent, the person who started the review and the review session, with metadata `saved_by: Session reviewer
     (<agent name>)`. The run's start event names it the same way.
 - Consent is in the chat: the prompt makes the reviewer propose first (where, what and why, with the exact text) and
-  call a write tool only when the person's latest message agrees to that specific change. Every write is recorded
-  and reversible (audit and the agent's instructions, a disabled skill, a memory revision).
+  call a write tool (`save_memory` too) only when the person's latest message agrees to that specific change. The
+  first message is the person's feedback and never counts as agreement, even when it asks for a change: the exact text
+  is always shown before any write. `update_agent_instructions` sends the whole text, so the prompt requires every part
+  it did not propose to change to stay word for word. Every write is recorded and can be undone by hand: the old
+  instructions survive in the audit record (`old_instructions`) and in the review chat (the `get_agent` result); a
+  skill is created disabled; memory keeps revisions.
 
 Snapshots of running conversations store credential references, never private keys or provider tokens. Credentials
 are resolved at execution time; disabled agents/models/SSH/MCP resources still block use. File contents and external

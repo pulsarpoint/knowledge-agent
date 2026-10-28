@@ -111,8 +111,8 @@ and tag, and `reference['aad'].encode()` as AAD. Existing backend SSH access use
 `OperationsStore(store, app_name, agent_id).agent_connection(conn, server_id)` to
 obtain an `SSHConnection` with the decrypted key in memory. Loading this config
 does not need the encryption key. Never send decrypted credentials to an LLM.
-The runner supplies instructions and enabled resource context; the tuning reviewer
-receives the full configuration with credential references only.
+The runner supplies instructions and enabled resource context; credential references
+only, never decrypted values.
 
 This is the application configuration accepted by `agent()` in the same module.
 It is **not** a dictionary to unpack directly into the native Agents SDK:
@@ -128,10 +128,11 @@ The first message creates a session. Follow-ups continue its Agents SDK conversa
 using the session’s pinned configuration. New sessions pin the agent’s saved configuration
 when they start. Sessions close explicitly or are closed
 after 24 hours without activity; a session with a running turn is never closed for inactivity. Session
-history and tuning reviews remain in PostgreSQL after runtime files are removed.
+history (reviews included) remains in PostgreSQL after runtime files are removed.
 See [session and review endpoints](../../docs/agents.md) for the API contract.
-The tuning reviewer receives full configuration, the whole stored conversation,
-and administrator feedback. It proposes changes without applying them.
+A session review (Improve agent) is itself a session (purpose `review`): a reviewer reads the reviewed session with
+the session explorer tools and changes the agent's instructions, a disabled skill or memory only when the person
+agrees in the chat (docs/agents.md, Session review).
 
 The agent's **Test → Settings → Preview** shows the configuration a run would pin
 (`POST /api/sessions/preview`). Previewing does not create a run or send the task to a model.
@@ -163,7 +164,7 @@ its native `RunResultStreaming`. Failures, cancellation, timeout and exhausted
 turn limits raise exceptions. Token usage is in `result.context_wrapper.usage`.
 `timeout_seconds` defaults to 300 and `max_turns` to 20. For structured results,
 pass an existing Pydantic class as `output_type`; `final_output` is that model.
-The agent wizard and tuning reviewer use this support.
+The agent wizard uses this support.
 
 Every run gets every catalog tool (no per-agent choice; migration 0115 dropped `ka.agent_tools`); what a tool may do
 is decided by its check against the run's access object. Tool implementations are in `knowledge_admin/capabilities/`

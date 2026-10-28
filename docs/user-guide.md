@@ -715,7 +715,7 @@ ticket. Under each answer: **Full record** (the turn's record in Agent runs).
 for the agent to finish before reviewing it."), **Improve agent** in the chat's header — or on the run's record page
 in Agent runs (4.14) — opens a wide side sheet with the same chat as the Chat page, talking to a **Reviewer**.
 Your first message is your feedback, the answer to *What should the agent do differently?* (you can name a turn:
-"about turn 3"). The reviewer reads the session with the session explorer tools (the digest first, then the turns and
+"about turn 3"); its first line becomes the review's title. The reviewer reads the session with the session explorer tools (the digest first, then the turns and
 tool outputs it needs); every message, tool call and result shows as it happens, and **Stop** stops it. It then says
 **where** the improvement belongs and why, with the exact text:
 
@@ -726,9 +726,11 @@ tool outputs it needs); every message, tool call and result shows as it happens,
 - a **memory** note (a durable fact) — saved to the shared memory (a name that exists is refused).
 
 **Consent happens in the chat.** The reviewer proposes first and waits; it makes a change only when your **latest
-message** agrees to that specific change ("yes", "make it a memory note instead", "change the wording to …"). Each
-change is a visible tool call, recorded in the audit log (instructions with the old and new text) and reversible: the
-agent's instructions in its history, a disabled skill, a memory revision. If no change is justified, it says so.
+message** agrees to that specific change ("yes", "make it a memory note instead", "change the wording to …"). Your
+feedback never counts as agreement, even when it asks for a change: you always see the exact text first. When it
+changes the instructions it keeps every part it did not propose to change word for word. Each change is a visible
+tool call. To undo an instructions change, the old text survives in the audit record (with the new text) and in the
+review chat (the agent as the reviewer read it); a skill is created disabled; a memory note keeps its revisions. If no change is justified, it says so.
 **Reviews** in the sheet lists the earlier reviews of that session (newest first) to reopen one; **New review**
 starts another. Reviews use the agent's model: an agent without an enabled model is refused with "Select an enabled
 model in this agent’s General tab."; a chat without a saved agent (a document's or a resource's chat) cannot be

@@ -19,7 +19,7 @@ from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.knowledge_agents.session_worker import STOPPED, append_run_events
 from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn, notify_event_run
-from knowledge_admin.sessions import debug, run_status, start
+from knowledge_admin.sessions import debug, review_agent, run_status, start
 from knowledge_admin.sessions.rows import (
     CLOSED,
     IN_PROGRESS,
@@ -60,7 +60,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     def locked(conn, project, session_id: UUID) -> dict:
         row = conn.execute(
-            'SELECT id,status,turns,retry_at FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
+            'SELECT id,status,turns,retry_at,purpose FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
             (session_id, project),
         ).fetchone()
         if row is None:
@@ -305,6 +305,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 'INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,%s,%s,%s)',
                 (session_id, seq, actor, value.text),
             )
+            if row['purpose'] == 'review' and seq == 1 and (named := review_agent.title(value.text)):
+                # a review is named after the person's feedback (its first message), so its list tells reviews apart
+                conn.execute('UPDATE ka.agent_sessions SET title=%s WHERE id=%s', (named, session_id))
             if row['status'] == 'retrying':  # the turn waiting for a retry runs now, with this message
                 conn.execute(
                     """UPDATE ka.agent_session_inputs SET not_before=CASE WHEN kind='wakeup' THEN now() END

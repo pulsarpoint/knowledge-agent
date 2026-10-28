@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Sparkles } from "lucide-react";
 import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
-import { getSession, type SessionDetail } from "./api";
+import { getSession, isWorking, type SessionDetail } from "./api";
 import { reviewReason, sessionOfRunKey } from "./reviews";
 import ReviewSheet from "./ReviewSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -96,13 +96,22 @@ function Event({ event }: { event: RunEvent }) {
   return null;
 }
 
-/** Improve agent on a run of a saved agent's chat or event session: the review chat (ReviewSheet) on this run's key;
- * disabled with the reason while the session works, or for any other run (the API refuses those with the same texts). */
+const REVIEW_POLL_MS = 5000; // how often a working session's status is loaded again
+
+/** Improve agent on a run of a session (`cc:` keys; none for a run outside a session): the review chat (ReviewSheet)
+ * on this run's key; disabled with the reason while the session works (its status is loaded again every 5 s until it
+ * finishes) or when it is not a saved agent's chat or event run (the API refuses those with the same texts). */
 function ImproveAgent({ runKey }: { runKey: string }) {
   const sessionId = sessionOfRunKey(runKey);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!isWorking(session?.status)) return;
+    const timer = setTimeout(() => setTick((n) => n + 1), REVIEW_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [session]);
   useEffect(() => {
     if (sessionId === null) return;
     const controller = new AbortController();
@@ -114,7 +123,8 @@ function ImproveAgent({ runKey }: { runKey: string }) {
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [sessionId]);
+  }, [sessionId, tick]);
+  if (sessionId === null) return null;
   const loading = sessionId !== null && session === null && !failed;
   const reason = loading ? null : failed ? "Could not load the run's session." : reviewReason(session);
   return (

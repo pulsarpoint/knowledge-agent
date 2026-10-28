@@ -346,7 +346,8 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
   `GET /api/agents/{id}/sessions/{session_id}` and `POST …/close` of the old Test chats; use
   `POST /api/sessions` with `agent_id` and the other session routes under `/api/sessions`. The later
   `POST` and `GET /api/agents/{id}/sessions` and `…/{session_id}/review` are gone too: use `POST /api/sessions`,
-  `GET /api/sessions?agent_id=…` and `POST /api/sessions/{id}/review`.
+  `GET /api/sessions?agent_id=…` and (since 0147) `POST /api/agent-runs/{run_key}/reviews` (the review chat;
+  the single-shot `POST /api/sessions/{id}/review` is gone too).
 - Rolling back 0081 deletes the Test sessions (their run records stay) and restores the old Test chat tables empty;
   the Test chats deleted by the upgrade do not come back.
 

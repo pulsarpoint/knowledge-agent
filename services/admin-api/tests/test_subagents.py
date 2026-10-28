@@ -510,7 +510,7 @@ def test_a_call_waiting_for_a_slot_starts_nothing_once_the_turn_ends():
 
 
 def test_run_subagent_is_offered_only_to_a_run_with_the_turns_subagents(config, responses_api):
-    """A run without a Subagents host (a subagent's own run, the tuning reviewer, the agent designer) is never offered
+    """A run without a Subagents host (a subagent's own run, the agent designer) is never offered
     run_subagent: the call could only fail with UNAVAILABLE."""
     _, requests = responses_api
 

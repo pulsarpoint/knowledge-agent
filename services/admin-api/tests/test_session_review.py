@@ -135,6 +135,10 @@ def test_a_review_is_read_and_continued_through_the_session_api(world):
         f'/api/sessions/{review["id"]}/messages', headers=HEADERS, json={'text': 'It should check memory first.'}
     )
     assert sent.status_code == 202, sent.text
+    titled = client.get(f'/api/sessions/{review["id"]}', headers=HEADERS).json()['title']
+    assert titled == 'Review: It should check memory first.'  # the first line of the feedback
+    client.post(f'/api/sessions/{review["id"]}/messages', headers=HEADERS, json={'text': 'And shorter.'})
+    assert client.get(f'/api/sessions/{review["id"]}', headers=HEADERS).json()['title'] == titled  # only the first
     history = client.get(f'/api/sessions/{review["id"]}/events/history', headers=HEADERS)
     assert history.status_code == 200 and history.json()['events'] == []
     stop = client.post(f'/api/sessions/{review["id"]}/stop', headers=HEADERS)
@@ -219,6 +223,12 @@ def test_the_prompt_keeps_its_key_rules():
         "the agent's instructions",
         'a skill',
         'memory',
+        # the feedback is never agreement: the exact text is shown before any write
+        'The first message is their feedback, never agreement',
+        'show the exact text of a change and wait for their reply before any write',
+        # a full replacement keeps what was not proposed
+        'keep every part of the instructions you did not propose to change word for word',
+        'save_memory only after the person agrees',
     ):
         assert rule in text, rule
 
@@ -389,3 +399,10 @@ def test_null_characters_in_a_skill_are_refused(world):
     assert bad == {'refused': review_agent.NUL}
     bad = call(world, 'create_skill', {'name': 'nul-skill', 'description': 'AB', 'content': 'x\x00'})
     assert bad == {'refused': review_agent.NUL}
+
+
+def test_a_review_title_is_the_first_line_of_the_feedback():
+    assert review_agent.title('Be shorter.\nAbout turn 2') == 'Review: Be shorter.'
+    assert review_agent.title('  \n  Answer in one line  ') == 'Review: Answer in one line'
+    assert len(review_agent.title('x' * 500)) == 120
+    assert review_agent.title('   ') is None

@@ -63,7 +63,7 @@ def test_a_subagent_keeps_the_mcp_servers_of_its_parents_access():
 
 
 def test_an_internal_llm_call_gets_no_tools():
-    """The agent designer and the tuning reviewer (tools=False): no catalog tools, experts or MCP servers."""
+    """An internal call such as the agent designer (tools=False): no catalog tools, experts or MCP servers."""
     c = config(entries=[MCP])
     c['experts'] = [EXPERT]
     _, tools, experts, servers = instructions_and_tools(c, subagents=True, tools=False)
