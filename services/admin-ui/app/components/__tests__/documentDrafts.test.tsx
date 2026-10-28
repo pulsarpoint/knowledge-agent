@@ -6,6 +6,7 @@ import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 import routes from "~/routes";
 import { documentsRoute } from "~/lib/__tests__/pageRoutes";
 import DraftPageView from "~/features/documents/DraftPageView";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -142,10 +143,15 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   const section = within(screen.getByRole("region", { name: "New drafts" }));
   expect(section.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
   expect(section.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/sessions/s1");
-  fireEvent.click(screen.getByRole("checkbox", { name: "Has drafts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  fireEvent.click(
+    within(await screen.findByRole("dialog", { name: "Filters" })).getByRole("checkbox", { name: "Has drafts" }),
+  );
   await waitFor(() =>
     expect(calls.some((c) => c.key === "GET /api/documentation/documents?has_drafts=true")).toBe(true),
   );
+  expect(await screen.findByRole("button", { name: "Filters, 1 active", hidden: true })).toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
   expect(rowButtons(section.getByRole("link", { name: "Disk layout" }).closest("tr")!)).toEqual([
     "Actions for Disk layout",
   ]);
@@ -297,7 +303,7 @@ test("the Drafts sub-page lists the drafts with the resource filters: an environ
     "/documents/doc-1/drafts?draft=d4",
   );
   expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
-  expect(list.getByText("New document")).toBeInTheDocument();
+  expect(within(list.getByRole("table")).getByText("New document")).toBeInTheDocument();
   expect(list.getByText("ana@example.com")).toBeInTheDocument();
   expect(list.getByRole("columnheader", { name: "Created" })).toBeInTheDocument();
   expect(list.queryByRole("columnheader", { name: "Updated" })).toBeNull();
@@ -391,7 +397,7 @@ test("the section links carry the resource and tag filters, each sub-page with i
   expect(nav.getByRole("link", { name: "Documents" })).toHaveAttribute("aria-current", "page");
   expect(nav.getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/documents/drafts?tag=ops");
   expect(screen.getByText("The live documents, with their links, versions and drafts.")).toBeVisible();
-  expect(screen.getByRole("link", { name: "New document" })).toHaveAttribute("href", "/documents/new");
+  expect(await screen.findByRole("link", { name: "New document" })).toHaveAttribute("href", "/documents/new");
   fireEvent.click(nav.getByRole("link", { name: "Drafts" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/documents/drafts"));
   expect(await screen.findByText("No drafts match these filters.")).toBeInTheDocument();
@@ -399,4 +405,51 @@ test("the section links carry the resource and tag filters, each sub-page with i
     screen.getByText("Every draft, of new documents and of live ones, waiting to be published or discarded."),
   ).toBeVisible();
   expect(nav.getByRole("link", { name: "Documents" })).toHaveAttribute("href", "/documents?tag=ops");
+});
+
+test("documents: search, tag, code project, service, Filters and New document share one toolbar row", async () => {
+  api({
+    "GET /api/documentation/documents?": () => [200, { documents: [doc], total: 1 }],
+    "GET /api/documentation/resources": () => [200, resources],
+    "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
+  });
+  show("/documents");
+  expectOneToolbarRow(
+    await screen.findByRole("searchbox", { name: "Search documents" }),
+    screen.getByRole("textbox", { name: "Tag" }),
+    screen.getByRole("combobox", { name: "Code project" }),
+    screen.getByRole("combobox", { name: "Service" }),
+    screen.getByRole("button", { name: "Filters" }),
+    screen.getByRole("link", { name: "New document" }),
+  );
+  expect(screen.queryByRole("combobox", { name: "Server" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "Has drafts" })).toBeNull();
+});
+
+test("drafts: Server and Environment are behind Filters; they still filter, and Reset clears them", async () => {
+  const calls = api({
+    "GET /api/documentation/resources": () => [200, { ...resources, environments: [{ id: "env-1", name: "Prod" }] }],
+    "GET /api/documentation/drafts?tag=ops": () => [200, { drafts: [] }],
+    "GET /api/documentation/drafts?environment_id=env-1&tag=ops": () => [200, { drafts: [] }],
+  });
+  const router = show("/documents/drafts?tag=ops");
+  const user = userEvent.setup();
+  expectOneToolbarRow(
+    await screen.findByRole("textbox", { name: "Tag" }),
+    screen.getByRole("button", { name: "Filters" }),
+    screen.getByRole("link", { name: "New document" }),
+  );
+  await waitFor(() => expect(calls.some((c) => c.key === "GET /api/documentation/drafts?tag=ops")).toBe(true));
+  await user.click(screen.getByRole("button", { name: "Filters" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Filters" }));
+  expect(sheet.queryByRole("checkbox", { name: "Has drafts" })).toBeNull();
+  await user.click(sheet.getByRole("combobox", { name: "Environment" }));
+  await user.click(await screen.findByRole("option", { name: "Prod" }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === "GET /api/documentation/drafts?environment_id=env-1&tag=ops")).toBe(true),
+  );
+  await user.click(sheet.getByRole("button", { name: "Reset" }));
+  await waitFor(() => expect(router.state.location.search).toBe("?tag=ops"));
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
 });

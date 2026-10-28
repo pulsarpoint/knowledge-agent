@@ -11,7 +11,8 @@ import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import OldLinkRedirect from "~/components/OldLinkRedirect";
-import DataTable, { TableEmpty } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, TableEmpty } from "~/components/DataTable";
+import FiltersSheet from "~/components/FiltersSheet";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -22,6 +23,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 
 /** The resource filters above the list, and the link counts each document shows. */
 const FILTERS = kindsOf(["code_projects", "services", "servers", "environments"]);
+/** How many resource filters sit in the toolbar row (beside the tag); the rest are behind Filters. */
+const INLINE_RESOURCES = 2;
 const COUNTED = kindsOf(["code_projects", "services", "servers"]);
 /** The API's page size: a page of it leaves `limit` out of the URL. */
 const DOCUMENTS_PAGE = 50;
@@ -109,6 +112,17 @@ export default function DocumentsView({ drafts: draftsView = false }: { drafts?:
         value && value !== "all" ? next.set(key, value) : next.delete(key);
         if (key !== "offset") next.delete("offset");
         if (key === "limit" && value === String(DOCUMENTS_PAGE)) next.delete("limit");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+  /** Clears these filters (and the page). */
+  function clear(keys: string[]) {
+    setParams(
+      (old) => {
+        const next = new URLSearchParams(old);
+        for (const key of [...keys, "offset"]) next.delete(key);
         return next;
       },
       { replace: true },
@@ -297,45 +311,55 @@ export default function DocumentsView({ drafts: draftsView = false }: { drafts?:
     },
   ];
   /** The filters both sub-pages share (tag and resources); the documents list adds Has drafts. */
+  /** A resource filter: its query parameter is code_project_id, service_id, ... */
+  const resourceFilter = ({ key: kind, field, label, plural }: (typeof FILTERS)[number]) => {
+    const key = field.slice(0, -1);
+    return (
+      <Select key={kind} value={params.get(key) || "all"} onValueChange={(v) => filter(key, v)}>
+        <SelectTrigger aria-label={label} className={FILTER_WIDTH}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="all">All {plural.toLowerCase()}</SelectItem>
+            {resources?.[kind]?.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                {item.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    );
+  };
+  // Tag, code project and service in the toolbar row; server, environment and Has drafts behind Filters.
+  const hidden = [
+    ...FILTERS.slice(INLINE_RESOURCES).map(({ field }) => field.slice(0, -1)),
+    ...(draftsView ? [] : ["has_drafts"]),
+  ];
   const filters = (
     <>
       <Input
         aria-label="Tag"
         placeholder="One tag, e.g. inventory"
-        className="w-full sm:w-48"
+        className={FILTER_WIDTH}
         value={params.get("tag") || ""}
         onChange={(e) => filter("tag", e.target.value)}
       />
-      {FILTERS.map(({ key: kind, field, label, plural }) => {
-        const key = field.slice(0, -1); // the filter's query parameter: code_project_id, service_id, ...
-        return (
-          <Select key={kind} value={params.get(key) || "all"} onValueChange={(v) => filter(key, v)}>
-            <SelectTrigger aria-label={label} className="w-full sm:w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="all">All {plural.toLowerCase()}</SelectItem>
-                {resources?.[kind]?.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        );
-      })}
-      {!draftsView && (
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="filter-has-drafts"
-            checked={params.get("has_drafts") === "true"}
-            onCheckedChange={(on) => filter("has_drafts", on === true ? "true" : "")}
-          />
-          <Label htmlFor="filter-has-drafts">Has drafts</Label>
-        </div>
-      )}
+      {FILTERS.slice(0, INLINE_RESOURCES).map(resourceFilter)}
+      <FiltersSheet active={hidden.filter((key) => params.get(key)).length} onReset={() => clear(hidden)}>
+        {FILTERS.slice(INLINE_RESOURCES).map(resourceFilter)}
+        {!draftsView && (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="filter-has-drafts"
+              checked={params.get("has_drafts") === "true"}
+              onCheckedChange={(on) => filter("has_drafts", on === true ? "true" : "")}
+            />
+            <Label htmlFor="filter-has-drafts">Has drafts</Label>
+          </div>
+        )}
+      </FiltersSheet>
     </>
   );
   const filtered = [...params.keys()].some((key) => !["offset", "limit"].includes(key));
@@ -355,6 +379,7 @@ export default function DocumentsView({ drafts: draftsView = false }: { drafts?:
             rowId={(draft) => draft.id}
             resetKey={JSON.stringify(draftFilter(params))}
             toolbar={filters}
+            actions={newDocument}
             empty={
               error ? (
                 "Could not load drafts."
@@ -395,6 +420,7 @@ export default function DocumentsView({ drafts: draftsView = false }: { drafts?:
             onPageSizeChange={(size) => filter("limit", String(size))}
             search={{ plural: "documents", value: params.get("q") || "", onChange: (q) => filter("q", q) }}
             toolbar={filters}
+            actions={newDocument}
             empty={
               error ? (
                 "Could not load documents."
