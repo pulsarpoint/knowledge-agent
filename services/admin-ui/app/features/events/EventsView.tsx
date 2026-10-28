@@ -109,6 +109,8 @@ export default function EventsView() {
   const [form, setForm] = useState<{ key: number; prefill?: Prefill } | null>(null);
 
   useEffect(() => {
+    // Only a changed search starts again at page 1 (not the first render: a page picked meanwhile stays).
+    if (filters.q === query) return;
     const timer = setTimeout(() => {
       setQuery(filters.q);
       setPage(1);

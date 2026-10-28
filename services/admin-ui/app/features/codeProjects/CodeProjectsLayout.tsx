@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import CodeProjectForm from "./CodeProjectForm";
 import SectionLinks from "~/components/SectionLinks";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Button } from "~/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 
@@ -34,6 +35,13 @@ export default function CodeProjectsLayout() {
   const projects = pathname.replace(/\/$/, "") === "/code-projects";
   const [creating, setCreating] = useState(false);
   const [reloaded, setReloaded] = useState(0);
+  // Escape, the X or a click outside with input asks Stay / Leave; Cancel discards at once.
+  const [dirty, setDirty] = useState(false);
+  const guard = useSheetGuard(dirty);
+  const close = () => {
+    setCreating(false);
+    setDirty(false);
+  };
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -46,7 +54,7 @@ export default function CodeProjectsLayout() {
         )}
       </div>
       <Outlet context={{ reloaded } satisfies CodeProjectsPageContext} />
-      <Sheet open={creating} onOpenChange={setCreating}>
+      <Sheet open={creating} onOpenChange={(open) => !open && guard.close(close)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>New code project</SheetTitle>
@@ -58,9 +66,10 @@ export default function CodeProjectsLayout() {
             {creating && (
               <CodeProjectForm
                 project={null}
-                onCancel={() => setCreating(false)}
+                onCancel={close}
+                onDirtyChange={setDirty}
                 onSaved={(saved) => {
-                  setCreating(false);
+                  close();
                   toast.success(saved);
                   setReloaded((n) => n + 1);
                 }}
@@ -68,6 +77,7 @@ export default function CodeProjectsLayout() {
             )}
           </div>
         </SheetContent>
+        {guard.dialog}
       </Sheet>
     </div>
   );

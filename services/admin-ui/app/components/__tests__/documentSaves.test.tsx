@@ -257,8 +257,12 @@ test("a Publish refused because a document took the name meanwhile opens the dra
   const router = show("/documents/d5");
   fireEvent.click(await screen.findByRole("button", { name: "Publish" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/documents/drafts/d5"));
-  expect(await screen.findByText(TAKEN)).toBeInTheDocument();
-  expect(await screen.findByRole("link", { name: "New runbook" })).toHaveAttribute("href", "/documents/doc-9");
+  // the draft page has loaded the draft (its document's link), and says why it opened
+  expect(await screen.findByRole("link", { name: "New runbook" }, { timeout: 5000 })).toHaveAttribute(
+    "href",
+    "/documents/doc-9",
+  );
+  expect(screen.getByText(TAKEN)).toBeInTheDocument();
 });
 
 test("Discard on the brand-new draft page deletes it and goes back to Documents", async () => {

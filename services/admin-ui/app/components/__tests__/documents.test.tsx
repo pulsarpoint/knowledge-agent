@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { rowAction } from "~/lib/__tests__/rowMenu";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
@@ -189,12 +191,16 @@ test("failed save retains edits and navigating away requires confirmation", asyn
 });
 
 test("document deletion requires confirmation and Cancel never sends DELETE", async () => {
+  const user = userEvent.setup();
   const { fetch } = setup("/documents/doc-1");
-  fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
-  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+  // Delete is in the header's ⋯ menu
+  await screen.findByLabelText("Title");
+  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  await rowAction(user, "Payments runbook", "Delete");
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   expect(fetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete document" }));
+  await rowAction(user, "Payments runbook", "Delete");
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete document" }));
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith("/api/documentation/documents/doc-1?revision=2&confirmed=true", {
       method: "DELETE",
@@ -236,7 +242,13 @@ test("prompt edits create inactive versions, a save shows a toast, active versio
   expect(screen.queryByText(/draft/i)).toBeNull();
   fireEvent.change(screen.getByLabelText("Prompt text"), { target: { value: "Improved instructions" } });
   expect(screen.getByRole("button", { name: "Activate v2" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Save prompt" }));
+  // one Save in the header (per the editor pages), Delete in the header's ⋯ menu
+  expect(screen.queryByRole("button", { name: /Delete prompt/ })).toBeNull();
+  await rowAction(userEvent.setup(), "Architecture", "Delete");
+  const ask = within(await screen.findByRole("alertdialog"));
+  fireEvent.click(ask.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
   const saved = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string);
   expect(saved).toMatchObject({ revision: 3, content: "Improved instructions" });

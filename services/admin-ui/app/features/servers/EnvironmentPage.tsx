@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import BackLink from "~/components/BackLink";
-import { Link, Outlet, useLocation, useOutletContext, useParams, useSearchParams } from "react-router";
+import { Link, Outlet, useOutletContext, useParams, useSearchParams } from "react-router";
 import OldLinkRedirect from "~/components/OldLinkRedirect";
 import SectionLinks from "~/components/SectionLinks";
 import { ApiError } from "~/lib/api";
@@ -44,7 +44,7 @@ export const EnvironmentIndex = () => <OldLinkRedirect pages={{ documents: "docu
 
 /** One environment (`/environments/:environmentId`): a header (name, description, System map, "N drafts to review"
  * linking to the workspace's Drafts filter, or to Documents when only document drafts wait; Discover and Chat on the
- * right), the sub-pages Workspace and Documents as links (they keep the query, so an open chat stays open) and the open
+ * right), the sub-pages Workspace and Documents as links (they keep an open chat, nothing else) and the open
  * sub-page (ResourceChats). */
 export default function EnvironmentLayout() {
   const { environmentId } = useParams();
@@ -52,7 +52,6 @@ export default function EnvironmentLayout() {
 }
 
 function EnvironmentPage({ environmentId }: { environmentId: string }) {
-  const { search } = useLocation();
   const [environment, setEnvironment] = useState<EnvironmentAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -102,8 +101,10 @@ function EnvironmentPage({ environmentId }: { environmentId: string }) {
   const draftsLink = new URLSearchParams(params);
   draftsLink.set("drafts", "only");
   // Only document drafts waiting: Documents, keeping the open chat.
+  // The section links keep only the open chat (the workspace's filters mean nothing on Documents).
   const chat = params.get("chat");
-  const documentsLink = `/environments/${id}/documents${chat ? `?${new URLSearchParams({ chat })}` : ""}`;
+  const chatSearch = chat ? `?${new URLSearchParams({ chat })}` : "";
+  const documentsLink = `/environments/${id}/documents${chatSearch}`;
   const label = draftsLabel(drafts, documentDrafts);
   return (
     <ResourceChats
@@ -139,7 +140,7 @@ function EnvironmentPage({ environmentId }: { environmentId: string }) {
     >
       <SectionLinks
         label="Environment sections"
-        sections={SECTIONS.map(({ page, ...section }) => ({ ...section, to: { pathname: page, search } }))}
+        sections={SECTIONS.map(({ page, ...section }) => ({ ...section, to: { pathname: page, search: chatSearch } }))}
       />
       <Outlet
         context={

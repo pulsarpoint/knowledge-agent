@@ -378,3 +378,38 @@ test("pasting a GitHub tree URL fills the URL, Ref and Path fields", async () =>
   expect(screen.getByLabelText("Ref")).toHaveValue("main");
   expect(screen.getByLabelText("Path")).toHaveValue("skills/pdf-forms");
 });
+
+test.each([
+  ["New skill", "New skill", "Name", "pdf-forms"],
+  ["Import", "Import skills", "Repository URL", "https://example.com/skills.git"],
+])(
+  "%s: Escape with input asks Stay / Leave; Leave discards it, a clean sheet closes at once",
+  async (open, title, label, text) => {
+    api({ "GET /api/skills": () => [200, { skills: [] }] });
+    show();
+    await screen.findByText("No skills yet");
+    const openSheet = async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: open })[0]);
+      return within(await screen.findByRole("dialog", { name: title }));
+    };
+    let sheet = await openSheet();
+    fireEvent.keyDown(sheet.getByRole("heading", { name: title }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    sheet = await openSheet();
+    if (label === "Repository URL") fireEvent.mouseDown(sheet.getByRole("tab", { name: "From git" }));
+    fireEvent.change(await sheet.findByLabelText(label), { target: { value: text } });
+    fireEvent.keyDown(sheet.getByLabelText(label), { key: "Escape" });
+    const ask = within(await screen.findByRole("alertdialog"));
+    fireEvent.click(ask.getByRole("button", { name: "Stay" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText(label)).toHaveValue(text);
+    fireEvent.keyDown(screen.getByLabelText(label), { key: "Escape" });
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
+    // opened again, the sheet is empty
+    sheet = await openSheet();
+    if (label === "Repository URL") fireEvent.mouseDown(sheet.getByRole("tab", { name: "From git" }));
+    expect(await sheet.findByLabelText(label)).toHaveValue("");
+  },
+);

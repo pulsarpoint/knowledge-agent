@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Navigate, useSearchParams } from "react-router";
+import { Navigate, useLocation, useSearchParams } from "react-router";
 import { getDocumentVersion, type DocumentVersion } from "./api";
 import { useDocumentPage } from "./DocumentEditorView";
 import DocumentAgentRuns from "./DocumentAgentRuns";
@@ -13,7 +13,8 @@ import { Button } from "~/components/ui/button";
  * publishing), so it opens Edit. */
 function LiveOnly({ children }: { children: ReactNode }) {
   const { document } = useDocumentPage();
-  return document.is_draft ? <Navigate replace to=".." /> : children;
+  const { search } = useLocation();
+  return document.is_draft ? <Navigate replace to={{ pathname: "..", search }} /> : children;
 }
 
 /** `/documents/:id/history`: the published versions; the open one is shown with Use version as draft. */

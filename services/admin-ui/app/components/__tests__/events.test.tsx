@@ -73,11 +73,15 @@ test("lists events with source and status and pages by the API's offset and tota
   expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Next page" }));
   expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+  expect(await screen.findByText("Page 2 of 2")).toBeInTheDocument();
+  // the search's pause after the first render does not send the list back to page 1
+  await new Promise((resolve) => setTimeout(resolve, 400));
   expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+  expect(screen.getByText("DEMO-1")).toBeInTheDocument();
   await user.click(screen.getByRole("combobox", { name: "Rows per page" }));
   await user.click(screen.getByRole("option", { name: "20" }));
   expect(await screen.findByText("DEMO-4")).toBeInTheDocument();
-  expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+  expect(await screen.findByText("Page 1 of 3")).toBeInTheDocument();
 });
 
 test("a column header sorts, and clicking it again flips the order", async () => {

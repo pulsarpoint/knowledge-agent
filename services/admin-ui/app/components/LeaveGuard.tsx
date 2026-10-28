@@ -96,3 +96,9 @@ export function useSheetGuard(dirty: boolean) {
   );
   return { close, dialog };
 }
+
+/** Whether `value` (a form's fields) differs from what it was when the form mounted: a sheet's dirty state. */
+export function useChanged(value: unknown) {
+  const [initial] = useState(() => JSON.stringify(value));
+  return JSON.stringify(value) !== initial;
+}

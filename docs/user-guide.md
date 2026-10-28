@@ -196,8 +196,10 @@ links saying what the open part holds. Old links that named a part in the query 
 Small records are created and edited in a side sheet on the right: agents (the **New agent** wizard), models, MCP
 servers, environments, servers, schedules, handlers, events and memory entries. A create sheet ends with **Create
 <thing>** and **Cancel**, an edit sheet with **Save** and **Cancel**. **Cancel** discards at once; closing a sheet
-with unsaved input any other way (Escape, the X, a click outside, or leaving the page) asks **Stay** / **Leave**. Long documents (documents, prompts, skills, output schemas) open on their own page with **Save** in the
-header; their **Delete** is in the header's ⋯ menu.
+with unsaved input any other way (Escape, the X or a click outside) asks **Stay** / **Leave**. The same holds for the
+add sheets of the environment workspace and a service page, **New code project**, **New skill** and **Import**. Long
+documents (documents, prompts, skills, output schemas) open on their own page with **Save** in the header; a document's,
+prompt's or output schema's **Delete** is in the header's ⋯ menu (a skill is deleted from the Skills list).
 
 ### 4.2 LLM Settings
 
@@ -889,7 +891,7 @@ that tab.
   still change), **Publish** (it becomes version 1 of the document, same address) and **Discard**. It has no version
   history or Drafts until it is published.
 - A live document shows "Version n" with **Save**, **Download document** (ZIP),
-  **Delete** and **Ask agent**. The first **Save** creates your draft of the document and the editor goes on editing
+  **Ask agent** and **Delete** (in the header's ⋯ menu). The first **Save** creates your draft of the document and the editor goes on editing
   it — "Editing your draft (created {time}, from version {n}). Save updates it; Publish makes it live." — later Saves
   update the same draft. Publish it on **Drafts**.
 - **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
@@ -1237,7 +1239,7 @@ and a chat on a server, service or environment offers the enabled prompts tagged
 assistant** first. Type a tag and press Enter to add it;
 existing tags are suggested. **New prompt** opens an empty one. Saving changed text creates an inactive version (badge *Inactive version*);
 **Activate vN** makes it the active one; **Copy to editor** puts a version's text back in the editor;
-inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
+inactive versions can be deleted. **Save** is in the header; **Delete** (the prompt) is in the header's ⋯ menu. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
 `service`, `mixed`).
 

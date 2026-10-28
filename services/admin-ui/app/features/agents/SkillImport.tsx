@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useChanged, useSheetGuard } from "~/components/LeaveGuard";
 import { useNavigate } from "react-router";
 import { ApiError } from "~/lib/api";
 import {
@@ -29,6 +30,8 @@ export function NewSkillSheet({ open, onClose }: { open: boolean; onClose: () =>
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape, the X or a click outside with input asks Stay / Leave.
+  const guard = useSheetGuard(useChanged({ name, description }));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -44,7 +47,7 @@ export function NewSkillSheet({ open, onClose }: { open: boolean; onClose: () =>
     }
   }
   return (
-    <Sheet open={open} onOpenChange={(value) => !value && !saving && onClose()}>
+    <Sheet open={open} onOpenChange={(value) => !value && !saving && guard.close(onClose)}>
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>New skill</SheetTitle>
@@ -96,6 +99,7 @@ export function NewSkillSheet({ open, onClose }: { open: boolean; onClose: () =>
           </SheetFooter>
         </form>
       </SheetContent>
+      {guard.dialog}
     </Sheet>
   );
 }
@@ -132,6 +136,8 @@ export function ImportSkillsSheet({
   const [found, setFound] = useState<FoundSkill[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape, the X or a click outside with a file or a repository given asks Stay / Leave.
+  const guard = useSheetGuard(useChanged({ file: file?.name ?? null, git }));
 
   async function run(work: () => Promise<void>, fallback: string) {
     setBusy(true);
@@ -165,7 +171,7 @@ export function ImportSkillsSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={(value) => !value && !busy && onClose()}>
+    <Sheet open={open} onOpenChange={(value) => !value && !busy && guard.close(onClose)}>
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Import skills</SheetTitle>
@@ -285,6 +291,7 @@ export function ImportSkillsSheet({
           </>
         )}
       </SheetContent>
+      {guard.dialog}
     </Sheet>
   );
 }

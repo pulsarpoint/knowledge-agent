@@ -124,7 +124,8 @@ test("the page shows the code project's header and opens Overview: details, fold
   for (const name of ["Chat", "Sync now"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Edit" })).toBeNull(); // Settings replaces the Edit sheet
   expect(await screen.findByRole("button", { name: "Discover…" })).toBeInTheDocument();
-  expect(sectionLink("Code project sections", "Overview")).toHaveAttribute("aria-current", "page");
+  // the router's state can run ahead of the render: wait for the open link
+  await waitFor(() => expect(sectionLink("Code project sections", "Overview")).toHaveAttribute("aria-current", "page"));
   expect(sectionLink("Code project sections", "Documents")).toHaveAttribute("href", "/code-projects/c1/documents");
   expect(sectionLink("Code project sections", "Settings")).toHaveAttribute("href", "/code-projects/c1/settings");
   expect(screen.getByText("The shop front end")).toBeInTheDocument();

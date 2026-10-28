@@ -245,8 +245,27 @@ test("the draft bar shows the agent draft; Compare opens it; a stale Publish ask
   fireEvent.click(
     within(await screen.findByRole("region", { name: "Agent draft" })).getByRole("button", { name: "Compare" }),
   );
+  await waitFor(() => expect(router.state.location.search).toBe("?draft=d1&run=r1")); // the pane's run stays
+  expect(router.state.location.pathname).toBe("/documents/doc-1/drafts");
+  expect(pane.mounts).toBe(1); // the page stays mounted
+});
+
+test("Compare from Edit opens Drafts on the agent's draft, keeping the run and the editor's unsaved text", async () => {
+  api({ ...base, "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [draft] }] });
+  const router = show("/documents/doc-1?run=r1");
+  fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: "# Edited, not saved" } });
+  fireEvent.click(screen.getByRole("button", { name: "Agent saved" }));
+  fireEvent.click(
+    within(await screen.findByRole("region", { name: "Agent draft" })).getByRole("button", { name: "Compare" }),
+  );
   await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-1/drafts"));
-  expect(router.state.location.search).toBe("?draft=d1");
+  expect(router.state.location.search).toBe("?draft=d1&run=r1");
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(pane.mounts).toBe(1);
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "Document sections" })).getByRole("link", { name: "Edit" }),
+  );
+  expect(await screen.findByLabelText("Markdown")).toHaveValue("# Edited, not saved");
 });
 
 test("a run link followed on the page switches the pane; New chat takes the run out of the URL", async () => {

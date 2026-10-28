@@ -225,16 +225,19 @@ export default function SkillsView() {
           </AlertDescription>
         </Alert>
       )}
-      <NewSkillSheet open={sheet === "new"} onClose={() => setSheet(null)} />
-      <ImportSkillsSheet
-        open={sheet === "import"}
-        onClose={() => setSheet(null)}
-        onImported={(names) => {
-          setSheet(null);
-          toast.success(`Imported ${names.join(", ")}.`);
-          setRefresh((value) => value + 1);
-        }}
-      />
+      {/* mounted while open: closing discards what was typed */}
+      {sheet === "new" && <NewSkillSheet open onClose={() => setSheet(null)} />}
+      {sheet === "import" && (
+        <ImportSkillsSheet
+          open
+          onClose={() => setSheet(null)}
+          onImported={(names) => {
+            setSheet(null);
+            toast.success(`Imported ${names.join(", ")}.`);
+            setRefresh((value) => value + 1);
+          }}
+        />
+      )}
       <DataTable
         columns={columns}
         data={shown}

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
+import { useChanged, useSheetGuard } from "~/components/LeaveGuard";
 import { createItem, deploymentLabels, draftsUsed, isStale, updateItem, type Connection } from "./inventory";
 import { DraftsUsed } from "./ConfirmDraftSheet";
 import type { ServiceAsset } from "./services";
@@ -61,6 +62,10 @@ export default function AddConnectionSheet({
   const [created, setCreated] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape, the X or a click outside with input asks Stay / Leave; Cancel discards at once.
+  const guard = useSheetGuard(
+    useChanged({ fromId, target, host, port, protocol, description, serviceName, address, serviceDescription }),
+  );
 
   const labels = deploymentLabels(services);
   const groups = new Map<string, { value: string; label: string }[]>();
@@ -136,7 +141,7 @@ export default function AddConnectionSheet({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !saving) onClose();
+        if (!open && !saving) guard.close(onClose);
       }}
     >
       <SheetContent className="overflow-y-auto">
@@ -301,6 +306,7 @@ export default function AddConnectionSheet({
           </div>
         </form>
       </SheetContent>
+      {guard.dialog}
     </Sheet>
   );
 }

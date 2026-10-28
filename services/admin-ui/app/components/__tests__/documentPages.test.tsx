@@ -164,6 +164,12 @@ test("a brand-new draft has Edit and Agent runs only", async () => {
   ).toBeVisible();
 });
 
+test("a brand-new draft's live-only sub-page opens Edit, keeping the query", async () => {
+  const router = show("/documents/d9/history?draft=x");
+  await waitFor(() => expect(where(router)).toBe("/documents/d9?draft=x"));
+  expect(await screen.findByLabelText("Markdown")).toBeInTheDocument();
+});
+
 test.each([
   ["/documents/doc-1?tab=history", "/documents/doc-1/history"],
   ["/documents/doc-1?tab=drafts&draft=d1", "/documents/doc-1/drafts?draft=d1"],
@@ -214,4 +220,16 @@ test("the section links keep the open run (?run=)", async () => {
   show("/documents/doc-1/history?run=r1");
   expect(await screen.findByText("run r1")).toBeInTheDocument();
   expect(nav().getByRole("link", { name: "Drafts (1)" })).toHaveAttribute("href", "/documents/doc-1/drafts?run=r1");
+});
+
+test.each([
+  ["/history", /Select a version/],
+  ["/drafts", /Runbook, shorter/],
+  ["/connections", /Find a document/],
+  ["/agent-runs", /No agent runs yet/],
+])("every button on the sub-page %s is type=button: none of them submits the editor's form", async (page, loaded) => {
+  show(`/documents/doc-1${page}`);
+  await screen.findAllByText(loaded);
+  const area = globalThis.document.querySelector("fieldset")!;
+  for (const button of area.querySelectorAll("button")) expect(button).toHaveAttribute("type", "button");
 });

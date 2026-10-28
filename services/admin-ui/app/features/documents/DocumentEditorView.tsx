@@ -5,7 +5,8 @@ import ConfirmRemove from "~/components/ConfirmRemove";
 import LeaveGuard from "~/components/LeaveGuard";
 import { Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router";
 import SectionLinks from "~/components/SectionLinks";
-import { Bot, Save, Trash2 } from "lucide-react";
+import { Bot, Save } from "lucide-react";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import {
   deleteDocument,
   getDocument,
@@ -539,20 +540,6 @@ function Editor({
           )}
           {isLive && <Badge variant="secondary">Version {liveVersion}</Badge>}
           {isLive && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pending}
-              onClick={() => {
-                setError("");
-                setConfirmDelete(true);
-              }}
-            >
-              <Trash2 data-icon="inline-start" />
-              Delete
-            </Button>
-          )}
-          {isLive && (
             <Button type="button" variant="outline" aria-pressed={agentOpen} onClick={onToggleAgent}>
               <Bot data-icon="inline-start" />
               Ask agent
@@ -589,6 +576,18 @@ function Editor({
             {pending ? <Spinner /> : <Save data-icon="inline-start" />}
             Save
           </Button>
+          {isLive && (
+            <RowMenu
+              name={document.title}
+              disabled={pending}
+              items={[
+                deleteMenuItem(() => {
+                  setError("");
+                  setConfirmDelete(true);
+                }),
+              ]}
+            />
+          )}
         </div>
       </div>
       {error && !confirmDelete && !confirmDiscard && (
@@ -614,6 +613,7 @@ function Editor({
       {document && <SectionLinks label="Document sections" sections={sections} />}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-6">
         {page ? (
+          // The sub-pages are inside the editor's form: every button there needs type="button", or it would Save.
           <Outlet
             context={
               {

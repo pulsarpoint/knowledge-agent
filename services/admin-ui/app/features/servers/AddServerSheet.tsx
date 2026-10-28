@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
+import { useChanged, useSheetGuard } from "~/components/LeaveGuard";
 import { getServers, saveServer, type ServerAsset } from "./api";
 import { addServerToEnvironment } from "./environments";
 import { DraftsUsed } from "./ConfirmDraftSheet";
@@ -38,6 +39,8 @@ export default function AddServerSheet({
   const [created, setCreated] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape, the X or a click outside with input asks Stay / Leave; Cancel discards at once.
+  const guard = useSheetGuard(useChanged({ choice, name, hostname, description }));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,7 +84,7 @@ export default function AddServerSheet({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !saving) onClose();
+        if (!open && !saving) guard.close(onClose);
       }}
     >
       <SheetContent className="overflow-y-auto">
@@ -164,6 +167,7 @@ export default function AddServerSheet({
           </div>
         </form>
       </SheetContent>
+      {guard.dialog}
     </Sheet>
   );
 }

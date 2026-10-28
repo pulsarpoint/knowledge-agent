@@ -64,11 +64,11 @@ limit, no per-turn time limit, no 300-second limit).
   id is refused like any other document. The write tools are offered only in a session turn: never to a subagent or an
   expert. Documents → New → Write with an agent is a chat that creates documents with `new_document` for its resources
   (see [documentation](documentation.md)). A run keeps updating its own draft
-  (`agent_sessions.last_draft_id`). Promote and discard delete drafts, and promoting one draft of a document deletes the
+  (`agent_sessions.last_draft_id`). Publish and Discard delete drafts, and publishing one draft of a document deletes the
   others; the run's next save then starts a new draft of the live version, and the tool result says what happened to
   the earlier one: promoted, discarded, or removed because another draft was promoted. A person's edit makes a run's
   draft theirs: of an existing document, the next save starts a new draft; of a new document, the save is refused
-  until they promote or discard it. Every
+  until they publish or discard it. Every
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run.").
 - The inventory tool `get_resource(resource_type, resource_id)` (`server`, `service`, `environment` or `code_project`,

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
+import { useChanged, useSheetGuard } from "~/components/LeaveGuard";
 import { getServers, type ServerAsset } from "./api";
 import { getEnvironments, type EnvironmentAsset } from "./environments";
 import { createItem } from "./inventory";
@@ -47,6 +48,10 @@ export default function AddDeploymentSheet({
   const [logLocation, setLogLocation] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape, the X or a click outside with input asks Stay / Leave; Cancel discards at once.
+  const guard = useSheetGuard(
+    useChanged({ environmentId, serverId, runtime, runtimeName, port, version, logLocation }),
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,7 +106,7 @@ export default function AddDeploymentSheet({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !saving) onClose();
+        if (!open && !saving) guard.close(onClose);
       }}
     >
       <SheetContent className="overflow-y-auto">
@@ -195,6 +200,7 @@ export default function AddDeploymentSheet({
           </div>
         </form>
       </SheetContent>
+      {guard.dialog}
     </Sheet>
   );
 }

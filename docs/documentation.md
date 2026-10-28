@@ -38,32 +38,32 @@ ids with the active rows: unchanged rows stay as they are, newly ticked ones get
 `removed_at` and `removed_by`; `revision` goes up, `version` does not. Drafts of a live document use the live
 document's links (Save links on a draft of a document is a 404). The one exception is an agent's
 `update_document(…, resource)` on a live document: the run's draft holds that `linked` link (migration 0130) and
-**Promote adds it** to the document (a link the document already has stays as it is); until then the link does not
-show anywhere. Promote changes no other link. The audit row
+**publishing the draft adds it** to the document (a link the document already has stays as it is); until then the link does not
+show anywhere. Publishing changes no other link. The audit row
 (`document.links.updated`) lists `links_added` and `links_removed`. The selected deployment must belong to a selected service and server.
 
 **Lifecycle.** Every save a person makes is a draft: **Save** on a new document creates a brand-new draft, Save on a
 live document creates the person's draft of it (later Saves update that draft), and no route writes live content.
-Content goes live only by **Publish** (a brand-new draft) or **Promote** (a draft of a live document), both
-`POST /drafts/{id}/promote`. A brand-new draft keeps the ID it will have as a document, opens at `/documents/{id}`
+Content goes live only by **Publish**, for a brand-new draft and a draft of a live document alike (both
+`POST /drafts/{id}/promote`, the API's name for it). A brand-new draft keeps the ID it will have as a document, opens at `/documents/{id}`
 (`GET /documents/{id}` answers with `is_draft: true`, `published: false`) and can be renamed (`slug` on
 `PUT /drafts/{id}`) until it is published; a draft of a live document keeps its document's name. There is no history of
 a draft's own saves: version history starts when it is published. **Discovery** follows the same rule: a run's `new_document`
 creates a brand-new draft (the run's `session_id`, built for the resource it is for) and `update_document` creates a
 draft of an existing document (`base_version` = its live version). Its built-for link is what shows it on its resource
 once published. There are no proposals (migration 0131). A document can have any
-number of drafts; they are listed by `created_at`, newest first. **Promoting** draft D of live document L (one
+number of drafts; they are listed by `created_at`, newest first. **Publishing** (the API's promote) draft D of live document L (one
 transaction locking L) archives L's content, updates L in place with D's content (`version + 1`, `from_draft`, the
 same ID) and **deletes every draft of L**, D included; when D's `base_version` is older than L's `version`, promote
-answers 409 `STALE_BASE` until confirmed. Promoting a brand-new draft makes that row live as version 1 with its ID,
+answers 409 `STALE_BASE` until confirmed. Publishing a brand-new draft makes that row live as version 1 with its ID,
 slug, sources and built-for links. **Discarding** a draft deletes it (a brand-new draft with its links: the
 document never existed). Deleting a live document deletes its drafts, archive rows and links. Stale saves (wrong
-`revision`) return 409 without losing anything. Promote audits `document.draft.promoted` for D,
+`revision`) return 409 without losing anything. Publishing audits `document.draft.promoted` for D,
 `document.draft.replaced` for each other draft it deleted, and `document.updated` (`document.created` for a brand-new
 draft) for the document.
 
 **Tags and inventory documents.** Documents are classified by tags (`tags`, content like the title: edited in a draft
-and made live by Promote / Publish). `GET /documents?tag=<tag>` and `GET /drafts?tag=<tag>` keep the documents or
+and made live by Publish). `GET /documents?tag=<tag>` and `GET /drafts?tag=<tag>` keep the documents or
 drafts with that one tag (exact, case-insensitive; a draft of a document carries its own copy of the tags). The
 inventory document of a server, a service or an environment is the live document tagged `inventory` built for it, the
 most recently updated one when several (the others are in its Documents list); when there is no live one, a brand-new
@@ -132,7 +132,7 @@ role. Mutations also require an attributed user. No credential fields are return
 | `GET /drafts` | Drafts (each row has `published`: false for a brand-new draft); `new=true` keeps brand-new documents; `environment_id`, `service_id`, `server_id`, `code_project_id`, `deployment_id` keep the drafts linked to that resource (brand-new drafts by their own links, drafts of a document by its links) |
 | `GET /drafts/{id}` | A draft with its Markdown, sources, base and live version numbers, `stale` and the live Markdown |
 | `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`); a brand-new draft may also send `slug` to rename it (409 when the name is taken); a draft of a document that sends one is a 400 "A draft of a published document keeps its document's name." |
-| `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: Publish (a brand-new draft) or Promote: make it the live version and delete the document's other drafts; returns `document_id`, `version`, `revision`, `deleted_drafts`; 409 `STALE_BASE` when the live version moved on |
+| `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: Publish (a brand-new draft or a draft of a live document): make it the live version and delete the document's other drafts; returns `document_id`, `version`, `revision`, `deleted_drafts`; 409 `STALE_BASE` when the live version moved on |
 | `POST /drafts/{id}/discard` | `{revision}`: delete the draft |
 | `GET /documents/{id}/drafts` | Drafts of a document, newest first (no Markdown) |
 | `GET /documents/{id}/connections` | `depends_on`, `used_by` and `built_from` (the live version's sources) |
@@ -143,7 +143,8 @@ role. Mutations also require an attributed user. No credential fields are return
 | `DELETE /prompts/{id}/versions/{version_id}` | Remove inactive version; expected `revision`, confirmation |
 | `DELETE /prompts/{id}` | Remove prompt and versions; expected `revision`, confirmation |
 
-The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
+The UI is at `/documents` (with `/documents/drafts`), `/documents/new`, `/documents/{id}` (with the sub-pages
+`history`, `drafts`, `connections` and `agent-runs`; old `?tab=` links redirect),
 `/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts),
 and `/sessions/:id` (the run page for every run); the old `/documentation/folders` pages redirect to `/documents`. `input_kind` is retired: the column remains only for the
 per-workspace seed functions, and the API neither accepts nor returns it.
@@ -152,7 +153,8 @@ confirmation and navigation with unsaved edits.
 
 Ask agent runs (agent sessions with purpose `revision`, started through `POST /api/sessions` from the chat pane on the
 document page, with the document in the run's access, `resources.documents[{id}]`; the first message is the
-instruction, and `/documents/{id}/agent/{run}` opens the page with the pane on that run) change a document only
+instruction, and `/documents/{id}?run={run}` opens the page with the pane on that run; an old `/documents/{id}/agent/{run}`
+link redirects there) change a document only
 through the document tools below, which write the run's draft. The editing rules are the **Revise a document** prompt
 (tag `document-revision`, seeded by migration 0100; 0131 replaced `save_document` with `update_document` in it).
 
@@ -171,7 +173,7 @@ Subagents and experts get the read tools only (`search_documents`, `list_documen
 | `list_documents(resource)` | The documents linked to a server, service or environment of the run (`resource`: `{type, id}` or `{type, name}`) and to what belongs to it: id, title, short description, tags, `published` (false for a new document the run drafted) and `your_draft`; the inventory document first. |
 | `get_document(document_id, section?, start_line?, end_line?)` | The run's draft of the document when it has one, else the live version: outline and text, or the asked lines numbered. |
 | `new_document(resource, title, content, description?, tags?)` | Creates a new document as a brand-new draft built for the resource (`built_for`, `added_how = 'agent_run'`, the run's `session_id`); its slug is the first free one in the project (`-2`, `-3`, ...) from the resource's name and the title. A title already used by a document linked to the same resource is refused with that document's id. Returns the id the document keeps once published. |
-| `update_document(document_id, content, title?, description?, resource?)` | Saves the run's draft of the document with its complete content. With `resource`, the document is linked to that server, service or environment: a new document's draft gets the link at once, a draft of a live document holds it and Promote adds it (see **Links**). |
+| `update_document(document_id, content, title?, description?, resource?)` | Saves the run's draft of the document with its complete content. With `resource`, the document is linked to that server, service or environment: a new document's draft gets the link at once, a draft of a live document holds it and publishing adds it (see **Links**). |
 | `edit_document(document_id, old_text, new_text)` | Replaces one exact passage (it must occur once) in the run's draft, started from the live text when there is none yet; an empty `new_text` removes it. |
 
 A run keeps one draft per document; every `update_document` and `edit_document` changes it. Every reply that writes

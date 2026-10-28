@@ -313,6 +313,31 @@ test("a refused Delete shows the reason and keeps the project", async () => {
   expect(screen.getByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
 });
 
+test("New code project: Escape with input asks Stay / Leave, Cancel discards at once, a clean sheet closes", async () => {
+  api();
+  show();
+  let sheet = await newProject();
+  fireEvent.keyDown(sheet.getByLabelText("Project name"), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New code project" })).toBeNull());
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  sheet = await newProject();
+  fireEvent.change(sheet.getByLabelText("Project name"), { target: { value: "Local code" } });
+  fireEvent.keyDown(sheet.getByLabelText("Project name"), { key: "Escape" });
+  const ask = within(await screen.findByRole("alertdialog"));
+  fireEvent.click(ask.getByRole("button", { name: "Stay" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(screen.getByLabelText("Project name")).toHaveValue("Local code");
+  fireEvent.keyDown(screen.getByLabelText("Project name"), { key: "Escape" });
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New code project" })).toBeNull());
+  sheet = await newProject();
+  expect(sheet.getByLabelText("Project name")).toHaveValue("");
+  fireEvent.change(sheet.getByLabelText("Project name"), { target: { value: "Other" } });
+  fireEvent.click(sheet.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New code project" })).toBeNull());
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
 test("New code project maps multiple existing folders into a local code project in a sheet", async () => {
   const fetch = api();
   show();

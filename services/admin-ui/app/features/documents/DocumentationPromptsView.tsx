@@ -3,10 +3,11 @@ import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import LeaveGuard from "~/components/LeaveGuard";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
-import { MessageSquareText, Plus, Save, Trash2 } from "lucide-react";
+import { MessageSquareText, Plus, Save } from "lucide-react";
 import {
   activateDocumentationPrompt,
   deleteDocumentationPrompt,
@@ -272,24 +273,22 @@ function PromptEditor({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <BackLink to="/prompts">All prompts</BackLink>
         <div className="flex gap-2">
-          {prompt && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pending}
-              onClick={() => {
-                setError("");
-                setDeleting({});
-              }}
-            >
-              <Trash2 data-icon="inline-start" />
-              Delete prompt
-            </Button>
-          )}
           <Button type="submit" disabled={pending || (!dirty && prompt !== null)}>
             {pending ? <Spinner /> : <Save data-icon="inline-start" />}
-            {prompt ? "Save prompt" : "Create prompt"}
+            Save
           </Button>
+          {prompt && (
+            <RowMenu
+              name={prompt.name}
+              disabled={pending}
+              items={[
+                deleteMenuItem(() => {
+                  setError("");
+                  setDeleting({});
+                }),
+              ]}
+            />
+          )}
         </div>
       </div>
       {error && !deleting && (

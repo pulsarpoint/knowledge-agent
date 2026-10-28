@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "~/lib/api";
+import { useChanged, useSheetGuard } from "~/components/LeaveGuard";
 import { getRepositories } from "~/features/codeProjects/api";
 import { createItem, draftsUsed, type RelationKind } from "./inventory";
 import { DraftsUsed } from "./ConfirmDraftSheet";
@@ -34,6 +35,8 @@ export default function AddRelationSheet({
   const [repositories, setRepositories] = useState<{ id: string; name: string }[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape, the X or a click outside with input asks Stay / Leave; Cancel discards at once.
+  const guard = useSheetGuard(useChanged({ kind, target, description }));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,7 +84,7 @@ export default function AddRelationSheet({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !saving) onClose();
+        if (!open && !saving) guard.close(onClose);
       }}
     >
       <SheetContent className="overflow-y-auto">
@@ -161,6 +164,7 @@ export default function AddRelationSheet({
           </div>
         </form>
       </SheetContent>
+      {guard.dialog}
     </Sheet>
   );
 }

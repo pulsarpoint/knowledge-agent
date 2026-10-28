@@ -630,6 +630,35 @@ test("the environment's Documents sub-page lists only the environment's own docu
   await waitFor(() => expect(where()).toBe("/environments/e1/workspace"));
 });
 
+test("the environment's section links keep only the open chat, not the workspace filters", async () => {
+  live.sessions.r1 = detail("r1", "waiting", ["environments/e1"]);
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      {
+        id: "e1",
+        name: "Production",
+        description: "",
+        revision: 1,
+        created_at: at,
+        updated_at: at,
+        services: [],
+        servers: [],
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [
+      200,
+      { sessions: [run("r1", "waiting", "Chat r1", ["environments/e1"])] },
+    ],
+    "GET /api/sessions/options?environment_id=e1": () => [200, options],
+  });
+  showEnvironment("/environments/e1/workspace?server=s1&drafts=only&chat=r1");
+  await screen.findByRole("heading", { name: "Production", level: 2 });
+  expect(environmentSection("Documents")).toHaveAttribute("href", "/environments/e1/documents?chat=r1");
+  expect(environmentSection("Workspace")).toHaveAttribute("href", "/environments/e1/workspace?chat=r1");
+});
+
 test.each([
   ["/environments/e1", "/environments/e1/workspace"],
   ["/environments/e1?view=workspace", "/environments/e1/workspace"],

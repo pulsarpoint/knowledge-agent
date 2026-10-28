@@ -25,7 +25,7 @@ export default function AgentDraftBar({
   confirm: (run: () => void) => void;
   onPromoted: (result: PromoteResult) => void;
 }) {
-  const [, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
   const [detail, setDetail] = useState<DraftDetail | null>(null);
   const [stale, setStale] = useState("");
@@ -89,11 +89,11 @@ export default function AgentDraftBar({
             type="button"
             size="sm"
             variant="outline"
-            onClick={() =>
-              draft.document_id === null
-                ? navigate(draftPath(draft))
-                : setParams({ tab: "drafts", draft: draft.id }, { replace: true })
-            }
+            onClick={() => {
+              // a draft of this document opens on its Drafts sub-page, the pane's run kept open
+              const run = params.get("run");
+              navigate(`${draftPath(draft)}${draft.document_id && run ? `&${new URLSearchParams({ run })}` : ""}`);
+            }}
           >
             Compare
           </Button>
