@@ -131,12 +131,13 @@ export function DocumentDraftsPage() {
   );
 }
 
-/** `/documents/:id/connections`: the documents it depends on, the ones that depend on it, and what it was built from. */
+/** `/documents/:id/connections`: the resources it is linked to, the documents it depends on, the ones that depend on
+ * it, and what it was built from. */
 export function DocumentConnectionsPage() {
-  const { document } = useDocumentPage();
+  const { document, resourcesChanged } = useDocumentPage();
   return (
     <LiveOnly>
-      <DocumentConnections documentId={document.id} />
+      <DocumentConnections documentId={document.id} onResourcesChanged={resourcesChanged} />
     </LiveOnly>
   );
 }

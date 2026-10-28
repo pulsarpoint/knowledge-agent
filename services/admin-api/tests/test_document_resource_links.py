@@ -95,6 +95,11 @@ def test_connections_list_the_active_resource_links_named_per_type_by_type_then_
     )
     assert answer['resources'][-1]['service_id'] == service
     assert answer['revision'] == 1
+    # the document's own resource_links (the header's badges) name a deployment alike and carry its service
+    links = client.get(f'{DOCUMENTS}/{document}', headers=HEADERS).json()['resource_links']
+    assert [(item['name'], item['service_id']) for item in links if item['type'] == 'deployment'] == [
+        ('Payments on web-1', service)
+    ]
 
 
 def test_a_removed_link_is_not_listed(store, client):

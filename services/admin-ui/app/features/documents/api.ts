@@ -65,6 +65,8 @@ export interface ResourceLink {
   added_by: string | null;
   session_id: string | null;
   created_at: string;
+  /** A deployment's service (its page); null for the other kinds. */
+  service_id?: string | null;
 }
 export interface ResourceLinkChange extends ResourceLink {
   removed_at: string | null;

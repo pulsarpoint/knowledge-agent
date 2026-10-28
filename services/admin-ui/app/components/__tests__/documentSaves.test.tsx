@@ -348,26 +348,29 @@ test("the Drafts section link carries the number of drafts", async () => {
   expect(sections()).toContain("Drafts (3)");
 });
 
-test("Save links writes the links through the links route and keeps the new revision; a 409 shows its message", async () => {
+test("Save links on a brand-new draft writes the links through the links route and keeps the new revision; a 409 shows its message", async () => {
   const STALE = "This document was changed by someone else. Reload it and try again.";
   let saves = 0;
   const calls = api({
-    "GET /api/documentation/documents/doc-1": () => [200, live],
+    "GET /api/documentation/documents/d5": () => [
+      200,
+      { ...brandNew, environment_ids: ["env-1"], revision: 2, resource_links: live.resource_links },
+    ],
     "GET /api/documentation/resources": () => [200, resources],
-    "GET /api/documentation/documents/doc-1/resource-history": () => [200, { history: [] }],
-    "PUT /api/documentation/documents/doc-1/links": (body) =>
+    "GET /api/documentation/documents/d5/resource-history": () => [200, { history: [] }],
+    "PUT /api/documentation/documents/d5/links": (body) =>
       saves++ === 0
-        ? [200, { id: "doc-1", revision: 3, resource_links: live.resource_links }]
+        ? [200, { id: "d5", revision: 3, resource_links: live.resource_links }]
         : [409, { error: { message: STALE } }],
   });
-  show("/documents/doc-1?tab=resources");
+  show("/documents/d5?tab=resources");
   const panel = within(await screen.findByRole("tabpanel", { name: "Linked resources" }));
   const save = panel.getByRole("button", { name: "Save links" });
   expect(save).toBeDisabled();
   fireEvent.click(panel.getByRole("checkbox", { name: "Payments API" }));
   fireEvent.click(save);
   await waitFor(() =>
-    expect(calls.find((c) => c.key === "PUT /api/documentation/documents/doc-1/links")?.body).toEqual({
+    expect(calls.find((c) => c.key === "PUT /api/documentation/documents/d5/links")?.body).toEqual({
       revision: 2,
       ...noIds,
       service_ids: ["svc-1"],
@@ -379,7 +382,7 @@ test("Save links writes the links through the links route and keeps the new revi
   fireEvent.click(save);
   expect(await panel.findByText(STALE)).toBeInTheDocument();
   expect(
-    calls.filter((c) => c.key === "PUT /api/documentation/documents/doc-1/links").map((c) => c.body.revision),
+    calls.filter((c) => c.key === "PUT /api/documentation/documents/d5/links").map((c) => c.body.revision),
   ).toEqual([2, 3]);
   expect(calls.some((c) => c.key === "POST /api/documentation/drafts")).toBe(false);
 });

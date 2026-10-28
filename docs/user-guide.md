@@ -915,10 +915,12 @@ holds: **Edit** (the editor), and on a live document **Version history** (`/docu
 draft**), **Drafts (n)** (`/documents/{id}/drafts`, counting the drafts) and **Connections**
 (`/documents/{id}/connections`), then **Agent runs** (`/documents/{id}/agent-runs`). Edit has the fields Title, Slug,
 Short description, Purpose, Audience (People and agents / People / Agents), Tags, and the tabs **Write**, **Preview**
-and **Linked resources** (including documented source commits). The editor stays open under the other sub-pages:
-unsaved changes are still there when you come back to Edit, and only leaving the document's page asks Stay / Leave. An
-old link with `?tab=history|drafts|connections|agent-runs` opens that sub-page; `?tab=preview|resources` opens Edit on
-that tab.
+and, on a new document or one that is only a draft, **Linked resources** (including documented source commits). A live
+document's links are on **Connections**. Above the sub-page links, a live document's header shows a badge per resource
+it is linked to, such as `Environment · dev`, each opening that resource's page; past four, **+N** opens Connections.
+The editor stays open under the other sub-pages: unsaved changes are still there when you come back to Edit, and only
+leaving the document's page asks Stay / Leave. An old link with `?tab=history|drafts|connections|agent-runs` opens that
+sub-page; `?tab=preview|resources` opens Edit on that tab (a live document's `?tab=resources` opens Connections).
 
 - **New document**: **Save** creates a draft of the new document and opens it at `/documents/{id}`.
 - A document that is only a draft shows "Draft — not published yet" with **Save** (its name — the slug — can
@@ -928,9 +930,9 @@ that tab.
   **Ask agent** and **Delete** (in the header's ⋯ menu). The first **Save** creates your draft of the document and the editor goes on editing
   it — "Editing your draft (created {time}, from version {n}). Save updates it; Publish makes it live." — later Saves
   update the same draft. Publish it on **Drafts**.
-- **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
-  was built for stays locked. If someone changed the document's links meanwhile, Save links says so and writes
-  nothing.
+- **Linked resources** (a new document or one that is only a draft): **Save links** writes the links at once (links
+  never go through drafts); a link the document was built for stays locked. If someone changed the document's links
+  meanwhile, Save links says so and writes nothing.
 - **Inventory document**: a document tagged `inventory` that is built for a server, service or environment. Make one
   an inventory document, or stop it being one, by editing its Tags like any other content (Save, then
   Publish). The tag filter `inventory` lists them.
@@ -954,8 +956,16 @@ only when a person publishes a draft.
 - A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created meanwhile, the draft becomes a draft of it and opens
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
-- **Connections**: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
-  live version was built from).
+- **Connections**: **Resources** first: a table of the servers, services, environments, code projects and deployments
+  the document is linked to (by type, then name; a deployment is named "<service> on <server>" and opens its service),
+  with **Type**, **Name** (opens the resource's page), **Connection** (**Built for**: made with the document; **Linked**:
+  added later) and **Added** (who and when); "Not linked to any resource yet." when there are none. **Add resource**
+  opens a side sheet searching every kind by name, grouped by type, without the ones already linked; picking one links
+  it at once. **Remove** in a row's ⋯ menu asks "Remove the link to <type> <name>? The document and the <type> stay."
+  first; a built-for link can't be removed (its Remove is off, saying why). Links never go through drafts: adding or
+  removing one changes the document at once and is in the audit log and under **Link history** (every link added or
+  removed, with how, when and who). Then **Depends on** (add with **Find a document**, remove), **Used by**, and
+  **Built from** (what the live version was built from).
 - **Version history** marks versions published from a draft ("from draft").
 - Drafts are never exported, searched or shown to agents; deleting a document deletes its drafts and links.
 

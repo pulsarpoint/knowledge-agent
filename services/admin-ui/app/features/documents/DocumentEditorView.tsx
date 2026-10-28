@@ -32,6 +32,7 @@ import {
   promotedNotice,
   publishedNotice,
   updateDraft,
+  type Connections,
   type DraftDetail,
   type PromoteResult,
 } from "./drafts";
@@ -40,6 +41,7 @@ import AgentChat from "~/features/sessions/AgentChat";
 import DocumentLinkHistory from "./DocumentLinkHistory";
 import Markdown from "~/components/Markdown";
 import DocumentResourceSelection from "./DocumentResourceSelection";
+import ResourceBadges from "./ResourceBadges";
 import TagLinks from "./TagLinks";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -66,8 +68,9 @@ const documentPage = (pathname: string) => {
 const samePage = (a: string, b: string) => documentPage(a) === documentPage(b);
 
 /** What the document's sub-pages get from the editor: the document, a version's or a draft's text loaded into the editor
- * (it opens Edit), and the Drafts sub-page's hooks: a draft published, `confirm` (runs an action, asking first when the
- * editor has unsaved changes), the drafts count for the section link and a draft discarded. */
+ * (it opens Edit), the Drafts sub-page's hooks: a draft published, `confirm` (runs an action, asking first when the
+ * editor has unsaved changes), the drafts count for the section link and a draft discarded, and Connections' answer
+ * after a resource link changed (the header's badges and the revision Delete sends). */
 export interface DocumentPageContext {
   document: DocumentDetail;
   loadVersion: (version: DocumentVersion) => void;
@@ -76,6 +79,7 @@ export interface DocumentPageContext {
   confirm: (run: () => void) => void;
   setDraftCount: (count: number) => void;
   draftDiscarded: (draftId: string) => void;
+  resourcesChanged: (connections: Connections) => void;
 }
 export const useDocumentPage = () => useOutletContext<DocumentPageContext>();
 
@@ -128,9 +132,10 @@ interface EditingDraft {
 /** The editor, in three modes. The New page (`document` null): Save creates a brand-new draft and opens it. A brand-new
  * draft (`document.is_draft`): Save updates it (its name too), Publish makes it the live document, Discard deletes it.
  * A live document: the first Save creates the person's draft and the editor switches to it (later Saves update it);
- * Publish on the Drafts sub-page makes a draft live. Links are saved apart, with Save links. A document's page has
+ * Publish on the Drafts sub-page makes a draft live. A brand-new draft's links are saved apart, with Save links on
+ * Linked resources; a live document's are on Connections (Resources), with badges in the header. A document's page has
  * sub-pages (Edit, then Version history, Drafts and Connections for a live document, and Agent runs): the editor stays
- * mounted under them, so unsaved changes stay too; its fields and the Write / Preview / Linked resources tabs are on
+ * mounted under them, so unsaved changes stay too; its fields and the Write / Preview (/ Linked resources) tabs are on
  * Edit. */
 function Editor({
   document,
@@ -221,11 +226,16 @@ function Editor({
   // The document's revision (a brand-new draft's is the draft's): Save links and Delete send it, a brand-new draft's
   // Save too; Save links bumps it.
   const [revision, setRevision] = useState(document?.revision ?? 0);
-  // An old ?tab=preview|resources link opens its tab (DocumentEditorView passes it in the navigation's state).
-  const [tab, setTab] = useState<EditorTab>(() => {
-    const wanted = (location.state as { editorTab?: string } | null)?.editorTab ?? "";
-    return EDITOR_TABS.includes(wanted) ? (wanted as EditorTab) : "write";
-  });
+  // An old ?tab=preview|resources link opens its tab (DocumentEditorView passes it in the navigation's state); a live
+  // document's links are on Connections, where its old ?tab=resources link goes.
+  const wantedTab = (location.state as { editorTab?: string } | null)?.editorTab ?? "";
+  const [tab, setTab] = useState<EditorTab>(() =>
+    EDITOR_TABS.includes(wantedTab) && !(isLive && wantedTab === "resources") ? (wantedTab as EditorTab) : "write",
+  );
+  useEffect(() => {
+    if (isLive && wantedTab === "resources" && !page)
+      navigate(`${base}/connections${location.search}`, { replace: true });
+  }, []);
   // The person's draft of the live document: created by the first Save (or loaded with Edit); later Saves update it.
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [draftCount, setDraftCount] = useState(document?.drafts.length ?? 0);
@@ -499,7 +509,7 @@ function Editor({
       label: "Edit",
       end: true,
       help: isLive
-        ? "The document's text and links. Save keeps your changes as your draft; publish a draft on Drafts."
+        ? "The document's text. Save keeps your changes as your draft; publish a draft on Drafts."
         : "The document's text and links. Save keeps it as a draft until it is published.",
     },
     ...(isLive
@@ -517,7 +527,7 @@ function Editor({
           {
             to: { pathname: `${base}/connections`, search: location.search },
             label: "Connections",
-            help: "Documents this one depends on, documents that depend on it, and what it was built from.",
+            help: "The resources this document is linked to, documents it depends on, documents that depend on it, and what it was built from.",
           },
         ]
       : []),
@@ -610,6 +620,7 @@ function Editor({
           <AlertDescription>{`Editing your draft (created ${new Date(editingDraft.created_at).toLocaleString()}, from version ${editingDraft.base_version ?? "?"}). Save updates it; Publish makes it live.`}</AlertDescription>
         </Alert>
       )}
+      {isLive && <ResourceBadges links={links} connectionsPath={`${base}/connections`} />}
       {document && <SectionLinks label="Document sections" sections={sections} />}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-6">
         {page ? (
@@ -624,6 +635,10 @@ function Editor({
                 confirm: unlessUnsaved,
                 setDraftCount,
                 draftDiscarded,
+                resourcesChanged: (next: Connections) => {
+                  setLinks(next.resources.map((link) => ({ ...link, session_id: null })));
+                  setRevision(next.revision);
+                },
               } satisfies DocumentPageContext
             }
           />
@@ -752,7 +767,7 @@ function Editor({
               <TabsList>
                 <TabsTrigger value="write">Write</TabsTrigger>
                 <TabsTrigger value="preview">Preview</TabsTrigger>
-                <TabsTrigger value="resources">Linked resources</TabsTrigger>
+                {!isLive && <TabsTrigger value="resources">Linked resources</TabsTrigger>}
               </TabsList>
               <TabsContent value="write" forceMount className="data-[state=inactive]:hidden">
                 <Field>
@@ -781,45 +796,49 @@ function Editor({
                   )}
                 </div>
               </TabsContent>
-              <TabsContent value="resources">
-                <DocumentResourceSelection
-                  resources={resources}
-                  value={value}
-                  builtFor={resourceFor ? [resourceFor] : links.filter((link) => link.connection === "built_for")}
-                  onChange={(next) =>
-                    setValue({
-                      ...next,
-                      source_commits: Object.fromEntries(
-                        Object.entries(next.source_commits ?? {}).filter(([id]) => next.code_project_ids.includes(id)),
-                      ),
-                    })
-                  }
-                />
-                {document && (
-                  <div className="mt-4 flex justify-end">
-                    <Button type="button" disabled={pending || !linksDirty} onClick={() => void saveLinks()}>
-                      Save links
-                    </Button>
-                  </div>
-                )}
-                {linksError && (
-                  <Alert variant="destructive" className="mt-4">
-                    <AlertDescription>{linksError}</AlertDescription>
-                  </Alert>
-                )}
-                {Object.keys(value.source_commits ?? {}).length > 0 && (
-                  <div className="mt-4 flex flex-col gap-2">
-                    <h3 className="font-medium">Documented source commits</h3>
-                    {Object.entries(value.source_commits ?? {}).map(([id, commit]) => (
-                      <p key={id} className="text-sm">
-                        {resources.code_projects.find((p) => p.id === id)?.name ?? id}:{" "}
-                        <code className="break-all">{commit}</code>
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {document && <DocumentLinkHistory documentId={document.id} reloadKey={linksLoad} />}
-              </TabsContent>
+              {!isLive && (
+                <TabsContent value="resources">
+                  <DocumentResourceSelection
+                    resources={resources}
+                    value={value}
+                    builtFor={resourceFor ? [resourceFor] : links.filter((link) => link.connection === "built_for")}
+                    onChange={(next) =>
+                      setValue({
+                        ...next,
+                        source_commits: Object.fromEntries(
+                          Object.entries(next.source_commits ?? {}).filter(([id]) =>
+                            next.code_project_ids.includes(id),
+                          ),
+                        ),
+                      })
+                    }
+                  />
+                  {document && (
+                    <div className="mt-4 flex justify-end">
+                      <Button type="button" disabled={pending || !linksDirty} onClick={() => void saveLinks()}>
+                        Save links
+                      </Button>
+                    </div>
+                  )}
+                  {linksError && (
+                    <Alert variant="destructive" className="mt-4">
+                      <AlertDescription>{linksError}</AlertDescription>
+                    </Alert>
+                  )}
+                  {Object.keys(value.source_commits ?? {}).length > 0 && (
+                    <div className="mt-4 flex flex-col gap-2">
+                      <h3 className="font-medium">Documented source commits</h3>
+                      {Object.entries(value.source_commits ?? {}).map(([id, commit]) => (
+                        <p key={id} className="text-sm">
+                          {resources.code_projects.find((p) => p.id === id)?.name ?? id}:{" "}
+                          <code className="break-all">{commit}</code>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {document && <DocumentLinkHistory documentId={document.id} reloadKey={linksLoad} />}
+                </TabsContent>
+              )}
             </Tabs>
           </>
         )}

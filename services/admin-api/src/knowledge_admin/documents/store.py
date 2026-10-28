@@ -81,7 +81,7 @@ RESOURCE_JOINS = """LEFT JOIN ka.environments e ON e.id=r.environment_id
     LEFT JOIN ka.servers dh ON dh.id=d.server_id LEFT JOIN ka.environments de ON de.id=d.environment_id
     LEFT JOIN ka.principals a ON a.id=r.added_by LEFT JOIN ka.principals rm ON rm.id=r.removed_by"""
 LINK_ROW = f"""SELECT r.resource_type AS type,{RESOURCE_ID} AS id,{RESOURCE_NAME} AS name,r.connection,r.added_how,
-    COALESCE(a.display_name,a.email) AS added_by,r.session_id,r.created_at{{extra}}
+    COALESCE(a.display_name,a.email) AS added_by,r.session_id,r.created_at,d.service_id{{extra}}
     FROM ka.document_resources r {RESOURCE_JOINS} WHERE r.document_id=%s"""
 
 
@@ -903,7 +903,8 @@ def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dic
 
 
 def resource_links(conn, document_id: UUID) -> list[dict]:
-    """The document's active links: type, id, name, connection, added_how, added_by, session_id, created_at."""
+    """The document's active links: type, id, name, connection, added_how, added_by, session_id, created_at and
+    service_id (a deployment's service; else null)."""
     return conn.execute(
         LINK_ROW.format(extra='') + ' AND r.removed_at IS NULL ORDER BY r.created_at,r.id', (document_id,)
     ).fetchall()

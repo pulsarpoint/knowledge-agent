@@ -1,5 +1,5 @@
 import { request } from "~/lib/api";
-import type { DocumentInput } from "./api";
+import type { DocumentInput, ResourceLink, ResourceType } from "./api";
 import type { DocumentKey, ResourceIds } from "~/lib/resources";
 import type { SessionPurpose } from "~/features/sessions/api";
 
@@ -73,7 +73,15 @@ export interface LinkedDocument {
   slug: string;
   version: number;
 }
+/** A document's link to a resource on its Connections page; service_id: a deployment's service (its page). */
+export interface DocumentResourceLink extends Omit<ResourceLink, "session_id"> {
+  service_id: string | null;
+}
+/** GET /documents/{id}/connections: its resource links, the documents it depends on and that depend on it, what its
+ * live version was built from, and its revision (adding or removing a resource link bumps it). */
 export interface Connections {
+  revision: number;
+  resources: DocumentResourceLink[];
   depends_on: LinkedDocument[];
   used_by: LinkedDocument[];
   built_from: DraftSource[];
@@ -124,6 +132,12 @@ export const addLink = (documentId: string, toId: string) =>
   request<Connections>(`${documentUrl(documentId)}/links`, json("POST", { to_document_id: toId }));
 export const removeLink = (documentId: string, toId: string) =>
   request<Connections>(`${documentUrl(documentId)}/links/${encodeURIComponent(toId)}`, { method: "DELETE" });
+/** Links the document to a resource (a `linked` link); answers its connections. */
+export const addResource = (documentId: string, type: ResourceType, id: string) =>
+  request<Connections>(`${documentUrl(documentId)}/resources`, json("POST", { type, id }));
+/** Removes the document's link to a resource (a built-for link can't be removed); answers its connections. */
+export const removeResource = (documentId: string, type: ResourceType, id: string) =>
+  request<Connections>(`${documentUrl(documentId)}/resources/${type}/${encodeURIComponent(id)}`, { method: "DELETE" });
 /** Where a draft opens: its document's Drafts sub-page, or a brand-new draft's own page (/documents/{id}, the id the
  * document keeps when it is published). */
 export const draftPath = (draft: { id: string; document_id: string | null }) =>

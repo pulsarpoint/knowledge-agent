@@ -84,7 +84,13 @@ const responses: Record<string, unknown> = {
       },
     ],
   },
-  "/api/documentation/documents/doc-1/connections": { depends_on: [], used_by: [], built_from: [] },
+  "/api/documentation/documents/doc-1/connections": {
+    revision: 2,
+    resources: [],
+    depends_on: [],
+    used_by: [],
+    built_from: [],
+  },
   "/api/documentation/documents/doc-1/resource-history": { history: [] },
   "/api/sessions?document_id=doc-1": { sessions: [] },
   "/api/sessions?document_id=d9": { sessions: [] },
@@ -124,7 +130,7 @@ test("routes: the document page has History, Drafts, Connections and Agent runs 
 });
 
 test.each([
-  ["", "Edit", "The document's text and links. Save keeps your changes as your draft; publish a draft on Drafts."],
+  ["", "Edit", "The document's text. Save keeps your changes as your draft; publish a draft on Drafts."],
   ["/history", "Version history", "Every published version. Open one to read it or start a new draft from it."],
   [
     "/drafts",
@@ -134,7 +140,7 @@ test.each([
   [
     "/connections",
     "Connections",
-    "Documents this one depends on, documents that depend on it, and what it was built from.",
+    "The resources this document is linked to, documents it depends on, documents that depend on it, and what it was built from.",
   ],
   ["/agent-runs", "Agent runs", "Ask agent runs on this document, open ones first, with the drafts they wrote."],
 ])("the sub-page %s is open in the section links with its help line", async (page, label, help) => {
@@ -185,13 +191,16 @@ test.each([
   if (target.includes("run=")) expect(await screen.findByText("run r1")).toBeInTheDocument();
 });
 
-test.each([
-  ["resources", "Linked resources"],
-  ["preview", "Preview"],
-])("an old ?tab=%s link opens the editor on %s", async (tab, name) => {
-  const router = show(`/documents/doc-1?tab=${tab}`);
+test("an old ?tab=preview link opens the editor on Preview", async () => {
+  const router = show("/documents/doc-1?tab=preview");
   await waitFor(() => expect(where(router)).toBe("/documents/doc-1"));
-  expect(await screen.findByRole("tab", { name, selected: true })).toBeInTheDocument();
+  expect(await screen.findByRole("tab", { name: "Preview", selected: true })).toBeInTheDocument();
+});
+
+test("an old ?tab=resources link of a live document opens Connections, where its links are", async () => {
+  const router = show("/documents/doc-1?tab=resources");
+  await waitFor(() => expect(where(router)).toBe("/documents/doc-1/connections"));
+  expect(await screen.findByText("Not linked to any resource yet.")).toBeInTheDocument();
 });
 
 test("unsaved edits stay through the sub-pages without asking; leaving the page asks Stay / Leave", async () => {

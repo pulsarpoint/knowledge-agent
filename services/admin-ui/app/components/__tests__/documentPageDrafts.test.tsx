@@ -237,6 +237,8 @@ test("Edit loads a draft into the editor and Save then updates that draft", asyn
 test("Connections adds and removes dependencies and shows what uses the document and what built it", async () => {
   const overview = { id: "doc-2", title: "Overview", slug: "overview", version: 1 };
   const connections = {
+    revision: 2,
+    resources: [],
     depends_on: [],
     used_by: [{ id: "doc-7", title: "Billing guide", slug: "billing-guide", version: 3 }],
     built_from: [

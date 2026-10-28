@@ -429,11 +429,11 @@ describe("the document page", () => {
       "GET /api/documentation/documents/doc-1": () => [200, { ...document, tags: ["inventory", "ops"] }],
       "GET /api/documentation/resources": () => [200, resources],
     });
-    show("/documents/doc-1?tab=resources");
+    show("/documents/doc-1");
     const tags = await screen.findByRole("group", { name: "Document tags" });
     expect(within(tags).getByRole("link", { name: "inventory" })).toHaveAttribute("href", "/documents?tag=inventory");
     expect(within(tags).getByRole("link", { name: "ops" })).toHaveAttribute("href", "/documents?tag=ops");
-    expect(await screen.findByRole("checkbox", { name: "web-1" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Server · web-1" })).toHaveAttribute("href", "/servers/s1");
     expect(screen.queryByRole("button", { name: "Mark as inventory document" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Unmark" })).toBeNull();
     expect(calls.some((c) => c.key.endsWith("/inventory") || c.key.startsWith("GET /api/inventory/"))).toBe(false);

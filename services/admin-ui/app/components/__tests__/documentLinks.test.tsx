@@ -75,6 +75,8 @@ const document = {
   drafts: [],
   resource_links: [builtFor, linked],
 };
+/** The same document as a brand-new draft: its links are saved on Linked resources (a live document's on Connections). */
+const draft = { ...document, is_draft: true, published: false, versions: [] };
 const BUILT_FOR = "This document was built for environment Staging; that link can't be removed.";
 
 function api(routes: Record<string, (body: any) => [number, unknown]>) {
@@ -102,7 +104,7 @@ function show(url: string) {
 
 test("Linked resources locks a built-for environment (ticked, disabled, noted); a linked service toggles", async () => {
   const calls = api({
-    "GET /api/documentation/documents/doc-1": () => [200, document],
+    "GET /api/documentation/documents/doc-1": () => [200, draft],
     "GET /api/documentation/resources": () => [200, resources],
     "PUT /api/documentation/documents/doc-1/links": () => [
       200,
@@ -135,9 +137,9 @@ test("Linked resources locks a built-for environment (ticked, disabled, noted); 
 
 test("Save links refused for a built-for link shows why under Linked resources and reloads the links, keeping the text", async () => {
   // The page was loaded before Staging became a built-for link (Review Focus 3).
-  const stale = { ...document, environment_ids: ["env-1"], resource_links: [builtFor, linked] };
+  const stale = { ...draft, environment_ids: ["env-1"], resource_links: [builtFor, linked] };
   const fresh = {
-    ...document,
+    ...draft,
     revision: 3,
     environment_ids: ["env-1", "env-2"],
     resource_links: [builtFor, linked, { ...builtFor, id: "env-2", name: "Staging", created_at: later }],
@@ -162,7 +164,7 @@ test("Save links refused for a built-for link shows why under Linked resources a
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook, edited");
 });
 
-test("Link history lists the links added and removed, with how, when and who, and links the run", async () => {
+test("Link history (Connections, Resources) lists the links added and removed, with how, when and who, and links the run", async () => {
   const history = [
     {
       ...linked,
@@ -178,8 +180,12 @@ test("Link history lists the links added and removed, with how, when and who, an
     "GET /api/documentation/documents/doc-1": () => [200, document],
     "GET /api/documentation/resources": () => [200, resources],
     "GET /api/documentation/documents/doc-1/resource-history": () => [200, { history }],
+    "GET /api/documentation/documents/doc-1/connections": () => [
+      200,
+      { revision: 2, resources: [], depends_on: [], used_by: [], built_from: [] },
+    ],
   });
-  show("/documents/doc-1?tab=resources");
+  show("/documents/doc-1/connections");
   fireEvent.click(await screen.findByRole("button", { name: "Link history" }));
   const section = within(await screen.findByRole("region", { name: "Link history" }));
   const lines = await section.findAllByRole("listitem");
