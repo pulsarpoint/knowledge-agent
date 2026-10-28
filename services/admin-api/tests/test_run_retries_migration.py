@@ -47,6 +47,7 @@ def test_up_adds_retries_and_down_gives_back_the_0145_schema(store, at_0145):
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
             conn.execute('UPDATE ka.agent_sessions SET retries=-1 WHERE id=%s', (waiting,))
         conn.commit()
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
         run(conn, DOWN)
         assert schema(conn) == at_0145
         row = conn.execute('SELECT status FROM ka.agent_sessions WHERE id=%s', (waiting,)).fetchone()

@@ -15,7 +15,6 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.capabilities.wakeups import NOT_PENDING, cancel_pending
 from knowledge_admin.identity import request_actor
 from knowledge_admin.sessions.run_record import session_skills_used
-from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.knowledge_agents.session_worker import STOPPED, append_run_events
@@ -254,14 +253,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if error is not None:
             answer['error'] = error  # why it failed, also when it left no answer (a crash, Stop)
         return {**answer, **(row['output_error'] or {})}
-
-    @router.post('/{session_id}/review')
-    async def review(session_id: UUID, value: ReviewInput, request: Request) -> dict:
-        """Suggest improvements for a Test or event session (a tuning review; nothing is applied)."""
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-        return await review_session(db, project, session_id, value, request_actor(request))
 
     @router.get('/{session_id}/debug')
     def session_debug(session_id: UUID, response: Response) -> dict:

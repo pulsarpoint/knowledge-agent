@@ -63,7 +63,8 @@ def slugs(conn) -> dict:
 
 def test_down_gives_back_the_0143_schema_and_up_again(store, at_0143):
     with store.connect() as conn:
-        run(conn, '0146_run_retries.down.sql')  # newer migrations first
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
+        run(conn, '0146_run_retries.down.sql')
         run(conn, LATER)
         run(conn, DOWN)
         assert ignoring_folder_order(schema(conn)) == ignoring_folder_order(at_0143)

@@ -24,11 +24,14 @@ from knowledge_admin.knowledge_agents.config import (
     load_model,
     model_fits,
 )
+from knowledge_admin.capabilities.skills import run_skills
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.output_schemas import store as output_schemas
+from knowledge_admin.sessions import review_agent
+from knowledge_admin.sessions.explorer import NOT_FOUND as RUN_NOT_FOUND, session_of
 from knowledge_admin.sessions.run_access import agent_access, bring, check_picks, given, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
-from knowledge_admin.sessions.rows import NO_MODEL, Selection
+from knowledge_admin.sessions.rows import IN_PROGRESS, NO_MODEL, Selection
 from knowledge_admin.tools.selection import disabled_for, validate as valid_tools
 
 REVISION_TAG = 'document-revision'
@@ -617,6 +620,67 @@ def start_run(
         (project, actor, session_id, Jsonb(jsonable_encoder(details))),
     )
     return session_id
+
+
+def start_review(conn, project: UUID, run_key: str, actor: UUID) -> UUID:
+    """Start a review run (purpose review) on a finished chat or event run of a saved agent, waiting for the person's
+    first message (the session API runs it like any chat). It pins the reviewer (sessions/review_agent.pinned_config):
+    the reviewed run key, agent and revision, and the agent's model. 404 without that run's record; refused with the
+    exact texts on another kind of run, while the run works, or when the agent has no usable model."""
+    session_id, turn = session_of(run_key)
+    row = None
+    if session_id is not None:
+        row = conn.execute(
+            """SELECT id,agent_id,purpose,status,title,turns FROM ka.agent_sessions
+            WHERE id::text=%s AND project_id=%s FOR SHARE""",
+            (session_id, project),
+        ).fetchone()
+    recorded = (
+        row is not None
+        and conn.execute(
+            'SELECT 1 FROM ka.agent_run_events WHERE run_key=%s AND project_id=%s LIMIT 1', (run_key, project)
+        ).fetchone()
+    )
+    if row is None or turn > row['turns'] or not recorded:
+        raise HTTPException(404, RUN_NOT_FOUND)
+    if row['purpose'] not in review_agent.REVIEWED or row['agent_id'] is None:
+        raise HTTPException(400, review_agent.NOT_REVIEWABLE)
+    if row['status'] in IN_PROGRESS:
+        raise HTTPException(409, review_agent.BUSY)
+    agent = conn.execute(
+        'SELECT id,revision,model_id FROM ka.agents WHERE id=%s FOR SHARE', (row['agent_id'],)
+    ).fetchone()
+    model = load_model(conn, agent['model_id'])
+    if model is None or not model['enabled'] or not model_fits(model):
+        raise HTTPException(409, AGENT_NO_MODEL)
+    pinned = jsonable_encoder(review_agent.pinned_config(project, run_key, agent, model, run_skills(conn, project)))
+    review_id = uuid4()
+    conn.execute(
+        """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,status,
+        prompt_snapshot,context_snapshot,agent_config,access) VALUES (%s,%s,%s,%s,%s,%s,'review','waiting',%s,'{}',%s,%s)""",
+        (
+            review_id,
+            project,
+            agent['id'],
+            actor,
+            model['id'],
+            f'Review: {row["title"]}'[:TITLE_LENGTH],
+            Jsonb({'system_prompt': agent_system_prompt(pinned), 'context': ''}),
+            Jsonb(pinned),
+            Jsonb(pinned['access']),
+        ),
+    )
+    conn.execute(
+        """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
+        VALUES (%s,%s,'agent_run.created','agent_session',%s,%s)""",
+        (
+            project,
+            actor,
+            review_id,
+            Jsonb(jsonable_encoder({'agent_id': agent['id'], 'model_id': model['id'], 'review_of': run_key})),
+        ),
+    )
+    return review_id
 
 
 def options(

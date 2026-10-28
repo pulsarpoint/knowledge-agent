@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from knowledge_admin.sessions.review import NO_MODEL
+from knowledge_admin.sessions.start import AGENT_NO_MODEL as NO_MODEL
 from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS
@@ -86,7 +86,7 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
     )
     assert (session['draft'], session['model_calls'], session['reasoning_tokens']) == (None, 0, 0)
     assert [(i['seq'], i['text'], i['status']) for i in session['inputs']] == [(1, 'How many retries?', 'queued')]
-    assert session['reviews'] == [] and session['config']['id'] == t.agent
+    assert 'reviews' not in session and session['config']['id'] == t.agent
     assert session['context_snapshot'] == {}
     assert session['prompt_snapshot']['system_prompt'].startswith('Instructions for Tester.')
     assert 'tester-model-secret' not in json.dumps(session) and 'history' not in session
@@ -183,7 +183,7 @@ def test_the_session_endpoints_serve_test_sessions(tester):
     assert sent.status_code == 202 and sent.json() == {'seq': 2, 'status': 'queued', 'working': False}
     assert t.client.post(url + '/stop', headers=HEADERS).status_code == 409  # not working
     detail = t.client.get(url, headers=HEADERS).json()
-    assert {'purpose', 'model_calls', 'reasoning_tokens', 'reviews', 'config'} <= set(detail)
+    assert {'purpose', 'model_calls', 'reasoning_tokens', 'config'} <= set(detail)
     assert t.client.get(url + '/events/history', headers=HEADERS).json() == {'events': [], 'has_more': False}
     assert t.client.post(url + '/close', headers=HEADERS).status_code == 200
     assert t.client.post(url + '/messages', headers=HEADERS, json={'text': 'More'}).status_code == 409

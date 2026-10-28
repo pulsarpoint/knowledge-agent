@@ -37,6 +37,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp, skills
 from knowledge_admin.capabilities.files import mounted
+from knowledge_admin.sessions import review_agent
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_WRITES, INVENTORY_WRITES, SUBAGENT, WAKEUPS
 from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin import access as access_rules
@@ -115,7 +116,7 @@ async def agent(
 
     workspace: a scratch workspace to share (a subagent uses its parent's); None: a new one for this run, removed
     afterwards. subagents: the session turn's Subagents, which run_subagent finds in the run context. tools False: an
-    internal LLM call (the agent designer, the tuning reviewer) that gets no tools; agent runs get every tool they
+    internal LLM call (the agent designer) that gets no tools; agent runs get every tool they
     have not switched off. output_schema: the run's pinned output schema ({id, name, version, schema}); the final
     output is then the answer text, which the caller validates.
     """
@@ -258,7 +259,7 @@ async def create_agent(
     Used by agent() for test chats, live runs and native sessions. This does
     not run the agent or read the database; credentials stay in backend objects.
     subagents: whether the run can start subagents and call experts (a native session turn, an expert's call); without
-    (a subagent's own run, the tuning reviewer, the agent designer), run_subagent and the pinned experts are not
+    (a subagent's own run, the agent designer), run_subagent and the pinned experts are not
     offered, since they could only fail. output_schema: the pinned schema the final answer is asked in
     (JsonSchemaOutput), in place of output_type.
     """
@@ -326,7 +327,11 @@ def instructions_and_tools(
     document write tools only with subagents and not in an expert's call, config['expert']), but the tools the run
     switched off (config['disabled_tools']: tools/selection.py); what a tool may do is decided by its check against the
     run's access object. tools False: none at all (an internal LLM call, not an agent run). output_schema (the run's
-    pinned schema) on a model without structured output adds the schema to the instructions (fallback_instructions)."""
+    pinned schema) on a model without structured output adds the schema to the instructions (fallback_instructions).
+    A review run (sessions/review_agent) gets the reviewer's instructions and exactly the reviewer's tools: no catalog
+    tool beyond them, no experts and no MCP servers."""
+    if review_agent.is_review(config):
+        return review_agent.prompt(config), review_agent.reviewer_tools(config) if tools else [], [], []
     prompt = get_prompt(config)
     if output_schema is not None and not supports_structured_output(config['model']):
         prompt += '\n\n' + fallback_instructions(output_schema['schema'])
@@ -402,10 +407,11 @@ def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str
     references = credential_references(config)
     credentials = {}
     with store.connect() as conn:
-        # The ad-hoc agent has no agents row: a saved agent that happens to be called 'ad-hoc' must never block its turns.
+        # The ad-hoc agent and the session reviewer have no agents row: a saved agent that happens to have their id
+        # must never block their turns.
         current = (
             None
-            if config['id'] == AD_HOC_AGENT
+            if config['id'] == AD_HOC_AGENT or review_agent.is_review(config)
             else conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (config['id'],)).fetchone()
         )
         if current is not None and not current['enabled']:

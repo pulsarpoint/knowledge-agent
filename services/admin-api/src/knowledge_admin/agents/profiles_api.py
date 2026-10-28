@@ -200,12 +200,12 @@ WORKING = f"""SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN
 
 
 def agent_history(conn, agent_id) -> dict[str, int]:
-    """What deleting the agent with its history removes (conversations: its chat and event sessions); saved documents
+    """What deleting the agent with its history removes (conversations: its chat and event sessions and their reviews); saved documents
     are not part of it. `run_records` are the
     records of Test chats from before migration 0081 (run:<id> keys)."""
     return conn.execute(
         """SELECT
-        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose IN ('chat','event'))::int
+        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose IN ('chat','event','review'))::int
             AS conversations,
         (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose='documents')::int
             AS documentation_sessions,
@@ -217,7 +217,7 @@ def agent_history(conn, agent_id) -> dict[str, int]:
 
 def delete_history(conn, agent_id) -> None:
     """Remove the agent's sessions and run records. Run records have no foreign keys: run:<id> (old Test chats) belong
-    to the agent by agent_id, cc:<session>:<turn> by their session; inputs and suggestions cascade with the session."""
+    to the agent by agent_id, cc:<session>:<turn> by their session; inputs cascade with the session."""
     conn.execute(
         """DELETE FROM ka.agent_run_events WHERE (starts_with(run_key, 'run:') AND agent_id=%s)
         OR (starts_with(run_key, 'cc:') AND split_part(run_key, ':', 2) IN (

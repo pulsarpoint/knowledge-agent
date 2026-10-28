@@ -692,3 +692,13 @@ retrying run's turn runs again; nothing is delivered to it before then. `notific
 characters) is the Jira comment when it is not the body: a failed run's short failure comment. The down migration drops
 the four columns, turns a `retrying` run into `failed` (its queued inputs are delivered as its next turn) and restores
 the status check.
+
+## 0147_session_review
+
+Session review (see agents.md, **Session review**): `agent_sessions_purpose` takes `review`, a reviewer chat on a
+finished chat or event run of a saved agent (its pinned `agent_config.review_of` is the reviewed run key), and the
+purpose comment says so. `agent_skills_source_check` takes `{kind: review}` (a skill a reviewer created, disabled);
+the source comment follows. The single-shot tuning suggestions go: `agent_session_reviews` is dropped (test data). The
+down migration deletes review runs with their `cc:<session>:<turn>` run records (inputs cascade), turns review skills
+into editor skills, restores both checks and comments, and creates `agent_session_reviews` again, empty, as 0081 made
+it.

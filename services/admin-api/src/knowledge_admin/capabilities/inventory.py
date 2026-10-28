@@ -38,9 +38,14 @@ def configure(store) -> None:
 
 
 def connect():
+    return store().connect()
+
+
+def store():
+    """The configured RepositoryStore (ValueError UNAVAILABLE when this process has none)."""
     if _store is None:
         raise ValueError(UNAVAILABLE)
-    return _store.connect()
+    return _store
 
 
 def project_of(conn, config: dict[str, Any]) -> UUID:

@@ -44,6 +44,7 @@ def with_old_tables(conn) -> None:
     if not conn.execute(
         "SELECT 1 FROM information_schema.columns WHERE table_schema='ka' AND table_name='documents' AND column_name='folder'"
     ).fetchone():
+        conn.execute((MIGRATIONS / '0147_session_review.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0145_write_with_an_agent.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / NO_FOLDERS).read_text(), prepare=False)
     if conn.execute("SELECT to_regclass('ka.rag_collections') AS r").fetchone()['r'] is None:

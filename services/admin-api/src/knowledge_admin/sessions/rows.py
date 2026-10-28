@@ -17,7 +17,7 @@ RETRY_BUSY = 'The agent is working on this run; there is nothing to retry.'
 NOTHING_TO_RETRY = 'Only a failed turn can be retried.'
 IN_PROGRESS = ('starting', 'working', 'retrying')  # a run that has not settled: a turn runs or waits to run again
 
-SessionPurpose = Literal['documents', 'event', 'resource', 'revision', 'chat']
+SessionPurpose = Literal['documents', 'event', 'resource', 'revision', 'chat', 'review']
 
 SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
 
@@ -119,17 +119,11 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
             },
         ).fetchall()
     row['started_by'], row['previous_output'] = started_by(conn, session_id)
-    if row['purpose'] in ('event', 'chat', 'revision', 'documents'):
-        # its pinned configuration (credential references only) and, for a saved agent's conversations, its suggestions
+    if row['purpose'] in ('event', 'chat', 'revision', 'documents', 'review'):
+        # its pinned configuration (credential references only)
         row['config'] = conn.execute(
             'SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (session_id,)
         ).fetchone()['agent_config']
-        row['reviews'] = conn.execute(
-            """SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes,
-            context->'memory_notes' AS memory_notes FROM ka.agent_session_reviews
-            WHERE session_id=%s ORDER BY created_at,id""",
-            (session_id,),
-        ).fetchall()
     return row
 
 

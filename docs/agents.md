@@ -168,15 +168,7 @@ limit, no per-turn time limit, no 300-second limit).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `chat_session`, or
   `event_session` for event runs; 0142 renamed the stored `test_session` kinds); **Full record** links to it. Its `instructions` event keeps the instructions sent
   to the model, with the Skills section when the run has skills.
-- `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and event runs;
-  refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
-  the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
-  (the session's model with every capability off, 240 seconds) with the pinned configuration. The reviewer returns
-  advice, `instructions` (a full replacement, or null to keep them) and up to 10 `memory_notes` (`{name, content,
-  metadata}`, following the memory module's rules); behaviour rules go to instructions, facts to notes, and the system
-  prompt is out of scope. The suggestion is stored in `ka.agent_session_reviews` with `response_turn`
-  (`context.changes` = `{instructions}`, `context.memory_notes`); the session detail returns each review's
-  `memory_notes`; **Review and apply** reads it.
+- A finished chat or event run can be reviewed: see **Session review** below.
 
 The Chat tab and the run page (`/sessions/:id`) share `RunWorkspace` (`services/admin-ui/app/components`):
 a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer,
@@ -640,25 +632,44 @@ are not copied. The clone records `cloned_from` and shows *Clone of <original>* 
 
 Saving the agent locks it for the save, so it is serialized with Apply and with other saves.
 
-**Add feedback → Suggest improvements** stays. **Review and apply** on a suggestion opens *Apply suggestions*: the
-advice; **Instructions** (the current text, the proposed replacement to edit, and **Apply instructions**, ticked when a
-change is proposed); and **Memory notes**, each with a checkbox (ticked by default), editable name and content, and
-**Already exists — open in Memory** (unticked) when an entry has that name. With instructions ticked, **Apply to this
-agent** (new conversations use it) or **Apply to a new clone** (clone first, then write them there); with only notes,
-**Save memory notes**. When notes were sent, the sheet then lists the saved notes (links to `/memory?entry=<id>`) and the
-refused names with their message; **Done** closes it. A review never changes the system prompt.
+### Session review
 
-- `GET /api/agents/{id}/reviews/{review_id}`: the suggestion, `changes.instructions`, the agent's current
-  `instructions`, `revision` and `fingerprint`, and `memory_notes` — each with `exists`, `memory_id` and
-  `current_content` when an entry already has that name (404 `Suggestion not found for this agent.`).
-- `POST /api/agents/{id}/reviews/{review_id}/apply`: `{target: 'agent' | 'clone', revision, fingerprint, instructions:
-  string | null, memory_notes: [{name, content, metadata}]}` → `{agent_id, saved: [{id, name}], refused: [{name,
-  message}]}`. Notes are saved with `memory.store.create` (embedded like the memory API), author = the person and the
-  reviewed session, metadata plus `source: review`; a taken name is refused (`An entry named <name> already exists.`)
-  while the other notes and the instructions still apply. The revision/fingerprint check (409 `The agent changed since
-  you opened the suggestion. Review it again.`) applies only when instructions are applied; 400 `Nothing to apply.` when
-  both are empty. Audit `agent.suggestion.applied` records `instructions_changed`, `memory_saved` and
-  `memory_refused`.
+A person improves a saved agent from one of its finished sessions by talking it through with a **reviewer**: a run
+like any chat (purpose `review`), built in code (`knowledge_admin/sessions/review_agent.py`), never a saved agent. It
+replaced the single-shot *Suggest improvements* and *Apply suggestions* (0147 drops `ka.agent_session_reviews`).
+
+- `POST /api/agent-runs/{run_key}/reviews` starts one on the run's session (`sessions/start.start_review`) and returns
+  the review session (status `waiting`, no turn yet). The person's feedback is its first message, sent with
+  `POST /api/sessions/{id}/messages`; detail, events, the stream, Stop, Close and Retry are the session API, so the
+  agent chat shows it unchanged. 404 `Run record not found.` without that run key's record (or a turn the session
+  does not have); 400 `Reviews are for a saved agent's chats and event runs.` for any other run (a review too); 409
+  `Wait for the agent to finish before reviewing it.` while it starts, works or waits for a retry; 409 `Select an
+  enabled model in this agent’s General tab.` when the agent has no enabled compatible model. Audit
+  `agent_run.created` with `review_of`.
+- `GET /api/agent-runs/{run_key}/reviews`: the reviews of the run's session (any turn), newest first, each a session
+  summary with `review_of`; 404 like the run record.
+- The session's `agent_id` is the reviewed agent (deleting it with its history deletes its reviews; they count as
+  conversations); its pinned `agent_config` has `review_of` (the reviewed run key), `reviewed_agent_id`,
+  `reviewed_revision` (the agent's revision at start), `instructions` (the reviewer prompt, `REVIEWER_PROMPT`),
+  `model` (the reviewed agent's), no resources or experts, and every enabled skill. Its turns are run records of kind
+  `review_session`. A review run loads only its model key (the reviewer has no agents row).
+- Its tools are exactly these (`agents/runner.instructions_and_tools`; no other catalog tool, resource, SSH, MCP or
+  expert): the explorer tools ([session explorer](session-explorer.md)) bound to `review_of`, read once per turn and
+  never from a model argument, so it reads no other session; `get_agent` (the reviewed agent's current name,
+  description, instructions with their revision, the catalog tools it has on and the enabled skills, never its system
+  prompt); `search_memory`, `get_memory`; `read_file` (skill folders); and the writes, each a visible tool call:
+  - `update_agent_instructions(instructions, summary, revision)` replaces only the reviewed agent's instructions
+    (revision + 1, `updated_by` the person who started the review); refused with `The agent changed since you read it.
+    Read it again with get_agent and propose the change again.` when the revision moved. Audit
+    `agent.instructions.updated` with `agent_id`, `review_session_id`, `summary`, `old_instructions`,
+    `new_instructions` and `revision`. The system prompt is never reachable.
+  - `create_skill(name, description, content)` writes a skill folder with that `SKILL.md` (frontmatter from name and
+    description, then the content), **disabled**, source `{kind: review, session_id}`; refused with `A skill with this
+    name already exists.`; returns `/skills/<id>`. A person enables it on Skills; until then no run gets it.
+  - `save_memory` (refuse-on-existing-name, revisions; author: the reviewed agent and the review session).
+- Consent is in the chat: the prompt makes the reviewer propose first (where, what and why, with the exact text) and
+  call a write tool only when the person's latest message agrees to that specific change. Every write is recorded
+  and reversible (audit and the agent's instructions, a disabled skill, a memory revision).
 
 Snapshots of running conversations store credential references, never private keys or provider tokens. Credentials
 are resolved at execution time; disabled agents/models/SSH/MCP resources still block use. File contents and external

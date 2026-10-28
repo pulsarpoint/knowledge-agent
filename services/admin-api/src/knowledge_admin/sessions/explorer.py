@@ -17,6 +17,7 @@ gone through URL masking (http_errors.safe_url: credentials and queries hidden) 
 session's secrets). METHODS is the one table of method names, argument models and functions that the tools and the API
 both use."""
 
+import asyncio
 import json
 import re
 from collections import Counter
@@ -1204,10 +1205,17 @@ def call(record: SessionRecord, name: str, args: dict | None) -> dict:
 def tools(record: SessionRecord) -> list[FunctionTool]:
     """The methods as SDK function tools bound to `record` (no run_key argument: a model reads only this session).
     Not in the tool catalog: the session reviewer gives them to its own model."""
+    return loaded_tools(lambda: record)
+
+
+def loaded_tools(load: Callable[[], SessionRecord]) -> list[FunctionTool]:
+    """tools() for a record read on first use: `load` (synchronous, run in a thread) returns the one session the tools
+    read; its run key never comes from the model (sessions/review_agent.py binds it to the review's pinned run key)."""
     from knowledge_admin.tools.sdk import _function_tool
 
     def bound(method: Method):
         async def run(context: dict, value: BaseModel) -> str:
+            record = await asyncio.to_thread(load)
             return json.dumps(method.run(record, value), ensure_ascii=False)
 
         return _function_tool(method.tool, method.description, method.arguments, run)

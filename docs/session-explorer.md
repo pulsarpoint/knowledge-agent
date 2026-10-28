@@ -2,7 +2,8 @@
 
 The session explorer reads one agent session as an object with query methods. A session is all of its run records
 (`ka.agent_run_events`), one per turn. A person uses it on the run page's **Debug** tab, and a model gets the same
-methods as tools (the session reviewer, a later step). The code is in
+methods as tools (the session reviewer: [Session review](agents.md#session-review), through `loaded_tools`, which
+reads the pinned session on first use). The code is in
 `services/admin-api/src/knowledge_admin/sessions/explorer.py`.
 
 ## Turns and steps

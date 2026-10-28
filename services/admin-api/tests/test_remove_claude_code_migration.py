@@ -66,6 +66,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         model = a_model(conn, actor)
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
         run(
             conn, '0145_write_with_an_agent.down.sql'
         )  # 0145 drops agent_sessions.document_name, which 0144 down checks

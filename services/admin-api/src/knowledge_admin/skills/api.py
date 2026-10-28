@@ -10,7 +10,6 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import psycopg
-import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,6 +18,7 @@ from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.identity import request_actor
 from knowledge_admin.repositories import RepositoryStore, git_url
 from knowledge_admin.skills import imports, rules, store
+from knowledge_admin.skills.rules import check_files, skill_md
 from knowledge_admin.skills.store import FIELDS, Files
 
 MAX_UPLOAD = 25 * 1024 * 1024
@@ -89,11 +89,6 @@ class SaveInput(BaseModel):
     changes: list[FileChange] = Field(max_length=1000)
 
 
-def skill_md(name: str, description: str, body: str) -> str:
-    meta = yaml.safe_dump({'name': name, 'description': description}, sort_keys=False, allow_unicode=True, width=10**6)
-    return f'---\n{meta}---\n\n{body}'
-
-
 def apply_changes(files: Files, changes: list[FileChange]) -> Files:
     """The current files with the editor's changes. Raises ValueError for a change that names no file."""
     files = dict(files)
@@ -120,20 +115,6 @@ def apply_changes(files: Files, changes: list[FileChange]) -> Files:
         executable = change.executable if change.executable is not None else files.get(change.path, (b'', False))[1]
         files[change.path] = (content, executable)
     return files
-
-
-def check_files(files: Files) -> dict:
-    """{name, description} from SKILL.md when the files make a valid skill folder; raises ValueError."""
-    if refusal := rules.check_paths([{'path': path, 'type': 'file'} for path in files]):
-        raise ValueError(refusal)
-    if refusal := rules.check_limits([len(content) for content, _ in files.values()]):
-        raise ValueError(refusal)
-    if 'SKILL.md' not in files:
-        raise ValueError('A skill needs a SKILL.md.')
-    try:
-        return rules.parse_skill_md(files['SKILL.md'][0].decode('utf-8'))
-    except UnicodeDecodeError:
-        raise ValueError('SKILL.md is not UTF-8 text.') from None
 
 
 def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRouter:

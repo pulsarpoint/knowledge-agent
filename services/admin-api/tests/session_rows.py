@@ -72,7 +72,8 @@ def add_review(
     turn: int | None = None,
     notes: list[dict[str, Any]] | None = None,
 ) -> UUID:
-    """A saved tuning suggestion of a Test session, as the review endpoint stores it."""
+    """A saved tuning suggestion of a Test session, as the old review endpoint stored it (ka.agent_session_reviews,
+    0081 to 0146: for the migration tests of those versions)."""
     return conn.execute(
         """INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion,
         response_turn) VALUES (%s,%s,'Feedback',%s,'Be clearer.',%s) RETURNING id""",

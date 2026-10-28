@@ -72,7 +72,8 @@ def test_down_gives_back_the_0144_schema_and_up_again(store, at_0144):
         project = store.project(conn, 'shop')
         written = documents_run(conn, project)  # a documents run names no document
         conn.commit()
-        run(conn, '0146_run_retries.down.sql')  # newer migrations first
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
+        run(conn, '0146_run_retries.down.sql')
         run(conn, DOWN)
         assert ignoring_document_name_order(schema(conn)) == ignoring_document_name_order(at_0144)
         name = conn.execute('SELECT document_name FROM ka.agent_sessions WHERE id=%s', (written,)).fetchone()

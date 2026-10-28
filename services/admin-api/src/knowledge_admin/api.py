@@ -69,13 +69,11 @@ def build_api(
         profiles_api,
         wizard as agent_wizard,
         clones as agent_clones,
-        reviews as agent_reviews,
     )
 
     router.include_router(agent_wizard.build_api(app_name, repository_store))
     router.include_router(profiles_api.build_api(app_name, repository_store))
     router.include_router(agent_clones.build_api(app_name, repository_store))
-    router.include_router(agent_reviews.build_api(app_name, repository_store))
     router.include_router(mcp_api.build_api(app_name, repository_store))
     router.include_router(llm_api.build_api(app_name, repository_store))
     router.include_router(jira_api.build_api(app_name, repository_store, jira_transport))

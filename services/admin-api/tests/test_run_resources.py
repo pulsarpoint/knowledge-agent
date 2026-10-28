@@ -70,6 +70,7 @@ def run_resource_columns(conn) -> set[str]:
 def test_runs_record_their_resources_and_down_drops_only_the_records(store):
     with store.connect() as conn:
         for later in (
+            '0147_session_review.down.sql',
             '0145_write_with_an_agent.down.sql',
             '0144_no_document_folders.down.sql',
             '0116_drop_run_resources.down.sql',

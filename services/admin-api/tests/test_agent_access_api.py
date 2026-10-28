@@ -1,4 +1,4 @@
-"""Phase 2: the agent API, the wizard, clones and reviews read and write the access object (ka.agents.access) and the
+"""Phase 2: the agent API, the wizard and clones read and write the access object (ka.agents.access) and the
 agent's instructions (ka.agents.instructions). The per-type id lists, switches and per-agent server settings are gone."""
 
 from access_helpers import give, of
@@ -9,7 +9,6 @@ from psycopg.types.json import Jsonb
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.profiles_api import AccessInput, counts, references, resolve
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from session_rows import a_model, add_review, add_chat_session
 from test_profiles import create, wizard_payload
 from test_repositories import HEADERS
 
@@ -268,30 +267,6 @@ def test_a_clone_copies_access_and_instructions_and_apply_writes_them_back(world
     )
     assert applied.status_code == 200, applied.text
     assert stored(w, agent['id']) == {'access': changed, 'instructions': 'New.'}
-
-
-def test_a_review_writes_the_agents_instructions(world):
-    w = world
-    agent = create(w.client, 'Reviewed')
-    with w.store.connect() as conn:
-        give(conn, agent['id'], [('server', w.server['id'])])
-        project, actor = w.project, w.store.actor(conn, 'reviewer', 'reviewer@test')
-        session = add_chat_session(conn, project, actor, agent['id'], a_model(conn, actor), status='waiting', turns=1)
-        review = str(add_review(conn, session, actor, changes={'instructions': 'Cite.'}))
-    source = w.client.get(f'/api/agents/{agent["id"]}/reviews/{review}', headers=HEADERS).json()
-    assert 'servers' not in source and source['instructions'] == ''
-    applied = w.client.post(
-        f'/api/agents/{agent["id"]}/reviews/{review}/apply',
-        headers=HEADERS,
-        json={
-            'target': 'agent',
-            'revision': source['revision'],
-            'fingerprint': source['fingerprint'],
-            'instructions': 'Cite sources.',
-        },
-    )
-    assert applied.status_code == 200, applied.text
-    assert stored(w, agent['id'])['instructions'] == 'Cite sources.'
 
 
 def test_the_agent_parts_of_operations_are_gone(world):

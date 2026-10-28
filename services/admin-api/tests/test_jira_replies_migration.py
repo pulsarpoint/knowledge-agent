@@ -80,7 +80,8 @@ def test_a_valid_pending_posted_and_failed_row(store):
 
 def test_down_and_up_again(store):
     with store.connect() as conn:
-        run(conn, '0146_run_retries.down.sql')  # newer migrations first
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
+        run(conn, '0146_run_retries.down.sql')
         run(conn, '0110_jira_replies.down.sql')
         columns = {
             row['column_name']

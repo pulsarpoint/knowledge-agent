@@ -1,6 +1,5 @@
 """A saved agent's conversation: POST /api/sessions with a saved agent starts a chat session (0122; 0142 makes the old
-Test sessions chats). The agent page's Chat tab lists its chats and event runs; a chat may be reviewed, and its turns are
-Chat runs."""
+Test sessions chats). The agent page's Chat tab lists its chats and event runs, and its turns are Chat runs."""
 
 import asyncio
 from pathlib import Path
@@ -14,7 +13,6 @@ from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.sessions import run_record
-from knowledge_admin.sessions.review import NO_TURNS
 from native_fakes import FakeAgent, llm, message
 from run_helpers import post, wait_for
 from session_rows import a_model, add_chat_session
@@ -43,7 +41,7 @@ def test_a_saved_agent_run_is_a_chat_and_takes_no_purpose(agent):
         assert response.status_code == 400, (purpose, response.text)
 
 
-def test_the_agent_conversations_are_its_chats_and_event_runs_and_may_be_reviewed(agent, ask):
+def test_the_agent_conversations_are_its_chats_and_event_runs(agent, ask):
     chat = start(agent.client, agent_id=agent.id, resources={'server_ids': [agent.web]}).json()
     store = ask.s.store
     with store.connect() as conn:
@@ -54,9 +52,6 @@ def test_the_agent_conversations_are_its_chats_and_event_runs_and_may_be_reviewe
     assert {item['id'] for item in listed} == {chat['id'], str(event)}
     history = agent.client.get(f'/api/agents/{agent.id}/history', headers=HEADERS).json()
     assert history['conversations'] == 2 and 'test_chats' not in history and 'chats' not in history
-    agent.client.post(f'/api/sessions/{chat["id"]}/close', headers=HEADERS)
-    review = agent.client.post(f'/api/sessions/{chat["id"]}/review', headers=HEADERS, json={'comment': 'Shorter.'})
-    assert (review.status_code, review.json()['error']['message']) == (409, NO_TURNS)  # a chat may be reviewed
 
 
 def test_a_chat_session_turn_is_a_chat_run(sessions, monkeypatch):

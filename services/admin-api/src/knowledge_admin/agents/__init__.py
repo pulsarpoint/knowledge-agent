@@ -1,1 +1,1 @@
-"""Agents: saved agents, the wizard, clones, reviews, profiles, skills and tools."""
+"""Agents: saved agents, the wizard, clones, profiles, skills and tools."""

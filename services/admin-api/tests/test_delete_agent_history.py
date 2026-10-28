@@ -6,12 +6,12 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from live_documents import live_document
-from session_rows import add_review, add_chat_session
+from session_rows import add_chat_session
 from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS
 
-FULL = {'conversations': 2, 'documentation_sessions': 1, 'run_records': 2}
+FULL = {'conversations': 3, 'documentation_sessions': 1, 'run_records': 2}
 NONE = {'conversations': 0, 'documentation_sessions': 0, 'run_records': 0}
 WORKING = (
     'This agent is working right now. Stop its documentation sessions and runs, '
@@ -28,7 +28,7 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
         add_chat_session(conn, project, actor, agent_id, model_id, message='Check disk', status='waiting', turns=1)
         for _ in range(2)
     ]
-    ids['review'] = add_review(conn, ids['tests'][0], actor, changes={})
+    ids['review'] = add_chat_session(conn, project, actor, agent_id, model_id, status='waiting', purpose='review')
     document = live_document(conn, project, f'payments-{uuid4().hex[:6]}', 'Payments', '# Payments', actor=actor)['id']
     ids['document'] = document
     cc = uuid4()
@@ -107,7 +107,10 @@ def test_event_sessions_count_as_conversations(agents, store):
             turns=1,
             purpose='event',
         )
-    assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json() == {**FULL, 'conversations': 3}
+    assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json() == {
+        **FULL,
+        'conversations': FULL['conversations'] + 1,
+    }
 
 
 def test_an_agent_without_history_has_none(store, tmp_path):
@@ -139,7 +142,7 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
         for agent_id, expected in ((target, 0), (other, 1)):
             ids = mine if agent_id == target else theirs
             assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='chat'", agent_id) == 2 * expected
-            assert count('ka.agent_session_reviews WHERE id=%s', ids['review']) == expected
+            assert count('ka.agent_sessions WHERE id=%s', ids['review']) == expected  # a review of its chat
             assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='documents'", agent_id) == expected
             assert count('ka.agent_session_inputs WHERE session_id=ANY(%s)', [ids['cc'], *ids['tests']]) == 3 * expected
             assert count('ka.agent_run_events WHERE run_key=ANY(%s)', ids['keys']) == 5 * expected

@@ -6,12 +6,14 @@ from functools import partial
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from knowledge_admin.db import storage
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.http_errors import validation_text
-from knowledge_admin.sessions import explorer
+from knowledge_admin.identity import request_actor
+from knowledge_admin.sessions import explorer, start
+from knowledge_admin.sessions.rows import SUMMARY, session_detail
 from knowledge_admin.sessions.run_record import tool_counts
 
 RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload->>'kind' AS kind,
@@ -72,6 +74,13 @@ NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent
     WHERE e.run_key=%s AND e.kind='tool_call' AND e.payload->>'parent_call_id'=%s AND e.payload->>'call_id' IS NOT NULL
       AND e.agent_id=(SELECT i.agent_id FROM ka.agent_run_events i WHERE i.run_key=%s AND i.kind='input'
                       AND i.payload->>'parent_call_id'=%s AND i.payload ? 'expert' LIMIT 1)"""
+
+
+# a review session as its Conversations list shows it, with the turn it was started on
+REVIEWS = SUMMARY.replace(
+    'FROM ka.agent_sessions s', ",s.agent_config->>'review_of' AS review_of FROM ka.agent_sessions s", 1
+)
+assert REVIEWS != SUMMARY
 
 
 class ExploreInput(BaseModel):
@@ -214,5 +223,33 @@ def build_api(app_name: str, store) -> APIRouter:
             raise HTTPException(400, str(exc)) from None
         size = len(json.dumps(result, ensure_ascii=False))
         return {'result': result, 'size_chars': size, 'approx_tokens': -(-size // 4)}
+
+    @router.post('/{run_key}/reviews', status_code=201)
+    def start_review(run_key: str, request: Request) -> dict:
+        """Start a review of the run's session (sessions/start.start_review): the review session, waiting for the
+        person's feedback as its first message; it then runs through the session API like any chat."""
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            actor = db.actor(conn, *request_actor(request))
+            return session_detail(conn, project, start.start_review(conn, project, run_key, actor))
+
+    @router.get('/{run_key}/reviews')
+    def reviews(run_key: str, response: Response) -> dict:
+        """The reviews of the run's session (of any of its turns), newest first; 404 like the run record."""
+        response.headers['Cache-Control'] = 'no-store'
+        session_id, _ = explorer.session_of(run_key)
+        with database().connect() as conn:
+            project = store.project(conn, app_name)
+            found = conn.execute(
+                'SELECT 1 FROM ka.agent_run_events WHERE run_key=%s AND project_id=%s LIMIT 1', (run_key, project)
+            ).fetchone()
+            if found is None or session_id is None:
+                raise HTTPException(404, 'Run record not found.')
+            rows = conn.execute(
+                f"""{REVIEWS} WHERE s.project_id=%s AND s.purpose='review'
+                AND split_part(s.agent_config->>'review_of', ':', 2)=%s ORDER BY s.created_at DESC,s.id""",
+                (project, session_id),
+            ).fetchall()
+        return {'reviews': rows}
 
     return router

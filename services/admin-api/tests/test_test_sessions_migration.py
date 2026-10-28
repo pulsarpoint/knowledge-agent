@@ -72,6 +72,7 @@ def people(store, conn):
 
 def test_purpose_checks_keep_documents_and_test_sessions_apart(store):
     with store.connect() as conn:
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
         run(
             conn, '0145_write_with_an_agent.down.sql'
         )  # 0145 drops agent_sessions.document_name, which 0144 down checks
@@ -115,6 +116,7 @@ def test_purpose_checks_keep_documents_and_test_sessions_apart(store):
 
 def test_up_drops_the_old_test_chats_and_keeps_their_run_records(store):
     with store.connect() as conn:
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
         run(
             conn, '0145_write_with_an_agent.down.sql'
         )  # 0145 drops agent_sessions.document_name, which 0144 down checks
@@ -174,6 +176,7 @@ def test_up_drops_the_old_test_chats_and_keeps_their_run_records(store):
 
 def test_down_deletes_test_sessions_and_restores_the_old_tables_empty(store):
     with store.connect() as conn:
+        run(conn, '0147_session_review.down.sql')  # newer migrations first
         run(
             conn, '0145_write_with_an_agent.down.sql'
         )  # 0145 drops agent_sessions.document_name, which 0144 down checks

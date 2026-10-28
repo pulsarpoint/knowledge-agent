@@ -103,3 +103,24 @@ def folders_to_delete(folders: list[str], current: str | None, pinned: set[str])
     those a running run pinned. A deleted skill has no current folder and keeps none but the pinned."""
     keep = set(folders[:KEEP]) if current is not None else set()
     return [folder for folder in folders if folder not in keep and folder != current and folder not in pinned]
+
+
+def skill_md(name: str, description: str, body: str) -> str:
+    """A SKILL.md: the frontmatter (name, description), then the body."""
+    meta = yaml.safe_dump({'name': name, 'description': description}, sort_keys=False, allow_unicode=True, width=10**6)
+    return f'---\n{meta}---\n\n{body}'
+
+
+def check_files(files: dict[str, tuple[bytes, bool]]) -> dict:
+    """{name, description, body} from SKILL.md when the files ({path: (content, executable)}) make a valid skill
+    folder; raises ValueError."""
+    if refusal := check_paths([{'path': path, 'type': 'file'} for path in files]):
+        raise ValueError(refusal)
+    if refusal := check_limits([len(content) for content, _ in files.values()]):
+        raise ValueError(refusal)
+    if 'SKILL.md' not in files:
+        raise ValueError('A skill needs a SKILL.md.')
+    try:
+        return parse_skill_md(files['SKILL.md'][0].decode('utf-8'))
+    except UnicodeDecodeError:
+        raise ValueError('SKILL.md is not UTF-8 text.') from None

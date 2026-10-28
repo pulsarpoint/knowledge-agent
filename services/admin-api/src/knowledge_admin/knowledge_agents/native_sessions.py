@@ -381,7 +381,9 @@ class NativeRunner(shared.SessionRunner):
             secrets=secrets,
             seq_after=await asyncio.to_thread(self.last_seq, number) if retrying else 0,
         )
-        kind = {'event': 'event_session', 'chat': 'chat_session'}.get(self.session.get('purpose'), 'native_session')
+        kind = {'event': 'event_session', 'chat': 'chat_session', 'review': 'review_session'}.get(
+            self.session.get('purpose'), 'native_session'
+        )
         if retrying:  # the same turn again: one start event per turn, so Agent runs lists it once
             recorder.add('input', {'task': text, 'retry': True})
         else:

@@ -11,7 +11,7 @@ inherited from another agent. An agent's page (`/agents/{id}`) has a header and 
 | --- | --- |
 | General (`/agents/{id}/general`) | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
 | Resources (`/agents/{id}/resources`) | A tab per type (servers, services, environments, code projects, documents, MCP servers) with its count, listing every resource of the project (from `GET /api/agents/{id}/options`; an environment also lists the `server_ids` and `service_ids` it brings to runs, shown as *via environment*) with a switch, a filter and **All**. A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
-| Chat (`/agents/{id}/chat`) | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
+| Chat (`/agents/{id}/chat`) | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; with none picked the run cannot start: "Pick at least one resource"); continue the conversation, inspect live activity, close/resume sessions |
 
 An old `/agents/{id}?view=general|resources|chat|test` link redirects to its sub-page (`test`: Chat), keeping the rest of the query; other `?view=` values (including the former `tools`) open General. Leaving General or Resources with unsaved changes asks first.
 
@@ -35,11 +35,8 @@ An agent's Chat page runs chat sessions of the agent with its saved configuratio
 The first message creates a session and adds `session_id` to the URL. Follow-ups
 retain context until the session is closed, or closed after 24 hours without activity. Reloading
 restores history and running turns. New turns keep the session’s pinned configuration; use a new session after changing the agent, or test a change on a clone.
-**Add feedback** beneath a response opens an optional panel and sends the full
-configuration, whole stored conversation, selected response and your feedback
-to a separate reviewer. A saved suggestion has advice, an optional replacement of the agent's instructions and up to
-10 proposed memory notes (new shared memory entries for facts learned in the conversation); it never changes the
-system prompt. **Review and apply** lets you edit and tick what to keep. Nothing is applied automatically.
+A finished session can be reviewed with a reviewer chat that proposes where an improvement belongs (the agent's
+instructions, a skill or memory) and makes it only after you agree; see [Session review](agents.md#session-review).
 
 **System prompt.** Each agent has exactly one system prompt, a field on the **General** tab (card *System prompt*, **Save prompt** / **Discard prompt changes**, “System prompt saved.”). It is required, nonempty and at most 100,000 characters; there is no draft or history, so to try another prompt clone the agent, change the clone and **Apply to <original>**. `PUT /api/agents/{id}/prompt` saves it with the agent's revision (a stale revision returns 409 “Agent changed. Reload before saving.”). The agent wizard saves the prompt it generates the same way. Existing prompts are preserved, including any instructions describing a former specialization; edit them on General when changing the intended purpose. “When to use” records routing guidance.
 
@@ -144,9 +141,9 @@ Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode
 - `POST /api/sessions` with `agent_id` accepts `resources` picked from the agent's access; the session keeps its narrowed access object.
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model.
 - `GET /api/agents/{id}/config` returns the agent's configuration (`knowledge_admin.knowledge_agents.config.get_agent_config`).
-- `PUT /api/agents/{id}/prompt` saves the system prompt; `POST /api/agents/{id}/clone`, `GET|POST /api/agents/{id}/apply` and `GET|POST /api/agents/{id}/reviews/{review_id}[/apply]` are described in [Agent execution](agents.md#clones).
+- `PUT /api/agents/{id}/prompt` saves the system prompt; `POST /api/agents/{id}/clone`, and `GET|POST /api/agents/{id}/apply` are described in [Agent execution](agents.md#clones).
 - `GET /api/sessions?agent_id={id}` lists the agent's conversations, `GET /api/sessions/{id}` restores one,
-  `POST /api/sessions/{id}/close` ends one and `POST /api/sessions/{id}/review` saves tuning suggestions.
+  `POST /api/sessions/{id}/close` ends one; `POST /api/agent-runs/{run_key}/reviews` starts a review of one.
 
 Administration endpoints require the existing administrator authorization. Model,
 SSH and MCP secrets never appear in profile responses. CRUD uses revision checks;
