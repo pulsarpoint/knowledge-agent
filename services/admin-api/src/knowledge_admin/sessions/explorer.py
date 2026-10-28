@@ -44,7 +44,11 @@ NOT_FOUND = 'Run record not found.'
 SESSION_KEY = re.compile(r'cc:([^:]+):(\d+)')
 MODEL_KINDS = ('reasoning', 'message', 'tool_call', 'usage')
 TOKEN_KEYS = ('input_tokens', 'output_tokens', 'cached_tokens', 'reasoning_tokens', 'total_tokens')
-URL = re.compile(r'[A-Za-z][A-Za-z0-9+.-]*://[^\s"\'<>`]+')
+# A scheme starts where the previous character cannot be part of one and is at most 32 characters: one pass, linear
+# (an unbounded scheme run made a long run of letters quadratic).
+URL = re.compile(r'(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s"\'<>`]+')
+HEAD_CHARS = 2_000  # a long field repeated on every page (an answer, an expert's task) is shortened to this
+STEP_TEXT = 2_000  # a step's input, reasoning or message text in turn()
 EventKind = Literal[
     'start', 'instructions', 'input', 'reasoning', 'message', 'tool_call', 'tool_result', 'usage', 'error', 'end'
 ]
@@ -433,7 +437,7 @@ def _step_in_full(step: Step) -> dict:
             {
                 'call_id': call.call_id,
                 'name': call.name,
-                'arguments': call.arguments,
+                'arguments': _shorten(call.arguments, STEP_TEXT, 50),
                 'status': call.status,
                 'output': output,
                 'nested_run': _nested_run(call),
@@ -441,9 +445,9 @@ def _step_in_full(step: Step) -> dict:
         )
     return {
         'step': step.n,
-        'inputs': step.inputs,
-        'reasoning': step.reasoning,
-        'messages': step.messages,
+        'inputs': _shorten(step.inputs, STEP_TEXT),
+        'reasoning': _shorten(step.reasoning, STEP_TEXT),
+        'messages': _shorten(step.messages, STEP_TEXT),
         'tool_calls': calls,
         'errors': step.errors,
         'usage': step.usage,
@@ -477,7 +481,7 @@ EVENTS = """SELECT e.run_key,e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.em
 def session_secrets(conn, store, project, session_id: str | None) -> list[str]:
     """The secrets the session's pinned configuration references (agents.runner.known_secrets), for the second
     redaction pass, as the session Debug tab redacts (records were redacted when written, experts' own keys too)."""
-    if session_id is None:
+    if session_id is None or store is None:
         return []
     from knowledge_admin.agents.runner import known_secrets
 
@@ -507,20 +511,21 @@ class SessionRecord:
     full_chars: int = 0
 
     @classmethod
-    def load(cls, conn, project, run_key: str, secrets: Iterable[str] = ()) -> 'SessionRecord':
+    def load(cls, conn, store, project, run_key: str) -> 'SessionRecord':
         """The whole session of a run key (`cc:<session_id>:<n>`; a run outside a session alone), every turn read once,
-        in this workspace; RunNotFound unless this workspace has that run key's own record."""
+        in this workspace, redacted again with the session's pinned secrets (session_secrets; store: the repository
+        store that decrypts them); RunNotFound unless this workspace has that run key's own record."""
         session_id, _ = session_of(run_key)
-        return cls._read(conn, project, run_key, session_id, secrets, focus=run_key)
+        return cls._read(conn, store, project, run_key, session_id, focus=run_key)
 
     @classmethod
-    def load_session(cls, conn, project, session_id: str, secrets: Iterable[str] = ()) -> 'SessionRecord':
+    def load_session(cls, conn, store, project, session_id: str) -> 'SessionRecord':
         """A session by its id (for internal callers such as the session reviewer; the API takes run keys only), its
-        last turn the focus turn; RunNotFound when it has no record."""
-        return cls._read(conn, project, None, session_id, secrets, focus=None)
+        last turn the focus turn, redacted as load; RunNotFound when it has no record."""
+        return cls._read(conn, store, project, None, session_id, focus=None)
 
     @classmethod
-    def _read(cls, conn, project, run_key, session_id, secrets, focus) -> 'SessionRecord':
+    def _read(cls, conn, store, project, run_key, session_id, focus) -> 'SessionRecord':
         prefix = f'cc:{session_id}:' if session_id is not None else None
         rows = conn.execute(EVENTS, (project, run_key, prefix, prefix)).fetchall()
         rows = [row for row in rows if row['run_key'] == run_key or SESSION_KEY.fullmatch(row['run_key'])]
@@ -535,6 +540,7 @@ class SessionRecord:
             ).fetchone()
             model = found['name'] if found else None
         focus = focus or max((row['run_key'] for row in rows), key=lambda key: _turn_number(key) or 0)
+        secrets = session_secrets(conn, store, project, session_id)  # every load path: no caller can forget them
         return build(rows, run_key=focus, meta={'session_id': session_id, 'model': model}, secrets=secrets)
 
     # helpers
@@ -683,7 +689,7 @@ class SessionRecord:
             'started_at': run.started_at,
             'ended_at': run.ended_at,
             'tokens': run.tokens(),
-            'answer': run.answer,
+            'answer': _shorten(run.answer, HEAD_CHARS),
         }
         return _page(head, 'steps', [_step_in_full(step) for step in run.steps], offset, limit)
 
@@ -728,7 +734,7 @@ class SessionRecord:
             'call_id': call_id,
             'turn': run.turn,
             'name': call.name if call else None,
-            'arguments': call.arguments if call else None,
+            'arguments': _shorten(call.arguments, HEAD_CHARS // 4, 20) if call else None,
             'status': call.status if call else 'unlinked',
             'run': {
                 'kind': run.kind,
@@ -736,7 +742,7 @@ class SessionRecord:
                 'agent_id': run.agent_id,
                 'status': run.status,
                 'started_at': run.started_at,
-                'answer': _shorten(run.answer, 2_000),
+                'answer': _shorten(run.answer, HEAD_CHARS),
             },
             'totals': _totals([run]),
         }
@@ -770,8 +776,13 @@ INSTRUCTIONS_SHARE = 4  # the instructions take at most a quarter of the budget
 INPUT_CHARS, MESSAGE_CHARS, REASONING_CHARS, ARGUMENT_CHARS = 1_500, 1_500, 800, 300
 # How a turn shows, from the most to the least: every step in full; its first, last and failed steps in full and the
 # others one line each; the same with the other steps grouped into one line per run of them; one line; left out
-# (consecutive left-out turns share one line).
+# (consecutive left-out turns share one line). The first, focus and last turns go no further than compact, then brief
+# (only the first and last steps in full; failed steps as their error kind and a short reason, a few, then a count),
+# then head (the header alone: the digest is truncated).
 FORMS = ('full', 'steps', 'compact', 'line', 'dropped')
+ESSENTIAL_FORMS = ('steps', 'compact', 'brief')
+FAILED_SHOWN = 5  # failed steps listed in a brief turn
+REASON_CHARS = 100
 
 
 def _cut(text: str, limit: int) -> str:
@@ -814,6 +825,35 @@ def _step_group(run: Run, steps: list[Step]) -> str:
     )
 
 
+def _failure(step: Step) -> str:
+    """A failed step as its error kind and a short reason."""
+    if step.errors:
+        kind, reason = step.errors[0]['type'], step.errors[0]['message']
+    else:
+        failed = next(call for call in step.calls if call.status == 'error')
+        kind, reason = failed.name, failed.output
+    return f'Step {step.n} failed: {kind}: {_cut(" ".join(reason.split()), REASON_CHARS)}'
+
+
+def _brief_turn(run: Run, head: str) -> str:
+    first, last = run.steps[0], run.steps[-1]
+    middle = run.steps[1:-1]
+    failed = [step for step in middle if step.failed]
+    parts = [head, _full_step(first)]
+    parts += [_failure(step) for step in failed[:FAILED_SHOWN]]
+    if middle:
+        calls = sum(len(step.calls) for step in middle)
+        parts.append(
+            f'[Steps {middle[0].n}-{middle[-1].n}: {len(middle)} steps ({len(failed)} failed steps, '
+            f'{max(0, len(failed) - FAILED_SHOWN)} more not listed), {calls} tool calls left out; '
+            f'record_turn(turn={run.turn}, offset={middle[0].n - 1}) reads them]'
+        )
+    if last is not first:
+        parts.append(_full_step(last))
+    parts.append(f'Answer: {_cut(run.answer, MESSAGE_CHARS)}' if run.answer else 'Answer: (none)')
+    return '\n'.join(parts)
+
+
 def _turn_text(run: Run, form: str) -> str:
     if form == 'line':
         return (
@@ -821,6 +861,10 @@ def _turn_text(run: Run, form: str) -> str:
             f'status {run.status} · {run.tokens()} tokens'
         )
     head = f'## Turn {run.turn} ({run.run_key}) · {len(run.steps)} steps · status {run.status} · {run.tokens()} tokens'
+    if form == 'head':
+        return f'{head}\n[shortened to its header: over budget; record_turn(turn={run.turn}) reads it]'
+    if form == 'brief' and run.steps:
+        return _brief_turn(run, head)
     numbers = [step.n for step in run.steps]
     kept = (
         set(numbers)
@@ -861,8 +905,10 @@ def digest(record: SessionRecord, budget_chars: int = DEFAULT_DIGEST_CHARS, focu
 
     Over budget, turns are reduced one at a time, oldest first, until it fits (FORMS): the middle turns (not the first,
     last, focus or errored ones) to steps, then compact, then one line, then left out; then the errored turns the same
-    way; then the first, focus and last turns to steps and compact (never shorter). The end is always there. As a last
-    resort the instructions are left out, then the text before the focus and last turns is cut."""
+    way; then the first, focus and last turns to steps, compact and brief (ESSENTIAL_FORMS). Then the instructions are
+    left out and, as the last resort, the first, focus and last turns become their headers (truncated: true); their
+    headers and the end always stay. Then what was left out comes back as one line per turn, the latest first, while it
+    fits, so the budget is used."""
     focus = record.focus_turn if focus is None else record._turn(focus).turn
     runs = {run.turn: run for run in record.turns}
     numbers = list(runs)
@@ -905,24 +951,36 @@ def digest(record: SessionRecord, budget_chars: int = DEFAULT_DIGEST_CHARS, focu
             parts.append(_dropped_line(dropped))
         return '\n\n'.join([*parts, end])
 
+    def fits() -> bool:
+        return len(render()) <= budget_chars
+
     actions = [(n, f) for f in FORMS[1:] for n in middle]
     actions += [(n, f) for f in FORMS[1:] for n in errored]
-    actions += [(n, f) for f in ('steps', 'compact') for n in essential]
-    text = render()
+    actions += [(n, f) for f in ESSENTIAL_FORMS for n in essential]
     for n, f in actions:
-        if len(text) <= budget_chars:
+        if fits():
             break
         form[n] = f
-        text = render()
-    if len(text) > budget_chars:
+    if not fits():
         shown_instructions[0] = '(left out: over budget)'
-        text = render()
-    truncated = len(text) > budget_chars
-    if truncated:  # keep the focus and last turns and the end; cut what is before them
-        marker = '\n[… cut at the budget …]\n'
-        tail = '\n\n'.join([*(piece(n) for n in essential[1:]), end])
-        tail = tail[-(budget_chars - len(marker) - 200) :] if len(tail) > budget_chars - len(marker) - 200 else tail
-        text = text[: budget_chars - len(marker) - len(tail)] + marker + tail
+    for n in essential:  # the last resort: the first, focus and last turns as their headers
+        if fits():
+            break
+        form[n] = 'head'
+    # refill: what was left out comes back as one line each, the latest first, while it fits
+    for n in reversed(numbers):
+        if form[n] == 'dropped':
+            form[n] = 'line'
+            if not fits():
+                form[n] = 'dropped'
+    text = render()
+    truncated = any(form[n] == 'head' for n in essential)
+    if len(text) > budget_chars:  # headers alone over budget: the session header, the turn headers and the end
+        truncated = True
+        heads = [_turn_text(runs[n], 'head').split('\n')[0] for n in essential]
+        text = '\n\n'.join(
+            [header[: max(0, budget_chars - sum(len(h) + 2 for h in heads) - len(end) - 2)], *heads, end]
+        )
     return {
         'format': 'text',
         'text': text,

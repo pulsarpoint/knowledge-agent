@@ -34,10 +34,10 @@ methods as tools (the session reviewer, a later step). The code is in
 `build(rows, run_key=..., meta=..., secrets=...)` is the pure function that turns the rows into the object, so tests
 need no database.
 
-- `SessionRecord.load(conn, project, run_key, secrets)` takes a **run key only**, as the run record does. It reads
+- `SessionRecord.load(conn, store, project, run_key)` takes a **run key only**, as the run record does. It reads
   every turn of that run's session once, and the run's own turn is the **focus turn**. It raises `RunNotFound` unless
   this workspace has a record for that run key.
-- `SessionRecord.load_session(conn, project, session_id, secrets)` is for internal callers such as the session
+- `SessionRecord.load_session(conn, store, project, session_id)` is for internal callers such as the session
   reviewer. Its last turn is the focus turn. The API never takes a session id.
 
 Call ids are unique in practice (the providers make them). If an id repeats, `tool_output` and `expert_call` take
@@ -49,6 +49,10 @@ inside its own nested run is not followed, so a loop cannot happen.
 Every string, dict keys included, has its URLs masked first (`http_errors.safe_url` hides user info, queries and
 fragments). It is then redacted with the secrets that the session's pinned configuration references
 (`explorer.session_secrets`, which uses `agents.runner.known_secrets`, the same secrets as the session Debug tab).
+Both `load` and `load_session` fetch these secrets themselves, so no caller can leave them out.
+
+The URL pattern stays linear on long text: a scheme starts only where the previous character cannot belong to one,
+and is at most 32 characters long. A 200 KB run of letters is cleaned in milliseconds.
 
 This is a second pass only:
 - Records are already redacted when they are written, experts' own credentials included.
@@ -78,6 +82,13 @@ Methods that return a list page it, and they all page the same way:
     and nested lists).
 
 A step with hundreds of parallel calls is shortened in `turn`, but `tool_calls` reads every call, page by page.
+
+Long fields are shortened before paging, so they do not crowd the items out of every page:
+- fields repeated on every page: a turn's answer and an expert call's answer (2,000 characters), and an expert
+  call's arguments (500);
+- in `turn`, a step's input, reasoning, message and arguments (2,000 characters).
+
+`search`, `tool_calls` and `tool_output` read the full text.
 
 ## Methods
 
@@ -125,10 +136,17 @@ The order of reduction:
 1. The middle turns (not the first, last, focus or errored ones) go to `steps`, then `compact`, then `line`, then
    `dropped`.
 2. Then the errored turns go through the same forms.
-3. Then the first, focus and last turns go to `steps` and `compact`, and never shorter.
+3. Then the first, focus and last turns go to `steps`, then `compact`, then `brief`. In `brief`, only the first and
+   last steps stay in full. At most 5 failed steps are listed, each as its error kind and a short reason. The other
+   steps are counted in one line, which also gives the count of failed steps not listed.
+4. Then the instructions are left out.
+5. As the last resort, the first, focus and last turns become `head`: their header line alone, with a note that
+   `record_turn(turn=n)` reads them. `truncated` is then true.
 
-`End:` always stays. As a last resort the instructions are left out, and then the text before the focus and last
-turns is cut. The digest returns `text`, `size_chars`, `full_chars`, `focus_turn`, `reduced` (`{turn: form}` for every
+Turn 1's, the focus turn's and the last turn's headers, and `End:`, always stay.
+
+After the text fits, the refill pass runs. Turns that were left out come back as one line each, the latest first,
+for as long as they fit. A digest of a session with a long focus turn therefore still uses close to its budget. The digest returns `text`, `size_chars`, `full_chars`, `focus_turn`, `reduced` (`{turn: form}` for every
 turn not in full) and `truncated`.
 
 `full_chars` is the size of every record in the session, outputs included, without the parts that repeat other fields

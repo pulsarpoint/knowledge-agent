@@ -83,11 +83,9 @@ class ExploreInput(BaseModel):
 def explored(conn, store, project, run_key: str) -> explorer.SessionRecord:
     """The explorer record of the run's whole session (every turn `cc:<session>:<n>`; a run outside a session alone).
     Run keys only, as the run record: whoever may read the run record reads its session's (admin, a record of that run
-    key in this workspace; 404 otherwise). Redacted again with the session's pinned secrets, as the session Debug tab."""
-    session_id, _ = explorer.session_of(run_key)
-    secrets = explorer.session_secrets(conn, store, project, session_id)
+    key in this workspace; 404 otherwise). load redacts again with the session's pinned secrets, as the Debug tab."""
     try:
-        return explorer.SessionRecord.load(conn, project, run_key, secrets)
+        return explorer.SessionRecord.load(conn, store, project, run_key)
     except explorer.RunNotFound:
         raise HTTPException(404, 'Run record not found.') from None
 

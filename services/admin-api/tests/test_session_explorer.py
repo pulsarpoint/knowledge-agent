@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -482,11 +483,11 @@ def test_load_from_a_run_key_or_a_session_id(store):
     seed(store)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        by_key = explorer.SessionRecord.load(conn, project, 'cc:s1:1')
-        by_id = explorer.SessionRecord.load_session(conn, project, 's1')
+        by_key = explorer.SessionRecord.load(conn, store, project, 'cc:s1:1')
+        by_id = explorer.SessionRecord.load_session(conn, store, project, 's1')
         for key in ('nobody', 's1', 'cc:s1:9'):  # load takes run keys of this workspace only
             with pytest.raises(RunNotFound):
-                explorer.SessionRecord.load(conn, project, key)
+                explorer.SessionRecord.load(conn, store, project, key)
     assert [t.run_key for t in by_key.turns] == [t.run_key for t in by_id.turns] == ['cc:s1:1', 'cc:s1:2']
     assert (by_key.focus_turn, by_id.focus_turn, by_id.run_key) == (1, 2, 'cc:s1:2')
 
@@ -494,13 +495,15 @@ def test_load_from_a_run_key_or_a_session_id(store):
 # --- big sessions: hard caps, paging and the digest ---------------------------------------------------------------
 
 
-def big_session(turns=100, steps=1, calls=1, errors=(), message='x' * 300, arguments=None):
-    """`turns` session turns of `steps` steps with `calls` tool calls each; a turn in `errors` fails its last call."""
+def big_session(turns=100, steps=1, calls=1, errors=(), message='x' * 300, arguments=None, long=None, failing=()):
+    """`turns` session turns of `steps` steps (long: {turn: steps} for some) with `calls` tool calls each; a turn in
+    `errors` fails its last call, a turn in `failing` the last call of every step."""
     rows = []
     for n in range(1, turns + 1):
         events = [('start', {'kind': 'chat_session', 'title': 'Big', 'agent': 'Lead', 'turn': n})]
         events.append(('input', {'task': f'question {n} ' + 'q' * 150}))
-        for step in range(1, steps + 1):
+        count = (long or {}).get(n, steps)
+        for step in range(1, count + 1):
             events.append(('message', {'text': f'turn {n} step {step} {message}'}))
             ids = [f't{n}s{step}c{i}' for i in range(calls)]
             for call_id in ids:
@@ -509,7 +512,7 @@ def big_session(turns=100, steps=1, calls=1, errors=(), message='x' * 300, argum
                 )
             events.append(('usage', {'total_tokens': 10}))
             for call_id in ids:
-                failed = n in errors and step == steps and call_id == ids[-1]
+                failed = call_id == ids[-1] and (n in failing or (n in errors and step == count))
                 output = 'An error occurred while running the tool. boom' if failed else 'ok ' * 20
                 events.append(('tool_result', {'name': 'read_file', 'call_id': call_id, 'output': output}))
         events += [('message', {'text': f'final answer {n}'}), ('usage', {'total_tokens': 5})]
@@ -668,17 +671,145 @@ def test_api_refuses_a_bare_session_id(store, tmp_path):
     assert response.status_code == 404
 
 
-def test_api_redacts_with_the_sessions_pinned_secrets(store, tmp_path, monkeypatch):
+MODEL_KEY = 'sk-explorer-model-key-0123456789'
+
+
+def keyed_session(store, client) -> str:
+    """A session whose pinned configuration references a model key; its turn 1 record shows the key raw (as if it
+    had been written before the key was known)."""
+    from knowledge_admin.knowledge_agents.config import load_model
+    from session_rows import add_chat_session
+
+    created = client.post(
+        '/api/llm/models',
+        headers=HEADERS,
+        json={
+            'name': 'Keyed',
+            'provider': 'openai',
+            'model': 'gpt-5',
+            'api_format': 'responses',
+            'base_url': 'http://model.test/v1',
+            'api_key': MODEL_KEY,
+        },
+    )
+    assert created.status_code in (200, 201), created.text
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        alice = store.actor(conn, 'alice', 'alice@example.test')
+        model = load_model(conn, created.json()['id'])
+        config = json.loads(json.dumps({'id': 'lead', 'model': model, 'access': {'resources': []}}, default=str))
+        conn.execute(
+            "INSERT INTO ka.agents(id,name,system_prompt) VALUES ('lead','Lead','x') ON CONFLICT (id) DO NOTHING"
+        )
+        session = add_chat_session(conn, project, alice, 'lead', model['id'], config=config, turns=1)
+        for row in rows_of(
+            ('input', {'task': f'use {MODEL_KEY}'}),
+            ('tool_call', {'name': 'x', 'call_id': 'k1', 'arguments': {}}),
+            ('tool_result', {'name': 'x', 'call_id': 'k1', 'output': f'the key is {MODEL_KEY}'}),
+            ('end', {'status': 'completed'}),
+            run_key=f'cc:{session}:1',
+        ):
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (project, row['run_key'], row['seq'], row['kind'], 'lead', alice, Jsonb(row['payload'])),
+            )
+    return str(session)
+
+
+def test_api_redacts_with_the_sessions_pinned_secrets(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    seed(store)
-    asked = []
-
-    def pinned(conn, store_, project, session_id):
-        asked.append(session_id)
-        return ['Payments map done']
-
-    monkeypatch.setattr(explorer, 'session_secrets', pinned)
+    session = keyed_session(store, client)
     body = client.post(
-        '/api/agent-runs/cc:s1:1/explore', headers=HEADERS, json={'method': 'tool_output', 'args': {'call_id': 'e1'}}
+        f'/api/agent-runs/cc:{session}:1/explore',
+        headers=HEADERS,
+        json={'method': 'tool_output', 'args': {'call_id': 'k1'}},
     ).json()
-    assert body['result']['text'] == '[redacted]' and asked == ['s1']
+    assert body['result']['text'] == 'the key is [redacted]'
+    search = client.post(
+        f'/api/agent-runs/cc:{session}:1/explore', headers=HEADERS, json={'method': 'search', 'args': {'text': 'sk-'}}
+    ).json()
+    assert search['result']['hits'] == []
+
+
+def test_load_session_applies_the_pinned_secrets_itself(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    session = keyed_session(store, client)
+    with store.connect() as conn:
+        record = explorer.SessionRecord.load_session(conn, store, store.project(conn, 'shop'), session)
+    assert (
+        MODEL_KEY not in json.dumps(record.timeline()) and record.tool_output('k1')['text'] == 'the key is [redacted]'
+    )
+
+
+# --- round 2 ------------------------------------------------------------------------------------------------------
+
+
+def test_url_masking_is_linear():
+    started = time.monotonic()
+    rows = rows_of(
+        ('tool_call', {'name': 'x', 'call_id': 'c', 'arguments': {'blob': 'a' * 200_000}}),
+        ('tool_result', {'name': 'x', 'call_id': 'c', 'output': 'b1+.-' * 40_000}),
+        run_key='cc:slow:1',
+    )
+    build(rows, run_key='cc:slow:1')
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize(
+    ('text', 'shown'),
+    [
+        ('see https://u:p4ss@host.test/x?token=1 now', 'see https://***@host.test/x?*** now'),
+        ('git+ssh://git:pw@h/repo.git', 'git+ssh://***@h/repo.git'),
+        ('(postgres://admin:secret@db:5432/app)', '(postgres://***@db:5432/app)'),
+        ('plain https://host.test/path stays', 'plain https://host.test/path stays'),
+    ],
+)
+def test_urls_with_credentials_are_still_masked(text, shown):
+    assert explorer._clean(text, ()) == shown
+
+
+def test_a_focus_turn_full_of_failed_steps_keeps_every_header():
+    record = build(big_session(turns=120, long={60: 300}, failing={60}), run_key='cc:big:60')
+    for budget in (16_000, 50_000):
+        result = record.digest(budget_chars=budget)
+        text = result['text']
+        assert result['size_chars'] <= budget and result['truncated'] is False
+        for n in (1, 60, 120):
+            assert f'## Turn {n} (cc:big:{n})' in text
+        assert text.endswith('End: completed') and 'failed steps' in text
+
+
+def test_a_truncated_digest_keeps_the_first_focus_and_last_headers():
+    record = build(big_session(turns=150, long={100: 500}, failing={100}), run_key='cc:big:100')
+    result = record.digest(budget_chars=2_000)
+    text = result['text']
+    assert result['truncated'] is True and result['size_chars'] <= 2_000
+    for n in (1, 100, 150):
+        assert f'## Turn {n} (cc:big:{n})' in text
+    assert text.startswith('Session ') and text.endswith('End: completed')
+
+
+def test_the_digest_refills_its_budget_after_shortening_a_long_focus_turn():
+    record = build(big_session(turns=200, long={100: 500}), run_key='cc:big:100')
+    assert record.digest(budget_chars=16_000)['size_chars'] >= 14_000
+    assert record.digest(budget_chars=50_000)['size_chars'] >= 40_000
+
+
+def test_long_head_fields_do_not_shrink_pages():
+    events = [('input', {'task': 'go'})]
+    events.append(('tool_call', {'name': 'ask_payments', 'call_id': 'e1', 'arguments': {'task': 't' * 30_000}}))
+    events.append(('usage', {'total_tokens': 1}))
+    events.append(('input', {'task': 't' * 30_000, 'expert': EXPERT, 'parent_call_id': 'e1'}, 'payments'))
+    for n in range(1500):
+        events.append(('message', {'text': f'expert step {n}', 'parent_call_id': 'e1'}, 'payments'))
+        events.append(('usage', {'total_tokens': 1, 'parent_call_id': 'e1'}, 'payments'))
+    events += [('tool_result', {'name': 'ask_payments', 'call_id': 'e1', 'output': 'a' * 60_000})]
+    events += [('message', {'text': 'z' * 60_000}), ('usage', {'total_tokens': 1}), ('end', {'status': 'completed'})]
+    record = build(rows_of(*events, run_key='cc:e:1'), run_key='cc:e:1')
+    pages, offset = 0, 0
+    while offset is not None:
+        page = fits(record.expert_call('e1', offset=offset))
+        pages, offset = pages + 1, page['next_offset']
+    assert pages <= 20
+    assert len(fits(record.turn(1))['steps']) == 2  # the 60 KB answer does not push the steps out
