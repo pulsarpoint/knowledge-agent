@@ -31,6 +31,7 @@ REVIEWER_ID = 'session-reviewer'  # the config id of a review run (no agents row
 REVIEWER_NAME = 'Session reviewer'
 BUSY = 'Wait for the agent to finish before reviewing it.'
 NOT_REVIEWABLE = "Reviews are for a saved agent's chats and event runs."
+REVIEW_OF_REVIEW = "Reviews can't be reviewed."
 REVIEWED = ('chat', 'event')  # the purposes a review may be started on
 REVISION_CHANGED = 'The agent changed since you read it. Read it again with get_agent and propose the change again.'
 SKILL_EXISTS = 'A skill with this name already exists.'

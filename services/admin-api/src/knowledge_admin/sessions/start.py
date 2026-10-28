@@ -626,7 +626,7 @@ def start_review(conn, project: UUID, run_key: str, actor: UUID) -> UUID:
     """Start a review run (purpose review) on a finished chat or event run of a saved agent, waiting for the person's
     first message (the session API runs it like any chat). It pins the reviewer (sessions/review_agent.pinned_config):
     the reviewed run key, agent and revision, and the agent's model. 404 without that run's record; refused with the
-    exact texts on another kind of run, while the run works, or when the agent has no usable model."""
+    exact texts on another kind of run (409 on a review), while the run works, or when the agent has no usable model."""
     session_id, turn = session_of(run_key)
     row = None
     if session_id is not None:
@@ -643,6 +643,8 @@ def start_review(conn, project: UUID, run_key: str, actor: UUID) -> UUID:
     )
     if row is None or turn > row['turns'] or not recorded:
         raise HTTPException(404, RUN_NOT_FOUND)
+    if row['purpose'] == 'review':
+        raise HTTPException(409, review_agent.REVIEW_OF_REVIEW)
     if row['purpose'] not in review_agent.REVIEWED or row['agent_id'] is None:
         raise HTTPException(400, review_agent.NOT_REVIEWABLE)
     if row['status'] in IN_PROGRESS:

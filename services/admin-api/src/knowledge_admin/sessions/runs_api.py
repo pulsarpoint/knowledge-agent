@@ -174,6 +174,17 @@ def build_api(app_name: str, store) -> APIRouter:
             ).fetchall()
             if call is None:
                 counts = tool_counts(conn, [run_key]) if events else []
+            # a run of a session: the session's purpose and, for a review, the run key it reviews
+            session_id, _ = explorer.session_of(run_key)
+            session = (
+                conn.execute(
+                    """SELECT purpose,agent_config->>'review_of' AS review_of FROM ka.agent_sessions
+                    WHERE id::text=%s AND project_id=%s""",
+                    (session_id, store.project(conn, app_name)),
+                ).fetchone()
+                if session_id is not None and events
+                else None
+            )
         if call is not None:
             calls = Counter(
                 e['payload'].get('name')
@@ -190,6 +201,8 @@ def build_api(app_name: str, store) -> APIRouter:
             'agent_id': events[0]['agent_id'],
             'user': events[0]['user'],
             'tool_counts': counts,
+            'purpose': session['purpose'] if session else None,
+            'review_of': session['review_of'] if session else None,
             'events': [
                 {key: event[key] for key in ('seq', 'kind', 'agent_id', 'payload', 'created_at')} for event in events
             ],

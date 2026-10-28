@@ -176,7 +176,8 @@ def test_start_rules(agent, ask):
     review = begin(client, f'cc:{chat}:1').json()
     finished(store, review['id'])  # a review with a recorded turn is still not reviewed
     refused = begin(client, f'cc:{review["id"]}:1')
-    assert (refused.status_code, refused.json()['error']['message']) == (400, review_agent.NOT_REVIEWABLE)
+    assert (refused.status_code, refused.json()['error']['message']) == (409, review_agent.REVIEW_OF_REVIEW)
+    assert review_agent.REVIEW_OF_REVIEW == "Reviews can't be reviewed."
 
     with store.connect() as conn:
         conn.execute('UPDATE ka.agents SET model_id=NULL WHERE id=%s', (agent.id,))
@@ -186,6 +187,23 @@ def test_start_rules(agent, ask):
 
     assert begin(client, f'cc:{chat}:7').status_code == 404  # no such turn
     assert begin(client, 'cc:00000000-0000-0000-0000-000000000001:1').status_code == 404
+
+
+def test_the_run_record_names_its_sessions_purpose_and_the_reviewed_run(world):
+    client, store, review = world.agent.client, world.store, world.review
+    finished(store, review['id'])
+    chat = client.get(f'/api/agent-runs/cc:{world.chat}:1', headers=HEADERS).json()
+    assert (chat['purpose'], chat['review_of']) == ('chat', None)
+    record = client.get(f'/api/agent-runs/cc:{review["id"]}:1', headers=HEADERS).json()
+    assert (record['purpose'], record['review_of']) == ('review', f'cc:{world.chat}:1')
+    with store.connect() as conn:
+        conn.execute(
+            """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+            VALUES (%s,'task-1',1,'start','operator',%s)""",
+            (store.project(conn, 'shop'), Jsonb({'kind': 'event_task', 'title': 'Task'})),
+        )
+    outside = client.get('/api/agent-runs/task-1', headers=HEADERS).json()  # a run outside a session
+    assert (outside['purpose'], outside['review_of']) == (None, None)
 
 
 def test_the_old_single_shot_review_is_gone(world):
