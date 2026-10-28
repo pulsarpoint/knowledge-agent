@@ -158,7 +158,7 @@ export default function ServerForm({
               {saving && <Spinner data-icon="inline-start" />}
               {server ? "Save" : "Create server"}
             </Button>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => guard.close(onClose)}>
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel
             </Button>
           </div>

@@ -110,7 +110,7 @@ it("an MCP server row keeps Test inline and Edit and Delete in its menu", async 
   await user.click(within(row).getByRole("button", { name: "Actions for Deployment tools" }));
   expect(menuItems()).toEqual(["Edit", "Delete"]);
 });
-it("New MCP server opens a right sheet with Create MCP server and Cancel; Cancel with input asks Stay / Leave", async () => {
+it("New MCP server opens a right sheet with Create MCP server and Cancel; Escape with input asks Stay / Leave, Cancel discards", async () => {
   const user = userEvent.setup();
   vi.mocked(api.saveMCPServer).mockResolvedValue(connection);
   page();
@@ -119,8 +119,15 @@ it("New MCP server opens a right sheet with Create MCP server and Cancel; Cancel
   await user.click(sheet.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog", { name: "New MCP server" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "New MCP server" }));
-  await user.type(screen.getByLabelText("Name"), "Search");
+  await user.type(screen.getByLabelText("Name"), "Gone");
+  // Cancel is an explicit discard: it closes at once.
   await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "New MCP server" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "New MCP server" }));
+  await user.type(screen.getByLabelText("Name"), "Search");
+  // Escape (like the X or a click outside) asks first.
+  await user.keyboard("{Escape}");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
   await user.type(screen.getByLabelText("HTTP endpoint"), "https://search.test/mcp");
   await user.click(screen.getByRole("button", { name: "Create MCP server" }));

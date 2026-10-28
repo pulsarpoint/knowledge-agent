@@ -21,7 +21,7 @@ import LeaveGuard, { useSheetGuard } from "~/components/LeaveGuard";
 
 const failed = (e: unknown) => (e instanceof ApiError ? e.message : "MCP operation failed. Try refreshing.");
 
-/** New MCP server / Edit MCP server in a right Sheet: Create MCP server (or Save) and Cancel; closing it or leaving the
+/** New MCP server / Edit MCP server in a right Sheet: Create MCP server (or Save) and Cancel (which discards); Escape, the X, a click outside or leaving the
  * page with unsaved changes asks Stay / Leave. */
 function MCPServerSheet({
   server,
@@ -179,7 +179,7 @@ function MCPServerSheet({
               {busy && <Spinner data-icon="inline-start" />}
               {server ? "Save" : "Create MCP server"}
             </Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={close}>
+            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
               Cancel
             </Button>
           </SheetFooter>

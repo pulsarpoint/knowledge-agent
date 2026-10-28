@@ -191,8 +191,8 @@ where the list changes on its own: Agent runs, Events, Notifications, Memory and
 
 Small records are created and edited in a side sheet on the right: agents (the **New agent** wizard), models, MCP
 servers, environments, servers, schedules, handlers, events and memory entries. A create sheet ends with **Create
-<thing>** and **Cancel**, an edit sheet with **Save** and **Cancel**; closing a sheet with unsaved input asks **Stay** /
-**Leave**. Long documents (documents, prompts, skills, output schemas) open on their own page with **Save** in the
+<thing>** and **Cancel**, an edit sheet with **Save** and **Cancel**. **Cancel** discards at once; closing a sheet
+with unsaved input any other way (Escape, the X, a click outside, or leaving the page) asks **Stay** / **Leave**. Long documents (documents, prompts, skills, output schemas) open on their own page with **Save** in the
 header; their **Delete** is in the header's ⋯ menu.
 
 ### 4.2 LLM Settings
@@ -644,7 +644,8 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 `/agents` lists agents with **Resources**, capabilities, model, active system prompt and status. **Resources** counts what the agent may use by type, for example `1 server · 2 documents` (or `No resources`).
 
 **Create an agent** with **New agent** (the only way to create agents). It opens the wizard in a side sheet; **Cancel**
-(or closing the sheet) after typing a role or making a proposal asks **Stay** / **Leave**. Its first field is **Agent model** (the model the agent runs on; it defaults to the first model in the catalog). Both a generated proposal and **Start blank** use that model; to change it go back with **Edit role**:
+discards it, while Escape, the X, a click outside or leaving the page after typing a role or making a proposal asks
+**Stay** / **Leave**. Its first field is **Agent model** (the model the agent runs on; it defaults to the first model in the catalog). Both a generated proposal and **Start blank** use that model; to change it go back with **Edit role**:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, instructions and resources (servers, services, environments, code projects,
@@ -964,7 +965,7 @@ can also filter by agent, by status (Working, Completed, Failed, Stopped), by **
 finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
 started) and by user (part of the email, press Enter).
 Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 10, 20, 50 or 100 runs (50 at
-first; **Rows per page** and the page arrows below it); filters, sorting, the page and its size are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat page and from each
+first; **Rows per page** and the page arrows below it; an older link's 25 opens as 20); filters, sorting, the page and its size are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat page and from each
 document run turn.
 Records are kept until deleted; only administrators can see them.
 

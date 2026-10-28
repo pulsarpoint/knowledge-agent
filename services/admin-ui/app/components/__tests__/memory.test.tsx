@@ -101,8 +101,12 @@ test("searching and clicking a metadata badge filter the list", async () => {
   });
   view();
   await screen.findByText("payments/deploy");
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search memory" }), "release{Enter}");
+  await userEvent.type(screen.getByRole("searchbox", { name: "Search memory" }), "release");
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/memories?query=release", expect.anything()));
+  // The search waits for typing to pause: "r", "re", … are never sent, and "release" once.
+  const searches = () => fetch.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("query="));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(searches()).toEqual(["/api/memories?query=release"]);
   await userEvent.click(screen.getByRole("button", { name: "service = payments" }));
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith(

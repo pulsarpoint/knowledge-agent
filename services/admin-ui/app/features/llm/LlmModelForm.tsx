@@ -11,7 +11,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Spinner } from "~/components/ui/spinner";
 import { Switch } from "~/components/ui/switch";
 
-/** New model / Edit <name> in a right Sheet: Create model (or Save) and Cancel; closing it or leaving the page with
+/** New model / Edit <name> in a right Sheet: Create model (or Save) and Cancel (which discards); Escape, the X, a click outside or leaving the page with
  * unsaved changes asks Stay / Leave. */
 export default function LlmModelForm({
   model,
@@ -355,7 +355,7 @@ export default function LlmModelForm({
               {saving && <Spinner data-icon="inline-start" />}
               {model ? "Save" : "Create model"}
             </Button>
-            <Button type="button" variant="outline" disabled={saving} onClick={close}>
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel
             </Button>
           </SheetFooter>

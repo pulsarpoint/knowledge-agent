@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Sparkles } from "lucide-react";
 import {
@@ -33,7 +33,7 @@ import { Switch } from "~/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { toast } from "sonner";
-import { useSheetGuard } from "~/components/LeaveGuard";
+import LeaveGuard, { useSheetGuard } from "~/components/LeaveGuard";
 
 function Toggle({
   label,
@@ -129,8 +129,8 @@ function catalogList(catalog: WizardOptions["catalog"], type: AccessType): Wizar
   }
 }
 
-/** New agent, in a right Sheet: 1. describe the role (or start blank), 2. review the proposal and Create agent. Closing it
- * with a role typed or a proposal made asks Stay / Leave first. */
+/** New agent, in a right Sheet: 1. describe the role (or start blank), 2. review the proposal and Create agent. Cancel
+ * discards; Escape, the X, a click outside or leaving the page with a role typed or a proposal made asks Stay / Leave. */
 export default function AgentWizard({
   open,
   onClose,
@@ -173,7 +173,10 @@ export default function AgentWizard({
     };
   }, [reload]);
   const catalog = options?.catalog;
-  const guard = useSheetGuard(busy !== "create" && (role.trim() !== "" || proposal !== undefined));
+  const dirty = busy !== "create" && (role.trim() !== "" || proposal !== undefined);
+  // Creating navigates to the new agent: that navigation never asks.
+  const leaving = useRef(false);
+  const guard = useSheetGuard(dirty);
   const close = () => guard.close(onClose);
   const agentModelField = (
     <Field>
@@ -240,6 +243,7 @@ export default function AgentWizard({
     try {
       const saved = await createWizardAgent({ ...proposal, model_id: agentModel });
       toast.success(`Agent ${proposal.name.trim()} created`);
+      leaving.current = true;
       onCreated(saved.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not create the agent.");
@@ -249,6 +253,7 @@ export default function AgentWizard({
   }
   return (
     <Sheet open={open} onOpenChange={(next) => !next && close()}>
+      <LeaveGuard dirty={dirty} leaving={leaving} />
       {guard.dialog}
       <SheetContent className="flex w-full flex-col gap-6 overflow-y-auto sm:max-w-2xl">
         <SheetHeader>
@@ -534,7 +539,7 @@ export default function AgentWizard({
               </Button>
             </>
           )}
-          <Button variant="outline" disabled={busy !== null} onClick={close}>
+          <Button variant="outline" disabled={busy !== null} onClick={onClose}>
             Cancel
           </Button>
         </SheetFooter>

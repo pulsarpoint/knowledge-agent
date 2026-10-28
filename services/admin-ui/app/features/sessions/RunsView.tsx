@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { getRuns, RUN_DEFAULTS, runPath, topTools, toolUsageLine, type RunPage, type RunSummary } from "./runs";
+import {
+  getRuns,
+  nearestPageSize,
+  RUN_DEFAULTS,
+  runPath,
+  topTools,
+  toolUsageLine,
+  type RunPage,
+  type RunSummary,
+} from "./runs";
 import { getAgents, type AgentSummary } from "~/features/agents/api";
 import { getSchedules } from "~/features/events/schedules";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -70,7 +79,7 @@ export default function RunsView() {
   const value = (key: string) => params.get(key) || RUN_DEFAULTS[key] || "";
   const [sort, order, user, keyPrefix] = [value("sort"), value("order"), value("user"), value("key_prefix")];
   const page = Math.max(1, Number(value("page")) || 1);
-  const pageSize = Number(value("page_size")) || 50;
+  const pageSize = nearestPageSize(params.get("page_size"));
   const filtered = ["kind", "agent_id", "status", "has_output", "schedule_id", "user", "key_prefix"].some((key) =>
     params.get(key),
   );

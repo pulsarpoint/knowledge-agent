@@ -333,8 +333,10 @@ def test_runs_come_in_pages(store, tmp_path):
     beyond = get(page=4, page_size=20)
     assert beyond['runs'] == [] and beyond['total'] == 60
     assert get(status='working', page_size=20)['total'] == 20
-    for bad in ({'page_size': 25}, {'page_size': 200}, {'page': 0}):
-        assert client.get('/api/agent-runs', headers=HEADERS, params=bad).status_code == 400
+    # an old link's page size is taken as the nearest one the table offers
+    assert get(page_size=25)['page_size'] == 20 and get(page_size=200)['page_size'] == 100
+    assert get(page_size=1)['page_size'] == 10
+    assert client.get('/api/agent-runs', headers=HEADERS, params={'page': 0}).status_code == 400
 
 
 def test_expert_calls_are_paged_with_the_runs(store, tmp_path):

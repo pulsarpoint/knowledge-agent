@@ -5,7 +5,7 @@ import { Download, Ticket } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { fetchJiraTickets, getJiraTickets, type JiraTicket, type JiraTickets } from "./api";
 import JiraPullStatus from "./JiraPullStatus";
-import DataTable from "~/components/DataTable";
+import DataTable, { sortHeader, sortRows, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -18,6 +18,15 @@ import { Spinner } from "~/components/ui/spinner";
 
 const DEFAULT_JQL = "ORDER BY updated DESC, key DESC";
 
+type TicketSort = "ticket" | "status" | "priority" | "updated";
+const byKey = (a: JiraTicket, b: JiraTicket) => a.issue_key.localeCompare(b.issue_key, undefined, { numeric: true });
+const TICKET_ORDER: Record<TicketSort, (a: JiraTicket, b: JiraTicket) => number> = {
+  ticket: byKey,
+  status: (a, b) => (a.status_name || "Unknown").localeCompare(b.status_name || "Unknown") || byKey(a, b),
+  priority: (a, b) => (a.priority || "").localeCompare(b.priority || "") || byKey(a, b),
+  updated: (a, b) => a.source_updated_at.localeCompare(b.source_updated_at) || byKey(a, b),
+};
+
 export default function JiraTicketsView() {
   const [data, setData] = useState<JiraTickets | null>(null);
   const [limit, setLimit] = useState("25");
@@ -29,6 +38,8 @@ export default function JiraTicketsView() {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("all");
   const [status, setStatus] = useState("all");
+  // Newest first, as Jira lists them.
+  const [sort, setSort] = useState<Sort<TicketSort>>({ key: "updated", descending: true });
   const busy = loading || fetching;
   useEffect(() => {
     const controller = new AbortController();
@@ -81,7 +92,7 @@ export default function JiraTicketsView() {
   const columns: ColumnDef<JiraTicket, unknown>[] = [
     {
       id: "ticket",
-      header: "Ticket",
+      header: () => sortHeader("Ticket", "ticket", sort, setSort),
       cell: ({ row: { original: ticket } }) => (
         <div className="max-w-md">
           <a
@@ -102,10 +113,14 @@ export default function JiraTicketsView() {
     },
     {
       id: "status",
-      header: "Status",
+      header: () => sortHeader("Status", "status", sort, setSort),
       cell: ({ row: { original: ticket } }) => <Badge variant="secondary">{ticket.status_name || "Unknown"}</Badge>,
     },
-    { id: "priority", header: "Priority", cell: ({ row: { original: ticket } }) => ticket.priority || "—" },
+    {
+      id: "priority",
+      header: () => sortHeader("Priority", "priority", sort, setSort),
+      cell: ({ row: { original: ticket } }) => ticket.priority || "—",
+    },
     {
       id: "assignee",
       header: "Assignee",
@@ -113,7 +128,7 @@ export default function JiraTicketsView() {
     },
     {
       id: "updated",
-      header: "Updated",
+      header: () => sortHeader("Updated", "updated", sort, setSort),
       cell: ({ row: { original: ticket } }) => new Date(ticket.source_updated_at).toLocaleString(),
     },
   ];
@@ -208,15 +223,16 @@ export default function JiraTicketsView() {
       {data?.connection?.last_successful_sync_at && (
         <div className="flex flex-col gap-3">
           <p role="status" className="text-sm text-muted-foreground">
-            Showing {filtered.length} of {tickets.length} saved tickets · {data.connection.last_fetch_total} Jira
-            matches · Fetched {new Date(data.connection.last_successful_sync_at).toLocaleString()}
+            {data.connection.last_fetch_total} Jira matches · Fetched{" "}
+            {new Date(data.connection.last_successful_sync_at).toLocaleString()}
           </p>
           <DataTable
             columns={columns}
-            data={filtered}
+            data={sortRows(filtered, sort, TICKET_ORDER)}
+            sort={sort}
             rowId={(ticket) => ticket.id}
             search={{ plural: "tickets", value: query, onChange: setQuery }}
-            resetKey={`${project}\n${status}`}
+            resetKey={`${project}\n${status}\n${sort.key}\n${sort.descending}`}
             toolbar={
               <>
                 <Select value={project} disabled={busy} onValueChange={setProject}>

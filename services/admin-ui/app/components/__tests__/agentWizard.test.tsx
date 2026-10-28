@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { act } from "@testing-library/react";
+import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import AgentWizard from "~/features/agents/AgentWizard";
 import * as api from "~/features/agents/wizard";
 import { Toaster } from "~/components/ui/sonner";
@@ -49,19 +50,29 @@ beforeEach(() => {
   vi.mocked(api.generateAgent).mockResolvedValue({ proposal: structuredClone(proposal) });
   vi.mocked(api.createWizardAgent).mockResolvedValue({ id: "new-agent" });
 });
+/** The wizard in a data router (its leave guard needs one), with a page to leave to. */
+const page = (element: React.ReactElement) =>
+  renderRoutes(
+    [
+      { path: "/", element },
+      { path: "/other", element: <p>Other page</p> },
+    ],
+    "/",
+  ).router;
+afterEach(() => vi.unstubAllGlobals());
 async function open() {
   const user = userEvent.setup();
   const created = vi.fn();
   const close = vi.fn();
-  render(
-    <MemoryRouter>
+  const router = page(
+    <>
       <AgentWizard open onClose={close} onCreated={created} />
       <Toaster />
-    </MemoryRouter>,
+    </>,
   );
   await screen.findByLabelText("What should this agent do?");
   await user.type(screen.getByLabelText("What should this agent do?"), "Investigate payment incidents.");
-  return { user, created, close };
+  return { user, created, close, router };
 }
 
 test("generates a reviewable proposal, edits resources (no role switch, no per-document picks), then creates once", async () => {
@@ -144,24 +155,24 @@ test("requires a prompt before saving and can cancel without creating", async ()
   await user.click(screen.getByRole("tab", { name: "General" }));
   expect(screen.getByRole("button", { name: "Create agent" })).toBeDisabled();
   expect(api.createWizardAgent).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Cancel" }));
-  // A proposal is unsaved input: Cancel asks Stay / Leave first.
-  expect(close).not.toHaveBeenCalled();
+  // A proposal is unsaved input: Escape asks Stay / Leave first.
+  await user.keyboard("{Escape}");
   const dialog = within(await screen.findByRole("alertdialog"));
   await user.click(dialog.getByRole("button", { name: "Stay" }));
   expect(close).not.toHaveBeenCalled();
+  // Cancel is an explicit discard: it closes at once.
   await user.click(screen.getByRole("button", { name: "Cancel" }));
-  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(close).toHaveBeenCalledTimes(1);
 });
 
 test("New agent is a right sheet; closing it untouched does not ask", async () => {
   const user = userEvent.setup();
   const close = vi.fn();
-  render(
-    <MemoryRouter>
+  page(
+    <>
       <AgentWizard open onClose={close} onCreated={vi.fn()} />
-    </MemoryRouter>,
+    </>,
   );
   const sheet = await screen.findByRole("dialog", { name: "New agent" });
   await within(sheet).findByLabelText("What should this agent do?");
@@ -177,10 +188,10 @@ test("start blank opens an empty proposal without generating and can create with
     ...structuredClone(options),
     catalog: { ...structuredClone(options.catalog), models: [] },
   });
-  render(
-    <MemoryRouter>
+  page(
+    <>
       <AgentWizard open onClose={vi.fn()} onCreated={created} />
-    </MemoryRouter>,
+    </>,
   );
   await user.click(await screen.findByRole("button", { name: "Start blank" }));
   expect(api.generateAgent).not.toHaveBeenCalled();
@@ -213,11 +224,11 @@ test("Agent model comes from page 1 and shows on the review", async () => {
     },
   });
   const user = userEvent.setup();
-  render(
-    <MemoryRouter>
+  page(
+    <>
       <AgentWizard open onClose={vi.fn()} onCreated={vi.fn()} />
       <Toaster />
-    </MemoryRouter>,
+    </>,
   );
   await screen.findByLabelText("What should this agent do?");
   await user.click(screen.getByRole("combobox", { name: "Agent model" }));
@@ -297,4 +308,14 @@ test("a generated proposal runs on the model chosen on page 1", async () => {
   await screen.findByLabelText("Agent name");
   await user.click(screen.getByRole("button", { name: "Create agent" }));
   expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ model_id: "gpt" }));
+});
+
+test("leaving the page with a role typed in the wizard asks Stay / Leave", async () => {
+  const { user, router } = await open();
+  await act(() => router.navigate("/other"));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
+  expect(router.state.location.pathname).toBe("/");
+  await act(() => router.navigate("/other"));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(await screen.findByText("Other page")).toBeInTheDocument();
 });

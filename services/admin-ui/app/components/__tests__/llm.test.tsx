@@ -63,7 +63,7 @@ test("leaving with unsaved changes in the model sheet asks Stay / Leave; an unto
   expect(await screen.findByText("Agents list")).toBeInTheDocument();
 });
 
-test("New model is a right sheet with Create model and Cancel; Cancel with input asks Stay / Leave", async () => {
+test("New model is a right sheet with Create model and Cancel; Cancel discards, Escape with input asks Stay / Leave", async () => {
   const user = userEvent.setup();
   vi.stubGlobal(
     "fetch",
@@ -79,6 +79,11 @@ test("New model is a right sheet with Create model and Cancel; Cancel with input
   await user.click(screen.getByRole("button", { name: "New model" }));
   await user.type(screen.getByLabelText("Connection name"), "Search");
   await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "New model" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "New model" }));
+  await user.type(screen.getByLabelText("Connection name"), "Search");
+  await user.keyboard("{Escape}");
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "New model" })).toBeNull());
 });

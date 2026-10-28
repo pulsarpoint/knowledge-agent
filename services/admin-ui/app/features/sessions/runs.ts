@@ -74,6 +74,13 @@ export const RUN_PARAMS = [
   "page_size",
 ];
 export const RUN_DEFAULTS: Record<string, string> = { sort: "started", order: "desc", page: "1", page_size: "50" };
+const PAGE_SIZES = [10, 20, 50, 100];
+/** The page size the table offers nearest to a link's `page_size` (an old link's 25 is 20); 50 when there is none. */
+export function nearestPageSize(value: string | null): number {
+  const size = Number(value);
+  if (!value || !Number.isFinite(size) || size <= 0) return 50;
+  return PAGE_SIZES.reduce((best, next) => (Math.abs(next - size) < Math.abs(best - size) ? next : best));
+}
 export interface RunPage {
   runs: RunSummary[];
   total: number;
@@ -88,7 +95,7 @@ export const runPath = (runKey: string, callId?: string) =>
 export function getRuns(search: URLSearchParams, signal?: AbortSignal) {
   const params = new URLSearchParams();
   for (const key of RUN_PARAMS) {
-    const value = search.get(key);
+    const value = key === "page_size" && search.get(key) ? String(nearestPageSize(search.get(key))) : search.get(key);
     if (value && value !== RUN_DEFAULTS[key]) params.set(key, value);
   }
   const query = params.toString();

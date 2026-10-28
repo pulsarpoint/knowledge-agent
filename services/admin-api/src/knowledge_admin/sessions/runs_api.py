@@ -89,8 +89,8 @@ def build_api(app_name: str, store) -> APIRouter:
         page: int = Query(1, ge=1),
         page_size: int = 50,
     ):
-        if page_size not in PAGE_SIZES:
-            raise HTTPException(400, 'Page size must be 10, 20, 50 or 100.')
+        # an old link's page size (25 before the table's sizes) is taken as the nearest one offered
+        page_size = min(PAGE_SIZES, key=lambda size: abs(size - page_size))
         # expert calls of this agent from other agents' runs list with its own runs
         rows = RUNS + (
             f' UNION ALL {EXPERT_CALLS}'

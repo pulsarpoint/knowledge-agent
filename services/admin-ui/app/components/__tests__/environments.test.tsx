@@ -239,18 +239,23 @@ test("inventory errors disable creation and provide retry", async () => {
   expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
 });
 
-test("New environment's sheet: Cancel closes it untouched; with input it asks Stay / Leave", async () => {
+test("New environment's sheet: Cancel discards at once; Escape with input asks Stay / Leave", async () => {
   setup();
   await userEvent.click((await screen.findAllByRole("button", { name: "New environment" }))[0]);
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog", { name: "New environment" })).toBeNull();
   await userEvent.click(screen.getAllByRole("button", { name: "New environment" })[0]);
   await userEvent.type(screen.getByLabelText("Environment name"), "QA");
-  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await userEvent.keyboard("{Escape}");
   await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
   expect(screen.getByLabelText("Environment name")).toHaveValue("QA");
-  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await userEvent.keyboard("{Escape}");
   await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New environment" })).toBeNull());
+  await userEvent.click(screen.getAllByRole("button", { name: "New environment" })[0]);
+  await userEvent.type(screen.getByLabelText("Environment name"), "QA");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "New environment" })).toBeNull());
 });
 

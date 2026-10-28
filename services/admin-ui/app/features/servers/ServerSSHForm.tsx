@@ -278,7 +278,7 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
                 >
                   Test connection
                 </Button>
-                <Button type="button" variant="outline" disabled={busy} onClick={close}>
+                <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
                   Cancel
                 </Button>
               </div>

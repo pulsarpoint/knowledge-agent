@@ -273,7 +273,33 @@ test("JQL is submitted and filtering the saved list limits bulk selection", asyn
   await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search tickets" })).toBeEnabled());
   fireEvent.change(screen.getByRole("searchbox", { name: "Search tickets" }), { target: { value: "payments" } });
   expect(screen.queryByText("Worker retries")).not.toBeInTheDocument();
-  expect(screen.getByText("Showing 1 of 2 saved tickets", { exact: false })).toBeInTheDocument();
+  // one count: the table's pager (no second "Showing X of Y saved tickets" line)
+  expect(screen.getByText("Showing 1–1 of 1")).toBeInTheDocument();
+  expect(screen.queryByText(/saved tickets/)).toBeNull();
+});
+
+test("the saved tickets sort by a header", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(twoTickets))),
+  );
+  render(
+    <MemoryRouter>
+      <JiraTicketsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText("Worker retries");
+  const keys = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("link")[0].textContent);
+  await userEvent.click(screen.getByRole("button", { name: "Ticket" }));
+  expect(keys()).toEqual(["DEMO-1", "OPS-2"]);
+  await userEvent.click(screen.getByRole("button", { name: "Ticket" }));
+  expect(keys()).toEqual(["OPS-2", "DEMO-1"]);
+  await userEvent.click(screen.getByRole("button", { name: "Status" }));
+  expect(screen.getByRole("columnheader", { name: "Status" })).toHaveAttribute("aria-sort", "ascending");
 });
 
 test("the saved tickets can be listed and filtered but not exported", async () => {

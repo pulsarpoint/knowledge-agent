@@ -481,3 +481,12 @@ test("a schedule in the URL that is no longer listed reads (deleted)", async () 
   await screen.findByText("How many retries?");
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Schedule" })).toHaveTextContent("(deleted)"));
 });
+
+test("an old link's page size that the table does not offer (25) asks for the nearest one (20)", async () => {
+  const fetchMock = listing(30);
+  renderRuns("?page_size=25");
+  await screen.findByText("How many retries?");
+  expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?page_size=20");
+  expect(screen.getByRole("combobox", { name: "Rows per page" })).toHaveTextContent("20");
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+});

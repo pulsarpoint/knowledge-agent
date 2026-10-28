@@ -222,9 +222,9 @@ test("conflicts retain unsaved input; cancel reloads before reopening", async ()
   expect(await screen.findByText("This server changed. Cancel and reopen the form.")).toBeInTheDocument();
   expect(screen.getByLabelText("Description (optional)")).toHaveValue("Unsaved description");
   expect(screen.getByRole("switch", { name: "Agent SSH" })).toBeChecked();
-  // Cancel with unsaved input asks Stay / Leave, as closing the sheet does.
+  // Cancel is an explicit discard: it closes without asking.
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2));
   expect(await menuItem("App host", "Edit")).not.toHaveAttribute("aria-disabled");
 });

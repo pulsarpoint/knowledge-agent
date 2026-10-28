@@ -25,7 +25,7 @@ beforeEach(() => {
   render(<Toaster />);
 });
 describe("SSH settings", () => {
-  it("has Save and Cancel; Cancel closes untouched settings and asks Stay / Leave with unsaved changes", async () => {
+  it("has Save and Cancel; Cancel discards at once, Escape with unsaved changes asks Stay / Leave", async () => {
     const close = vi.fn();
     render(<ServerSSHForm id={server.id} onClose={close} />);
     await screen.findByText("Private key saved");
@@ -33,12 +33,15 @@ describe("SSH settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(close).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("switch", { name: "Allow sudo to root" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
     expect(close).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
     expect(close).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(close).toHaveBeenCalledTimes(3);
   });
   it.each(["closed", "empty", "whitespace", "cancelled"])(
     "keeps the saved key with replacement %s and allows testing with unsaved permissions",

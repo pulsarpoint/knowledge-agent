@@ -11,7 +11,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
-/** New environment / Edit environment in a right Sheet: Create environment (or Save) and Cancel; closing it or leaving
+/** New environment / Edit environment in a right Sheet: Create environment (or Save) and Cancel (which discards); Escape, the X, a click outside or leaving
  * the page with unsaved changes asks Stay / Leave. */
 export default function EnvironmentForm({
   environment,
@@ -106,7 +106,7 @@ export default function EnvironmentForm({
               {saving && <Spinner data-icon="inline-start" />}
               {environment ? "Save" : "Create environment"}
             </Button>
-            <Button type="button" variant="outline" disabled={saving} onClick={close}>
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel
             </Button>
           </SheetFooter>
