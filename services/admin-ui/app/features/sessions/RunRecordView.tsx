@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { MessageSquare, Sparkles } from "lucide-react";
-import { getRunRecord, runPath, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
+import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
 import { getSession, isWorking, type SessionDetail } from "./api";
-import { reviewReason, sessionOfRunKey } from "./reviews";
+import { continueReviewPath, reviewReason, sessionOfRunKey } from "./reviews";
 import ReviewSheet, { useReviewParam } from "./ReviewSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -153,7 +153,7 @@ function ContinueReview({ runKey, reviewOf }: { runKey: string; reviewOf: string
   if (review === null) return null;
   return (
     <Button type="button" size="sm" variant="outline" asChild>
-      <Link to={`${runPath(reviewOf)}?${new URLSearchParams({ review })}`}>
+      <Link to={continueReviewPath(review, reviewOf)}>
         <MessageSquare data-icon="inline-start" />
         Continue review
       </Link>

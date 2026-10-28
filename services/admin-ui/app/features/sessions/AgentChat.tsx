@@ -34,7 +34,7 @@ import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
 import AgentSettingsSheet from "./AgentSettingsSheet";
 import ReviewSheet, { useReviewParam } from "./ReviewSheet";
-import { getReviews, latestRunKey, reviewReason, sessionOfRunKey, startReview } from "./reviews";
+import { getReviews, latestRunKey, reviewLink, reviewReason, sessionOfRunKey, startReview } from "./reviews";
 import RunWorkspace from "./RunWorkspace";
 import DebugPanel from "./DebugPanel";
 import RunOutputPanel from "~/features/outputSchemas/RunOutputPanel";
@@ -418,7 +418,18 @@ export default function AgentChat({
               {foreign &&
                 (isAgent ? (
                   <Alert variant="destructive">
-                    <AlertDescription>This run belongs to another agent.</AlertDescription>
+                    <AlertDescription>
+                      {reviewLink(foreign) ? (
+                        <>
+                          This is a review: it continues in its sheet on the reviewed run.{" "}
+                          <Link className="underline" to={reviewLink(foreign)!}>
+                            Continue review
+                          </Link>
+                        </>
+                      ) : (
+                        "This run belongs to another agent."
+                      )}
+                    </AlertDescription>
                   </Alert>
                 ) : isReview ? (
                   <Alert variant="destructive">

@@ -16,6 +16,8 @@ import {
   type SessionDetail,
 } from "./api";
 import { runPath } from "./runs";
+import { reviewLink } from "./reviews";
+import { MessageSquare } from "lucide-react";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
 import Markdown from "~/components/Markdown";
@@ -90,8 +92,10 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       <Skeleton className="h-60" />
     );
   const resource = resourceOf(session.tags);
+  // A review continues in its sheet on the reviewed run, never in the agent's chat.
+  const review = reviewLink(session);
   const startedFrom =
-    session.purpose === "documents" ? (
+    session.purpose === "review" ? null : session.purpose === "documents" ? (
       <Link className="underline" to={writeWithAgentPath(resource, session.id)}>
         Write with an agent
       </Link>
@@ -131,6 +135,14 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
               {statusLabels[session.status]} · {session.model_name}
               {startedFrom && <> · Started from {startedFrom}</>}
             </p>
+            {review && (
+              <Button type="button" size="sm" variant="outline" className="self-start" asChild>
+                <Link to={review}>
+                  <MessageSquare data-icon="inline-start" />
+                  Continue review
+                </Link>
+              </Button>
+            )}
             {session.started_by && <StartedBy by={session.started_by} />}
             {session.previous_output && (
               <p className="text-sm text-muted-foreground">

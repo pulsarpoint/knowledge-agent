@@ -805,3 +805,29 @@ test("a Jira-started handler run says which handler started it", async () => {
   });
   expect(await screen.findByText("Started by handler Triage")).toBeInTheDocument();
 });
+
+test("a review session shows Continue review (to the reviewed run with the review open), never the agent's chat", async () => {
+  serve({
+    ...detail,
+    id: "rv0",
+    title: "Review: Be shorter",
+    purpose: "review",
+    agent_id: "ops",
+    agent_name: "Operations",
+    config: { review_of: "cc:r1:1", reviewed_agent_id: "ops" },
+  });
+  render(
+    <MemoryRouter initialEntries={["/sessions/rv0"]}>
+      <Routes>
+        <Route path="/sessions/:id" element={<SessionView sessionId="rv0" />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("heading", { name: "Review: Be shorter" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Continue review/ })).toHaveAttribute(
+    "href",
+    "/activity/runs/cc%3Ar1%3A1?review=rv0",
+  );
+  expect(screen.queryByRole("link", { name: "the agent" })).toBeNull();
+  expect(document.querySelector('a[href^="/agents/"]')).toBeNull();
+});

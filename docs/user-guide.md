@@ -743,7 +743,9 @@ parameters stay); once your first message starts the review it becomes `?review=
 sheet on the same review with its whole conversation (messages, tool calls and results), and you can keep talking to
 the reviewer. A link to a review that is not one of this chat's shows "This review was not found for this chat.
 Showing a new review." and opens a new review instead. A review turn's own record in Agent runs has no Improve agent:
-**Continue review** there opens the reviewed run's record with that review open in the sheet.
+**Continue review** there opens the reviewed run's record with that review open in the sheet. A review's session
+page (`/sessions/<review id>`) has the same **Continue review**, and a review linked into the agent's Chat page is
+not opened there: it offers Continue review instead.
 
 **Tools.** Every run gets every tool it has not switched off: under **Advanced** (collapsed below the General fields) in an agent's settings, **Tools** lists the built-in tools by group; an off tool is never offered to that agent, and tools added later are on. In a chat's **Agent settings** (Advanced → Tools) a conversation can switch more tools off, never back on one its agent has off: those show as *Off for this agent* and are locked. What a tool may do follows the run's resources (there are
 no roles): a tool without what it needs refuses (for example `This run has no servers.`). Every agent can read the inventory of its resources

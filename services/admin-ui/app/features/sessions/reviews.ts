@@ -1,5 +1,6 @@
 import { request } from "~/lib/api";
 import { isWorking, type RunSummary, type SessionDetail, type SessionSummary } from "./api";
+import { runPath } from "./runs";
 
 /** The texts the API refuses a review with when the page already knows (the button is disabled with them). */
 export const REVIEW_BUSY = "Wait for the agent to finish before reviewing it.";
@@ -32,4 +33,13 @@ export function reviewReason(session: Pick<SessionSummary, "purpose" | "agent_id
   if (!session || session.agent_id === null || (session.purpose !== "chat" && session.purpose !== "event"))
     return REVIEW_NOT_SAVED;
   return isWorking(session.status) ? REVIEW_BUSY : null;
+}
+
+/** Where a review continues: the reviewed run's record with the review open in its sheet (`?review=<id>`). */
+export const continueReviewPath = (reviewId: string, reviewOf: string) =>
+  `${runPath(reviewOf)}?${new URLSearchParams({ review: reviewId })}`;
+/** A review session's Continue review link (null: not a review). A review never opens in the agent's chat. */
+export function reviewLink(session: { id: string; purpose: string; config?: Record<string, unknown> | null }) {
+  const reviewOf = session.config?.review_of;
+  return session.purpose === "review" && typeof reviewOf === "string" ? continueReviewPath(session.id, reviewOf) : null;
 }

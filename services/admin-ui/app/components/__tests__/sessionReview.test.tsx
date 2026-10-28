@@ -498,6 +498,21 @@ test("a review's run record: Continue review links back to the reviewed run with
   expect(screen.queryByText(NOT_REVIEWABLE)).toBeNull();
 });
 
+test("a review linked into the agent chat is not opened there: Continue review leads to it", async () => {
+  const calls = serve({ reviews: [earlier] });
+  render(
+    <MemoryRouter initialEntries={["/agents/ops/chat?session_id=rv0"]}>
+      <AgentChatView agentId="ops" agentName="Operations" available revision={3} />
+    </MemoryRouter>,
+  );
+  const link = await screen.findByRole("link", { name: /Continue review/ });
+  expect(link).toHaveAttribute("href", "/activity/runs/cc%3Ar1%3A1?review=rv0");
+  expect(screen.queryByText("I propose a one-line answer rule.")).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Yes" } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(calls.some((c) => c.key === "POST /api/sessions/rv0/messages")).toBe(false);
+});
+
 test("the old suggestion UI is gone", () => {
   const files = Object.keys(import.meta.glob("../../features/**/*.{ts,tsx}"));
   expect(files.some((file) => /RunSuggestions|SuggestionApply|agents\/reviews\.ts$/.test(file))).toBe(false);
