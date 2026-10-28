@@ -195,7 +195,9 @@ WORKING_REFUSED = (
     'or wait for them to finish, then delete it.'
 )
 # Anything still in progress for the agent: Test and documentation sessions run in the session workers.
-WORKING = """SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN ('starting','working') LIMIT 1"""
+WORKING = (
+    """SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN ('starting','working','retrying') LIMIT 1"""
+)
 
 
 def agent_history(conn, agent_id) -> dict[str, int]:

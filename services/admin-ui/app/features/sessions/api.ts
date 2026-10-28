@@ -11,11 +11,13 @@ const json = (method: string, value: unknown) => ({
 });
 
 export type SessionPurpose = "documents" | "event" | "resource" | "revision" | "chat";
-export type SessionStatus = "starting" | "working" | "waiting" | "stopped" | "failed" | "closed";
+/** retrying: the latest turn failed and waits to run again (an automatic retry of an event run, or Retry). */
+export type SessionStatus = "starting" | "working" | "waiting" | "retrying" | "stopped" | "failed" | "closed";
 export const statusLabels: Record<SessionStatus, string> = {
   starting: "Starting",
   working: "Working",
   waiting: "Waiting for you",
+  retrying: "Retrying",
   stopped: "Stopped",
   failed: "Failed",
   closed: "Finished",
@@ -214,6 +216,9 @@ export const stopSession = (id: string) =>
 export const cancelWakeup = (id: string, wakeupId: number) =>
   request<{ id: number; status: "discarded" }>(`${session(id)}/wakeups/${wakeupId}`, { method: "DELETE" });
 export const closeSession = (id: string) => request<{ id: string }>(`${session(id)}/close`, { method: "POST" });
+/** Run the failed latest turn again now (409 unless the latest turn failed in an open run). */
+export const retrySession = (id: string) =>
+  request<{ id: string; status: "retrying" }>(`${session(id)}/retry`, { method: "POST" });
 
 const query = (values: Record<string, string | number | undefined>) => {
   const params = new URLSearchParams();

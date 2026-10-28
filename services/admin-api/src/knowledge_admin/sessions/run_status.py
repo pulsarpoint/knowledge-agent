@@ -1,7 +1,7 @@
 """A run as an API client polls it: /status, /output and the answer of a start that waits.
 
 The session statuses map to the client statuses as follows (`client_status`):
-starting -> queued, working -> running, waiting -> finished for a run with an output schema (its turn is done) and
+starting -> queued, working -> running, retrying (a failed turn waits to run again) -> running, waiting -> finished for a run with an output schema (its turn is done) and
 waiting for any other run, stopped -> failed ("Stopped."), failed -> failed, closed -> finished, except a run with a
 schema that closed without an output (failed). A run with a schema whose turn is done reports finished even when a
 wake-up or a queued message may later add a turn (and replace its output).
@@ -14,7 +14,7 @@ NOT_FINISHED = 'The run has not finished.'
 NO_SCHEMA = 'This run has no output schema.'
 THINKING = 'thinking'
 
-STATUSES = {'starting': 'queued', 'working': 'running', 'stopped': 'failed', 'failed': 'failed'}
+STATUSES = {'starting': 'queued', 'working': 'running', 'retrying': 'running', 'stopped': 'failed', 'failed': 'failed'}
 
 # The tool call of the current turn that has no result yet: the step a running turn is in.
 OPEN_CALL = """SELECT c.payload->>'name' AS name FROM ka.agent_run_events c

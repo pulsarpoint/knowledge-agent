@@ -365,3 +365,34 @@ test("a tool named ask_* with no expert input is an ordinary tool, not a helper"
   expect(turn.subagents).toEqual([]);
   expect(turn.work[0]).toMatchObject({ kind: "tool", name: "ask_question", preview: "because" });
 });
+
+test("a failed attempt that is retried is the same turn: retrying until the retry ends, then its own outcome", () => {
+  const failed = [
+    event(5, "start", { kind: "event_session" }),
+    event(5, "input", { task: "Triage DEMO-1" }),
+    event(5, "error", { message: "Agent execution failed (APIConnectionError).", attempt: 1, retry_in_seconds: 30 }),
+    event(5, "end", { status: "retrying" }),
+  ];
+  const [waiting] = groupTurns(failed);
+  expect([waiting.status, waiting.error, waiting.input]).toEqual([
+    "retrying",
+    "Agent execution failed (APIConnectionError).",
+    "Triage DEMO-1",
+  ]);
+  const retried = [
+    ...failed,
+    event(5, "input", { task: "Triage DEMO-1", retry: true }),
+    event(5, "message", { text: "Triaged." }),
+    event(5, "end", { status: "completed" }),
+  ];
+  const turns = groupTurns(retried);
+  expect(turns).toHaveLength(1);
+  expect([turns[0].status, turns[0].error, turns[0].answer, turns[0].input]).toEqual([
+    "completed",
+    null,
+    "Triaged.",
+    "Triage DEMO-1",
+  ]);
+  const [running] = groupTurns([...failed, event(5, "input", { task: "Triage DEMO-1", retry: true })]);
+  expect([running.status, running.error]).toEqual(["working", null]);
+});

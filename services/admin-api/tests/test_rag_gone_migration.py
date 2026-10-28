@@ -94,6 +94,7 @@ def at_0133(postgres):
 
 def test_down_gives_back_the_0133_schema(store, at_0133):
     with store.connect() as conn:
+        run(conn, '0146_run_retries.down.sql')  # newer migrations first
         run(
             conn, '0145_write_with_an_agent.down.sql'
         )  # 0145 drops agent_sessions.document_name, which 0144 down checks

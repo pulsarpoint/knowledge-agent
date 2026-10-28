@@ -89,10 +89,18 @@ class RunRecorder(RunHooks):
     """Buffer one run's events in order; flush() writes them in one transaction."""
 
     def __init__(
-        self, *, run_key: str, project_id: str | None, agent_id: str, actor_id: str | None, secrets: Iterable[str]
+        self,
+        *,
+        run_key: str,
+        project_id: str | None,
+        agent_id: str,
+        actor_id: str | None,
+        secrets: Iterable[str],
+        seq_after: int = 0,
     ):
         self.run_key, self.project_id, self.agent_id, self.actor_id = run_key, project_id, agent_id, actor_id
         self._secrets = secrets  # read live: callers may add keys after the run starts
+        self.seq_after = seq_after  # the record's last seq so far: a retried session turn continues its record
         self.events: list[dict[str, Any]] = []
         self.flushed = 0
         self.closed = False  # close(): nothing more is added
@@ -120,7 +128,7 @@ class RunRecorder(RunHooks):
         self.events.append(
             {
                 'run_key': self.run_key,
-                'seq': len(self.events) + 1,
+                'seq': self.seq_after + len(self.events) + 1,
                 'kind': kind,
                 'project_id': self.project_id,
                 'agent_id': agent_id or self.agent_id,

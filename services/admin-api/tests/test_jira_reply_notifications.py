@@ -1,6 +1,8 @@
-"""When an event run's first turn ends, its notification says whether the answer goes to Jira."""
+"""When an event run's first turn ends, its notification says whether the answer (or, for a failed run, the failure
+comment) goes to Jira."""
 
 import pytest
+from knowledge_admin.knowledge_agents.retries import failure_comment
 from knowledge_admin.sessions.text import NO_ANSWER, NOT_FROM_JIRA, notify_event_run
 from psycopg.types.json import Jsonb
 from test_event_run_notifications import a_run
@@ -60,9 +62,34 @@ def test_a_simulated_jira_event_fails_the_delivery(sessions):
 
 @pytest.mark.parametrize(
     'options,status',
-    [({'reply': False}, 'waiting'), ({'source': 'manual', 'source_id': False}, 'waiting'), ({}, 'failed')],
+    [
+        ({'reply': False}, 'waiting'),
+        ({'source': 'manual', 'source_id': False}, 'waiting'),
+        ({'reply': False}, 'failed'),
+        ({}, 'stopped'),
+        ({}, 'closed'),
+    ],
 )
 def test_no_delivery(sessions, options, status):
     sid, _ = prepared(sessions, **options)
     row = notified(sessions, sid, status=status, text='Agent execution failed.')
-    assert (row['jira_status'], row['jira_connection_id'], row['jira_issue_id']) == (None, None, None)
+    assert (row['jira_status'], row['jira_connection_id'], row['jira_issue_id'], row['jira_text']) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+def test_a_failed_jira_run_posts_the_failure_comment(sessions):
+    sid, _ = prepared(sessions)
+    with sessions.store.connect() as conn:
+        notify_event_run(conn, sid, 1, 'failed', 'Agent execution failed (APITimeoutError).', reason='timeout')
+        row = conn.execute('SELECT * FROM ka.notifications WHERE session_id=%s', (sid,)).fetchone()
+    assert (row['status'], row['body'], row['jira_status'], row['jira_issue_id'], row['jira_text']) == (
+        'failed',
+        'Agent execution failed (APITimeoutError).',
+        'pending',
+        '10001',
+        failure_comment('timeout'),
+    )

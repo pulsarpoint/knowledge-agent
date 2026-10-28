@@ -79,7 +79,7 @@ def build_api(app_name: str, store) -> APIRouter:
     def runs(
         agent_id: str | None = None,
         kind: str | None = None,
-        status: Literal['working', 'completed', 'failed', 'stopped'] | None = None,
+        status: Literal['working', 'completed', 'failed', 'stopped', 'retrying'] | None = None,
         user: str | None = None,
         key_prefix: str | None = None,
         has_output: bool | None = None,

@@ -7,6 +7,7 @@ vi.mock("../Markdown", () => ({
 import RunWorkspace, { type RunWorkspaceProps } from "~/features/sessions/RunWorkspace";
 import type { SessionDetail, SessionEvent } from "~/features/sessions/api";
 import type { SessionRun } from "~/features/sessions/useSessionEvents";
+import { Toaster } from "~/components/ui/sonner";
 
 const detail: SessionDetail = {
   id: "s1",
@@ -435,4 +436,70 @@ test("a tool named ask_* that is not an expert is a plain tool line", () => {
   });
   expect(screen.queryByRole("button", { name: /^Open / })).toBeNull();
   expect(screen.queryByText(/^Asked /)).toBeNull();
+});
+
+const failedRun = (change: Partial<SessionRun> = {}) =>
+  run({
+    session: { ...detail, status: "failed", status_message: "Agent execution failed (RuntimeError)." },
+    events: conversation.slice(0, 9), // the latest turn failed
+    ...change,
+  });
+
+test("a failed latest turn offers Retry: it queues the turn again, says so and shows the run as retrying", async () => {
+  const fetch = vi.fn(async () => Response.json({ id: "s1", status: "retrying" }, { status: 202 }));
+  vi.stubGlobal("fetch", fetch);
+  const setSession = vi.fn();
+  render(
+    <MemoryRouter>
+      <Toaster />
+      <RunWorkspace run={failedRun({ setSession })} agentName="Payments helper" composer={composer} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/retry", { method: "POST" }));
+  expect(await screen.findByText("Retrying the failed turn.")).toBeVisible();
+  const update = setSession.mock.calls[0][0] as (current: SessionDetail) => SessionDetail;
+  expect(update(failedRun().session!)).toMatchObject({ status: "retrying", status_message: "" });
+  vi.unstubAllGlobals();
+});
+
+test("a refused Retry shows why inline", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ error: { message: "Only a failed turn can be retried." } }, { status: 409 })),
+  );
+  const setError = vi.fn();
+  show({ run: failedRun({ setError }) });
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(setError).toHaveBeenCalledWith("Only a failed turn can be retried."));
+  vi.unstubAllGlobals();
+});
+
+test("Retry is offered in the chat pane too, and only when the latest turn failed in an open run", () => {
+  const { unmount } = show({ run: failedRun(), compact: true });
+  expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  unmount();
+  const { unmount: second } = show(); // waiting
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  second();
+  show({ run: failedRun({ session: { ...detail, status: "closed", closed_at: "2026-10-08T11:00:00Z" } }) });
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+});
+
+test("a turn waiting for an automatic retry says so, and the header says when", () => {
+  show({
+    run: run({
+      session: { ...detail, status: "retrying", status_message: "Retry 1 of 3 at 10:42 UTC: connection error" },
+      events: [
+        event(1, "input", { task: "Triage DEMO-1" }),
+        event(1, "error", { message: "Agent execution failed (APIConnectionError).", attempt: 1 }),
+        event(1, "end", { status: "retrying" }),
+      ],
+    }),
+  });
+  expect(screen.getByText("Retrying")).toBeVisible();
+  expect(screen.getByText("Retry 1 of 3 at 10:42 UTC: connection error")).toBeVisible();
+  const [turn] = screen.getAllByRole("listitem").filter((item) => item.hasAttribute("data-turn"));
+  expect(within(turn).getByText("Agent execution failed (APIConnectionError). The agent tries again.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 });

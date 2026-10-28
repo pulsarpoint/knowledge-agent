@@ -3,7 +3,8 @@ import type { SessionEvent } from "./api";
 /** The tool that starts a subagent (its events carry a parent_call_id). */
 const SUBAGENT_TOOL = "run_subagent";
 
-export type TurnStatus = "working" | "completed" | "failed" | "stopped";
+/** retrying: the attempt failed and the same turn runs again later (its retry input resets it to working). */
+export type TurnStatus = "working" | "completed" | "failed" | "stopped" | "retrying";
 export type SubagentStatus = "working" | "done" | "failed" | "stopped";
 export interface WorkItem {
   id: number;
@@ -59,7 +60,12 @@ export const SUBAGENT_STATUS_LABELS: Record<SubagentStatus, string> = {
   stopped: "Stopped",
 };
 
-const ENDED: Record<string, TurnStatus> = { completed: "completed", failed: "failed", stopped: "stopped" };
+const ENDED: Record<string, TurnStatus> = {
+  completed: "completed",
+  failed: "failed",
+  stopped: "stopped",
+  retrying: "retrying",
+};
 const text = (payload: Record<string, unknown>, key: string) =>
   typeof payload[key] === "string" ? (payload[key] as string) : "";
 const amount = (payload: Record<string, unknown>, key: string) => Number(payload[key] ?? 0) || 0;
@@ -225,6 +231,11 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
       case "input":
         if (p.comment) turn.work.push({ id: event.id, kind: "comment", text: text(p, "task") });
         else if (turn.input === null) turn.input = text(p, "task");
+        if (p.retry) {
+          // the turn runs again (after a failed attempt, or an answer that did not match its output schema)
+          turn.status = "working";
+          turn.error = null;
+        }
         break;
       case "end":
         turn.status = ENDED[text(p, "status")] ?? "failed";

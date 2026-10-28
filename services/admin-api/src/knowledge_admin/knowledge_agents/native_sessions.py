@@ -15,6 +15,7 @@ import socket
 import traceback
 from collections.abc import Callable, Iterable
 from contextlib import suppress
+from datetime import UTC, datetime
 from typing import Any
 
 from agents import RunHooks
@@ -28,12 +29,14 @@ from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
 from knowledge_admin.knowledge_agents.history import HistorySession
+from knowledge_admin.knowledge_agents.retries import reason, retry_message, retry_wait
 from knowledge_admin.knowledge_agents.session_worker import (
     END_STATUS,
     IDLE_RELEASE_SECONDS,
     MAX_PREVIEW_CHARS,
     MAX_TOOL_OUTPUT,
     PREVIEW_LINES,
+    RETRYING_END,
     STOPPED,
     capped,
     clean_text,
@@ -46,6 +49,7 @@ from knowledge_admin.sessions.run_record import RunRecorder
 logger = logging.getLogger(__name__)
 
 UNREADABLE = 'A configured credential could not be decrypted. Save it again in administration.'
+OUTPUT_INVALID = 'its answer did not match the output schema'  # the Jira failure comment's reason
 COMMENT = 'Comment from the user while you work: '
 STOP_GRACE_SECONDS = 30.0  # how long Stop waits for a turn to end before cancelling it
 _abandoned: set[asyncio.Task] = set()  # turns that ignored cancellation, kept referenced until they end
@@ -355,32 +359,50 @@ class NativeRunner(shared.SessionRunner):
                 },
             )
 
+    def last_seq(self, number: int) -> int:
+        """The last seq of a turn's run record (a retried turn continues it)."""
+        with self.store.connect() as conn:
+            return conn.execute(
+                'SELECT coalesce(max(seq),0) AS seq FROM ka.agent_run_events WHERE run_key=%s',
+                (run_key(self.id, number),),
+            ).fetchone()['seq']
+
     async def run_turn(self, number: int, text: str) -> None:
         # This turn's own list: a turn that outlived Stop keeps redacting with it after the worker forgets it.
         secrets: list[str] = []
         self.secrets = secrets
         self.stop_deadline = None
+        retrying, retries = self.retrying, self.retries
         recorder = RunRecorder(
             run_key=run_key(self.id, number),
             project_id=str(self.session['project_id']),
             agent_id=self.session['agent_id'] or AD_HOC_AGENT,
             actor_id=str(self.session['actor_id']),
             secrets=secrets,
+            seq_after=await asyncio.to_thread(self.last_seq, number) if retrying else 0,
         )
         kind = {'event': 'event_session', 'chat': 'chat_session'}.get(self.session.get('purpose'), 'native_session')
-        recorder.add(
-            'start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'], 'turn': number}
-        )
-        recorder.add('input', {'task': text})
+        if retrying:  # the same turn again: one start event per turn, so Agent runs lists it once
+            recorder.add('input', {'task': text, 'retry': True})
+        else:
+            recorder.add(
+                'start',
+                {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'], 'turn': number},
+            )
+            recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
         events = SessionEvents(
-            recorder, secrets=secrets, first=number == 1, record_usage=lambda usage: self.add_usage(recorder, usage)
+            recorder,
+            secrets=secrets,
+            first=number == 1 and not retrying,
+            record_usage=lambda usage: self.add_usage(recorder, usage),
         )
         credentials: dict[str, str] = {}
         history: HistorySession | None = None
         comments: Comments | None = None
         subagents = None
         status, message, result, output = 'failed', '', None, None
+        why, retry_at, retry_status = '', None, ''  # why it failed; when and how it is retried
         try:
             try:
                 # Imported here: the subagent runtime builds on this module's SessionEvents.
@@ -409,9 +431,17 @@ class NativeRunner(shared.SessionRunner):
                     )
                 if status == 'stopped':
                     message = STOPPED
+                elif status == 'failed':
+                    why = OUTPUT_INVALID
             except Exception as exc:
-                status, message = 'failed', failure(exc, secrets)
-                recorder.add('error', {'type': type(exc).__name__, 'message': message})
+                status, message, why = 'failed', failure(exc, secrets), clean_text(reason(exc), secrets)
+                error = {'type': type(exc).__name__, 'message': message, 'attempt': retries + 1}
+                wait = retry_wait(self.session.get('purpose'), retries, exc)
+                if wait is not None:
+                    retry_at = datetime.now(UTC) + wait
+                    retry_status = retry_message(retries + 1, retry_at, why)
+                    error['retry_in_seconds'] = int(wait.total_seconds())
+                recorder.add('error', error)
                 logger.warning(  # the redacted message, and the code frames only (the raw text may hold secrets)
                     'Agent session %s turn %s failed: %s\n%s',
                     self.id,
@@ -429,7 +459,7 @@ class NativeRunner(shared.SessionRunner):
                 comments.closed = True
                 await comments.settle()
             answer = clean_text(events.draft(None if result is None else result.final_output), secrets)
-            recorder.add('end', {'status': END_STATUS[status]})
+            recorder.add('end', {'status': RETRYING_END if retry_at is not None else END_STATUS[status]})
             recorder.close()  # no event after 'end'
             await asyncio.to_thread(recorder.flush)
             if status != 'waiting' and comments is not None:
@@ -445,7 +475,18 @@ class NativeRunner(shared.SessionRunner):
                     output_runs.record(conn, self.session, config, output, number)
 
             # usage=None: every model call already added its tokens (add_usage)
-            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit, answer=answer)
+            await asyncio.to_thread(
+                self.finish_turn,
+                number,
+                status,
+                message,
+                usage=None,
+                commit=commit,
+                answer=answer,
+                reason=why,
+                retry_at=retry_at,
+                retry_status=retry_status,
+            )
         finally:
             if history is not None:
                 history.drop()

@@ -4,6 +4,7 @@ from typing import Any
 
 from knowledge_admin.capabilities import skills
 from knowledge_admin.jira.events import give_back_target
+from knowledge_admin.knowledge_agents.retries import failure_comment
 
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
 MAX_NOTIFICATION_BODY = 200_000
@@ -44,13 +45,16 @@ def close_idle(conn) -> int:
     return len(rows)
 
 
-def notify_event_run(conn, session_id, number: int, status: str, text: str) -> None:
-    """When an event run's first turn ends: one notification for the run, in the transaction that finishes the turn —
-    the answer when the turn finished (`waiting`), else why it did not (the status message; for a run closed meanwhile,
-    its close message). Number 0 is a run closed before its first turn. Other turns and runs that no event started
-    write none, and a run never gets a second one. A succeeded run whose handler replies to Jira on a Jira event marks
-    the comment pending (events/jira_replies.py posts it); an empty answer is not posted (its placeholder stays
-    here). A handler that gives the ticket back also stores who gets it (jira.events.give_back_target)."""
+def notify_event_run(conn, session_id, number: int, status: str, text: str, reason: str = '') -> None:
+    """When an event run's first turn ends for good (not while it waits for an automatic retry): one notification for
+    the run, in the transaction that finishes the turn — the answer when the turn finished (`waiting`), else why it did
+    not (the status message; for a run closed meanwhile, its close message). Number 0 is a run closed before its first
+    turn. Other turns and runs that no event started write none, and a run never gets a second one — except that a
+    person's Retry of the turn (agent_sessions.retried_at) gets one notification for its own outcome. When the handler
+    replies to Jira on a Jira event, a succeeded run marks its answer pending as a comment (events/jira_replies.py
+    posts it) and a failed one (`failed`, not stopped or closed) the failure comment with `reason`
+    (notifications.jira_text); an empty answer is not posted (its placeholder stays here). A handler that gives the
+    ticket back also stores who gets it (jira.events.give_back_target), for an answer and a failure alike."""
     if number > 1:
         return
     row = conn.execute(
@@ -70,10 +74,11 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
         (session_id,),
     ).fetchone()
     target = give_back_target(source['payload'] or {}, set(source['mapped'])) if source['give_back'] else None
+    failed = status == 'failed' and row['status'] != 'closed'
     conn.execute(
         """INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id,
             jira_status,jira_connection_id,jira_issue_id,jira_issue_key,jira_next_attempt_at,jira_error,
-            give_back_key,give_back_name,give_back_status)
+            give_back_key,give_back_name,give_back_status,jira_text)
         SELECT s.project_id,'agent.response',%(status)s,left(s.title,500),%(body)s,s.event_id,s.handler_id,s.agent_id,
             s.id,j.status,
             CASE WHEN j.status='pending' THEN e.source_id END,
@@ -83,7 +88,8 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
             CASE WHEN j.status='failed' THEN %(not_from_jira)s END,
             CASE WHEN j.status='pending' THEN %(give_back_key)s::text END,
             CASE WHEN j.status='pending' THEN %(give_back_name)s::text END,
-            CASE WHEN j.status='pending' AND %(give_back_key)s::text IS NOT NULL THEN 'pending' END
+            CASE WHEN j.status='pending' AND %(give_back_key)s::text IS NOT NULL THEN 'pending' END,
+            CASE WHEN j.status IS NOT NULL THEN %(jira_text)s::text END
         FROM ka.agent_sessions s
         LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
         LEFT JOIN ka.events e ON e.id=s.event_id
@@ -91,12 +97,14 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
             CASE WHEN e.source_id IS NULL OR e.payload->>'issue_id' IS NULL THEN 'failed' ELSE 'pending' END
             END AS status) j
         WHERE s.id=%(session)s AND s.purpose='event'
-          AND NOT EXISTS (SELECT 1 FROM ka.notifications n WHERE n.session_id=s.id AND n.kind='agent.response')""",
+          AND NOT EXISTS (SELECT 1 FROM ka.notifications n WHERE n.session_id=s.id AND n.kind='agent.response'
+                          AND (s.retried_at IS NULL OR n.created_at>=s.retried_at))""",
         {
             'status': 'succeeded' if succeeded else 'failed',
             'body': body.replace('\x00', '')[:MAX_NOTIFICATION_BODY],
             'not_from_jira': NOT_FROM_JIRA,
-            'answered': succeeded and bool(text.strip()),
+            'answered': (succeeded and bool(text.strip())) or failed,
+            'jira_text': failure_comment(reason) if failed else None,
             'session': session_id,
             'give_back_key': target[0] if target else None,
             'give_back_name': target[1] if target else None,
@@ -104,11 +112,11 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
     )
 
 
-def notify_closed_before_first_turn(conn, session_id) -> None:
-    """A closed event run that never ran a turn: its failed notification (the close message), in the closing
-    transaction."""
+def notify_closed_before_first_turn(conn, session_id, previous: str = '') -> None:
+    """A closed event run that never ran a turn, or whose turn waited for a retry (`previous` 'retrying'): its failed
+    notification (the close message), in the closing transaction."""
     row = conn.execute(
         "SELECT turns,status_message FROM ka.agent_sessions WHERE id=%s AND status='closed'", (session_id,)
     ).fetchone()
-    if row is not None and row['turns'] == 0:
-        notify_event_run(conn, session_id, 0, 'closed', row['status_message'])
+    if row is not None and (row['turns'] == 0 or previous == 'retrying'):
+        notify_event_run(conn, session_id, row['turns'], 'closed', row['status_message'])

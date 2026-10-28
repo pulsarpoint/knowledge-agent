@@ -1,7 +1,8 @@
 """Event run answers posted as Jira comments. A thread in repository-worker claims one due notification at a time: the
 claim counts the attempt and moves the next attempt out (a lease, committed before anything is posted), so several
 workers never post the same comment and a crash after the POST is followed by a retry. It posts the answer on the ticket
-with the connection's token and records the comment, or why it could not: retried after 1 and 5 minutes, failed after
+with the connection's token (a failed run's short failure comment, notifications.jira_text, in place of its body)
+and records the comment, or why it could not: retried after 1 and 5 minutes, failed after
 the third attempt; Jira refusing the comment or a missing connection fails at once. A retry first looks for the comment
 on the ticket (an earlier attempt may have posted it unrecorded) so a reply is posted once.
 A handler with give_back stores who gets the ticket back (give_back_key). Before posting, the ticket's assignee is
@@ -41,7 +42,7 @@ CLAIM = """WITH due AS (SELECT id FROM ka.notifications WHERE jira_status='pendi
     UPDATE ka.notifications n SET jira_attempts=n.jira_attempts+1,
         jira_next_attempt_at=now()+CASE WHEN n.jira_attempts=0 THEN %(first)s ELSE %(later)s END
     FROM due WHERE n.id=due.id
-    RETURNING n.id,n.project_id,n.body,n.jira_connection_id,n.jira_issue_id,n.jira_attempts,n.give_back_name,
+    RETURNING n.id,n.project_id,coalesce(n.jira_text,n.body) AS body,n.jira_connection_id,n.jira_issue_id,n.jira_attempts,n.give_back_name,
         n.give_back_status,
         coalesce((SELECT a.name FROM ka.agents a WHERE a.id=n.agent_id),n.agent_id,'Agent') AS agent_name,
         (SELECT e.payload->>'assignee_id' FROM ka.events e WHERE e.id=n.event_id) AS event_assignee"""

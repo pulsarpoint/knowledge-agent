@@ -321,7 +321,7 @@ export default function AgentChat({
     else void closeAndClear();
   };
   const earlier = runs?.filter((item) => item.id !== runId) ?? [];
-  const working = session?.status === "starting" || session?.status === "working";
+  const working = session?.status === "starting" || session?.status === "working" || session?.status === "retrying";
   const reviews = session?.reviews ?? [];
 
   return (

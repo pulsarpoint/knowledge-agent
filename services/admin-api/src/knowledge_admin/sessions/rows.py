@@ -13,6 +13,9 @@ from knowledge_admin.sessions.run_record import session_skills_used, tool_counts
 NO_MODEL = 'Choose an enabled model.'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
+RETRY_BUSY = 'The agent is working on this run; there is nothing to retry.'
+NOTHING_TO_RETRY = 'Only a failed turn can be retried.'
+IN_PROGRESS = ('starting', 'working', 'retrying')  # a run that has not settled: a turn runs or waits to run again
 
 SessionPurpose = Literal['documents', 'event', 'resource', 'revision', 'chat']
 

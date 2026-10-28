@@ -35,7 +35,7 @@ export default function RunSuggestions({
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [applying, setApplying] = useState<SessionReview | null>(null);
-  const working = session.status === "starting" || session.status === "working";
+  const working = session.status === "starting" || session.status === "working" || session.status === "retrying";
   useEffect(() => {
     if (open) {
       setError("");

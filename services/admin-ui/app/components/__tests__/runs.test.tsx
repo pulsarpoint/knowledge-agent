@@ -369,7 +369,7 @@ test("filters go into the URL and the request", async () => {
   await waitFor(() =>
     expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?agent_id=payments&status=working&user=Alice&page_size=20"),
   );
-  expect(await optionsOf("Status")).toEqual(["All statuses", "Working", "Completed", "Failed", "Stopped"]);
+  expect(await optionsOf("Status")).toEqual(["All statuses", "Working", "Completed", "Failed", "Stopped", "Retrying"]);
 });
 
 test("Started and Tokens headers sort the list", async () => {

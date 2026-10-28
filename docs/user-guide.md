@@ -694,7 +694,8 @@ agent session worker runs (the URL keeps `session_id`). The workspace shows your
 (thinking, tool calls with their results, comments you sent while it worked) and the answer; the
 header shows the tokens, model calls and tools used, and the sidebar **Agents in this run** the agent's status (on a
 narrow screen open **Run details**). **Send message** works while the agent works (your comment reaches it at its next
-step); **Stop** ends the current turn.
+step); **Stop** ends the current turn. When the latest turn failed, **Retry** (next to **Send message**) runs it
+again as the same turn ("Retrying the failed turn."); a refusal shows above the conversation.
 
 **Settings** opens a sheet. A Test run can only narrow the saved agent; nothing can be added. The model and prompt are
 shown read-only ("Change them in General."); to try another prompt, clone the agent. In the sheet you can
@@ -841,6 +842,10 @@ that run.
   ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn.
 - **Stop**: ends the turn within about 30 seconds; a request or command already running cannot be recalled. Queued messages are
   discarded when the turn is stopped.
+- **Retry**: when the latest turn failed (for example the model could not be reached), **Retry** next to **Send
+  message** runs that turn again with the same message, as the same turn. A chat never retries by itself; runs started
+  by event handlers and schedules retry model connection errors automatically (4.17) and show **Retrying** while they
+  wait.
 - **Close chat**. Chats continue when you leave the page and close after 24 idle hours (a chat idle for 5 minutes is
   paused and resumes on your next message).
 - **Wake-ups**: an agent can schedule a wake-up to continue the chat later (from 1 minute to 30 days ahead, at most 3
@@ -1093,8 +1098,13 @@ A handler does one thing:
   under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
   notification is written with the answer, or why it failed (4.18). With **Also post the answer as a comment on the Jira
   ticket**, the answer to a Jira event is also posted on its ticket as the Jira connection's user (see the Jira docs for
-  the permission it needs); a failed run is not posted. A failed run is not retried: continue it, or send
-  the event again. Any enabled agent can be chosen; its run gets all of the agent's resources. A handler whose agent was
+  the permission it needs). **Retries:** when the model cannot be reached (a connection error, a timeout, a rate limit
+  or a server error), the run tries again by itself up to 3 times, after 30 seconds, 1 minute and 2 minutes; meanwhile
+  it shows **Retrying** with `Retry 2 of 3 at 10:42 UTC: <reason>`, and nothing is notified or posted until it answers
+  or gives up. Other failures (a refused API key, a too long conversation, a tool error) are not retried. A run that
+  gives up posts `The agent could not answer: <reason>. Comment or reassign the ticket to try again.` on the ticket
+  instead of an answer (and gives the ticket back when the handler does); a stopped or closed run posts nothing. To try
+  again later, press **Retry** on the run, continue it, or send the event again. Any enabled agent can be chosen; its run gets all of the agent's resources. A handler whose agent was
   deleted or disabled can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
   the same handler. **Output schema** (none, or a schema with **Current** or a fixed version) makes the run finish with
@@ -1144,8 +1154,10 @@ Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`
 title (**Search notifications**); paging and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
 failed), the agent, **Open run**, which opens the run in the agent's Chat page, and **Open event**, which opens the event that
 triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
-A notification whose answer goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
-being posted or retried, or **Not posted to KEY** with the reason. A handler that gives the ticket back adds
+A run that retries a model connection error by itself (4.17) is notified once, when it answers or gives up. A notification whose answer (or, for a run
+that gave up, its failure comment) goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
+being posted or retried, or **Not posted to KEY** with the reason. Pressing **Retry** on a run that already failed adds
+one notification for the retry's outcome, so its answer is posted to Jira as a normal reply. A handler that gives the ticket back adds
 **Hand-back**: **Assigned back to <name>**, **Assigning back to <name>…** (retried on failure), **Not assigned back
 to <name>** with the reason, or why it was skipped.
 Notifications from before event runs show the old task's attempts and have no **Open run**.

@@ -36,6 +36,7 @@ const STATUSES: Record<string, string> = {
   completed: "Completed",
   failed: "Failed",
   stopped: "Stopped",
+  retrying: "Retrying",
 };
 const ALL = "all";
 

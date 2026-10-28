@@ -122,7 +122,7 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
                 raise HTTPException(404, SESSION_NOT_FOUND)
             if session['purpose'] not in REVIEWED:
                 raise HTTPException(400, NOT_A_CONVERSATION)
-            if session['status'] in ('starting', 'working'):
+            if session['status'] in ('starting', 'working', 'retrying'):
                 raise HTTPException(409, REVIEW_BUSY)
             if session['turns'] == 0:
                 raise HTTPException(409, NO_TURNS)

@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { PanelRight } from "lucide-react";
-import { cancelWakeup, formatTokens, statusLabels } from "./api";
+import { toast } from "sonner";
+import { cancelWakeup, formatTokens, retrySession, statusLabels } from "./api";
 import { toolUsageLine } from "./runs";
 import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from "./turns";
 import type { SessionRun } from "./useSessionEvents";
@@ -172,7 +173,14 @@ function TurnView({
         </Alert>
       )}
       {turn.status === "stopped" && <p className="text-sm text-muted-foreground">Stopped.</p>}
-      {turn.status !== "working" && actions && <div className="flex flex-wrap gap-1">{actions}</div>}
+      {turn.status === "retrying" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {`${turn.error ?? "This attempt failed."} The agent tries again.`}
+        </p>
+      )}
+      {turn.status !== "working" && turn.status !== "retrying" && actions && (
+        <div className="flex flex-wrap gap-1">{actions}</div>
+      )}
     </li>
   );
 }
@@ -336,6 +344,23 @@ export default function RunWorkspace({
       setCancelling(null);
     }
   }
+  // Retry: the latest turn failed in an open run (the session is failed and has run a turn).
+  const canRetry = session?.status === "failed" && session.turns > 0;
+  const [retrying, setRetrying] = useState(false);
+  async function retry() {
+    if (!session) return;
+    setRetrying(true);
+    run.setError("");
+    try {
+      await retrySession(session.id);
+      run.setSession((current) => current && { ...current, status: "retrying", status_message: "" });
+      toast.success("Retrying the failed turn.");
+    } catch (e) {
+      run.setError(e instanceof Error ? e.message : "The request failed");
+    } finally {
+      setRetrying(false);
+    }
+  }
   const canSend = !composer.busy && !composer.blockedReason && Boolean(composer.value.trim());
   const agents = (
     <div className="flex flex-col gap-4">
@@ -428,7 +453,7 @@ export default function RunWorkspace({
             </AlertDescription>
           </Alert>
         )}
-        {session?.status_message && ["failed", "stopped"].includes(session.status) && !turnCarries && (
+        {session?.status_message && ["failed", "stopped", "retrying"].includes(session.status) && !turnCarries && (
           <Alert variant={session.status === "failed" ? "destructive" : "default"}>
             <AlertDescription>{session.status_message}</AlertDescription>
           </Alert>
@@ -559,6 +584,11 @@ export default function RunWorkspace({
           {composer.onStop && (
             <Button type="button" variant="outline" disabled={composer.busy || !working} onClick={composer.onStop}>
               Stop
+            </Button>
+          )}
+          {canRetry && (
+            <Button type="button" variant="outline" disabled={retrying} onClick={() => void retry()}>
+              Retry
             </Button>
           )}
         </div>

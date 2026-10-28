@@ -22,7 +22,10 @@ from knowledge_admin.sessions.text import close_idle, notify_closed_before_first
 from knowledge_admin.sessions import debug, run_status, start
 from knowledge_admin.sessions.rows import (
     CLOSED,
+    IN_PROGRESS,
+    NOTHING_TO_RETRY,
     NOTHING_TO_STOP,
+    RETRY_BUSY,
     SUMMARY,
     MessageInput,
     SessionPurpose,
@@ -188,7 +191,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         deadline = time.monotonic() + wait
         while True:  # polling the row keeps the wait independent of the event stream's hub
             row = await asyncio.to_thread(read, detail['id'])
-            if row is not None and row['status'] not in ('starting', 'working'):
+            if row is not None and row['status'] not in IN_PROGRESS:
                 return JSONResponse(jsonable_encoder(run_status.result(row)))
             if time.monotonic() >= deadline:
                 return JSONResponse({'id': str(detail['id']), 'status': 'running'}, status_code=202)
@@ -216,7 +219,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(404, 'Session not found.')
         if row['output_schema_id'] is None:
             raise HTTPException(404, run_status.NO_SCHEMA)
-        if row['status'] in ('starting', 'working'):
+        if row['status'] in IN_PROGRESS:
             raise HTTPException(409, run_status.NOT_FINISHED)
         answer = {
             'schema': {
@@ -291,6 +294,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 'INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,%s,%s,%s)',
                 (session_id, seq, actor, value.text),
             )
+            if row['status'] == 'retrying':  # the turn waiting for a retry runs now, with this message
+                conn.execute(
+                    """UPDATE ka.agent_session_inputs SET not_before=NULL
+                    WHERE session_id=%s AND status='queued' AND kind='message'""",
+                    (session_id,),
+                )
             conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
             return {'seq': seq, 'status': 'queued', 'working': row['status'] == 'working'}
 
@@ -320,9 +329,42 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     (session_id,),
                 )
                 discard(conn, session_id, wakeups=True)
-                notify_closed_before_first_turn(conn, session_id)
+                notify_closed_before_first_turn(conn, session_id, row['status'])
                 audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
+
+    @router.post('/{session_id}/retry', status_code=202)
+    def retry(session_id: UUID, request: Request) -> dict:
+        """Run the session's latest turn again now, when it failed: its inputs (a wake-up's too) are queued again
+        for delivery as the same turn; the session waits as `retrying` until a worker takes it. Any run, chats too.
+        An event run's first turn then gets a notification for the retry's outcome (sessions/text.notify_event_run),
+        so a retry that answers is posted to Jira as a normal reply after an earlier failure comment."""
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
+            row = locked(conn, project, session_id)
+            if row['status'] == 'closed':
+                raise HTTPException(409, CLOSED)
+            if row['status'] in IN_PROGRESS:
+                raise HTTPException(409, RETRY_BUSY)
+            queued = 0
+            if row['status'] == 'failed':
+                queued = conn.execute(
+                    """UPDATE ka.agent_session_inputs i SET status='queued',turn=NULL,delivered_at=NULL,
+                    not_before=CASE WHEN i.kind='wakeup' THEN now() END
+                    FROM ka.agent_sessions s WHERE s.id=i.session_id AND i.session_id=%s AND i.status='delivered'
+                      AND i.turn=s.turns""",
+                    (session_id,),
+                ).rowcount
+            if not queued:
+                raise HTTPException(409, NOTHING_TO_RETRY)
+            conn.execute(
+                """UPDATE ka.agent_sessions SET status='retrying',status_message='',retries=0,retried_at=now(),
+                stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
+                (session_id,),
+            )
+            audit(conn, actor, 'generation.session.retried', 'agent_session', {'inputs': queued}, session_id)
+            return {'id': session_id, 'status': 'retrying'}
 
     @router.delete('/{session_id}/wakeups/{wakeup_id}')
     def cancel_wakeup(session_id: UUID, wakeup_id: int, request: Request) -> dict:

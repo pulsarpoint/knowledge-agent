@@ -16,7 +16,7 @@ export default function RunOutputPanel({
   status: string;
   turns: number;
 }) {
-  const working = status === "starting" || status === "working";
+  const working = status === "starting" || status === "working" || status === "retrying";
   const [output, setOutput] = useState<RunOutput | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);

@@ -105,12 +105,48 @@ limit, no per-turn time limit, no 300-second limit).
   FROM`) is appended to the first message as a `# Previous run` block (never the system prompt), and the pinned
   configuration records `previous_output_from`. It is titled
   `<agent> · <event type> <subject>`, shows in the agent's Chat tab under Earlier runs, and can be opened and continued.
-  There are no automatic retries. When the first turn ends, agent-session-worker writes one notification
+  A turn of an event run that fails on a transient model error is retried automatically (see **Run retries**
+  below). When the first turn ends for good, agent-session-worker writes one notification
   (`ka.notifications.session_id` points at the run) with the answer or the failure; a run closed before its first
-  turn gets one failed notification ("Closed."). An event run gives its worker slot back as soon as a turn ends with
+  turn, or while it waits for a retry, gets one failed notification ("Closed."). An event run gives its worker slot back as soon as a turn ends with
   nothing queued; a later message is picked up again as usual. Agent tasks (0090, one-shot calls
   with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
   Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Chat tab (**Event** badge).
+- **Run retries (0146).** A turn of an event run (`purpose = 'event'`: handlers and schedules) that fails on a
+  transient model error is retried at most 3 times, waiting 30 seconds, 1 minute and then 2 minutes
+  (`knowledge_agents/retries.py`, `RETRIES`). Transient (`transient(exc)`, matched on exception types and HTTP status
+  codes, never message text): connection errors, timeouts (and 408), rate limits (429) and server errors (5xx) from the
+  OpenAI SDK, LiteLLM (its exceptions subclass the OpenAI SDK's) and httpx, the builtin `TimeoutError` and
+  `ConnectionError`, an exception that explicitly wraps one (`raise ... from`) and an exception group of only transient
+  errors (an MCP connection). Not transient: 400, 401, 403, 404, 422 and a too long context, the Agents SDK's own errors
+  (max turns, an unusable model answer, a tool error even when a connection error caused it), configuration errors, an
+  unreadable credential, an answer that does not match the output schema, Stop, Close and anything unknown. Chats and
+  every other run never retry by themselves.
+  While it waits the session is `retrying` (not final; `agent_sessions.retries` counts the retries so far, the status
+  message reads `Retry 2 of 3 at 10:42 UTC: connection error`): the turn's inputs, with comments delivered inside it
+  and messages queued since, are queued again with `not_before` (as a wake-up is) and delivered when due as the **same
+  turn** (same number, same run record `cc:<session>:<turn>`: its events continue after the failed attempt's `error`
+  event, which carries `attempt` and `retry_in_seconds`, and its `end` event `{status: "retrying"}`; the retry starts
+  with an `input` event `{task, retry: true}` and no second `start`). A failed attempt saves no history, so the retry
+  starts from the same conversation. A message sent while it waits runs the retry at once, with that message. Close
+  ends it (the run's notification is the close message); Stop has nothing to stop. Nothing is notified and nothing is
+  posted to Jira until the turn succeeds or gives up. `/status` reports a retrying run as `running`, and `/output`
+  answers 409 until it settles.
+- **When a run gives up** (no retry left, or a failure that is not transient, or the worker restarting during the turn),
+  a run started by a Jira event whose handler replies to Jira gets a comment on the ticket through the same reply queue
+  as an answer (posted once, with its retries and dedupe): `The agent could not answer: <short reason>. Comment or
+  reassign the ticket to try again.` (`notifications.jira_text`, posted in place of the notification's body; the
+  in-app notification keeps the full failure message). A handler that gives the ticket back gives it back after the
+  failure comment exactly as after an answer. A stopped or closed run gets no Jira comment, and an empty answer is still
+  not posted (its notification shows the placeholder).
+- **Retry** (`POST /api/sessions/{id}/retry`, the session page and the chat pane when the latest turn failed): the
+  failed turn's inputs are queued again for delivery now and the session becomes `retrying` (`retries` 0,
+  `retried_at` now); a worker runs it as the same turn. Any run, chats too; an event run then gets automatic retries
+  again. 409 `This session is closed. Start a new session.` on a closed run, `The agent is working on this run; there
+  is nothing to retry.` while it starts, works or waits for a retry, and `Only a failed turn can be retried.`
+  otherwise (waiting, stopped, or failed before any turn). An event run's first turn gets one notification for the
+  outcome of each Retry (`retried_at`), so a Retry that answers after a failure comment is posted to Jira as a normal
+  reply; automatic retries never add one.
 - Each turn's run record is `cc:<session>:<turn>` (start kind `chat_session`, or
   `event_session` for event runs; 0142 renamed the stored `test_session` kinds); **Full record** links to it. Its `instructions` event keeps the instructions sent
   to the model, with the Skills section when the run has skills.
@@ -535,7 +571,7 @@ supported`):
   null, error, errors?, raw?}`; when the time is up, `202` with `{id, status: "running"}`. Without `wait` the start
   answers `201` at once, as before.
 - `GET /api/sessions/{id}/status` returns `{id, status, started_at, last_activity_at, progress: {turns, tool_calls,
-  step}, output_ready, error?}`. `status` maps the session's: starting is `queued`, working is `running`, waiting is
+  step}, output_ready, error?}`. `status` maps the session's: starting is `queued`, working and retrying are `running`, waiting is
   `finished` for a run with an output schema (otherwise `waiting`), failed and stopped are `failed` (stopped: `Stopped.`),
   closed is `finished` (`failed` for a run with a schema that closed without an output). A run with a schema whose turn
   is done reports `finished` even when a wake-up or a queued message may later add a turn and replace its output.

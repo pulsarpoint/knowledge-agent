@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable
 from contextlib import suppress
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -30,7 +30,9 @@ LEASE_SECONDS = 60
 IDLE_RELEASE_SECONDS = 300.0
 STOPPED = 'Stopped. Send a message to continue.'
 INTERRUPTED = 'The worker restarted during this turn. Send a message to continue.'
+INTERRUPTED_REASON = 'the worker restarted during the turn'  # the Jira failure comment's reason
 END_STATUS = {'waiting': 'completed', 'stopped': 'stopped', 'failed': 'failed'}
+RETRYING_END = 'retrying'  # the end event of a failed attempt that is retried as the same turn
 CLOSED = object()
 LOST = object()  # another worker holds the session now: stop without further writes
 NO_USAGE = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0}
@@ -114,7 +116,7 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                     (row['id'], worker_id),
                 )
             if row['previous'] == 'working' and row['turns'] > 0:  # comments delivered inside it stay delivered
-                notify_event_run(conn, row['id'], row['turns'], 'failed', INTERRUPTED)
+                notify_event_run(conn, row['id'], row['turns'], 'failed', INTERRUPTED, reason=INTERRUPTED_REASON)
                 key = run_key(row['id'], row['turns'])
                 for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
                     conn.execute(
@@ -150,6 +152,8 @@ class SessionRunner:
         self.id, self.worker_id, self.slot = session['id'], session['worker_id'], slot
         self.poll, self.idle_release = poll, idle_release
         self.secrets: list[str] = []
+        self.retrying = False  # the turn being run is a retry of the latest turn (the same number)
+        self.retries = 0  # automatic retries of that turn before this attempt
 
     async def run(self) -> None:
         idle_since = time.monotonic()
@@ -173,10 +177,12 @@ class SessionRunner:
 
     def next_turn(self):
         """Deliver every queued message and due wake-up as the next turn, once; CLOSED when the session is closed, LOST
-        when this worker no longer holds its lease."""
+        when this worker no longer holds its lease. A session that is `retrying` runs its latest turn again: the
+        same number (its run events continue that turn's record), with the automatic retries counted so far; any other
+        turn starts with none."""
         with self.store.connect() as conn:
             row = conn.execute(
-                """SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
+                """SELECT status,turns,retries,(worker_id=%s AND lease_expires_at>now()) AS owned
                 FROM ka.agent_sessions WHERE id=%s FOR UPDATE""",
                 (self.worker_id, self.id),
             ).fetchone()
@@ -184,14 +190,16 @@ class SessionRunner:
                 return CLOSED
             if not row['owned']:
                 return LOST
-            number = row['turns'] + 1
+            retrying = row['status'] == 'retrying' and row['turns'] > 0
+            number = row['turns'] if retrying else row['turns'] + 1
             inputs = self._deliver(conn, number, wakeups=True)
             if not inputs:
                 return None
+            self.retrying, self.retries = retrying, row['retries'] if retrying else 0
             conn.execute(
-                """UPDATE ka.agent_sessions SET status='working',status_message='',turns=%s,
+                """UPDATE ka.agent_sessions SET status='working',status_message='',turns=%s,retries=%s,
                 stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
-                (number, self.id),
+                (number, self.retries, self.id),
             )
             return number, '\n\n'.join(turn_text(item) for item in inputs)
 
@@ -277,25 +285,39 @@ class SessionRunner:
         usage: dict[str, Any] | None,
         commit: Callable[[Any], None] | None = None,
         answer: str = '',
+        reason: str = '',
+        retry_at: datetime | None = None,
+        retry_status: str = '',
     ) -> None:
         """Record the turn's outcome; an event run's first turn also writes its notification (`answer` when it
-        finished, else `message`). `commit(conn)` runs in the same transaction,
-        only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
+        finished, else `message`; `reason`: why it failed, in a few words, for a Jira failure comment). A failed turn
+        with `retry_at` is retried instead, unless the session was closed or Stop was pressed meanwhile: the session
+        waits as `retrying` with `retry_status` as its message and one more retry counted, the turn's inputs (and the
+        messages queued meanwhile) are queued again for `retry_at`, and nothing is notified yet.
+        `commit(conn)` runs in the same transaction, only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again. Drafts the document tools saved get their
         sources refreshed."""
         usage = usage or NO_USAGE
+        retry = status == 'failed' and retry_at is not None
         with self.store.connect() as conn:
             updated = conn.execute(
                 """UPDATE ka.agent_sessions SET
-                status=CASE WHEN status='closed' THEN status ELSE %(status)s END,
-                status_message=CASE WHEN status='closed' THEN status_message ELSE %(message)s END,
+                status=CASE WHEN status='closed' THEN status
+                    WHEN %(retry)s AND stop_requested_at IS NULL THEN 'retrying' ELSE %(status)s END,
+                status_message=CASE WHEN status='closed' THEN status_message
+                    WHEN %(retry)s AND stop_requested_at IS NULL THEN %(retry_status)s ELSE %(message)s END,
+                retries=CASE WHEN status<>'closed' AND %(retry)s AND stop_requested_at IS NULL THEN retries+1
+                    ELSE retries END,
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s,
-                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id""",
+                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s
+                RETURNING status""",
                 {
                     'status': status,
                     'message': message,
+                    'retry': retry,
+                    'retry_status': retry_status,
                     'input': usage['input_tokens'],
                     'output': usage['output_tokens'],
                     'cached': usage['cached_tokens'],
@@ -305,9 +327,23 @@ class SessionRunner:
             ).fetchone()
             if updated is not None and status == 'waiting' and commit is not None:
                 commit(conn)
+            if updated is not None and updated['status'] == 'retrying':
+                self._queue_again(conn, number, retry_at)
+            elif updated is not None:
+                notify_event_run(
+                    conn, self.id, number, status, answer if status == 'waiting' else message, reason=reason
+                )
             if updated is not None:
-                notify_event_run(conn, self.id, number, status, answer if status == 'waiting' else message)
                 refresh_run_sources_safely(conn, self.id, number)  # drafts the tools saved; reads may come later
+
+    def _queue_again(self, conn, number: int, at: datetime) -> None:
+        """A turn to retry: its inputs (comments delivered inside it too) and the messages queued since, queued for
+        `at`; delivered together as the same turn then (next_turn), or at once when a person sends a message."""
+        conn.execute(
+            """UPDATE ka.agent_session_inputs SET status='queued',turn=NULL,delivered_at=NULL,not_before=%s
+            WHERE session_id=%s AND ((status='delivered' AND turn=%s) OR (status='queued' AND kind='message'))""",
+            (at, self.id, number),
+        )
 
     def release(self) -> None:
         with self.store.connect() as conn:
