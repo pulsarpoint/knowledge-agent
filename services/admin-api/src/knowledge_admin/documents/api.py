@@ -103,8 +103,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 ).fetchall(),
                 'deployments': conn.execute(
                     """SELECT d.id,d.service_id,d.server_id,e.name AS environment,d.runtime_name,
-                    s.name || ' / ' || h.name || ' / ' || e.name ||
-                    CASE WHEN d.runtime_name='' THEN '' ELSE ' / ' || d.runtime_name END AS name
+                    s.name || ' on ' || h.name || ' (' || e.name || ')' ||
+                    CASE WHEN d.runtime_name='' THEN '' ELSE ' · ' || d.runtime_name END AS name
                     FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
                     JOIN ka.servers h ON h.id=d.server_id JOIN ka.environments e ON e.id=d.environment_id
                     WHERE d.project_id=%s ORDER BY name,d.id""",

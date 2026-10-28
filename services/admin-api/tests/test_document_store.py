@@ -199,7 +199,7 @@ def test_unticking_a_built_for_link_is_refused_and_nothing_changes(store):
         assert count(conn, 'SELECT count(*) AS n FROM ka.document_resources') == 1
 
 
-def test_built_for_names_a_deployment_as_service_on_server(store):
+def test_built_for_names_a_deployment_by_service_server_and_environment(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         svc, host = service(conn, project, 'Payments'), server(conn, project, 'web-1')
@@ -208,7 +208,7 @@ def test_built_for_names_a_deployment_as_service_on_server(store):
         with pytest.raises(HTTPException) as error:
             save_links(conn, project, live['id'], {'deployment_ids': []}, Provenance('person', None))
         assert error.value.detail == (
-            "This document was built for deployment Payments on web-1; that link can't be removed."
+            "This document was built for deployment Payments on web-1 (production); that link can't be removed."
         )
 
 

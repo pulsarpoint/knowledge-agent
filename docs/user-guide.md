@@ -957,7 +957,7 @@ only when a person publishes a draft.
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
 - **Connections**: **Resources** first: a table of the servers, services, environments, code projects and deployments
-  the document is linked to (by type, then name; a deployment is named "<service> on <server>" and opens its service),
+  the document is linked to (by type, then name; a deployment is named "<service> on <server> (<environment>)" and opens its service),
   with **Type**, **Name** (opens the resource's page), **Connection** (**Built for**: made with the document; **Linked**:
   added later) and **Added** (who and when); "Not linked to any resource yet." when there are none. **Add resource**
   opens a side sheet searching every kind by name, grouped by type, without the ones already linked; picking one links

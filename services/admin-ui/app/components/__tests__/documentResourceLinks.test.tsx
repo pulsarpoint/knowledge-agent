@@ -33,7 +33,7 @@ const pickable = {
     { id: "svc-2", name: "Billing" },
   ],
   code_projects: [{ id: "repo-1", name: "Shop" }],
-  deployments: [{ id: "dep-1", name: "Payments / web-1 / dev", service_id: "svc-1", server_id: "srv-1" }],
+  deployments: [{ id: "dep-1", name: "Payments on web-1 (dev)", service_id: "svc-1", server_id: "srv-1" }],
 };
 const link = (type: string, id: string, name: string, connection = "linked", extra = {}) => ({
   type,
@@ -54,7 +54,7 @@ const linkedNow = [
   link("server", "srv-1", "web-1"),
   service,
   link("code_project", "repo-1", "Shop"),
-  link("deployment", "dep-1", "Payments on web-1", "linked", { service_id: "svc-1" }),
+  link("deployment", "dep-1", "Payments on web-1 (dev)", "linked", { service_id: "svc-1" }),
 ];
 const document = {
   id: "doc-1",
@@ -143,7 +143,7 @@ test("Resources lists each link: type, the name linking to the resource's page, 
   expect(href("web-1")).toBe("/servers/srv-1");
   expect(href("Payments")).toBe("/services/svc-1/view");
   expect(href("Shop")).toBe("/code-projects/repo-1/overview");
-  expect(href("Payments on web-1")).toBe("/services/svc-1/view");
+  expect(href("Payments on web-1 (dev)")).toBe("/services/svc-1/view");
   expect(within(rows[0]).getByText("Built for")).toBeInTheDocument();
   expect(within(rows[1]).getByText("Linked")).toBeInTheDocument();
   expect(rows[1]).toHaveTextContent(`bo@example.com · ${when}`);
@@ -246,4 +246,37 @@ test("a live document has no Linked resources tab in the editor: its links are o
   await screen.findByRole("tab", { name: "Write" });
   expect(screen.queryByRole("tab", { name: "Linked resources" })).toBeNull();
   expect(screen.getByRole("link", { name: "Environment · dev" })).toBeInTheDocument();
+});
+
+test("the same service and server in two environments read differently in the rows, the badges and the Add sheet", async () => {
+  const user = userEvent.setup();
+  const onDev = link("deployment", "dep-1", "Payments on web-1 (dev)", "linked", { service_id: "svc-1" });
+  const onProd = link("deployment", "dep-2", "Payments on web-1 (prod)", "linked", { service_id: "svc-1" });
+  api({
+    ...base([onDev]),
+    "GET /api/documentation/resources": () => [
+      200,
+      {
+        ...pickable,
+        deployments: [
+          ...pickable.deployments,
+          { id: "dep-2", name: "Payments on web-1 (prod)", service_id: "svc-1", server_id: "srv-1" },
+          { id: "dep-3", name: "Payments on web-1 (staging)", service_id: "svc-1", server_id: "srv-1" },
+        ],
+      },
+    ],
+    "GET /api/documentation/documents/doc-1/connections": () => [200, connections([onDev, onProd])],
+  });
+  show("/documents/doc-1/connections");
+  const table = await resourcesTable();
+  expect(table.getByRole("link", { name: "Payments on web-1 (dev)" })).toBeInTheDocument();
+  expect(table.getByRole("link", { name: "Payments on web-1 (prod)" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Deployment · Payments on web-1 (dev)" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Add resource" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "Add resource" }));
+  expect(
+    within(sheet.getByRole("group", { name: "Deployments" }))
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["Payments on web-1 (staging)"]);
 });

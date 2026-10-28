@@ -84,7 +84,7 @@ def test_connections_list_the_active_resource_links_named_per_type_by_type_then_
         ('server', 'web-1', 'built_for'),
         ('service', 'Payments', 'built_for'),
         ('code_project', 'Shop', 'built_for'),
-        ('deployment', 'Payments on web-1', 'built_for'),
+        ('deployment', 'Payments on web-1 (dev)', 'built_for'),
     ]
     first = answer['resources'][0]
     assert (
@@ -98,7 +98,7 @@ def test_connections_list_the_active_resource_links_named_per_type_by_type_then_
     # the document's own resource_links (the header's badges) name a deployment alike and carry its service
     links = client.get(f'{DOCUMENTS}/{document}', headers=HEADERS).json()['resource_links']
     assert [(item['name'], item['service_id']) for item in links if item['type'] == 'deployment'] == [
-        ('Payments on web-1', service)
+        ('Payments on web-1 (dev)', service)
     ]
 
 
@@ -136,7 +136,7 @@ def test_add_a_deployment_and_a_code_project(store, client):
     assert add(client, document, 'code_project', code).status_code == 201
     assert resources(client, document) == [
         ('code_project', code, 'Shop', 'linked'),
-        ('deployment', run, 'Payments on web-1', 'linked'),
+        ('deployment', run, 'Payments on web-1 (dev)', 'linked'),
     ]
 
 
@@ -189,3 +189,26 @@ def test_removing_a_built_for_link_is_refused(store, client):
     )
     assert resources(client, document) == [('server', server, 'web-1', 'built_for')]
     assert revision(store, document) == 1 and audits(store, document) == []
+
+
+def test_the_same_service_and_server_in_two_environments_read_differently(store, client):
+    dev, prod = resource(store, 'environments', 'dev'), resource(store, 'environments', 'prod')
+    server = resource(store, 'servers', 'web-1')
+    service = resource(store, 'services', 'Payments')
+    on_dev, on_prod = deployment(store, service, server, dev), deployment(store, service, server, prod)
+    document = live(store)
+    assert add(client, document, 'deployment', on_dev).status_code == 201
+    assert add(client, document, 'deployment', on_prod).status_code == 201
+    assert resources(client, document) == [
+        ('deployment', on_dev, 'Payments on web-1 (dev)', 'linked'),
+        ('deployment', on_prod, 'Payments on web-1 (prod)', 'linked'),
+    ]
+    links = client.get(f'{DOCUMENTS}/{document}', headers=HEADERS).json()['resource_links']
+    assert sorted(item['name'] for item in links) == ['Payments on web-1 (dev)', 'Payments on web-1 (prod)']
+    picker = client.get('/api/documentation/resources', headers=HEADERS).json()['deployments']
+    assert [item['name'] for item in picker] == ['Payments on web-1 (dev)', 'Payments on web-1 (prod)']
+    built = live(store, 'built', 'Built', service_ids=[service], server_ids=[server], deployment_ids=[on_prod])
+    assert message(remove(client, built, 'deployment', on_prod)) == (
+        409,
+        "This document was built for deployment Payments on web-1 (prod); that link can't be removed.",
+    )

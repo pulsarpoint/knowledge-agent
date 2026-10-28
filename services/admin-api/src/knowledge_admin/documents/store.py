@@ -71,9 +71,9 @@ SNAPSHOT_KEYS = {
     'environments': 'environment_ids',
 }
 
-# A link row's resource id and display name (a deployment: "<service> on <server>").
+# A link row's resource id and display name (a deployment: "<service> on <server> (<environment>)").
 RESOURCE_ID = 'COALESCE(r.environment_id,r.service_id,r.server_id,r.code_project_id,r.deployment_id)'
-RESOURCE_NAME = "COALESCE(e.name,s.name,h.name,c.name,ds.name || ' on ' || dh.name)"
+RESOURCE_NAME = "COALESCE(e.name,s.name,h.name,c.name,ds.name || ' on ' || dh.name || ' (' || de.name || ')')"
 RESOURCE_JOINS = """LEFT JOIN ka.environments e ON e.id=r.environment_id
     LEFT JOIN ka.services s ON s.id=r.service_id LEFT JOIN ka.servers h ON h.id=r.server_id
     LEFT JOIN ka.repositories c ON c.id=r.code_project_id
