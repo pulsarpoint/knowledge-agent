@@ -12,7 +12,7 @@ from session_rows import a_model, add_chat_session
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 
-NO_HISTORY = {'conversations': 0, 'documentation_sessions': 0, 'run_records': 0}
+NO_HISTORY = {'conversations': 0, 'reviews': 0, 'documentation_sessions': 0, 'run_records': 0}
 
 
 def comparable(config: dict) -> dict:
