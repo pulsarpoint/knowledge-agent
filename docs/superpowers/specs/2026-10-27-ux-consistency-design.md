@@ -328,3 +328,15 @@ Add one `StatusBadge` in `components/` with a status-to-variant map shared by ru
 - **No browser `confirm()`**; every record deletion except the four listed in group 3 is confirmed with an AlertDialog.
 - **Badge colour semantics** (secondary / destructive / outline) and **date format** (`toLocaleString`) are uniform.
 - **`/skills`** row "⋯" menu, and **`/code-projects`** DataTable with search, filters and sortable headers: these are the reference implementations.
+
+---
+
+## Toolbar row (standard, added 2026-10-28)
+
+Every `DataTable` list has **one** toolbar row (`[data-slot='table-toolbar']`):
+- **Left:** the search (`search`), then the filters (`toolbar`). Select triggers and short filter Inputs use `FILTER_WIDTH` from `components/DataTable.tsx`.
+- **Right:** the page's list actions (`actions`: Refresh, Re-embed, Import, New <thing>), rendered at the end of the row. Do not add a separate row of buttons above the table; actions that belong to a record's own header (BackLink pages) stay in that header.
+- All controls are the default height and centred (`items-center`); the row wraps only on narrow screens.
+- **More than 3 filters besides search:** keep the 3 most used inline and put the rest in `components/FiltersSheet.tsx`, a **Filters** button with a count badge of the active hidden filters, opening a right Sheet with them and Reset. Filter state stays where it was (the URL or state). Examples: Agent runs (type, agent, status inline; output, schedule, user behind Filters), Events (source, type, status inline), Documents (tag, code project, service inline).
+- **No stacked labels or helper texts beside these controls.** A control that needs a visible label shows it inline beside it (Memory's Embedding model). A help note goes into the control's dropdown foot or the page description (`AdminLayout` sections).
+- Tests: each list asserts its search, filters and actions sit in the one row (`expectOneToolbarRow` in `app/lib/__tests__/toolbarRow.ts`).
