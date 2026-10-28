@@ -27,7 +27,7 @@ from knowledge_admin.sessions import tracing as agent_tracing, run_record
 from knowledge_admin.sessions.activity import tool_failed
 from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
-from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
+from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, REVIEWER_LABEL
 from knowledge_admin.knowledge_agents.history import HistorySession
 from knowledge_admin.knowledge_agents.retries import reason, retry_message, retry_wait
 from knowledge_admin.knowledge_agents.session_worker import (
@@ -387,10 +387,10 @@ class NativeRunner(shared.SessionRunner):
         if retrying:  # the same turn again: one start event per turn, so Agent runs lists it once
             recorder.add('input', {'task': text, 'retry': True})
         else:
-            recorder.add(
-                'start',
-                {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'], 'turn': number},
-            )
+            name = self.session['agent_name']
+            if self.session.get('purpose') == 'review':  # the reviewer's run, about this agent
+                name = REVIEWER_LABEL.format(name=name)
+            recorder.add('start', {'kind': kind, 'title': self.session['title'], 'agent': name, 'turn': number})
             recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
         events = SessionEvents(

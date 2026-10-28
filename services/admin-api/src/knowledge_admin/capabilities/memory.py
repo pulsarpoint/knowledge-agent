@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.capabilities.inventory import UNAVAILABLE as STORE_UNAVAILABLE
 from knowledge_admin.capabilities.inventory import connect, project_of
+from knowledge_admin.knowledge_agents.config import REVIEWER_LABEL
 from knowledge_admin.memory import store as memory
 from knowledge_admin.memory.embedding import current_model, embed_text
 from knowledge_admin.memory.search import search
@@ -77,12 +78,30 @@ def _shown(entry: dict, cut: bool, profile: str | None) -> dict:
     }
 
 
-def _author(conn, config: dict[str, Any]) -> memory.Author:
+def _author(conn, config: dict[str, Any]) -> tuple[memory.Author, str | None]:
+    """Who saves: the session's agent and the session; a review run (purpose review) saves as the session reviewer,
+    never as the agent it reviews: no agent, the person who started the review, and its label (saved_by metadata)."""
     session = config.get('session_id')
     if not session:
-        return memory.Author()
-    row = conn.execute('SELECT agent_id FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
-    return memory.Author(agent_id=None if row is None else row['agent_id'], session_id=UUID(str(session)))
+        return memory.Author(), None
+    row = conn.execute(
+        """SELECT s.agent_id,s.purpose,s.actor_id,a.name FROM ka.agent_sessions s LEFT JOIN ka.agents a ON a.id=s.agent_id
+        WHERE s.id=%s""",
+        (session,),
+    ).fetchone()
+    if row is not None and row['purpose'] == 'review':
+        label = REVIEWER_LABEL.format(name=row['name'] or row['agent_id'])
+        return memory.Author(session_id=UUID(str(session)), actor_id=row['actor_id']), label
+    return memory.Author(agent_id=None if row is None else row['agent_id'], session_id=UUID(str(session))), None
+
+
+def _marked(metadata: dict[str, str], label: str | None) -> dict[str, str]:
+    """The metadata a review run saves with: saved_by names the session reviewer (validated again: one more key)."""
+    if label is None:
+        return metadata
+    marked = {**metadata, 'saved_by': label}
+    memory.validate('marked', marked, 'marked')
+    return marked
 
 
 def _embedded(config: dict[str, Any], text: str) -> tuple[UUID, object, list[float] | None, str | None]:
@@ -152,8 +171,9 @@ def _save(config, name, content, metadata) -> str:
         memory.validate(name, metadata, content)
         project, model, vector, profile = _embedded(config, content)
         with connect() as conn:
+            author, label = _author(conn, config)
             try:
-                entry = memory.create(conn, project, name, metadata, content, _author(conn, config), vector, profile)
+                entry = memory.create(conn, project, name, _marked(metadata, label), content, author, vector, profile)
             except memory.Exists as exists:
                 return _reply(
                     {
@@ -175,16 +195,17 @@ def _update(config, name, content, metadata, revision) -> str:
             current = memory.get(conn, project, name=name)
             if current is None:
                 return _reply({'refused': MISSING.format(name=name)})
+            author, label = _author(conn, config)
             try:
                 entry = memory.update(
                     conn,
                     project,
                     current['id'],
                     name,
-                    metadata,
+                    _marked(metadata, label),
                     content,
                     revision,
-                    _author(conn, config),
+                    author,
                     vector,
                     profile,
                 )

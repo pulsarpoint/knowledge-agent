@@ -19,6 +19,7 @@ from knowledge_admin.capabilities.inventory import short
 
 AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
 AD_HOC_NAME = 'Ad-hoc agent'
+REVIEWER_LABEL = 'Session reviewer ({name})'  # who a review run is: its start event, the memory it saves
 MODEL = """SELECT id,name,provider,model,api_format,base_url,aws_region,capabilities,enabled,revision,
     api_key_ciphertext IS NOT NULL AS has_api_key FROM ka.llm_models WHERE id=%s"""
 

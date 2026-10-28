@@ -11,8 +11,8 @@ from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS
 
-FULL = {'conversations': 3, 'documentation_sessions': 1, 'run_records': 2}
-NONE = {'conversations': 0, 'documentation_sessions': 0, 'run_records': 0}
+FULL = {'conversations': 2, 'reviews': 1, 'documentation_sessions': 1, 'run_records': 2}
+NONE = {'conversations': 0, 'reviews': 0, 'documentation_sessions': 0, 'run_records': 0}
 WORKING = (
     'This agent is working right now. Stop its documentation sessions and runs, '
     'or wait for them to finish, then delete it.'

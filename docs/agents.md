@@ -648,8 +648,8 @@ replaced the single-shot *Suggest improvements* and *Apply suggestions* (0147 dr
   `agent_run.created` with `review_of`.
 - `GET /api/agent-runs/{run_key}/reviews`: the reviews of the run's session (any turn), newest first, each a session
   summary with `review_of`; 404 like the run record.
-- The session's `agent_id` is the reviewed agent (deleting it with its history deletes its reviews; they count as
-  conversations); its pinned `agent_config` has `review_of` (the reviewed run key), `reviewed_agent_id`,
+- The session's `agent_id` is the reviewed agent (deleting it with its history deletes its reviews; its history
+  counts them as `reviews`); its pinned `agent_config` has `review_of` (the reviewed run key), `reviewed_agent_id`,
   `reviewed_revision` (the agent's revision at start), `instructions` (the reviewer prompt, `REVIEWER_PROMPT`),
   `model` (the reviewed agent's), no resources or experts, and every enabled skill. Its turns are run records of kind
   `review_session`. A review run loads only its model key (the reviewer has no agents row).
@@ -666,7 +666,9 @@ replaced the single-shot *Suggest improvements* and *Apply suggestions* (0147 dr
   - `create_skill(name, description, content)` writes a skill folder with that `SKILL.md` (frontmatter from name and
     description, then the content), **disabled**, source `{kind: review, session_id}`; refused with `A skill with this
     name already exists.`; returns `/skills/<id>`. A person enables it on Skills; until then no run gets it.
-  - `save_memory` (refuse-on-existing-name, revisions; author: the reviewed agent and the review session).
+  - `save_memory` (refuse-on-existing-name, revisions). The reviewer saves as itself, never as the reviewed agent:
+    no agent, the person who started the review and the review session, with metadata `saved_by: Session reviewer
+    (<agent name>)`. The run's start event names it the same way.
 - Consent is in the chat: the prompt makes the reviewer propose first (where, what and why, with the exact text) and
   call a write tool only when the person's latest message agrees to that specific change. Every write is recorded
   and reversible (audit and the agent's instructions, a disabled skill, a memory revision).

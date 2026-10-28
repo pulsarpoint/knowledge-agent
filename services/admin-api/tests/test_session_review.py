@@ -170,8 +170,9 @@ def test_start_rules(agent, ask):
 
     chat = a_chat(agent, store)
     review = begin(client, f'cc:{chat}:1').json()
-    refused = begin(client, f'cc:{review["id"]}:1')  # a review is not reviewed
-    assert refused.status_code in (400, 404)
+    finished(store, review['id'])  # a review with a recorded turn is still not reviewed
+    refused = begin(client, f'cc:{review["id"]}:1')
+    assert (refused.status_code, refused.json()['error']['message']) == (400, review_agent.NOT_REVIEWABLE)
 
     with store.connect() as conn:
         conn.execute('UPDATE ka.agents SET model_id=NULL WHERE id=%s', (agent.id,))
@@ -350,3 +351,41 @@ def test_a_review_turn_runs_in_the_session_worker_as_a_review_run(world, monkeyp
     assert turn['config']['session_id'] == review['id']
     runs = client.get('/api/agent-runs?kind=review_session', headers=HEADERS).json()['runs']
     assert [run['run_key'] for run in runs] == [f'cc:{review["id"]}:1']
+    name = client.get(f'/api/agents/{world.agent.id}', headers=HEADERS).json()['name']
+    assert runs[0]['agent'] == f'Session reviewer ({name})'  # the run is the reviewer's, about that agent
+
+
+def test_an_ordinary_chat_never_gets_the_reviewer_tools(world):
+    debug = world.agent.client.get(f'/api/sessions/{world.chat}/debug', headers=HEADERS).json()
+    names = {tool['name'] for tool in debug['tools']}
+    assert not names & {'get_agent', 'update_agent_instructions', 'create_skill', 'record_digest'}
+
+
+def test_memory_the_reviewer_saves_is_the_reviewers_not_the_agents(world, monkeypatch):
+    from knowledge_admin.capabilities import memory as memory_tools
+
+    monkeypatch.setattr(memory_tools, 'embed_text', lambda model, text: (None, None))
+    saved = call(world, 'save_memory', {'name': 'ops/disk-checks', 'content': 'Check df first.', 'metadata': None})
+    assert saved['saved']['name'] == 'ops/disk-checks', saved
+    name = world.agent.client.get(f'/api/agents/{world.agent.id}', headers=HEADERS).json()['name']
+    with world.store.connect() as conn:
+        row = conn.execute(
+            """SELECT created_by_agent,updated_by_agent,created_by_session,metadata FROM ka.memories
+            WHERE name='ops/disk-checks'"""
+        ).fetchone()
+    assert (row['created_by_agent'], row['updated_by_agent']) == (None, None)
+    assert str(row['created_by_session']) == world.review['id']
+    assert row['metadata'] == {'saved_by': f'Session reviewer ({name})'}
+    found = call(world, 'search_memory', {'query': None, 'metadata': None, 'agent': name, 'limit': 10})
+    assert found['results'] == []  # not listed as the reviewed agent's own
+
+
+def test_the_prompt_says_memory_cannot_be_updated():
+    assert 'you cannot update memory' in ' '.join(review_agent.REVIEWER_PROMPT.split())
+
+
+def test_null_characters_in_a_skill_are_refused(world):
+    bad = call(world, 'create_skill', {'name': 'nul-skill', 'description': 'A\x00B', 'content': 'x'})
+    assert bad == {'refused': review_agent.NUL}
+    bad = call(world, 'create_skill', {'name': 'nul-skill', 'description': 'AB', 'content': 'x\x00'})
+    assert bad == {'refused': review_agent.NUL}

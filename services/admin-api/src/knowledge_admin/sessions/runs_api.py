@@ -13,7 +13,7 @@ from knowledge_admin.db import storage, workspace
 from knowledge_admin.http_errors import validation_text
 from knowledge_admin.identity import request_actor
 from knowledge_admin.sessions import explorer, start
-from knowledge_admin.sessions.rows import SUMMARY, session_detail
+from knowledge_admin.sessions.rows import session_detail
 from knowledge_admin.sessions.run_record import tool_counts
 
 RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload->>'kind' AS kind,
@@ -77,10 +77,9 @@ NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent
 
 
 # a review session as its Conversations list shows it, with the turn it was started on
-REVIEWS = SUMMARY.replace(
-    'FROM ka.agent_sessions s', ",s.agent_config->>'review_of' AS review_of FROM ka.agent_sessions s", 1
-)
-assert REVIEWS != SUMMARY
+REVIEWS = """SELECT s.id,s.title,s.agent_id,a.name AS agent_name,s.status,s.status_message,s.turns,s.created_at,
+    s.last_activity_at,s.closed_at,s.agent_config->>'review_of' AS review_of
+    FROM ka.agent_sessions s LEFT JOIN ka.agents a ON a.id=s.agent_id"""
 
 
 class ExploreInput(BaseModel):
