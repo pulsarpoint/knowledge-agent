@@ -547,9 +547,12 @@ open chat open, and the open one's line under them says what it holds):
   each a link to its page. **Add** picks a service in a side sheet with search, with an optional "why". Depends on
   and Part of record this service's relation to the chosen one; **Used by** records that the chosen service depends
   on this one, and **Parts** that the chosen service is part of this one.
-- **Connections**: the network connections of its deployments, out (→) and in (←), each a link to the other
-  service, with **Edit** and **Remove**; **Add connection** starts from one of its deployments (see the environment
-  workspace for the picker).
+- **Connections**: a table of the network connections of its deployments: **Direction** (Out or In), the other end's
+  **Server** (the host for a connection to a host) and **Service** (a link to its page, with the connection's
+  description under it), **Port**, **Protocol** and, when the service has more than one deployment, **Deployment**
+  (the server of its own deployment the connection goes from or to). Every header sorts; search covers server, service
+  and host, with Direction and Protocol filters. Each row's menu has **Edit** and **Remove**; **Add connection**, at
+  the end of the toolbar, starts from one of its deployments (see the environment workspace for the picker).
 - **Documents**: the service's inventory document and documents, as on any resource page.
 
 Every Remove asks first in a dialog that names what goes. An entry an agent recorded shows its Draft badge with

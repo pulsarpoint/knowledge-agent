@@ -16,6 +16,7 @@ import { serviceAsset as asset, serviceDeployment, stubApi } from "~/lib/__tests
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 import type { Connection, Deployment, Relation } from "~/features/servers/inventory";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 vi.mock("~/components/Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 vi.mock("~/features/sessions/useSessionEvents", async () => {
@@ -137,7 +138,13 @@ const deployment = (id: string, server: string, environment: string): Deployment
   revision: 2,
 });
 const deployments = [deployment("d1", "s-app-1", "e-prod"), deployment("d3", "s-app-2", "e-staging")];
-const connection = (id: string, from: string, to: Partial<Connection>, port: number, protocol: string): Connection => ({
+const connection = (
+  id: string,
+  from: string,
+  to: Partial<Connection>,
+  port: number | null,
+  protocol: string,
+): Connection => ({
   id,
   from_deployment_id: from,
   to_deployment_id: null,
@@ -469,20 +476,194 @@ test("Code lists each code project's libraries under it, read-only and linked", 
   expect(list.queryByRole("button", { name: /shared-lib/ })).toBeNull();
 });
 
-test("Connections lists connections out and in, each linking to the other service, with Add connection", async () => {
-  api();
+/** The Connections table's rows, as text per cell (the header row first). */
+const tableCells = (region: HTMLElement) =>
+  within(region)
+    .getAllByRole("row")
+    .map((row) =>
+      within(row)
+        .queryAllByRole(row.querySelector("th") ? "columnheader" : "cell")
+        .map((cell) => cell.textContent?.trim()),
+    );
+const connectionsPage = async (extra: Record<string, Route> = {}) => {
+  const calls = api(extra);
   show("/services/v1/connections");
-  const list = within(await screen.findByRole("region", { name: "Connections" }));
-  expect(list.getByRole("link", { name: "→ postgres on db-1 (prod) :5432 tcp" })).toHaveAttribute(
-    "href",
-    "/services/v2/view",
+  const region = await screen.findByRole("region", { name: "Connections" });
+  await within(region).findByRole("table");
+  return { calls, region, list: within(region) };
+};
+
+test("Connections: a table of direction, server, service (a link, its description under it), port, protocol and deployment", async () => {
+  const { region, list } = await connectionsPage({
+    "GET /api/services/v1/connections": () => [
+      200,
+      {
+        connections: [
+          connection("c1", "d1", { to_deployment_id: "d2", description: "stores payments" }, 5432, "tcp"),
+          connection("c2", "d4", { to_deployment_id: "d1" }, 8000, "http"),
+          connection("c3", "d3", { to_host: "smtp.example.com" }, null, "smtp"),
+          connection("c4", "d1", { to_service_id: "v4" }, 443, "https"),
+        ],
+      },
+    ],
+  });
+  expect(tableCells(region)).toEqual([
+    ["Direction", "Server", "Service", "Port", "Protocol", "Deployment", "Actions"],
+    ["Out", "db-1", "postgresstores payments", "5432", "tcp", "app-1", ""],
+    ["Out", "smtp.example.com", "—", "—", "smtp", "app-2", ""],
+    ["Out", "—", "stripe", "443", "https", "app-1", ""],
+    ["In", "app-1", "nginx", "8000", "http", "app-1", ""],
+  ]);
+  expect(list.getByRole("link", { name: "postgres" })).toHaveAttribute("href", "/services/v2/view");
+  expect(list.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/v3/view");
+  expect(list.getByRole("link", { name: "stripe" })).toHaveAttribute("href", "/services/v4/view");
+  expect(list.getByText("stores payments")).toHaveClass("text-muted-foreground");
+});
+
+test("Connections: every header sorts; Port sorts numerically", async () => {
+  const { region, list } = await connectionsPage({
+    "GET /api/services/v1/connections": () => [
+      200,
+      {
+        connections: [
+          connection("c1", "d1", { to_deployment_id: "d2" }, 5432, "tcp"),
+          connection("c2", "d1", { to_host: "a.example.com" }, 80, "http"),
+          connection("c3", "d4", { to_deployment_id: "d1" }, 8000, "http"),
+        ],
+      },
+    ],
+  });
+  const column = (index: number) =>
+    tableCells(region)
+      .slice(1)
+      .map((row) => row[index]);
+  for (const name of ["Direction", "Server", "Service", "Port", "Protocol", "Deployment"])
+    expect(list.getByRole("button", { name })).toBeInTheDocument();
+  await userEvent.click(list.getByRole("button", { name: "Port" }));
+  expect(column(3)).toEqual(["80", "5432", "8000"]);
+  expect(list.getByRole("columnheader", { name: "Port" })).toHaveAttribute("aria-sort", "ascending");
+  await userEvent.click(list.getByRole("button", { name: "Port" }));
+  expect(column(3)).toEqual(["8000", "5432", "80"]);
+  await userEvent.click(list.getByRole("button", { name: "Server" }));
+  expect(column(1)).toEqual(["a.example.com", "app-1", "db-1"]);
+});
+
+test("Connections: search across server, service and host; the Direction and Protocol filters", async () => {
+  const { region, list } = await connectionsPage({
+    "GET /api/services/v1/connections": () => [
+      200,
+      {
+        connections: [
+          connection("c1", "d1", { to_deployment_id: "d2" }, 5432, "tcp"),
+          connection("c2", "d1", { to_host: "smtp.example.com" }, 25, "smtp"),
+          connection("c3", "d4", { to_deployment_id: "d1" }, 8000, "http"),
+        ],
+      },
+    ],
+  });
+  const servers = () =>
+    tableCells(region)
+      .slice(1)
+      .map((row) => row[1]);
+  const search = list.getByRole("searchbox", { name: "Search connections" });
+  await userEvent.type(search, "smtp.example");
+  expect(servers()).toEqual(["smtp.example.com"]);
+  await userEvent.clear(search);
+  await userEvent.type(search, "nginx");
+  expect(servers()).toEqual(["app-1"]);
+  await userEvent.clear(search);
+  await userEvent.type(search, "nothing");
+  expect(list.getByText("No connections match.")).toBeInTheDocument();
+  await userEvent.clear(search);
+
+  await userEvent.click(list.getByRole("combobox", { name: "Direction" }));
+  await userEvent.click(await screen.findByRole("option", { name: "In" }));
+  expect(servers()).toEqual(["app-1"]);
+  await userEvent.click(list.getByRole("combobox", { name: "Direction" }));
+  await userEvent.click(await screen.findByRole("option", { name: "All directions" }));
+
+  await userEvent.click(list.getByRole("combobox", { name: "Protocol" }));
+  expect(screen.getAllByRole("option").map((item) => item.textContent)).toEqual([
+    "All protocols",
+    "http",
+    "smtp",
+    "tcp",
+  ]);
+  await userEvent.click(screen.getByRole("option", { name: "tcp" }));
+  expect(servers()).toEqual(["db-1"]);
+});
+
+test("Connections: the Deployment column only when the service has more than one deployment", async () => {
+  const { region } = await connectionsPage({
+    "GET /api/services/v1/deployments": () => [200, { deployments: [deployments[0]] }],
+  });
+  expect(tableCells(region)[0]).toEqual(["Direction", "Server", "Service", "Port", "Protocol", "Actions"]);
+});
+
+test("Connections: Add connection in the toolbar row opens the sheet", async () => {
+  const { list } = await connectionsPage();
+  const add = list.getByRole("button", { name: "Add connection" });
+  expectOneToolbarRow(
+    list.getByRole("searchbox", { name: "Search connections" }),
+    add,
+    list.getByRole("combobox", { name: "Direction" }),
+    list.getByRole("combobox", { name: "Protocol" }),
   );
-  expect(list.getByRole("link", { name: "← nginx on app-1 (prod) :8000 http" })).toHaveAttribute(
-    "href",
-    "/services/v3/view",
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Add connection" }));
+  await userEvent.click(add);
+  expect(await screen.findByRole("dialog", { name: "Add connection" })).toBeInTheDocument();
+});
+
+test("Connections: the row menu's Edit opens the sheet; Remove asks first", async () => {
+  const { calls, list } = await connectionsPage({
+    "DELETE /api/connections/c1?revision=3": () => [200, { id: "c1" }],
+  });
+  const name = "to postgres on db-1 :5432 tcp";
+  await userEvent.click(list.getByRole("button", { name: `Actions for ${name}` }));
+  expect(menuItems()).toEqual(["Edit", "Remove"]);
+  await userEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+  expect(await screen.findByRole("dialog", { name: "Edit connection" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Close" }));
+
+  await rowAction(userEvent, name, "Remove", list);
+  const dialog = within(screen.getByRole("alertdialog"));
+  expect(dialog.getByText(`Remove the connection ${name}?`)).toBeInTheDocument();
+  await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  expect(writes(calls)).toEqual([]);
+  await rowAction(userEvent, name, "Remove", list);
+  await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
+  await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/connections/c1?revision=3", null]]));
+});
+
+test("Connections: a draft shows its Draft badge with Confirm, and Discard in its menu", async () => {
+  const { list } = await connectionsPage({
+    "GET /api/services/v1/connections": () => [
+      200,
+      { connections: [connection("c1", "d1", { to_deployment_id: "d2", status: "draft" }, 5432, "tcp")] },
+    ],
+  });
+  const name = "to postgres on db-1 :5432 tcp";
+  const row = list.getByText("Draft").closest("tr")!;
+  expect(rowButtons(row)).toEqual([`Confirm ${name}`, `Actions for ${name}`]);
+  await userEvent.click(within(row).getByRole("button", { name: `Actions for ${name}` }));
+  expect(menuItems()).toEqual(["Edit", "Discard", "Remove"]);
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(within(row).getByRole("button", { name: `Confirm ${name}` }));
   expect(await screen.findByRole("dialog")).toBeInTheDocument();
+});
+
+test("Connections: the empty texts, and no Add connection without a deployment", async () => {
+  const none = { "GET /api/services/v1/connections": () => [200, { connections: [] }] as [number, unknown] };
+  api(none);
+  show("/services/v1/connections");
+  let region = within(await screen.findByRole("region", { name: "Connections" }));
+  expect(await region.findByText("No connections.")).toBeInTheDocument();
+  expect(region.getByRole("button", { name: "Add connection" })).toBeInTheDocument();
+  cleanup();
+  api({ ...none, "GET /api/services/v1/deployments": () => [200, { deployments: [] }] });
+  show("/services/v1/connections");
+  region = within(await screen.findByRole("region", { name: "Connections" }));
+  expect(await region.findByText("No connections. A connection starts from a deployment.")).toBeInTheDocument();
+  expect(region.queryByRole("button", { name: "Add connection" })).toBeNull();
 });
 
 test("Documents lists the service's documents", async () => {
