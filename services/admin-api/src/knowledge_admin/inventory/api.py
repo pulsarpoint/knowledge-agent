@@ -25,9 +25,8 @@ from uuid import UUID
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, StrictInt
 
-from knowledge_admin.db import audit, storage, workspace
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.documents import store as documents
-from knowledge_admin.documents.store import ENTRY_COLUMNS, Provenance
 from knowledge_admin.identity import request_actor
 from knowledge_admin.inventory import assets, model, store
 from knowledge_admin.inventory.rules import Invalid
@@ -54,11 +53,7 @@ ENTRY_TABLES = {
     'code_project': 'repositories',
 }
 ENTRY_LABELS = {'service': 'service', 'server': 'server', 'environment': 'environment', 'code_project': 'code project'}
-# Entry kind → the document link field of its resources (documents.store.LINK_COLUMNS).
-LINK_FIELDS = {kind: f'{column[:-3]}_ids' for kind, column in ENTRY_COLUMNS.items()}
 STALE_REVISION = 'STALE_REVISION'  # the 409 code of a stale revision (store.Stale); other 409s carry no code
-ALREADY_LINKED = 'This document is already linked.'
-NOT_LINKED = 'This document is not linked.'
 
 
 class DryRun(Exception):
@@ -324,41 +319,10 @@ def build_api(app_name: str, repository_store: RepositoryStore | None) -> APIRou
     def change_link(
         conn, project_id: UUID, request: Request, kind: str, entry_id: UUID, document_id: UUID, linked: bool
     ):
-        """Add (linked) or remove the entry's link of a live document, as the document's Linked resources save does:
-        the document's revision bumps; removing a built-for link is a 409 (store.save_links)."""
+        """Add (linked) or remove the entry's link of a live document (documents.change_link: the document's revision
+        bumps; removing a built-for link is a 409)."""
         actor = database().actor(conn, *request_actor(request))
-        row = conn.execute(
-            'SELECT id FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
-            (document_id, project_id),
-        ).fetchone()
-        if row is None:
-            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
-        ids = [
-            item['id']
-            for item in conn.execute(
-                f"""SELECT {ENTRY_COLUMNS[kind]} AS id FROM ka.document_resources
-                WHERE document_id=%s AND removed_at IS NULL AND {ENTRY_COLUMNS[kind]} IS NOT NULL""",
-                (document_id,),
-            )
-        ]
-        if linked and entry_id in ids:
-            raise HTTPException(409, ALREADY_LINKED)
-        if not linked and entry_id not in ids:
-            raise HTTPException(404, NOT_LINKED)
-        wanted = [*ids, entry_id] if linked else [item for item in ids if item != entry_id]
-        saved = documents.save_links(
-            conn, project_id, document_id, {LINK_FIELDS[kind]: wanted}, Provenance('person', actor)
-        )
-        conn.execute('UPDATE ka.documents SET updated_by=%s,revision=revision+1 WHERE id=%s', (actor, document_id))
-        audit(
-            conn,
-            project_id,
-            actor,
-            'document.links.updated',
-            'document',
-            document_id,
-            {'links_added': saved['added'], 'links_removed': saved['removed']},
-        )
+        documents.change_link(conn, project_id, document_id, kind, entry_id, actor, linked=linked)
 
     @router.get('/inventory/{entry_kind}/{entry_id}/documents')
     def entry_documents(entry_kind: EntryKind, entry_id: UUID) -> dict:

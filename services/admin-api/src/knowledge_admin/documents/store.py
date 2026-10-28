@@ -71,10 +71,9 @@ SNAPSHOT_KEYS = {
     'environments': 'environment_ids',
 }
 
-# A link row's resource id and display name (deployments: service / server / environment, as in snapshots).
+# A link row's resource id and display name (a deployment: "<service> on <server>").
 RESOURCE_ID = 'COALESCE(r.environment_id,r.service_id,r.server_id,r.code_project_id,r.deployment_id)'
-RESOURCE_NAME = """COALESCE(e.name,s.name,h.name,c.name,
-    ds.name || ' / ' || dh.name || ' / ' || de.name)"""
+RESOURCE_NAME = "COALESCE(e.name,s.name,h.name,c.name,ds.name || ' on ' || dh.name)"
 RESOURCE_JOINS = """LEFT JOIN ka.environments e ON e.id=r.environment_id
     LEFT JOIN ka.services s ON s.id=r.service_id LEFT JOIN ka.servers h ON h.id=r.server_id
     LEFT JOIN ka.repositories c ON c.id=r.code_project_id
@@ -257,6 +256,72 @@ def add_link(conn, project: UUID, document_id: UUID, kind: str, resource_id: UUI
         (project, document_id, resource_id, prov.how, prov.actor, prov.session_id),
     ).fetchone()
     return row is not None
+
+
+# A link's type (document_resources.resource_type) → its column and its table, in the order a document lists them.
+LINK_TYPES = {
+    'environment': ('environment_id', 'environments'),
+    'server': ('server_id', 'servers'),
+    'service': ('service_id', 'services'),
+    'code_project': ('code_project_id', 'repositories'),
+    'deployment': ('deployment_id', 'service_deployments'),
+}
+ALREADY_LINKED = 'This document is already linked to that {type}.'
+NOT_LINKED = 'This document is not linked to that {type}.'
+RESOURCE_NOT_FOUND = 'That {type} was not found.'
+
+
+def change_link(conn, project: UUID, document_id: UUID, type: str, resource_id: UUID, actor: UUID | None, *, linked):
+    """Add (`linked`: a 'linked' link, as a person) or remove one link of a live document, as save_links does: the
+    document's revision bumps and the audit log records it. 404: the document is not a live one of `project`, the
+    resource to add is not in `project` (an archived code project neither) or the link to remove is not there; 409:
+    the link is already there or (removing) the document was built for the resource."""
+    column, table = LINK_TYPES[type]
+    if (
+        conn.execute(
+            'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
+            (document_id, project),
+        ).fetchone()
+        is None
+    ):
+        raise HTTPException(404, DOCUMENT_NOT_FOUND)
+    label = TYPE_LABEL[column]
+    if linked:
+        archived = ' AND archived_at IS NULL' if type == 'code_project' else ''
+        found = conn.execute(
+            f'SELECT 1 FROM ka.{table} WHERE id=%s AND project_id=%s{archived} FOR SHARE', (resource_id, project)
+        ).fetchone()
+        if found is None:
+            raise HTTPException(404, RESOURCE_NOT_FOUND.format(type=label))
+    ids = _active_links(conn, document_id)[f'{column[:-3]}_ids']
+    if linked and resource_id in ids:
+        raise HTTPException(409, ALREADY_LINKED.format(type=label))
+    if not linked and resource_id not in ids:
+        raise HTTPException(404, NOT_LINKED.format(type=label))
+    wanted = [*ids, resource_id] if linked else [item for item in ids if item != resource_id]
+    saved = save_links(conn, project, document_id, {f'{column[:-3]}_ids': wanted}, Provenance('person', actor))
+    conn.execute('UPDATE ka.documents SET updated_by=%s,revision=revision+1 WHERE id=%s', (actor, document_id))
+    audit(
+        conn,
+        project,
+        actor,
+        'document.links.updated',
+        'document',
+        document_id,
+        {'links_added': saved['added'], 'links_removed': saved['removed']},
+    )
+
+
+# A document's active links for its Connections page: each {type, id, name, connection, added_by, added_how,
+# created_at, service_id (a deployment's service, for its link; else null)}, by type (LINK_TYPES) then name.
+DOCUMENT_RESOURCES = f"""SELECT r.resource_type AS type,{RESOURCE_ID} AS id,{RESOURCE_NAME} AS name,r.connection,
+    COALESCE(a.display_name,a.email) AS added_by,r.added_how,r.created_at,d.service_id
+    FROM ka.document_resources r {RESOURCE_JOINS} WHERE r.document_id=%s AND r.removed_at IS NULL
+    ORDER BY array_position(%s::text[],r.resource_type),lower({RESOURCE_NAME}),r.id"""
+
+
+def document_resources(conn, document_id: UUID) -> list[dict]:
+    return conn.execute(DOCUMENT_RESOURCES, (document_id, list(LINK_TYPES))).fetchall()
 
 
 # The links a draft of a live document holds (add_link), added to the document when the draft is published; one the

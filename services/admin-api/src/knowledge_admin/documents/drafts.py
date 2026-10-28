@@ -6,6 +6,7 @@ lifecycle itself is documents/store.py; this module is the drafts API, a run's s
 from functools import partial
 import json
 import logging
+from typing import Literal
 from uuid import UUID
 
 import psycopg
@@ -143,11 +144,25 @@ class LinkInput(BaseModel):
     to_document_id: UUID
 
 
+LinkType = Literal['environment', 'server', 'service', 'code_project', 'deployment']
+
+
+class ResourceChoice(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    type: LinkType
+    id: UUID
+
+
 def connections(conn, project: UUID, document_id: UUID) -> dict:
-    """What a document depends on, what depends on it (links people add) and what its live version was built from."""
-    if live_document(conn, project, document_id) is None:
+    """What a document is linked to (resources: its active resource links, lifecycle.document_resources), what it
+    depends on, what depends on it (links people add) and what its live version was built from; revision: the
+    document's (a resource link added or removed here bumps it)."""
+    row = live_document(conn, project, document_id)
+    if row is None:
         raise HTTPException(404, DOCUMENT_NOT_FOUND)
     return {
+        'revision': row['revision'],
+        'resources': lifecycle.document_resources(conn, document_id),
         'depends_on': conn.execute(
             LINKED.format(this='from_document_id', other='to_document_id'), (document_id,)
         ).fetchall(),
@@ -160,7 +175,7 @@ def connections(conn, project: UUID, document_id: UUID) -> dict:
 
 def live_document(conn, project: UUID, document_id: UUID) -> dict | None:
     return conn.execute(
-        'SELECT id FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft', (document_id, project)
+        'SELECT id,revision FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft', (document_id, project)
     ).fetchone()
 
 
@@ -522,6 +537,23 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             return jsonable_encoder(connections(conn, db.project(conn, app_name), document_id))
+
+    def change_resource(request: Request, document_id: UUID, type: str, resource_id: UUID, linked: bool) -> dict:
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            actor = db.actor(conn, *request_actor(request))
+            lifecycle.change_link(conn, project, document_id, type, resource_id, actor, linked=linked)
+            return jsonable_encoder(connections(conn, project, document_id))
+
+    @router.post('/documents/{document_id}/resources', status_code=201)
+    def add_resource(document_id: UUID, value: ResourceChoice, request: Request) -> dict:
+        """Link the document to a resource ('linked'); answers its connections."""
+        return change_resource(request, document_id, value.type, value.id, linked=True)
+
+    @router.delete('/documents/{document_id}/resources/{type}/{resource_id}')
+    def remove_resource(document_id: UUID, type: LinkType, resource_id: UUID, request: Request) -> dict:
+        """Remove the document's link to a resource (a built-for link stays: 409); answers its connections."""
+        return change_resource(request, document_id, type, resource_id, linked=False)
 
     @router.post('/documents/{document_id}/links', status_code=201)
     def add_link(document_id: UUID, value: LinkInput, request: Request) -> dict:

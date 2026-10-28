@@ -352,7 +352,7 @@ def test_link_and_unlink_a_document_from_an_entry(store, client):
     assert {'id': notes, 'title': 'Notes', 'connection': 'linked'} in brief(added.json())['documents']
     assert message(client.post(url, headers=HEADERS, json={'document_id': notes})) == (
         409,
-        'This document is already linked.',
+        'This document is already linked to that server.',
     )
     document = client.get(f'{DOCUMENTS}/{notes}', headers=HEADERS).json()
     assert document['revision'] == 2
@@ -364,7 +364,10 @@ def test_link_and_unlink_a_document_from_an_entry(store, client):
     assert brief(removed.json())['documents'] == [{'id': built, 'title': 'Built', 'connection': 'built_for'}]
     history = client.get(f'{DOCUMENTS}/{notes}/resource-history', headers=HEADERS).json()['history']
     assert [row['removed_at'] is not None for row in history] == [True]
-    assert message(client.delete(f'{url}/{notes}', headers=HEADERS)) == (404, 'This document is not linked.')
+    assert message(client.delete(f'{url}/{notes}', headers=HEADERS)) == (
+        404,
+        'This document is not linked to that server.',
+    )
     assert message(client.delete(f'{url}/{built}', headers=HEADERS)) == (
         409,
         "This document was built for server prod-1; that link can't be removed.",
