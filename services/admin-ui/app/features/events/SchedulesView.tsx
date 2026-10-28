@@ -293,7 +293,6 @@ export default function SchedulesView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">{newSchedule}</div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -305,6 +304,7 @@ export default function SchedulesView() {
         loading={schedules === null && !error}
         rowId={(schedule) => schedule.id}
         search={{ plural: "schedules", value: search, onChange: setSearch }}
+        actions={newSchedule}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

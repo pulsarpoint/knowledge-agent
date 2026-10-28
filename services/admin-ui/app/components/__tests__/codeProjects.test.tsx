@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { CodeProject } from "~/features/codeProjects/api";
 import { renderCodeProjects, sectionLink } from "~/lib/__tests__/codeProjectRoutes";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const project: CodeProject = {
   id: "code-1",
@@ -115,7 +116,13 @@ test("the list has Code projects and Code folder sub-pages; folder is not taken 
   const { router } = show();
   expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute("href", "/code-projects/code-1");
   expect(sectionLink("Code projects sections", "Code projects")).toHaveAttribute("aria-current", "page");
-  expect(screen.getByRole("button", { name: "New code project" })).toBeInTheDocument();
+  // Search, the two filters and New code project share the list's one toolbar row.
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search code projects" }),
+    screen.getByRole("combobox", { name: "Sync status" }),
+    screen.getByRole("combobox", { name: "Code graph" }),
+    screen.getByRole("button", { name: "New code project" }),
+  );
   expect(
     screen.getByText("Local folders and Git sources organized into projects that agents can search."),
   ).toBeVisible();

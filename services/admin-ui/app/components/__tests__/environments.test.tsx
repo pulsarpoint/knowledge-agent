@@ -7,6 +7,7 @@ import type { ServiceAsset } from "~/features/servers/services";
 import type { ServerAsset } from "~/features/servers/api";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -224,6 +225,10 @@ test("deletion failure retains the environment and explains the conflict", async
 test("list filtering includes deployed services and hostnames", async () => {
   setup([{ ...development }]);
   await screen.findByRole("button", { name: "Actions for Development" });
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search environments" }),
+    screen.getByRole("button", { name: "New environment" }),
+  );
   for (const query of ["Daily testing", "Database", "host1.internal"]) {
     fireEvent.change(screen.getByRole("searchbox", { name: "Search environments" }), { target: { value: query } });
     expect(screen.getByRole("button", { name: "Actions for Development" })).toBeInTheDocument();

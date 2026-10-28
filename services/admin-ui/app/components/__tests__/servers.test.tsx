@@ -5,6 +5,7 @@ import ServersView from "~/features/servers/ServersView";
 import type { ServerAsset } from "~/features/servers/api";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -180,6 +181,7 @@ test("closing the server sheet with unsaved changes asks Stay / Leave; an unchan
 test("search includes tags, descriptions, and hostnames", async () => {
   setup([server]);
   const filter = await screen.findByRole("searchbox", { name: "Search servers" });
+  expectOneToolbarRow(filter, await screen.findByRole("button", { name: "New server" }));
   for (const query of ["EU-West", "payment", "app.internal"]) {
     fireEvent.change(filter, { target: { value: query } });
     expect(screen.getByRole("button", { name: "Actions for App host" })).toBeInTheDocument();

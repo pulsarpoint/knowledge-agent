@@ -15,7 +15,7 @@ import {
   type NotificationRow,
   type NotificationStatus,
 } from "./notifications";
-import DataTable, { TableEmpty } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, TableEmpty } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -135,12 +135,6 @@ export default function NotificationsView() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
-          <RefreshCw data-icon="inline-start" />
-          Refresh
-        </Button>
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Notifications</AlertTitle>
@@ -174,7 +168,7 @@ export default function NotificationsView() {
               setPage(1);
             }}
           >
-            <SelectTrigger aria-label="Status" className="w-full sm:w-40">
+            <SelectTrigger aria-label="Status" className={FILTER_WIDTH}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -185,6 +179,12 @@ export default function NotificationsView() {
               </SelectGroup>
             </SelectContent>
           </Select>
+        }
+        actions={
+          <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
+            <RefreshCw data-icon="inline-start" />
+            Refresh
+          </Button>
         }
         empty={
           error ? (

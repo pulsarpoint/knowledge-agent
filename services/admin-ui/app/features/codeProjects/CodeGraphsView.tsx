@@ -193,8 +193,8 @@ export default function CodeGraphsView() {
         search={{ plural: "code graphs", value: search, onChange: setSearch }}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
-        toolbar={
-          <Button variant="outline" className="sm:ml-auto" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>
+        actions={
+          <Button variant="outline" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>
             <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>

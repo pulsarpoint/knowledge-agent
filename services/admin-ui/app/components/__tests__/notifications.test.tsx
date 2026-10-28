@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import NotificationsView from "~/features/events/NotificationsView";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const row = (id: number, extra = {}) => ({
   id,
@@ -79,6 +80,11 @@ test("filters by status and searches the title", async () => {
   });
   view();
   await screen.findByText("Answer 1");
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search notifications" }),
+    screen.getByRole("combobox", { name: "Status" }),
+    screen.getByRole("button", { name: "Refresh" }),
+  );
   await user.click(screen.getByRole("combobox", { name: "Status" }));
   await user.click(screen.getByRole("option", { name: "Failed" }));
   expect(await screen.findByText("No notifications match these filters.")).toBeInTheDocument();

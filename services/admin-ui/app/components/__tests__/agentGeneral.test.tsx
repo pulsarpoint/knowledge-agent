@@ -6,6 +6,7 @@ import AgentsView from "~/features/agents/AgentsView";
 import * as profiles from "~/features/agents/api";
 import * as llm from "~/features/llm/api";
 import { Toaster } from "~/components/ui/sonner";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 vi.mock("~/features/agents/api", async () => ({
   ...(await vi.importActual("~/features/agents/api")),
@@ -181,6 +182,11 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   const other = screen.getByRole("link", { name: "Search agent" }).closest("tr")!;
   expect(within(other).getByText("1 document")).toBeVisible();
   await user.type(screen.getByRole("searchbox", { name: "Search agents" }), "technical");
+  // Search and New agent share the one toolbar row.
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search agents" }),
+    screen.getByRole("button", { name: "New agent" }),
+  );
   expect(screen.queryByRole("link", { name: "Search agent" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "New agent" }));
   expect(screen.getByText("Agent wizard")).toBeVisible();

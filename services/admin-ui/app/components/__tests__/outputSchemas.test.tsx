@@ -8,6 +8,7 @@ import OutputSchemaEditorView from "~/features/outputSchemas/OutputSchemaEditorV
 import OutputSchemaPicker from "~/features/outputSchemas/OutputSchemaPicker";
 import RunOutputPanel from "~/features/outputSchemas/RunOutputPanel";
 import { Toaster } from "~/components/ui/sonner";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const SHAPE = {
   type: "object",
@@ -77,6 +78,10 @@ test("the list shows each schema with its version and the handlers that use it",
   expect(within(row).getByText("v2")).toBeInTheDocument();
   expect(within(row).getByText("Triage tickets")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "New schema" })).toHaveAttribute("href", "/output-schemas/new");
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search output schemas" }),
+    screen.getByRole("link", { name: "New schema" }),
+  );
 });
 
 test("the schema list: Skeleton rows while loading, then search and sort by a header", async () => {

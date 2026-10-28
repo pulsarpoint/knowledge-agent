@@ -11,6 +11,7 @@ import {
   treeRows,
   type SkillSummary,
 } from "~/features/agents/skills";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const NativeRequest = globalThis.Request;
 beforeEach(() =>
@@ -88,10 +89,16 @@ function show() {
   return router;
 }
 
-test("the page says every agent sees every enabled skill and each row has its enabled switch", async () => {
+test("search, Import and New skill share one toolbar row, and each row has its enabled switch", async () => {
   api({ "GET /api/skills": () => [200, { skills: [notes, { ...pdf, enabled: false }] }] });
   show();
-  expect(await screen.findByText("Every agent sees every enabled skill; disable a skill to hide it.")).toBeVisible();
+  expectOneToolbarRow(
+    await screen.findByRole("searchbox", { name: "Search skills" }),
+    screen.getByRole("button", { name: "Import" }),
+    screen.getByRole("button", { name: "New skill" }),
+  );
+  // The note that every agent sees every enabled skill is in the page description (AdminLayout), not beside them.
+  expect(screen.queryByText(/Every agent sees every enabled skill/)).toBeNull();
   expect(screen.getByRole("switch", { name: "notes enabled" })).toBeChecked();
   expect(screen.getByRole("switch", { name: "pdf-forms enabled" })).not.toBeChecked();
 });

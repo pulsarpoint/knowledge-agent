@@ -7,6 +7,7 @@ import JiraTicketsView from "~/features/jira/JiraTicketsView";
 import type { JiraConnection, JiraTickets } from "~/features/jira/api";
 import type { Schedule } from "~/features/events/schedules";
 import { Toaster } from "~/components/ui/sonner";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -271,6 +272,11 @@ test("JQL is submitted and filtering the saved list limits bulk selection", asyn
   await waitFor(() => expect(jiraCalls()).toHaveLength(2));
   expect(JSON.parse(jiraCalls()[1][1].body as string).jql).toBe("project = DEMO");
   await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search tickets" })).toBeEnabled());
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search tickets" }),
+    screen.getByRole("combobox", { name: "Project" }),
+    screen.getByRole("combobox", { name: "Status" }),
+  );
   fireEvent.change(screen.getByRole("searchbox", { name: "Search tickets" }), { target: { value: "payments" } });
   expect(screen.queryByText("Worker retries")).not.toBeInTheDocument();
   // one count: the table's pager (no second "Showing X of Y saved tickets" line)

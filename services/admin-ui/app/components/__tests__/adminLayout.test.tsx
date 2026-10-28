@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import AdminLayout from "../AdminLayout";
+import AdminLayout, { sectionOf } from "../AdminLayout";
 import Home from "~/routes/home";
 import { useWidePage } from "~/lib/widePage";
 
@@ -226,4 +226,11 @@ test("an agent's Chat tab keeps the Agents title and description visible", async
   expect(
     screen.getByText("Create agents with their own models, instructions, resources, and conversations."),
   ).toBeInTheDocument();
+});
+
+test("list help notes live in the page description, not beside the toolbar", () => {
+  expect(sectionOf("/skills")?.description).toContain(
+    "Every agent sees every enabled skill; disable a skill to hide it.",
+  );
+  expect(sectionOf("/prompts")?.description).toContain("New prompt versions stay inactive until activated.");
 });

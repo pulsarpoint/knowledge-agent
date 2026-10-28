@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { FolderGit2, RefreshCw } from "lucide-react";
+import { FolderGit2, Plus, RefreshCw } from "lucide-react";
 import { getCodeProjects, pullCodeProject, removeCodeProject, type CodeProject } from "./api";
 import { useCodeProjectsPage } from "./CodeProjectsLayout";
 import { graphStatus, syncStatus, syncing } from "./status";
-import DataTable, { sortHeader as header, TableEmpty, type Sort } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, sortHeader as header, TableEmpty, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
@@ -60,7 +60,7 @@ const when = (value: string) => new Date(value).toLocaleString();
  * sync and code graph status, how many services are built from it; Sync now and Delete) with search, status filters,
  * sorting by a header's click and 20 rows a page. Reloads while a sync or indexing runs, or automatic pulls are on. */
 export default function CodeProjectsList() {
-  const { reloaded } = useCodeProjectsPage();
+  const { reloaded, newProject } = useCodeProjectsPage();
   const [projects, setProjects] = useState<CodeProject[]>([]);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -228,9 +228,9 @@ export default function CodeProjectsList() {
   const options = (status: (project: CodeProject) => string, chosen: string) =>
     [...new Set([...projects.map(status), ...(chosen === ALL ? [] : [chosen])])].sort();
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-2">
+    <>
       <Select value={view.sync} onValueChange={(sync) => change({ sync })}>
-        <SelectTrigger className="w-48" aria-label="Sync status">
+        <SelectTrigger className={FILTER_WIDTH} aria-label="Sync status">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -245,7 +245,7 @@ export default function CodeProjectsList() {
         </SelectContent>
       </Select>
       <Select value={view.graph} onValueChange={(graph) => change({ graph })}>
-        <SelectTrigger className="w-48" aria-label="Code graph">
+        <SelectTrigger className={FILTER_WIDTH} aria-label="Code graph">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -259,7 +259,7 @@ export default function CodeProjectsList() {
           </SelectGroup>
         </SelectContent>
       </Select>
-    </div>
+    </>
   );
 
   return (
@@ -279,6 +279,12 @@ export default function CodeProjectsList() {
         }}
         resetKey={`${view.sync}\n${view.graph}\n${view.sort}\n${view.descending}`}
         toolbar={toolbar}
+        actions={
+          <Button onClick={newProject}>
+            <Plus data-icon="inline-start" />
+            New code project
+          </Button>
+        }
         loading={loading}
         rowId={(project) => project.id}
         empty={

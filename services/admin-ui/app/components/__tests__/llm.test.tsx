@@ -7,6 +7,7 @@ import LlmModelForm from "~/features/llm/LlmModelForm";
 import type { ModelProfile } from "~/features/llm/api";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 afterEach(() => vi.unstubAllGlobals());
 const bedrock: ModelProfile = {
@@ -114,6 +115,10 @@ test("the model list: Skeleton rows while loading, an empty state with New model
   cleanup();
   page();
   await screen.findByRole("cell", { name: "Atlas" });
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search models" }),
+    screen.getByRole("button", { name: "New model" }),
+  );
   const names = () =>
     screen
       .getAllByRole("row")

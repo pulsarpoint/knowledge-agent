@@ -5,6 +5,7 @@ import CodeGraphsView from "~/features/codeProjects/CodeGraphsView";
 import type { CodeProject } from "~/features/codeProjects/api";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 vi.mock("~/features/codeProjects/CodeGraphExplorer", () => ({
   default: ({ projectId, sourceHash }: { projectId: string; sourceHash: string }) => (
@@ -190,6 +191,10 @@ test("the code graph list: Skeleton rows while loading, search and sort by a hea
   );
   expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   await screen.findByRole("cell", { name: "Payments" });
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search code graphs" }),
+    screen.getByRole("button", { name: "Refresh" }),
+  );
   const names = () =>
     screen
       .getAllByRole("row")

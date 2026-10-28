@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import HandlersView from "~/features/events/HandlersView";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const handler = (extra = {}) => ({
   id: "h-1",
@@ -126,6 +127,10 @@ test("lists handlers with what they do", async () => {
   expect(screen.getByText("Send to Tester")).toBeInTheDocument();
   expect(screen.getAllByText("jira.ticket.* · 1 condition")).toHaveLength(2);
   expect(screen.getByText("Failed")).toBeInTheDocument();
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search handlers" }),
+    screen.getByRole("button", { name: "New handler" }),
+  );
 });
 
 test("a handler row has no inline buttons: Edit and Delete are in its menu", async () => {

@@ -347,7 +347,6 @@ export default function MCPServersView() {
   ];
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-end gap-2">{newServer}</div>
       {error && !removing && (
         <Alert variant="destructive">
           <AlertDescription role="alert">{error}</AlertDescription>
@@ -370,6 +369,7 @@ export default function MCPServersView() {
         loading={servers === null && busy}
         rowId={(server) => server.id}
         search={{ plural: "MCP servers", value: search, onChange: setSearch }}
+        actions={newServer}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

@@ -154,20 +154,17 @@ export default function LlmSettingsView() {
   ];
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Manage model connections and credentials. Select models for each agent on the{" "}
-          <Link className="underline underline-offset-4" to="/agents">
-            Agents page
-          </Link>{" "}
-          and select the memory embedding model on the{" "}
-          <Link className="underline underline-offset-4" to="/memory">
-            Memory page
-          </Link>
-          . Test connection sends a small chat or embedding request and may incur provider usage.
-        </p>
-        {newModel}
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Manage model connections and credentials. Select models for each agent on the{" "}
+        <Link className="underline underline-offset-4" to="/agents">
+          Agents page
+        </Link>{" "}
+        and select the memory embedding model on the{" "}
+        <Link className="underline underline-offset-4" to="/memory">
+          Memory page
+        </Link>
+        . Test connection sends a small chat or embedding request and may incur provider usage.
+      </p>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -187,6 +184,7 @@ export default function LlmSettingsView() {
         loading={!settings && busy}
         rowId={(model) => model.id}
         search={{ plural: "models", value: search, onChange: setSearch }}
+        actions={newModel}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

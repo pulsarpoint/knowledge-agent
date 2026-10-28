@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { Outlet, useLocation, useOutletContext } from "react-router";
-import { Plus } from "lucide-react";
+import { Outlet, useOutletContext } from "react-router";
 import { toast } from "sonner";
 import CodeProjectForm from "./CodeProjectForm";
 import SectionLinks from "~/components/SectionLinks";
 import { useSheetGuard } from "~/components/LeaveGuard";
-import { Button } from "~/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 
-/** What the list's sub-pages get from the layout: `reloaded` counts saved new code projects (the list reloads on it). */
+/** What the list's sub-pages get from the layout: `reloaded` counts saved new code projects (the list reloads on it);
+ * `newProject` opens the New code project sheet (the list's toolbar action). */
 export interface CodeProjectsPageContext {
   reloaded: number;
+  newProject: () => void;
 }
 export const useCodeProjectsPage = () => useOutletContext<CodeProjectsPageContext>();
 
@@ -29,10 +29,9 @@ const SECTIONS = [
 ];
 
 /** Code projects (`/code-projects`): the sub-pages Code projects (the table) and Code folder (the code root browser)
- * as links; on Code projects, New code project opens the code project form in a right-side sheet. */
+ * as links; New code project (in the Code projects list's toolbar) opens the code project form in a right-side
+ * sheet. */
 export default function CodeProjectsLayout() {
-  const { pathname } = useLocation();
-  const projects = pathname.replace(/\/$/, "") === "/code-projects";
   const [creating, setCreating] = useState(false);
   const [reloaded, setReloaded] = useState(0);
   // Escape, the X or a click outside with input asks Stay / Leave; Cancel discards at once.
@@ -44,16 +43,8 @@ export default function CodeProjectsLayout() {
   };
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionLinks label="Code projects sections" sections={SECTIONS} />
-        {projects && (
-          <Button onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" />
-            New code project
-          </Button>
-        )}
-      </div>
-      <Outlet context={{ reloaded } satisfies CodeProjectsPageContext} />
+      <SectionLinks label="Code projects sections" sections={SECTIONS} />
+      <Outlet context={{ reloaded, newProject: () => setCreating(true) } satisfies CodeProjectsPageContext} />
       <Sheet open={creating} onOpenChange={(open) => !open && guard.close(close)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>

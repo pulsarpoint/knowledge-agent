@@ -54,7 +54,12 @@ const SECTIONS = [
     description:
       "JSON Schemas a run can be asked to finish with, versioned. Handlers, the API, Test and Run agent choose one per run.",
   },
-  { prefix: "/prompts", title: "Prompts", description: "Reusable instructions for agents, organised by tags." },
+  {
+    prefix: "/prompts",
+    title: "Prompts",
+    description:
+      "Reusable instructions for agents, organised by tags. New prompt versions stay inactive until activated.",
+  },
   {
     prefix: "/notifications",
     title: "Notifications",
@@ -111,7 +116,8 @@ const SECTIONS = [
   {
     prefix: "/skills",
     title: "Skills",
-    description: "Folders of instructions, references and scripts your agents load when a task needs them.",
+    description:
+      "Folders of instructions, references and scripts your agents load when a task needs them. Every agent sees every enabled skill; disable a skill to hide it.",
   },
   {
     prefix: "/agents",

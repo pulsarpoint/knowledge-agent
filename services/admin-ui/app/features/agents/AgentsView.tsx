@@ -203,7 +203,6 @@ export default function AgentsView() {
   );
   return (
     <section className="flex flex-col gap-6" aria-label="Agent list">
-      <div className="flex flex-wrap items-center justify-end gap-3">{newAgent}</div>
       {creating && (
         <AgentWizard open onClose={() => setCreating(false)} onCreated={(id) => navigate(`/agents/${id}`)} />
       )}
@@ -223,6 +222,7 @@ export default function AgentsView() {
         loading={!agents && !error}
         rowId={(a) => a.id}
         search={{ plural: "agents", value: query, onChange: setQuery }}
+        actions={newAgent}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

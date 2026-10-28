@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
-import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import LeaveGuard from "~/components/LeaveGuard";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Link, useNavigate, useParams } from "react-router";
@@ -136,12 +136,6 @@ export default function DocumentationPromptsView() {
   ];
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Reusable instructions for agents, organised by tags. New prompt versions stay inactive until activated.
-        </p>
-        {newPrompt}
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>
@@ -158,11 +152,12 @@ export default function DocumentationPromptsView() {
         loading={rows === null && !error}
         rowId={(prompt) => prompt.id}
         search={{ plural: "prompts", value: search, onChange: setSearch }}
+        actions={newPrompt}
         sort={sort}
         resetKey={`${tag}\n${sort.key}\n${sort.descending}`}
         toolbar={
           <Select value={tag || ALL_TAGS} onValueChange={(value) => setTag(value === ALL_TAGS ? "" : value)}>
-            <SelectTrigger aria-label="Filter by tag" className="w-full sm:w-48">
+            <SelectTrigger aria-label="Filter by tag" className={FILTER_WIDTH}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

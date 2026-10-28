@@ -7,6 +7,7 @@ import type { ServerAsset } from "~/features/servers/api";
 import type { ServiceAsset } from "~/features/servers/services";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -182,7 +183,10 @@ test("service list can be filtered by type or role", async () => {
 test("services remains an inventory page without a graph tab", async () => {
   setup([service], { initialEntry: "/services?view=graph&layout=tala" });
   expect(await screen.findByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
-  expect(screen.getByRole("searchbox", { name: "Search services" })).toBeInTheDocument();
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search services" }),
+    screen.getByRole("link", { name: "New service" }),
+  );
   expect(screen.queryByRole("tab", { name: "Dependency graph" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Service dependency graph" })).toBeNull();
 });

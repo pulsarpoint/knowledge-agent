@@ -76,7 +76,6 @@ export default function OutputSchemasView() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">{newSchema}</div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -88,6 +87,7 @@ export default function OutputSchemasView() {
         loading={rows === null}
         rowId={(row) => row.id}
         search={{ plural: "output schemas", value: search, onChange: setSearch }}
+        actions={newSchema}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

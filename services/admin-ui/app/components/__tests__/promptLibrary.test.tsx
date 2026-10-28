@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import DocumentationPromptsView from "~/features/documents/DocumentationPromptsView";
 import routes from "../../routes";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const prompts = [
   {
@@ -66,6 +67,11 @@ test("lists prompts with their tags and filters by tag", async () => {
   const row = (await screen.findByRole("link", { name: "Discovery" })).closest("tr")!;
   expect(within(row).getByText("server-discovery")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Discovery" })).toHaveAttribute("href", "/prompts/p1");
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search prompts" }),
+    screen.getByRole("combobox", { name: "Filter by tag" }),
+    screen.getByRole("link", { name: "New prompt" }),
+  );
   await user.click(screen.getByRole("combobox", { name: "Filter by tag" }));
   await user.click(screen.getByRole("option", { name: "ssh" }));
   await waitFor(() => expect(screen.queryByRole("link", { name: "Runbook" })).toBeNull());

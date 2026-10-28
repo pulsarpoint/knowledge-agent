@@ -213,10 +213,6 @@ export default function ServersView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">Application infrastructure</p>
-        {newServer}
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Server inventory unavailable</AlertTitle>
@@ -270,6 +266,7 @@ export default function ServersView() {
         loading={servers === null && loading}
         rowId={(server) => server.id}
         search={{ plural: "servers", value: query, onChange: setQuery }}
+        actions={newServer}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

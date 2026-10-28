@@ -171,7 +171,6 @@ export default function EnvironmentsView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-end gap-2">{newEnvironment}</div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Environments unavailable</AlertTitle>
@@ -204,6 +203,7 @@ export default function EnvironmentsView() {
         loading={data === null && loading}
         rowId={(environment) => environment.id}
         search={{ plural: "environments", value: query, onChange: setQuery }}
+        actions={newEnvironment}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

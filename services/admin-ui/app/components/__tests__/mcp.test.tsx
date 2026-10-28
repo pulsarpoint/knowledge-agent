@@ -6,6 +6,7 @@ import MCPServersView from "~/features/llm/MCPServersView";
 import * as api from "~/features/llm/mcp";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 vi.mock("~/features/llm/mcp");
 vi.mock("../Markdown", () => ({ default: () => null }));
 const connection: api.MCPServer = {
@@ -158,6 +159,10 @@ it("the MCP server list searches and sorts by a header", async () => {
   });
   page();
   await screen.findByText("Atlas");
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search MCP servers" }),
+    screen.getByRole("button", { name: "New MCP server" }),
+  );
   const names = () =>
     screen
       .getAllByRole("row")

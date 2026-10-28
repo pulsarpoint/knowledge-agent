@@ -178,7 +178,6 @@ export default function HandlersView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">{newHandler}</div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -190,6 +189,7 @@ export default function HandlersView() {
         loading={handlers === null}
         rowId={(handler) => handler.id}
         search={{ plural: "handlers", value: search, onChange: setSearch }}
+        actions={newHandler}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

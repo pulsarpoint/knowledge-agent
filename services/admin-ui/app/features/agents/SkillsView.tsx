@@ -201,18 +201,6 @@ export default function SkillsView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Every agent sees every enabled skill; disable a skill to hide it.
-        </p>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={blocked || unavailable} onClick={() => setSheet("import")}>
-            <Download data-icon="inline-start" />
-            Import
-          </Button>
-          {newSkill}
-        </div>
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription role="alert">
@@ -244,6 +232,15 @@ export default function SkillsView() {
         loading={skills === null && loading}
         rowId={(skill) => skill.id}
         search={{ plural: "skills", value: query, onChange: setQuery }}
+        actions={
+          <>
+            <Button variant="outline" disabled={blocked || unavailable} onClick={() => setSheet("import")}>
+              <Download data-icon="inline-start" />
+              Import
+            </Button>
+            {newSkill}
+          </>
+        }
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

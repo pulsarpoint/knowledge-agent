@@ -5,7 +5,7 @@ import { Download, Ticket } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { fetchJiraTickets, getJiraTickets, type JiraTicket, type JiraTickets } from "./api";
 import JiraPullStatus from "./JiraPullStatus";
-import DataTable, { sortHeader, sortRows, type Sort } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, sortHeader, sortRows, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -236,7 +236,7 @@ export default function JiraTicketsView() {
             toolbar={
               <>
                 <Select value={project} disabled={busy} onValueChange={setProject}>
-                  <SelectTrigger aria-label="Project" className="w-full sm:w-40">
+                  <SelectTrigger aria-label="Project" className={FILTER_WIDTH}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -251,7 +251,7 @@ export default function JiraTicketsView() {
                   </SelectContent>
                 </Select>
                 <Select value={status} disabled={busy} onValueChange={setStatus}>
-                  <SelectTrigger aria-label="Status" className="w-full sm:w-40">
+                  <SelectTrigger aria-label="Status" className={FILTER_WIDTH}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

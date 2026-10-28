@@ -189,10 +189,6 @@ export default function ServicesView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">Application assets</p>
-        {newService}
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Service inventory unavailable</AlertTitle>
@@ -210,6 +206,7 @@ export default function ServicesView() {
         loading={data === null && loading}
         rowId={(service) => service.id}
         search={{ plural: "services", value: query, onChange: setQuery }}
+        actions={newService}
         sort={sort}
         resetKey={`${sort.key}\n${sort.descending}`}
         empty={

@@ -5,6 +5,7 @@ import SchedulesView from "~/features/events/SchedulesView";
 import type { Schedule } from "~/features/events/schedules";
 import { Toaster } from "~/components/ui/sonner";
 import { menuItems, rowButtons } from "~/lib/__tests__/rowMenu";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 /** Chooses `item` in the menu of the `index`th schedule row. */
 async function choose(user: ReturnType<typeof userEvent.setup>, item: string, index = 0) {
@@ -85,6 +86,10 @@ test("lists schedules with their timetable and last result", async () => {
   expect(within(row).getByText("Europe/Belgrade")).toBeInTheDocument();
   expect(within(row).getByText("Succeeded")).toBeInTheDocument();
   expect(within(row).getByText("Pulled 25 of 140 tickets.")).toBeInTheDocument();
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search schedules" }),
+    screen.getByRole("button", { name: "New schedule" }),
+  );
 });
 
 test("shows the empty state", async () => {
