@@ -14,7 +14,8 @@ import { getAgents, type AgentSummary } from "~/features/agents/api";
 import { getSchedules } from "~/features/events/schedules";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Activity, RefreshCw } from "lucide-react";
-import DataTable, { sortHeader, TableEmpty, type Sort } from "~/components/DataTable";
+import FiltersSheet from "~/components/FiltersSheet";
+import DataTable, { FILTER_WIDTH, sortHeader, TableEmpty, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -57,7 +58,7 @@ function FilterSelect({
 }) {
   return (
     <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? "" : next)}>
-      <SelectTrigger aria-label={label} className="w-full sm:w-44">
+      <SelectTrigger aria-label={label} className={FILTER_WIDTH}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -74,8 +75,12 @@ function FilterSelect({
   );
 }
 
+/** The filters behind the Filters button (type, agent and status stay in the toolbar row). */
+const HIDDEN_FILTERS = ["has_output", "schedule_id", "user"];
+
 /** Activity → Runs: every recorded agent run in a table paged by the server, with filters in the URL (type, agent,
- * status, output, schedule, user), sortable Tokens and Started headers, and Refresh (runs come in on their own). */
+ * status in the toolbar row; output, schedule, user in the Filters sheet), sortable Tokens and Started headers, and
+ * Refresh (runs come in on their own). */
 export default function RunsView() {
   const [params, setParams] = useSearchParams();
   const value = (key: string) => params.get(key) || RUN_DEFAULTS[key] || "";
@@ -227,52 +232,59 @@ export default function RunsView() {
               options={Object.entries(STATUSES)}
               onChange={(status) => update({ status })}
             />
-            <FilterSelect
-              label="Output"
-              all="With or without output"
-              value={value("has_output")}
-              options={[
-                ["true", "Has output"],
-                ["false", "No output"],
-              ]}
-              onChange={(has_output) => update({ has_output })}
-            />
-            <FilterSelect
-              label="Schedule"
-              all="All schedules"
-              value={scheduleId}
-              options={[
-                ...(scheduleId && !schedules.some((schedule) => schedule.id === scheduleId)
-                  ? ([[scheduleId, "(deleted)"]] as [string, string][])
-                  : []),
-                ...schedules.map((schedule): [string, string] => [schedule.id, schedule.name]),
-              ]}
-              onChange={(schedule_id) => update({ schedule_id })}
-            />
-            <Input
-              key={user}
-              type="search"
-              aria-label="User"
-              placeholder="User email contains"
-              className="w-full sm:w-48"
-              defaultValue={user}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") update({ user: e.currentTarget.value.trim() });
-              }}
-              onBlur={(e) => {
-                if (e.target.value.trim() !== user) update({ user: e.target.value.trim() });
-              }}
-            />
+            <FiltersSheet
+              active={HIDDEN_FILTERS.filter((key) => params.get(key)).length}
+              onReset={() => update(Object.fromEntries(HIDDEN_FILTERS.map((key) => [key, ""])))}
+            >
+              <FilterSelect
+                label="Output"
+                all="With or without output"
+                value={value("has_output")}
+                options={[
+                  ["true", "Has output"],
+                  ["false", "No output"],
+                ]}
+                onChange={(has_output) => update({ has_output })}
+              />
+              <FilterSelect
+                label="Schedule"
+                all="All schedules"
+                value={scheduleId}
+                options={[
+                  ...(scheduleId && !schedules.some((schedule) => schedule.id === scheduleId)
+                    ? ([[scheduleId, "(deleted)"]] as [string, string][])
+                    : []),
+                  ...schedules.map((schedule): [string, string] => [schedule.id, schedule.name]),
+                ]}
+                onChange={(schedule_id) => update({ schedule_id })}
+              />
+              <Input
+                key={user}
+                type="search"
+                aria-label="User"
+                placeholder="User email contains"
+                className={FILTER_WIDTH}
+                defaultValue={user}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") update({ user: e.currentTarget.value.trim() });
+                }}
+                onBlur={(e) => {
+                  if (e.target.value.trim() !== user) update({ user: e.target.value.trim() });
+                }}
+              />
+            </FiltersSheet>
             {keyPrefix && (
-              <Button variant="outline" size="sm" onClick={() => update({ key_prefix: "" })}>
+              <Button variant="outline" onClick={() => update({ key_prefix: "" })}>
                 Clear run filter
               </Button>
             )}
-            <Button variant="outline" className="sm:ml-auto" onClick={() => setReload((count) => count + 1)}>
-              <RefreshCw data-icon="inline-start" />
-              Refresh
-            </Button>
           </>
+        }
+        actions={
+          <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
+            <RefreshCw data-icon="inline-start" />
+            Refresh
+          </Button>
         }
         empty={
           error ? (

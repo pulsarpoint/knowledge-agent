@@ -17,7 +17,7 @@ import {
 } from "./api";
 import EmbeddingModelSelect from "./EmbeddingModelSelect";
 import MemorySheet from "./MemorySheet";
-import DataTable, { TableEmpty } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, TableEmpty } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -194,7 +194,7 @@ export default function MemoryView() {
         toolbar={
           <>
             <Select value={filters.agent || ALL} onValueChange={(next) => change({ agent: next === ALL ? "" : next })}>
-              <SelectTrigger aria-label="Saved by agent" className="w-full sm:w-48">
+              <SelectTrigger aria-label="Saved by agent" className={FILTER_WIDTH}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,20 +220,22 @@ export default function MemoryView() {
                 </button>
               </Badge>
             ))}
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <EmbeddingModelSelect onChange={refresh} onError={setError} />
-              <Button variant="outline" onClick={refresh}>
-                <RefreshCw data-icon="inline-start" />
-                Refresh
+          </>
+        }
+        actions={
+          <>
+            <EmbeddingModelSelect onChange={refresh} onError={setError} />
+            <Button variant="outline" onClick={refresh}>
+              <RefreshCw data-icon="inline-start" />
+              Refresh
+            </Button>
+            {notEmbedded > 0 && embeddingModel && (
+              <Button variant="outline" disabled={reembedding} onClick={() => void reembed()}>
+                {reembedding && <Spinner data-icon="inline-start" />}
+                Re-embed ({notEmbedded})
               </Button>
-              {notEmbedded > 0 && embeddingModel && (
-                <Button variant="outline" disabled={reembedding} onClick={() => void reembed()}>
-                  {reembedding && <Spinner data-icon="inline-start" />}
-                  Re-embed ({notEmbedded})
-                </Button>
-              )}
-              {newEntry}
-            </div>
+            )}
+            {newEntry}
           </>
         }
         empty={

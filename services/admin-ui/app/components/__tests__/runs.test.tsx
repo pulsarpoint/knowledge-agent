@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import RunsView from "~/features/sessions/RunsView";
 import RunRecordView from "~/features/sessions/RunRecordView";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 afterEach(() => vi.unstubAllGlobals());
 /** Picks `option` in the toolbar Select named `label`. */
@@ -17,6 +18,11 @@ async function optionsOf(label: string) {
   const names = screen.getAllByRole("option").map((option) => option.textContent);
   await userEvent.keyboard("{Escape}");
   return names;
+}
+/** Opens the Filters sheet, where the Output, Schedule and User filters are. */
+async function openFilters() {
+  await userEvent.click(screen.getByRole("button", { name: /^Filters/ }));
+  return within(await screen.findByRole("dialog", { name: "Filters" }));
 }
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -366,10 +372,11 @@ test("filters go into the URL and the request", async () => {
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/agents")).toBe(true));
   await choose("Agent", "Payments");
   await choose("Status", "Working");
-  const user = screen.getByRole("searchbox", { name: "User" });
+  const user = (await openFilters()).getByRole("searchbox", { name: "User" });
   fireEvent.change(user, { target: { value: " Alice " } });
   fireEvent.keyDown(user, { key: "Enter" });
   await screen.findByText("How many retries?");
+  await userEvent.keyboard("{Escape}");
   await choose("Rows per page", "20");
   await waitFor(() => expect(where()).toBe("?agent_id=payments&status=working&user=Alice&page_size=20"));
   await waitFor(() =>
@@ -450,6 +457,7 @@ test("the Output filter lists runs that finished with an output schema's JSON, o
   const fetchMock = listing(1);
   renderRuns();
   await screen.findByText("How many retries?");
+  await openFilters();
   expect(await optionsOf("Output")).toEqual(["With or without output", "Has output", "No output"]);
   await choose("Output", "Has output");
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?has_output=true"));
@@ -471,6 +479,7 @@ test("the Schedule filter lists the schedules and asks for the runs one started"
   renderRuns();
   await screen.findByText("How many retries?");
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/schedules")).toBe(true));
+  await openFilters();
   await choose("Schedule", "Nightly check");
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?schedule_id=c1"));
   expect(where()).toBe("?schedule_id=c1");
@@ -485,7 +494,52 @@ test("a schedule in the URL that is no longer listed reads (deleted)", async () 
   );
   renderRuns("?schedule_id=gone");
   await screen.findByText("How many retries?");
+  await openFilters();
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Schedule" })).toHaveTextContent("(deleted)"));
+});
+
+test("type, agent and status sit in the toolbar row with Refresh; Output, Schedule and User are behind Filters", async () => {
+  listing(1);
+  renderRuns();
+  await screen.findByText("How many retries?");
+  expectOneToolbarRow(
+    screen.getByRole("combobox", { name: "Run type" }),
+    screen.getByRole("combobox", { name: "Agent" }),
+    screen.getByRole("combobox", { name: "Status" }),
+    screen.getByRole("button", { name: "Filters" }),
+    screen.getByRole("button", { name: "Refresh" }),
+  );
+  for (const label of ["Output", "Schedule"]) expect(screen.queryByRole("combobox", { name: label })).toBeNull();
+  expect(screen.queryByRole("searchbox", { name: "User" })).toBeNull();
+});
+
+test("the Filters badge counts the hidden filters set; they still filter, and Reset clears only them", async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === "/api/schedules"
+      ? json({ schedules: [{ id: "c1", name: "Nightly check" }] })
+      : url === "/api/agents"
+        ? json({ agents: [] })
+        : json(runs),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  renderRuns("?status=failed&has_output=true&user=bob");
+  await screen.findByText("How many retries?");
+  const button = screen.getByRole("button", { name: "Filters, 2 active" });
+  expect(within(button).getByText("2")).toBeInTheDocument();
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/schedules")).toBe(true));
+  const sheet = await openFilters();
+  expect(sheet.getByRole("searchbox", { name: "User" })).toHaveValue("bob");
+  await choose("Schedule", "Nightly check");
+  await waitFor(() =>
+    expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?status=failed&has_output=true&schedule_id=c1&user=bob"),
+  );
+  await userEvent.keyboard("{Escape}");
+  expect(await screen.findByRole("button", { name: "Filters, 3 active" })).toBeInTheDocument();
+  await userEvent.click((await openFilters()).getByRole("button", { name: "Reset" }));
+  await waitFor(() => expect(where()).toBe("?status=failed"));
+  await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?status=failed"));
+  await userEvent.keyboard("{Escape}");
+  expect(await screen.findByRole("button", { name: "Filters" })).toBeInTheDocument();
 });
 
 test("an old link's page size that the table does not offer (25) asks for the nearest one (20)", async () => {

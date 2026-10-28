@@ -75,6 +75,33 @@ test("the toolbar search: one unlabelled search field named and hinted Search <p
   expect(onChange).toHaveBeenCalledWith("x");
 });
 
+test("the actions slot: the page's actions at the right end of the one toolbar row, after search and filters", () => {
+  render(
+    <DataTable
+      columns={columns}
+      data={rows(2)}
+      empty="None"
+      search={{ plural: "agents", value: "", onChange: () => {} }}
+      toolbar={<button type="button">A filter</button>}
+      actions={<button type="button">New agent</button>}
+    />,
+  );
+  const row = screen.getByRole("searchbox", { name: "Search agents" }).closest("[data-slot='table-toolbar']")!;
+  expect(row).toHaveClass("flex-wrap", "items-center");
+  const action = screen.getByRole("button", { name: "New agent" });
+  expect(row).toContainElement(screen.getByRole("button", { name: "A filter" }));
+  expect(row).toContainElement(action);
+  expect(action.parentElement).toHaveClass("ml-auto", "items-center");
+  // The filter comes before the actions.
+  const filter = screen.getByRole("button", { name: "A filter" });
+  expect(filter.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("actions alone still make the toolbar row", () => {
+  render(<DataTable columns={columns} data={[]} empty="None" actions={<button type="button">Refresh</button>} />);
+  expect(screen.getByRole("button", { name: "Refresh" }).closest("[data-slot='table-toolbar']")).not.toBeNull();
+});
+
 test("loading with no rows shows Skeleton rows, not the empty state", () => {
   render(<DataTable columns={columns} data={[]} empty="No rows yet" loading />);
   expect(screen.getAllByTestId("skeleton-row")).toHaveLength(3);

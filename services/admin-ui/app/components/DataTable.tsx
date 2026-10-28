@@ -73,6 +73,9 @@ export function TableEmpty({
   );
 }
 
+/** The width of a toolbar filter (a Select trigger or a short Input): every list uses it, so filters line up. */
+export const FILTER_WIDTH = "w-full sm:w-44";
+
 /** The toolbar's search: one `type="search"` field, unlabelled, named and hinted "Search <plural>". */
 export type TableSearch = { plural: string; value: string; onChange: (value: string) => void };
 
@@ -91,7 +94,11 @@ type ClientPaging = {
   onPageSizeChange?: undefined;
 };
 
-/** The one record list: a toolbar (search, then the page's filters and actions), the table, and a pager.
+/** The one record list: a toolbar, the table, and a pager.
+ *
+ * The toolbar is one row: the search and the page's filters (`toolbar`, at `FILTER_WIDTH`; past three, the rest go in a
+ * `FiltersSheet`) on the left, the page's list actions (`actions`: Refresh, New …) at the right end. All controls are
+ * the same height and centred; the row wraps only on narrow screens. Labels sit inline beside a control, never above.
  *
  * Server-side paging: pass `total`, `page`, `pageSize` and their handlers; `data` is the current page. Client-side
  * paging: leave them out and pass every row; the table pages them itself, back to page 1 when the search or `resetKey`
@@ -103,6 +110,7 @@ export default function DataTable<T>({
   data,
   search,
   toolbar,
+  actions,
   empty,
   loading = false,
   rowId,
@@ -115,6 +123,8 @@ export default function DataTable<T>({
   data: T[];
   search?: TableSearch;
   toolbar?: ReactNode;
+  /** The page's list actions, at the right end of the toolbar row. */
+  actions?: ReactNode;
   empty: ReactNode;
   loading?: boolean;
   rowId?: (row: T) => string;
@@ -163,7 +173,7 @@ export default function DataTable<T>({
   const showSkeleton = loading && rows.length === 0;
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      {(search || toolbar) && (
+      {(search || toolbar || actions) && (
         <div data-slot="table-toolbar" className="flex flex-wrap items-center gap-2">
           {search && (
             <Input
@@ -176,6 +186,7 @@ export default function DataTable<T>({
             />
           )}
           {toolbar}
+          {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
       )}
       <div className="overflow-hidden rounded-lg border">
