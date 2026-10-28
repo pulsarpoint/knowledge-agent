@@ -42,7 +42,7 @@ CLAIM = """WITH due AS (SELECT id FROM ka.notifications WHERE jira_status='pendi
     UPDATE ka.notifications n SET jira_attempts=n.jira_attempts+1,
         jira_next_attempt_at=now()+CASE WHEN n.jira_attempts=0 THEN %(first)s ELSE %(later)s END
     FROM due WHERE n.id=due.id
-    RETURNING n.id,n.project_id,coalesce(n.jira_text,n.body) AS body,n.jira_connection_id,n.jira_issue_id,n.jira_attempts,n.give_back_name,
+    RETURNING n.id,n.project_id,n.created_at,coalesce(n.jira_text,n.body) AS body,n.jira_connection_id,n.jira_issue_id,n.jira_attempts,n.give_back_name,
         n.give_back_status,
         coalesce((SELECT a.name FROM ka.agents a WHERE a.id=n.agent_id),n.agent_id,'Agent') AS agent_name,
         (SELECT e.payload->>'assignee_id' FROM ka.events e WHERE e.id=n.event_id) AS event_assignee"""
@@ -67,12 +67,15 @@ def comment_body(answer: str, agent_name: str, give_back_name: str | None = None
     return answer + footer
 
 
-def posted_already(comments: list[dict], bodies: tuple[str, ...]) -> dict | None:
+def posted_already(comments: list[dict], bodies: tuple[str, ...], since: datetime | None = None) -> dict | None:
     """Our comment when Jira already has it: an earlier attempt may have posted it without us recording it (a
-    response we could not read, a timeout after Jira committed, a crash or database error after the POST)."""
+    response we could not read, a timeout after Jira committed, a crash or database error after the POST). Only a
+    comment created at or after `since` (the notification's creation) counts, so an identical failure comment of an
+    earlier notification on the same ticket is not taken for this one (this assumes Jira's clock agrees with ours)."""
     for comment in comments:
-        if comment['body'] in bodies:
-            return {'id': comment['id'], 'created': datetime.fromisoformat(comment['created']), 'body': comment['body']}
+        created = datetime.fromisoformat(comment['created'])
+        if comment['body'] in bodies and (since is None or created >= since):
+            return {'id': comment['id'], 'created': created, 'body': comment['body']}
     return None
 
 
@@ -105,7 +108,7 @@ def post(store: RepositoryStore, row: dict, transport: httpx.BaseTransport | Non
             issue, comments = client.issue_with_comments(row['jira_issue_id']) if waiting or retry else ({}, [])
             assignee = ((issue.get('fields') or {}).get('assignee') or {}).get('key')
             keep = waiting and row['event_assignee'] is not None and assignee == row['event_assignee']
-            if retry and (found := posted_already(comments, (noted, plain))):
+            if retry and (found := posted_already(comments, (noted, plain), row.get('created_at'))):
                 return found, keep and found['body'] == noted
             if row['jira_attempts'] > len(RETRIES) + 1:  # a crashed last attempt that did not post
                 raise Failed(UNEXPECTED, final=True)

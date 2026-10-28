@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Copy } from "lucide-react";
-import { reviewSession, type SessionDetail, type SessionReview } from "./api";
+import { isWorking, reviewSession, type SessionDetail, type SessionReview } from "./api";
 import Markdown from "~/components/Markdown";
 import SuggestionApply from "./SuggestionApply";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -35,7 +35,7 @@ export default function RunSuggestions({
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [applying, setApplying] = useState<SessionReview | null>(null);
-  const working = session.status === "starting" || session.status === "working" || session.status === "retrying";
+  const working = isWorking(session.status);
   useEffect(() => {
     if (open) {
       setError("");

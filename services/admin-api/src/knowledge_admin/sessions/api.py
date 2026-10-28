@@ -18,7 +18,8 @@ from knowledge_admin.sessions.run_record import session_skills_used
 from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn
+from knowledge_admin.knowledge_agents.session_worker import STOPPED, append_run_events
+from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn, notify_event_run
 from knowledge_admin.sessions import debug, run_status, start
 from knowledge_admin.sessions.rows import (
     CLOSED,
@@ -60,7 +61,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     def locked(conn, project, session_id: UUID) -> dict:
         row = conn.execute(
-            'SELECT id,status FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE', (session_id, project)
+            'SELECT id,status,turns,retry_at FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
+            (session_id, project),
         ).fetchone()
         if row is None:
             raise HTTPException(404, 'Session not found.')
@@ -73,6 +75,24 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             AND (%s OR kind='message')""",
             (session_id, wakeups),
         ).rowcount
+
+    def stop_retry(conn, row: dict) -> int:
+        """Stop on a run waiting for a retry: the retry is cancelled (the turn's re-queued inputs, wake-ups included, and
+        the queued messages are discarded), the run ends stopped with a final end event, and an event run's first turn
+        gets its notification (no Jira comment: a person stopped it)."""
+        discarded = conn.execute(
+            """UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND status='queued'
+            AND (kind='message' OR not_before=%s)""",
+            (row['id'], row['retry_at']),
+        ).rowcount
+        conn.execute(
+            """UPDATE ka.agent_sessions SET status='stopped',status_message=%s,retries=0,retry_at=NULL,
+            last_activity_at=now() WHERE id=%s""",
+            (STOPPED, row['id']),
+        )
+        append_run_events(conn, row['id'], [('end', {'status': 'stopped'})])
+        notify_event_run(conn, row['id'], row['turns'], 'stopped', STOPPED)
+        return discarded
 
     @router.get('')
     def sessions(
@@ -296,10 +316,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             )
             if row['status'] == 'retrying':  # the turn waiting for a retry runs now, with this message
                 conn.execute(
-                    """UPDATE ka.agent_session_inputs SET not_before=NULL
-                    WHERE session_id=%s AND status='queued' AND kind='message'""",
-                    (session_id,),
+                    """UPDATE ka.agent_session_inputs SET not_before=CASE WHEN kind='wakeup' THEN now() END
+                    WHERE session_id=%s AND status='queued' AND not_before=%s""",
+                    (session_id, row['retry_at']),
                 )
+                conn.execute('UPDATE ka.agent_sessions SET retry_at=now() WHERE id=%s', (session_id,))
             conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
             return {'seq': seq, 'status': 'queued', 'working': row['status'] == 'working'}
 
@@ -309,6 +330,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
             row = locked(conn, project, session_id)
+            if row['status'] == 'retrying':
+                discarded = stop_retry(conn, row)
+                audit(conn, actor, 'generation.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
+                return {'id': session_id, 'discarded': discarded}
             if row['status'] != 'working':
                 raise HTTPException(409, NOTHING_TO_STOP)
             conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (session_id,))
@@ -322,6 +347,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
             row = locked(conn, project, session_id)
+            if row['status'] == 'retrying':  # its record ends: Agent runs no longer shows it as retrying
+                append_run_events(conn, session_id, [('end', {'status': 'stopped'})])
             if row['status'] != 'closed':
                 conn.execute(
                     """UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
@@ -359,7 +386,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if not queued:
                 raise HTTPException(409, NOTHING_TO_RETRY)
             conn.execute(
-                """UPDATE ka.agent_sessions SET status='retrying',status_message='',retries=0,retried_at=now(),
+                """UPDATE ka.agent_sessions SET status='retrying',status_message='',retries=0,retried_at=now(),retry_at=NULL,
                 stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
                 (session_id,),
             )

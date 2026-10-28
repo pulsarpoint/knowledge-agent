@@ -687,7 +687,8 @@ Event runs retry transient model errors (see agents.md, **Run retries**). `agent
 non-final status `retrying` (the latest turn failed and its inputs wait in the queue, with `not_before`, to run again as
 the same turn). `agent_sessions.retries` (integer, default 0, `>= 0`) counts the automatic retries of the latest turn;
 a new turn starts at 0. `agent_sessions.retried_at` (timestamptz) is when a person last pressed **Retry**: an event
-run's first turn gets one notification for that retry's outcome too. `notifications.jira_text` (at most 200,000
+run's first turn gets one notification for that retry's outcome too. `agent_sessions.retry_at` (timestamptz) is when a
+retrying run's turn runs again; nothing is delivered to it before then. `notifications.jira_text` (at most 200,000
 characters) is the Jira comment when it is not the body: a failed run's short failure comment. The down migration drops
-the three columns, turns a `retrying` run into `failed` (its queued inputs are delivered as its next turn) and restores
+the four columns, turns a `retrying` run into `failed` (its queued inputs are delivered as its next turn) and restores
 the status check.

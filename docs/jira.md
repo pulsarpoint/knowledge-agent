@@ -163,7 +163,7 @@ ticket of a Jira event (events recorded by a pull, manual or scheduled; simulate
 The answer is posted as text (Jira renders wiki markup; Markdown is not converted) with the footer
 `— <agent name> (Knowledge Agent)`, cut to 32,000 characters. A run that fails (after its automatic retries of model
 connection errors, timeouts, rate limits and server errors: 30 seconds, 1 minute, 2 minutes) posts `The agent could not
-answer: <short reason>. Comment or reassign the ticket to try again.` instead, once, through the same queue; a hand-back
+answer: <short reason>. Reassign the ticket or ask in Knowledge Agent to try again.` instead, once, through the same queue; a hand-back
 follows it as it follows an answer. A stopped or closed run, and an empty answer, post nothing. A person's **Retry** of
 a failed run posts its answer as a normal reply.
 

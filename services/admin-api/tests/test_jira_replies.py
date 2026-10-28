@@ -31,6 +31,7 @@ def pending(store, body='The answer', **values) -> int:
         'jira_issue_id': '10001',
         'jira_issue_key': 'DEMO-1',
         'jira_next_attempt_at': '2000-01-01T00:00:00Z',
+        'created_at': '2026-10-15T09:00:00Z',  # before the comments a_comment makes
         **values,
     }
     with store.connect() as conn:

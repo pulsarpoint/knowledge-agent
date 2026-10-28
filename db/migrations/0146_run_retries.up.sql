@@ -3,8 +3,8 @@ SET search_path = ka, public;
 
 -- Run retries: an event run whose turn fails on a transient model error (a connection error, a timeout, 429, 5xx) is
 -- retried up to 3 times. While it waits the run is 'retrying' (not final): its turn's inputs are queued again with a
--- not_before time and run as the same turn when due. `retries` counts the automatic retries of the latest turn;
--- `retried_at` is when a person last pressed Retry (an event run's first turn then gets a notification for the outcome
+-- not_before time and run as the same turn at `retry_at` (nothing is delivered before it). `retries` counts the
+-- automatic retries of the latest turn; `retried_at` is when a person last pressed Retry (an event run's first turn then gets a notification for the outcome
 -- of that retry too). A failed Jira-started run posts a short failure comment: notifications.jira_text, posted in
 -- place of the body.
 ALTER TABLE agent_sessions DROP CONSTRAINT agent_sessions_status_check;
@@ -12,9 +12,12 @@ ALTER TABLE agent_sessions ADD CONSTRAINT agent_sessions_status_check
     CHECK (status IN ('starting','working','waiting','retrying','stopped','failed','closed'));
 ALTER TABLE agent_sessions
     ADD COLUMN retries integer NOT NULL DEFAULT 0 CONSTRAINT agent_sessions_retries_check CHECK (retries >= 0),
-    ADD COLUMN retried_at timestamptz;
+    ADD COLUMN retried_at timestamptz,
+    ADD COLUMN retry_at timestamptz;
 COMMENT ON COLUMN agent_sessions.retries IS
     'Automatic retries of the latest turn so far (event runs, transient model errors; at most 3). A new turn starts at 0.';
+COMMENT ON COLUMN agent_sessions.retry_at IS
+    'When a retrying run''s turn runs again (null: not waiting for a retry). Nothing is delivered to it before then.';
 COMMENT ON COLUMN agent_sessions.retried_at IS
     'When a person last pressed Retry on a failed turn (null: never).';
 

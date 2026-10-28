@@ -120,19 +120,23 @@ def test_an_error_raised_while_handling_a_connection_error_is_not_transient():
         assert transient(exc) is False
 
 
+MODEL = 'the model could not be reached'
+TOOL_SERVER = 'a tool server could not be reached'
+
+
 @pytest.mark.parametrize(
     'exc,expected',
     [
-        (openai.APIConnectionError(request=REQUEST), 'connection error'),
-        (openai.APITimeoutError(request=REQUEST), 'timeout'),
-        (litellm_errors.Timeout('slow', 'claude', 'anthropic'), 'timeout'),
-        (status_error(openai.RateLimitError, 429), 'rate limited (429)'),
-        (status_error(openai.InternalServerError, 503), 'model server error (503)'),
-        (http_status(502), 'model server error (502)'),
-        (httpx.ConnectError('refused'), 'connection error'),
-        (httpx.ReadTimeout('slow'), 'timeout'),
-        (TimeoutError(), 'timeout'),
-        (wrapped(openai.APITimeoutError(request=REQUEST)), 'timeout'),
+        (openai.APIConnectionError(request=REQUEST), MODEL),
+        (openai.APITimeoutError(request=REQUEST), MODEL),
+        (litellm_errors.Timeout('slow', 'claude', 'anthropic'), MODEL),
+        (status_error(openai.RateLimitError, 429), MODEL),
+        (status_error(openai.InternalServerError, 503), MODEL),
+        (http_status(502), MODEL),
+        (httpx.ConnectError('refused'), MODEL),
+        (TimeoutError(), MODEL),
+        (wrapped(openai.APITimeoutError(request=REQUEST)), MODEL),
+        (ExceptionGroup('mcp', [httpx.ConnectError('refused', request=REQUEST)]), TOOL_SERVER),
         (status_error(openai.AuthenticationError, 401), 'the model refused the request (401)'),
         (
             litellm_errors.ContextWindowExceededError('too long', 'claude', 'anthropic'),
@@ -142,11 +146,25 @@ def test_an_error_raised_while_handling_a_connection_error_is_not_transient():
         (ModelBehaviorError('bad'), 'the model returned an answer it could not use'),
         (ValueError('This agent is disabled.'), 'This agent is disabled'),
         (InvalidTag(), 'a configured credential could not be decrypted'),
-        (RuntimeError('boom'), 'an unexpected error (RuntimeError)'),
+        (RuntimeError('boom https://u:tok@host/x'), 'an unexpected error (RuntimeError)'),
     ],
 )
-def test_the_short_reason(exc, expected):
+def test_the_short_reason_is_a_fixed_label(exc, expected):
     assert reason(exc) == expected
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        'Bad base URL https://u:tok@host/x?key=k for the model',
+        "Bad base URL 'https://u:tok@host/x?key=k'.",
+        'Bad base URL (http://u:tok@host/x#key=k)',
+    ],
+)
+def test_a_configuration_error_never_leaks_a_url_with_credentials(text):
+    found = reason(ValueError(text))
+    assert 'tok' not in found and 'key=k' not in found
+    assert 'host/x' in found and '***' in found
 
 
 def test_three_retries_up_to_two_minutes():
@@ -173,9 +191,10 @@ def test_the_status_message_while_waiting():
 
 
 def test_the_jira_failure_comment():
-    assert failure_comment('timeout') == (
-        'The agent could not answer: timeout. Comment or reassign the ticket to try again.'
+    assert failure_comment('the model could not be reached') == (
+        'The agent could not answer: the model could not be reached. '
+        'Reassign the ticket or ask in Knowledge Agent to try again.'
     )
     assert failure_comment('') == (
-        'The agent could not answer: an unexpected error. Comment or reassign the ticket to try again.'
+        'The agent could not answer: an unexpected error. Reassign the ticket or ask in Knowledge Agent to try again.'
     )

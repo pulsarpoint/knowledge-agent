@@ -21,8 +21,9 @@ from test_event_run_notifications import a_run, notifications
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_jira import setup
 from test_jira_give_back import prepared_with
-from test_jira_replies import jira, note, pending
+from test_jira_replies import a_comment, jira, note, pending
 from test_jira_reply_notifications import prepared
+from test_repositories import HEADERS
 
 CONNECTION = openai.APIConnectionError(request=httpx.Request('POST', 'http://model.test/v1/responses'))
 FAILING = {'steps': [llm(message('Reading the ticket'))], 'error': CONNECTION}
@@ -58,12 +59,36 @@ def inputs(store, sid) -> list[dict]:
 
 
 def due(store, sid) -> None:
+    """The retry's time has come: the session's retry_at and its re-queued inputs."""
     with store.connect() as conn:
+        retry_at = conn.execute('SELECT retry_at FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()['retry_at']
         conn.execute(
             """UPDATE ka.agent_session_inputs SET not_before=now()-interval '1 second'
-            WHERE session_id=%s AND status='queued' AND not_before IS NOT NULL""",
-            (sid,),
+            WHERE session_id=%s AND status='queued' AND not_before=%s""",
+            (sid, retry_at),
         )
+        conn.execute("UPDATE ka.agent_sessions SET retry_at=now()-interval '1 second' WHERE id=%s", (sid,))
+
+
+def now(store):
+    with store.connect() as conn:
+        return conn.execute('SELECT now() AS now').fetchone()['now']
+
+
+def add_input(store, sid, text, *, kind='message', due_in='-1 second') -> None:
+    """A queued input of the run: a person's message, or a wake-up due `due_in` from now."""
+    with store.connect() as conn:
+        conn.execute(
+            """INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text,kind,not_before)
+            SELECT s.id,(SELECT coalesce(max(seq),0)+1 FROM ka.agent_session_inputs WHERE session_id=s.id),s.actor_id,
+                %s,%s,CASE WHEN %s='wakeup' THEN now()+%s::interval END
+            FROM ka.agent_sessions s WHERE s.id=%s""",
+            (text, kind, kind, due_in, sid),
+        )
+
+
+def last_end(store, sid) -> dict:
+    return [e['payload'] for e in events(store, sid) if e['kind'] == 'end'][-1]
 
 
 def jira_notes(store, sid) -> list[dict]:
@@ -78,7 +103,10 @@ def test_a_transient_failure_queues_the_turn_again_with_its_wait_and_attempt(wor
     row = session_row(store, sid)
     assert (row['status'], row['turns'], row['retries']) == ('retrying', 1, 1)
     assert row['status_message'].startswith('Retry 1 of 3 at ')
-    assert row['status_message'].endswith(' UTC: connection error')
+    assert row['status_message'].endswith(' UTC: the model could not be reached')
+    assert (
+        row['retry_at'] is not None and RETRIES[0] - timedelta(seconds=5) < row['retry_at'] - now(store) <= RETRIES[0]
+    )
     [queued] = inputs(store, sid)
     assert (queued['status'], queued['turn'], queued['delivered_at']) == ('queued', None, None)
     assert RETRIES[0] - timedelta(seconds=5) < queued['wait'] <= RETRIES[0]
@@ -138,7 +166,7 @@ def test_giving_up_after_three_retries_posts_the_failure_comment_and_gives_the_t
     assert (note_row['status'], note_row['jira_status'], note_row['jira_text']) == (
         'failed',
         'pending',
-        failure_comment('connection error'),
+        failure_comment('the model could not be reached'),
     )
     assert note_row['body'] == row['status_message']  # the in-app notification stays as before
     assert (note_row['give_back_key'], note_row['give_back_status']) == ('ana', 'pending')
@@ -309,3 +337,136 @@ def test_a_manual_retry_after_the_failure_comment_posts_its_answer_as_a_normal_r
     with store.connect() as conn:  # still one notification per outcome: a late duplicate writes nothing
         shared.notify_event_run(conn, sid, 1, 'waiting', 'again')
     assert len(jira_notes(store, sid)) == 2
+
+
+# I1: the retry delivers exactly the failed turn's inputs, at retry_at
+
+
+def test_a_wake_up_due_during_the_wait_joins_the_retry_instead_of_running_alone(worker):
+    sid, _ = prepared(worker)
+    store = worker.store
+    fake = FakeAgent([FAILING, answering('Triaged with the check.')])
+    attempt(store, fake)
+    add_input(store, sid, 'Check the deploy.', kind='wakeup')  # due now, during the wait
+    assert shared.claim(store, 'worker-1', [], 4) == []  # nothing runs before retry_at
+    due(store, sid)
+    attempt(store, fake)
+    row = session_row(store, sid)
+    assert (row['status'], row['turns'], row['retry_at']) == ('waiting', 1, None)
+    assert fake.calls[1]['task'].startswith('Triage DEMO-1\n\nScheduled wake-up (set ')
+    assert fake.calls[1]['task'].endswith('Check the deploy.')
+    assert [item['status'] for item in inputs(store, sid)] == ['delivered', 'delivered']
+    [note_row] = jira_notes(store, sid)
+    assert note_row['body'] == 'Triaged with the check.'
+
+
+def test_a_message_sent_while_a_wake_up_turn_waits_runs_the_retry_now_with_the_wake_up(worker):
+    sid, *_ = a_run(worker)
+    store = worker.store
+    with store.connect() as conn:  # the run's turn 1 was a wake-up
+        conn.execute(
+            "UPDATE ka.agent_session_inputs SET kind='wakeup',not_before=now()-interval '1 second' WHERE session_id=%s",
+            (sid,),
+        )
+    fake = FakeAgent([FAILING, answering('Done.')])
+    attempt(store, fake)
+    assert asyncio.run(post(worker, f'/api/sessions/{sid}/messages', {'text': 'Go on.'})).status_code == 202
+    attempt(store, fake)
+    row = session_row(store, sid)
+    assert (row['status'], row['turns']) == ('waiting', 1)
+    assert fake.calls[1]['task'].startswith('Scheduled wake-up (set ')
+    assert fake.calls[1]['task'].endswith('Triage DEMO-1\n\nGo on.')
+    assert [item['status'] for item in inputs(store, sid)] == ['delivered', 'delivered']
+
+
+def test_a_waiting_run_is_taken_by_a_second_worker_after_the_first_ones_lease(worker):
+    sid, _ = prepared(worker)
+    store = worker.store
+    fake = FakeAgent([FAILING, answering()])
+    attempt(store, fake)
+    with store.connect() as conn:  # worker-1 died holding the lease
+        conn.execute(
+            "UPDATE ka.agent_sessions SET worker_id='worker-1',lease_expires_at=now()+interval '1 minute' WHERE id=%s",
+            (sid,),
+        )
+    due(store, sid)
+    assert shared.claim(store, 'worker-2', [], 4) == []  # still leased
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions SET lease_expires_at=now()-interval '1 second' WHERE id=%s", (sid,))
+
+    async def scenario():
+        [row] = shared.claim(store, 'worker-2', [], 4)
+        assert row['status'] == 'retrying'
+        await asyncio.wait_for(native_sessions.NativeRunner(store, row, fake, poll=0.02, idle_release=0).run(), 5)
+
+    asyncio.run(scenario())
+    row = session_row(store, sid)
+    assert (row['status'], row['turns']) == ('waiting', 1)
+    assert len(jira_notes(store, sid)) == 1
+
+
+# I2: Stop and Close end a retrying run for good
+
+
+def test_stop_while_waiting_for_a_retry_stops_the_run_without_a_failure_comment(worker):
+    sid, _ = prepared(worker)
+    store = worker.store
+    attempt(store, FakeAgent([FAILING]))
+    response = asyncio.run(post(worker, f'/api/sessions/{sid}/stop'))
+    assert response.status_code == 202, response.text
+    row = session_row(store, sid)
+    assert (row['status'], row['status_message'], row['retries'], row['retry_at']) == (
+        'stopped',
+        shared.STOPPED,
+        0,
+        None,
+    )
+    assert [item['status'] for item in inputs(store, sid)] == ['discarded']
+    assert shared.claim(store, 'worker-1', [], 4) == []
+    assert last_end(store, sid) == {'status': 'stopped'}
+    [note_row] = jira_notes(store, sid)
+    assert (note_row['status'], note_row['body'], note_row['jira_status'], note_row['jira_text']) == (
+        'failed',
+        shared.STOPPED,
+        None,
+        None,
+    )
+
+
+def test_stop_during_an_attempt_that_then_fails_stops_the_run_without_a_failure_comment(worker):
+    sid, _ = prepared(worker)
+    store = worker.store
+
+    async def stop_pressed(turn):
+        with store.connect() as conn:
+            conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (sid,))
+
+    attempt(store, FakeAgent([{'steps': [stop_pressed], 'error': CONNECTION}]))
+    row = session_row(store, sid)
+    assert (row['status'], row['retries'], row['retry_at']) == ('stopped', 0, None)
+    assert last_end(store, sid) == {'status': 'stopped'}
+    [note_row] = jira_notes(store, sid)
+    assert (note_row['jira_status'], note_row['jira_text']) == (None, None)
+
+
+def test_close_while_waiting_leaves_a_final_end_event(worker):
+    sid, _ = prepared(worker)
+    store = worker.store
+    attempt(store, FakeAgent([FAILING]))
+    asyncio.run(post(worker, f'/api/sessions/{sid}/close'))
+    assert last_end(store, sid) == {'status': 'stopped'}
+    listed = worker.client.get(f'/api/agent-runs?key_prefix=cc:{sid}:', headers=HEADERS).json()
+    assert [run['status'] for run in listed['runs']] == ['stopped']
+
+
+def test_a_second_failure_comment_is_not_taken_for_an_older_identical_one(store, tmp_path):
+    setup(store, tmp_path)
+    comment = failure_comment('the model could not be reached')
+    footer = f'{comment}\n\n— triage (Knowledge Agent)'
+    nid = pending(  # a retried post of a failure comment written after an earlier, identical one was posted
+        store, body='failed', status='failed', jira_text=comment, jira_attempts=1, created_at='2026-10-20T00:00:00Z'
+    )
+    posted: list[str] = []
+    assert jira_replies.run_once(store, jira(posted=posted, comments=[a_comment(footer, '10400')])) is True
+    assert posted == [footer]
+    assert note(store, nid)['jira_comment_id'] == '10500'

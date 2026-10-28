@@ -503,3 +503,13 @@ test("a turn waiting for an automatic retry says so, and the header says when", 
   expect(within(turn).getByText("Agent execution failed (APIConnectionError). The agent tries again.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 });
+
+test("Stop is enabled while a run waits for a retry, to cancel it", () => {
+  const stop = vi.fn();
+  show({
+    run: run({ session: { ...detail, status: "retrying", status_message: "Retry 1 of 3 at 10:42 UTC: x" } }),
+    composer: { ...composer, onStop: stop },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  expect(stop).toHaveBeenCalledTimes(1);
+});

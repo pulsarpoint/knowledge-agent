@@ -582,7 +582,12 @@ export default function RunWorkspace({
             {composer.sendLabel ?? "Send message"}
           </Button>
           {composer.onStop && (
-            <Button type="button" variant="outline" disabled={composer.busy || !working} onClick={composer.onStop}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={composer.busy || !(working || session?.status === "retrying")}
+              onClick={composer.onStop}
+            >
               Stop
             </Button>
           )}

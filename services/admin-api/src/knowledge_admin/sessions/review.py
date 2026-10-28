@@ -20,6 +20,7 @@ from knowledge_admin.sessions.activity import redact
 from knowledge_admin.agents.reviews import TuningSuggestion
 from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents.session_worker import run_key
+from knowledge_admin.sessions.rows import IN_PROGRESS
 
 NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 SESSION_NOT_FOUND = 'Session not found.'
@@ -122,7 +123,7 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
                 raise HTTPException(404, SESSION_NOT_FOUND)
             if session['purpose'] not in REVIEWED:
                 raise HTTPException(400, NOT_A_CONVERSATION)
-            if session['status'] in ('starting', 'working', 'retrying'):
+            if session['status'] in IN_PROGRESS:
                 raise HTTPException(409, REVIEW_BUSY)
             if session['turns'] == 0:
                 raise HTTPException(409, NO_TURNS)

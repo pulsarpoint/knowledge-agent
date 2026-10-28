@@ -1102,8 +1102,10 @@ A handler does one thing:
   or a server error), the run tries again by itself up to 3 times, after 30 seconds, 1 minute and 2 minutes; meanwhile
   it shows **Retrying** with `Retry 2 of 3 at 10:42 UTC: <reason>`, and nothing is notified or posted until it answers
   or gives up. Other failures (a refused API key, a too long conversation, a tool error) are not retried. A run that
-  gives up posts `The agent could not answer: <reason>. Comment or reassign the ticket to try again.` on the ticket
-  instead of an answer (and gives the ticket back when the handler does); a stopped or closed run posts nothing. To try
+  gives up posts `The agent could not answer: <reason>. Reassign the ticket or ask in Knowledge Agent to try again.` on the ticket
+  instead of an answer (and gives the ticket back when the handler does); a stopped or closed run posts nothing.
+  **Stop** while it shows **Retrying** cancels the retry. A retry runs the whole turn again, so what the agent did
+  before the error (a saved draft, a command) can happen twice. To try
   again later, press **Retry** on the run, continue it, or send the event again. Any enabled agent can be chosen; its run gets all of the agent's resources. A handler whose agent was
   deleted or disabled can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for

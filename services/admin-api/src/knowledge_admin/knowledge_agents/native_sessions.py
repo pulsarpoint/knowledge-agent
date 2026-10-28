@@ -459,6 +459,8 @@ class NativeRunner(shared.SessionRunner):
                 comments.closed = True
                 await comments.settle()
             answer = clean_text(events.draft(None if result is None else result.final_output), secrets)
+            if status == 'failed' and await asyncio.to_thread(self.stop_pressed):  # a person stopped it meanwhile
+                status, message, why, retry_at = 'stopped', STOPPED, '', None
             recorder.add('end', {'status': RETRYING_END if retry_at is not None else END_STATUS[status]})
             recorder.close()  # no event after 'end'
             await asyncio.to_thread(recorder.flush)

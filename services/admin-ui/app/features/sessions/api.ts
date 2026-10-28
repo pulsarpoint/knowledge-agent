@@ -13,6 +13,9 @@ const json = (method: string, value: unknown) => ({
 export type SessionPurpose = "documents" | "event" | "resource" | "revision" | "chat";
 /** retrying: the latest turn failed and waits to run again (an automatic retry of an event run, or Retry). */
 export type SessionStatus = "starting" | "working" | "waiting" | "retrying" | "stopped" | "failed" | "closed";
+/** A run that has not settled: starting, working, or waiting to run its failed turn again. */
+export const isWorking = (status: SessionStatus | undefined) =>
+  status === "starting" || status === "working" || status === "retrying";
 export const statusLabels: Record<SessionStatus, string> = {
   starting: "Starting",
   working: "Working",

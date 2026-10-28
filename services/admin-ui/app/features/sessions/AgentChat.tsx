@@ -12,6 +12,7 @@ import {
   savedIn,
   sendMessage,
   startSession,
+  isWorking,
   statusLabels,
   stopSession,
   type ChatScope,
@@ -321,7 +322,7 @@ export default function AgentChat({
     else void closeAndClear();
   };
   const earlier = runs?.filter((item) => item.id !== runId) ?? [];
-  const working = session?.status === "starting" || session?.status === "working" || session?.status === "retrying";
+  const working = isWorking(session?.status);
   const reviews = session?.reviews ?? [];
 
   return (

@@ -68,6 +68,7 @@ def scrub(value: Any, secrets: list[str]) -> Any:
 
 
 DUE = 'i.not_before IS NULL OR i.not_before<=now()'  # a queued input that may be delivered now (a wake-up once due)
+WAITING = "s.status='retrying' AND coalesce(s.retry_at>now(), false)"  # a run waiting for its retry: nothing is delivered before retry_at
 WAKEUP = 'Scheduled wake-up (set {set_at}): {message}'
 
 
@@ -96,8 +97,8 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                 SELECT s.id,s.status AS previous FROM ka.agent_sessions s
                 WHERE s.status<>'closed' AND (s.lease_expires_at IS NULL OR s.lease_expires_at<now())
                   AND NOT s.id=ANY(%s::uuid[])
-                  AND (s.status='working' OR EXISTS (SELECT 1 FROM ka.agent_session_inputs i
-                       WHERE i.session_id=s.id AND i.status='queued' AND ({DUE})))
+                  AND (s.status='working' OR (NOT ({WAITING}) AND EXISTS (SELECT 1 FROM ka.agent_session_inputs i
+                       WHERE i.session_id=s.id AND i.status='queued' AND ({DUE}))))
                 ORDER BY s.created_at,s.id LIMIT %s FOR UPDATE OF s SKIP LOCKED)
             UPDATE ka.agent_sessions s SET worker_id=%s,lease_expires_at=now()+%s*interval '1 second',
                 status=CASE WHEN s.status='working' THEN 'failed' ELSE s.status END,
@@ -117,22 +118,23 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                 )
             if row['previous'] == 'working' and row['turns'] > 0:  # comments delivered inside it stay delivered
                 notify_event_run(conn, row['id'], row['turns'], 'failed', INTERRUPTED, reason=INTERRUPTED_REASON)
-                key = run_key(row['id'], row['turns'])
-                for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
-                    conn.execute(
-                        """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-                        SELECT %s,%s,coalesce(max(seq),0)+1,%s,%s,%s,%s FROM ka.agent_run_events WHERE run_key=%s""",
-                        (
-                            row['project_id'],
-                            key,
-                            kind,
-                            row['agent_id'] or AD_HOC_AGENT,
-                            row['actor_id'],
-                            Jsonb(payload),
-                            key,
-                        ),
-                    )
+                append_run_events(conn, row['id'], [('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})])
     return rows
+
+
+def append_run_events(conn, session_id, items: list[tuple[str, dict]]) -> None:
+    """Events added to the record of the session's latest turn after its last one, outside a running turn: a turn the
+    worker lost, or a retry that Stop or Close ended (its record ends with a final `end`)."""
+    for kind, payload in items:
+        conn.execute(
+            """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+            SELECT s.project_id,k.run_key,
+                coalesce((SELECT max(e.seq) FROM ka.agent_run_events e WHERE e.run_key=k.run_key),0)+1,
+                %s,coalesce(s.agent_id,%s),s.actor_id,%s
+            FROM ka.agent_sessions s CROSS JOIN LATERAL (SELECT 'cc:'||s.id||':'||s.turns AS run_key) k
+            WHERE s.id=%s AND s.turns>0""",
+            (kind, AD_HOC_AGENT, Jsonb(payload), session_id),
+        )
 
 
 class SessionRunner:
@@ -182,14 +184,16 @@ class SessionRunner:
         turn starts with none."""
         with self.store.connect() as conn:
             row = conn.execute(
-                """SELECT status,turns,retries,(worker_id=%s AND lease_expires_at>now()) AS owned
-                FROM ka.agent_sessions WHERE id=%s FOR UPDATE""",
+                f"""SELECT status,turns,retries,(worker_id=%s AND lease_expires_at>now()) AS owned,
+                ({WAITING}) AS waiting FROM ka.agent_sessions s WHERE id=%s FOR UPDATE""",
                 (self.worker_id, self.id),
             ).fetchone()
             if row is None or row['status'] == 'closed':
                 return CLOSED
             if not row['owned']:
                 return LOST
+            if row['waiting']:
+                return None
             retrying = row['status'] == 'retrying' and row['turns'] > 0
             number = row['turns'] if retrying else row['turns'] + 1
             inputs = self._deliver(conn, number, wakeups=True)
@@ -197,7 +201,7 @@ class SessionRunner:
                 return None
             self.retrying, self.retries = retrying, row['retries'] if retrying else 0
             conn.execute(
-                """UPDATE ka.agent_sessions SET status='working',status_message='',turns=%s,retries=%s,
+                """UPDATE ka.agent_sessions SET status='working',status_message='',turns=%s,retries=%s,retry_at=NULL,
                 stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
                 (number, self.retries, self.id),
             )
@@ -267,6 +271,12 @@ class SessionRunner:
     async def disconnect(self) -> None:
         return None
 
+    def stop_pressed(self) -> bool:
+        """Whether a person pressed Stop during the turn (a failed turn then ends stopped: no retry, no failure comment)."""
+        with self.store.connect() as conn:
+            row = conn.execute('SELECT stop_requested_at FROM ka.agent_sessions WHERE id=%s', (self.id,)).fetchone()
+        return row is not None and row['stop_requested_at'] is not None
+
     def stop_requested(self) -> bool:
         with self.store.connect() as conn:
             row = conn.execute(
@@ -292,8 +302,9 @@ class SessionRunner:
         """Record the turn's outcome; an event run's first turn also writes its notification (`answer` when it
         finished, else `message`; `reason`: why it failed, in a few words, for a Jira failure comment). A failed turn
         with `retry_at` is retried instead, unless the session was closed or Stop was pressed meanwhile: the session
-        waits as `retrying` with `retry_status` as its message and one more retry counted, the turn's inputs (and the
-        messages queued meanwhile) are queued again for `retry_at`, and nothing is notified yet.
+        waits as `retrying` until `retry_at` with `retry_status` as its message and one more retry counted, the turn's
+        inputs (and the messages queued meanwhile) are queued again for `retry_at`, and nothing is notified yet. A
+        failed turn during which Stop was pressed ends `stopped` (no retry and no Jira failure comment).
         `commit(conn)` runs in the same transaction, only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again. Drafts the document tools saved get their
@@ -304,11 +315,14 @@ class SessionRunner:
             updated = conn.execute(
                 """UPDATE ka.agent_sessions SET
                 status=CASE WHEN status='closed' THEN status
-                    WHEN %(retry)s AND stop_requested_at IS NULL THEN 'retrying' ELSE %(status)s END,
+                    WHEN %(status)s='failed' AND stop_requested_at IS NOT NULL THEN 'stopped'
+                    WHEN %(retry)s THEN 'retrying' ELSE %(status)s END,
                 status_message=CASE WHEN status='closed' THEN status_message
-                    WHEN %(retry)s AND stop_requested_at IS NULL THEN %(retry_status)s ELSE %(message)s END,
+                    WHEN %(status)s='failed' AND stop_requested_at IS NOT NULL THEN %(stopped)s
+                    WHEN %(retry)s THEN %(retry_status)s ELSE %(message)s END,
                 retries=CASE WHEN status<>'closed' AND %(retry)s AND stop_requested_at IS NULL THEN retries+1
-                    ELSE retries END,
+                    WHEN %(status)s='failed' AND stop_requested_at IS NOT NULL THEN 0 ELSE retries END,
+                retry_at=CASE WHEN status<>'closed' AND %(retry)s AND stop_requested_at IS NULL THEN %(retry_at)s::timestamptz END,
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s,
                 stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s
@@ -318,6 +332,8 @@ class SessionRunner:
                     'message': message,
                     'retry': retry,
                     'retry_status': retry_status,
+                    'retry_at': retry_at,
+                    'stopped': STOPPED,
                     'input': usage['input_tokens'],
                     'output': usage['output_tokens'],
                     'cached': usage['cached_tokens'],
@@ -329,6 +345,8 @@ class SessionRunner:
                 commit(conn)
             if updated is not None and updated['status'] == 'retrying':
                 self._queue_again(conn, number, retry_at)
+            elif updated is not None and updated['status'] == 'stopped' and status == 'failed':
+                notify_event_run(conn, self.id, number, 'stopped', STOPPED)
             elif updated is not None:
                 notify_event_run(
                     conn, self.id, number, status, answer if status == 'waiting' else message, reason=reason

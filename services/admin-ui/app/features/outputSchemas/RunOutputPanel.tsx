@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "~/lib/api";
 import { getRunOutput, type RunOutput } from "./api";
+import { isWorking, type SessionStatus } from "~/features/sessions/api";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 
@@ -16,7 +17,7 @@ export default function RunOutputPanel({
   status: string;
   turns: number;
 }) {
-  const working = status === "starting" || status === "working" || status === "retrying";
+  const working = isWorking(status as SessionStatus);
   const [output, setOutput] = useState<RunOutput | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);

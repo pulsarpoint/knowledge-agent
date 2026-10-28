@@ -41,7 +41,8 @@ def test_up_adds_retries_and_down_gives_back_the_0145_schema(store, at_0145):
         project = store.project(conn, 'shop')
         waiting = documents_run(conn, project)
         conn.execute(
-            "UPDATE ka.agent_sessions SET status='retrying',retries=2,retried_at=now() WHERE id=%s", (waiting,)
+            "UPDATE ka.agent_sessions SET status='retrying',retries=2,retried_at=now(),retry_at=now() WHERE id=%s",
+            (waiting,),
         )
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
             conn.execute('UPDATE ka.agent_sessions SET retries=-1 WHERE id=%s', (waiting,))
@@ -52,8 +53,10 @@ def test_up_adds_retries_and_down_gives_back_the_0145_schema(store, at_0145):
         assert row['status'] == 'failed'
         conn.commit()
         run(conn, UP)
-        row = conn.execute('SELECT status,retries,retried_at FROM ka.agent_sessions WHERE id=%s', (waiting,)).fetchone()
-        assert (row['status'], row['retries'], row['retried_at']) == ('failed', 0, None)
+        row = conn.execute(
+            'SELECT status,retries,retried_at,retry_at FROM ka.agent_sessions WHERE id=%s', (waiting,)
+        ).fetchone()
+        assert (row['status'], row['retries'], row['retried_at'], row['retry_at']) == ('failed', 0, None, None)
         jira_text = conn.execute(
             """SELECT 1 FROM information_schema.columns WHERE table_schema='ka' AND table_name='notifications'
             AND column_name='jira_text'"""

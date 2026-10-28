@@ -11,6 +11,7 @@ model answer, a tool error, even one caused by a connection error), configuratio
 cancellation and anything unknown."""
 
 import asyncio
+import re
 from datetime import datetime, timedelta
 
 import httpx
@@ -19,8 +20,13 @@ from agents.exceptions import AgentsException, MaxTurnsExceeded, ModelBehaviorEr
 from cryptography.exceptions import InvalidTag
 from litellm.exceptions import ContextWindowExceededError
 
+from knowledge_admin.http_errors import safe_url
+
 RETRIES = (timedelta(seconds=30), timedelta(minutes=1), timedelta(minutes=2))  # the waits before retries 1, 2 and 3
-FAILURE_COMMENT = 'The agent could not answer: {reason}. Comment or reassign the ticket to try again.'
+FAILURE_COMMENT = 'The agent could not answer: {reason}. Reassign the ticket or ask in Knowledge Agent to try again.'
+MODEL_UNREACHABLE = 'the model could not be reached'
+TOOL_SERVER_UNREACHABLE = 'a tool server could not be reached'  # an exception group: an MCP connection
+URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>()\[\]]+")
 UNEXPECTED = 'an unexpected error'
 TIMEOUT_STATUSES = {408}
 
@@ -74,18 +80,26 @@ def transient(exc: BaseException) -> bool:
     return _transient_error(exc) is not None
 
 
+def _from_group(exc: BaseException | None) -> bool:
+    """Whether the error is (or explicitly wraps) an exception group: an MCP server's connection, not the model's."""
+    while exc is not None:
+        if isinstance(exc, BaseExceptionGroup):
+            return True
+        exc = _cause(exc)
+    return False
+
+
+def masked(text: str) -> str:
+    """Free text made safe to show outside: one line, every URL without its userinfo, query and fragment."""
+    return URL.sub(lambda found: safe_url(found.group(0)), ' '.join(text.split()))
+
+
 def reason(exc: BaseException) -> str:
-    """A failure in a few words, for the retry status message and the Jira failure comment."""
-    found = _transient_error(exc)
-    if found is not None:
-        if _timeout(found):
-            return 'timeout'
-        status = _status(found)
-        if status == 429:
-            return 'rate limited (429)'
-        if status is not None:
-            return f'model server error ({status})'
-        return 'connection error'
+    """A failure in a few words, safe for an external Jira comment: a fixed label for every error, except a
+    configuration error (ValueError), whose text is masked (masked(); the session's credentials are redacted by the
+    caller). The retry status message says the same."""
+    if transient(exc):
+        return TOOL_SERVER_UNREACHABLE if _from_group(exc) else MODEL_UNREACHABLE
     if isinstance(exc, ContextWindowExceededError):
         return 'the conversation is too long for the model'
     if isinstance(exc, MaxTurnsExceeded):
@@ -98,7 +112,7 @@ def reason(exc: BaseException) -> str:
     if status is not None:
         return f'the model refused the request ({status})'
     if isinstance(exc, ValueError) and str(exc).strip():  # configuration: a disabled agent or model, a missing key
-        return ' '.join(str(exc).split())[:200].rstrip('.')
+        return masked(str(exc))[:200].rstrip('.')
     return f'{UNEXPECTED} ({type(exc).__name__})'
 
 
@@ -111,7 +125,8 @@ def retry_wait(purpose: str | None, retries: int, exc: BaseException) -> timedel
 
 
 def retry_message(attempt: int, at: datetime, why: str) -> str:
-    """The status message of a run waiting for retry `attempt` at `at`: 'Retry 2 of 3 at 10:42 UTC: timeout'."""
+    """The status message of a run waiting for retry `attempt` at `at`:
+    'Retry 2 of 3 at 10:42 UTC: the model could not be reached'."""
     return f'Retry {attempt} of {len(RETRIES)} at {at.strftime("%H:%M")} UTC: {why}'
 
 
