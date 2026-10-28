@@ -19,6 +19,7 @@ const asset = (id: string, name: string): ServerAsset => ({
   access_enabled: false,
   allow_sudo: false,
   ssh_allowed: false,
+  environments: [],
   created_at: "2026-10-22T00:00:00Z",
   updated_at: "2026-10-22T00:00:00Z",
 });

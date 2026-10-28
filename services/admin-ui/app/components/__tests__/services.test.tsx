@@ -42,6 +42,7 @@ const server: ServerAsset = {
   access_enabled: false,
   allow_sudo: false,
   ssh_allowed: false,
+  environments: [],
 };
 const service: ServiceAsset = {
   service_type: "custom",

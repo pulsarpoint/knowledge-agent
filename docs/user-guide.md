@@ -332,6 +332,7 @@ it. The page's data comes from `GET /api/code-projects/{id}` (the project as the
 
 `/servers` — inventory of hosts. **New server** (saved with **Create server**): name, IP or hostname (no
 URL/port), description, tags (comma-separated, lowercased, up to 32), **Agent SSH**. The list's **Agent SSH** column reads Enabled or Disabled.
+The **Environment** column links the environments a server is in (a Draft marker for draft ones); sort by it, filter by environment or No environment, or search by environment name.
 Registering does not connect to anything.
 
 **SSH settings** (per server):

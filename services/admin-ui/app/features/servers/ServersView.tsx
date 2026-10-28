@@ -10,22 +10,33 @@ import ServerForm from "./ServerForm";
 import ServerSSHForm from "./ServerSSHForm";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import ConfirmRemove from "~/components/ConfirmRemove";
-import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 
-type ServerSort = "name" | "hostname" | "ssh";
+type ServerSort = "name" | "environment" | "hostname" | "ssh";
+const ALL = "all";
+const NONE = "none";
+const firstEnvironment = (server: ServerAsset) => server.environments[0]?.name;
 const byName = (a: ServerAsset, b: ServerAsset) => a.name.localeCompare(b.name);
 const SERVER_ORDER: Record<ServerSort, (a: ServerAsset, b: ServerAsset) => number> = {
   name: byName,
+  environment: (a, b) => {
+    const [x, y] = [firstEnvironment(a), firstEnvironment(b)];
+    return x === undefined || y === undefined
+      ? Number(x === undefined) - Number(y === undefined) || byName(a, b)
+      : x.localeCompare(y) || byName(a, b);
+  },
   hostname: (a, b) => a.hostname.localeCompare(b.hostname) || byName(a, b),
   ssh: (a, b) => Number(b.ssh_allowed) - Number(a.ssh_allowed) || byName(a, b),
 };
 
-/** Servers: a table (server and description, hostname, tags, agent SSH; SSH settings, Test SSH, Documents, Edit and
- * Delete in the row menu) with search and sortable headers; New server, Edit and SSH settings open right Sheets. */
+/** Servers: a table (server and description, environments as links with a Draft marker, hostname, tags, agent SSH; SSH
+ * settings, Test SSH, Documents, Edit and Delete in the row menu) with search (also environment names), an Environment
+ * filter (an environment or none) and sortable headers (Environment sorts by the first name, servers without one last); New server, Edit and SSH settings open right Sheets. */
 export default function ServersView() {
   const [servers, setServers] = useState<ServerAsset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +44,7 @@ export default function ServersView() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort<ServerSort>>({ key: "name", descending: false });
+  const [environment, setEnvironment] = useState(ALL);
   const [form, setForm] = useState<{ server: ServerAsset | null } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ServerAsset | null>(null);
   const [sshServer, setSshServer] = useState<string | null>(null);
@@ -106,13 +118,45 @@ export default function ServersView() {
   }
   const text = query.trim().toLowerCase();
   const shown = sortRows(
-    servers?.filter((server) =>
-      [server.name, server.hostname, server.description, ...server.tags].some((value) =>
-        value.toLowerCase().includes(text),
-      ),
+    servers?.filter(
+      (server) =>
+        (environment === ALL ||
+          (environment === NONE
+            ? server.environments.length === 0
+            : server.environments.some((item) => item.id === environment))) &&
+        [
+          server.name,
+          server.hostname,
+          server.description,
+          ...server.tags,
+          ...server.environments.map((e) => e.name),
+        ].some((value) => value.toLowerCase().includes(text)),
     ) ?? [],
     sort,
     SERVER_ORDER,
+  );
+  const environments = new Map(
+    [...(servers ?? []).flatMap((server) => server.environments)].map((item) => [item.id, item.name]),
+  );
+  const toolbar = (
+    <Select value={environment} onValueChange={setEnvironment}>
+      <SelectTrigger className={FILTER_WIDTH} aria-label="Environment">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value={ALL}>All environments</SelectItem>
+          <SelectItem value={NONE}>No environment</SelectItem>
+          {[...environments]
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([id, name]) => (
+              <SelectItem key={id} value={id}>
+                {name}
+              </SelectItem>
+            ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
   const newServer = (
     <Button disabled={loading || error !== null || servers === null || form !== null} onClick={() => openForm(null)}>
@@ -136,6 +180,25 @@ export default function ServersView() {
           </p>
         </div>
       ),
+    },
+    {
+      id: "environment",
+      header: () => sortHeader("Environment", "environment", sort, setSort),
+      cell: ({ row: { original: server } }) =>
+        server.environments.length === 0 ? (
+          <span className="text-sm text-muted-foreground">—</span>
+        ) : (
+          <div className="flex min-w-32 max-w-xs flex-wrap gap-x-2 gap-y-1 text-sm">
+            {server.environments.map((item) => (
+              <span key={item.id} className="inline-flex items-center gap-1">
+                <Link className="break-words underline-offset-4 hover:underline" to={`/environments/${item.id}`}>
+                  {item.name}
+                </Link>
+                {item.status === "draft" && <Badge variant="outline">Draft</Badge>}
+              </span>
+            ))}
+          </div>
+        ),
     },
     {
       id: "hostname",
@@ -266,9 +329,10 @@ export default function ServersView() {
         loading={servers === null && loading}
         rowId={(server) => server.id}
         search={{ plural: "servers", value: query, onChange: setQuery }}
+        toolbar={toolbar}
         actions={newServer}
         sort={sort}
-        resetKey={`${sort.key}\n${sort.descending}`}
+        resetKey={`${sort.key}\n${sort.descending}\n${environment}`}
         empty={
           servers?.length === 0 ? (
             <TableEmpty

@@ -45,6 +45,7 @@ const servers: ServerAsset[] = ["App host", "Data host"].map((name, index) => ({
   access_enabled: false,
   allow_sudo: false,
   ssh_allowed: false,
+  environments: [],
   created_at: "2026-09-13T00:00:00Z",
   updated_at: "2026-09-13T00:00:00Z",
 }));

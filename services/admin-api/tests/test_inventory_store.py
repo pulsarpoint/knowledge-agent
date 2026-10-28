@@ -600,3 +600,17 @@ def test_a_person_updating_a_confirmed_entry_confirms_the_drafts_it_now_needs(st
         changes = {'to_host': None, 'to_service_id': mail['id']}
         inventory.update_connection(conn, p, connection['id'], 1, changes, author)
         assert inventory.get(conn, p, 'service', mail['id'])['status'] == 'confirmed'
+
+
+def test_a_listed_server_carries_its_environments_by_name_with_status(store, world):
+    p, author = world['project'], world['author']
+    with store.connect() as conn:
+        inventory.create_server(conn, p, {'name': 'c', 'hostname': 'c.internal'}, author)
+        agent = {'agent_id': 'ops-agent'}
+        draft = inventory.create_environment(conn, p, {'name': 'alpha'}, agent, status='draft')
+        inventory.add_server_to_environment(conn, p, draft['id'], world['b']['id'], agent, status='draft')
+        listed = {s['name']: s['environments'] for s in inventory.list_servers(conn, p)}
+        prod = {'id': str(world['prod']['id']), 'name': 'prod', 'status': 'confirmed'}
+        assert listed['c'] == []
+        assert listed['a'] == [prod]
+        assert listed['b'] == [{'id': str(draft['id']), 'name': 'alpha', 'status': 'draft'}, prod]

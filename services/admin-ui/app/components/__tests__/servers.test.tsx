@@ -26,6 +26,7 @@ const server: ServerAsset = {
   access_enabled: false,
   allow_sudo: false,
   ssh_allowed: false,
+  environments: [],
 };
 
 function setup(servers: ServerAsset[] = [], conflict = false) {
@@ -360,4 +361,61 @@ test("the server list: Skeleton rows while loading, then sorted by a header", as
   expect(names()).toEqual(["App host", "Batch host"]);
   fireEvent.click(screen.getByRole("button", { name: "Hostname / IP" }));
   expect(names()).toEqual(["Batch host", "App host"]);
+});
+
+const prod = { id: "env-prod", name: "Production", status: "confirmed" as const };
+const alpha = { id: "env-alpha", name: "Alpha", status: "draft" as const };
+const fleet: ServerAsset[] = [
+  { ...server, id: "s-a", name: "Alone", hostname: "alone.internal", environments: [] },
+  { ...server, id: "s-b", name: "Both", hostname: "both.internal", environments: [alpha, prod] },
+  { ...server, id: "s-c", name: "Prod only", hostname: "prod.internal", environments: [prod] },
+];
+const names = () =>
+  screen
+    .getAllByRole("button", { name: /^Actions for / })
+    .map((button) => button.getAttribute("aria-label")!.replace("Actions for ", ""));
+
+test("the Environment column links each environment, marks drafts and shows a dash for none", async () => {
+  setup(fleet);
+  await screen.findByRole("button", { name: "Actions for Both" });
+  const row = screen.getByRole("button", { name: "Actions for Both" }).closest("tr")!;
+  expect(within(row).getByRole("link", { name: "Production" })).toHaveAttribute("href", "/environments/env-prod");
+  expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "/environments/env-alpha");
+  expect(within(row).getByText("Draft")).toBeInTheDocument();
+  const alone = screen.getByRole("button", { name: "Actions for Alone" }).closest("tr")!;
+  expect(within(alone).getByText("—")).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("button", { name: "Actions for Prod only" }).closest("tr")!).queryByText("Draft"),
+  ).toBeNull();
+});
+
+test("sorting by Environment uses the first environment name and puts servers without one last", async () => {
+  setup(fleet);
+  await screen.findByRole("button", { name: "Actions for Both" });
+  await userEvent.setup().click(screen.getByRole("button", { name: /Environment/ }));
+  expect(names()).toEqual(["Both", "Prod only", "Alone"]);
+});
+
+test("the Environment filter sits in the toolbar row and offers each environment and No environment", async () => {
+  setup(fleet);
+  const user = userEvent.setup();
+  const search = await screen.findByRole("searchbox", { name: "Search servers" });
+  const filter = await screen.findByRole("combobox", { name: "Environment" });
+  expectOneToolbarRow(search, filter);
+  await user.click(filter);
+  await user.click(await screen.findByRole("option", { name: "Production" }));
+  expect(names()).toEqual(["Both", "Prod only"]);
+  await user.click(screen.getByRole("combobox", { name: "Environment" }));
+  await user.click(await screen.findByRole("option", { name: "No environment" }));
+  expect(names()).toEqual(["Alone"]);
+  await user.click(screen.getByRole("combobox", { name: "Environment" }));
+  await user.click(await screen.findByRole("option", { name: "All environments" }));
+  expect(names()).toHaveLength(3);
+});
+
+test("search matches environment names", async () => {
+  setup(fleet);
+  const search = await screen.findByRole("searchbox", { name: "Search servers" });
+  fireEvent.change(search, { target: { value: "alph" } });
+  expect(names()).toEqual(["Both"]);
 });

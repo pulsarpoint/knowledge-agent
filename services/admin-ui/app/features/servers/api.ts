@@ -16,6 +16,8 @@ export interface ServerAsset {
   access_enabled: boolean;
   allow_sudo: boolean;
   ssh_allowed: boolean;
+  /** The environments the server is in, by name. */
+  environments: { id: string; name: string; status: Status }[];
 }
 export interface ServerInput {
   name: string;

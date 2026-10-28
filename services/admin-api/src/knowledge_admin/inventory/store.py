@@ -38,11 +38,15 @@ class Stale(Conflict):
     """The item changed since the caller read it (the revision sent is not the current one)."""
 
 
-# What a reader gets: public columns only (no SSH credentials); a server with the environments it is in.
+# What a reader gets: public columns only (no SSH credentials); a server with the environments it is in (ids, and
+# id, name and status ordered by name).
 SERVER = """SELECT x.id,x.project_id,x.name,x.hostname,x.description,x.tags,x.status,x.revision,x.created_at,x.updated_at,
     x.port AS ssh_port,x.username AS ssh_username,x.enabled AS access_enabled,x.allow_sudo,x.ssh_allowed,
     ARRAY(SELECT m.environment_id FROM ka.environment_servers m WHERE m.server_id=x.id ORDER BY m.environment_id)
-    AS environment_ids
+    AS environment_ids,
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',e.id,'name',e.name,'status',e.status) ORDER BY lower(e.name),e.id),
+        '[]'::jsonb) FROM ka.environment_servers m JOIN ka.environments e ON e.id=m.environment_id
+        WHERE m.server_id=x.id) AS environments
     FROM ka.servers x"""
 SERVICE = """SELECT x.id,x.project_id,x.name,x.description,x.owner,x.service_type::text AS service_type,
     x.service_role::text AS service_role,x.address,x.status,x.revision,x.created_by,x.created_at,x.updated_at
@@ -114,7 +118,8 @@ STATUSES = ('draft', 'confirmed')
 
 
 def list_servers(conn, project_id: UUID, environment_id: UUID | None = None) -> list[dict]:
-    """Servers, or the servers in the environment; each with environment_ids, the environments it is in."""
+    """Servers, or the servers in the environment; each with environment_ids and environments
+    ({id, name, status}, by name), the environments it is in."""
     return conn.execute(
         f"""{SERVER} WHERE x.project_id=%(p)s AND (%(e)s::uuid IS NULL OR EXISTS
         (SELECT 1 FROM ka.environment_servers m WHERE m.server_id=x.id AND m.environment_id=%(e)s))
