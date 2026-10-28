@@ -209,7 +209,9 @@ Every Jira event carries the assignee's Jira key next to the display name (`payl
 unassigned); a reassignment shows both (`payload.changes.assignee` = `{from, to, from_id, to_id}`).
 `payload.for_assignee` is true when the event is work for the ticket's assignee: the ticket is assigned and it is new,
 its assignee changed (by key), or a comment was added that is neither one of our own answers (as above) nor written
-by the connection's own Jira user. Status, label, description and other edits leave it false. Matching uses the Data
+by the connection's own Jira user. Status, label, description and other edits leave it false. An update made only of
+our own answers is not recorded, except when that answer gave the ticket back and the ticket is assigned to the agent
+again before the next pull: then the event is recorded (the ticket came back). Matching uses the Data
 Center user `key`: an assignee without one (Jira Cloud's `accountId`) leaves `for_assignee` false.
 
 ## Users and agents
@@ -227,8 +229,9 @@ warning}`; a failed Jira search still returns the seen assignees, with a warning
 
 Saving the first mapping, when the project has no handler sending to **Agent mapped to the assignee**, also creates
 one (audited as `event_handler.created` with `automatic: true`): **Jira assignee agents**, enabled, event type
-`jira.ticket.*`, the condition `payload.for_assignee equals true`, a prompt with the ticket's key, summary, description,
-status, reporter and comments, **Also post the answer as a comment on the Jira ticket** and **Give the ticket back
+`jira.ticket.*`, no condition (every recorded update of a ticket assigned to a mapped user — new, reassigned, a new
+comment by anyone or any other edit — runs that user's agent again), a prompt with the ticket's key, summary,
+description, status, reporter and all comments, **Also post the answer as a comment on the Jira ticket** and **Give the ticket back
 after replying**. It is an ordinary handler (edit, turn off or delete it in Events → Handlers); later mappings reuse it
 and removing mappings never removes it. The section shows `Handled by: <handler> (enabled|disabled)` with a link that
 opens the handler, or `No handler runs these agents.` with **Create handler** (the same handler; `POST

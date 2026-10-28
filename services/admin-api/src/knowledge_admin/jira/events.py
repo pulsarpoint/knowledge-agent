@@ -1,8 +1,8 @@
 """Jira events: what the scheduled pull saw change. One event per new or changed ticket (Jira's `updated` moved),
 judged against the pull's own latest event for that ticket — not the tickets table, which the manual fetch also
 updates. Events carry the ticket's comments. An update whose only change is new comments that are all our own answers
-(events/jira_replies.py) is not recorded, so a handler never answers itself. `for_assignee` says whether the event is
-work for the ticket's assignee."""
+(events/jira_replies.py) is not recorded, so a handler never answers itself — unless that reply gave the ticket back
+and it is assigned to the agent again. `for_assignee` says whether the event is work for the ticket's assignee."""
 
 from uuid import UUID
 
@@ -132,6 +132,19 @@ def own_comment_ids(
     return {comment['id'] for comment in new if ours(comment, posted, pending, username)}
 
 
+def handed_back(conn, project_id: UUID, connection_id: UUID, issue_id: str, own: set[str]) -> bool:
+    """One of our new replies gave the ticket back (events/jira_replies.py). If the pull still sees the same assignee,
+    someone assigned it to the agent again between two pulls."""
+    return bool(own) and (
+        conn.execute(
+            """SELECT 1 FROM ka.notifications WHERE project_id=%s AND jira_connection_id=%s AND jira_issue_id=%s
+            AND jira_comment_id = ANY(%s) AND give_back_status='done' LIMIT 1""",
+            (project_id, connection_id, issue_id, list(own)),
+        ).fetchone()
+        is not None
+    )
+
+
 def for_assignee(ticket: dict, diff: dict, first_seen: bool, own: set[str], connection_user: str) -> bool:
     """Work for the ticket's assignee: it is assigned (by Data Center key) and new, reassigned (by key), or a comment
     was added that is neither ours (`own`) nor written by the connection's own Jira user. Other edits (status, labels,
@@ -182,6 +195,7 @@ def record(conn, project_id: UUID, connection_id: UUID, base_url: str, username:
             set(diff) == {'comments'}
             and before.get('comments') is not None  # an event recorded before events carried comments
             and own == set(added)
+            and not handed_back(conn, project_id, connection_id, issue['id'], own)
         ):
             continue
         payload = {**after, 'changes': diff, 'for_assignee': for_assignee(after, diff, before is None, own, username)}

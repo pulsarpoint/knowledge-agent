@@ -192,14 +192,23 @@ def test_hand_made_jira_events_never_change_what_a_pull_records(store, tmp_path)
     assert [e['type'] for e in events(store)] == ['jira.ticket.updated', 'jira.ticket.created']
 
 
-def posted_comment(store, issue, comment_id: str) -> None:
+def posted_comment(store, issue, comment_id: str, give_back: str | None = None) -> None:
+    """Our posted reply; `give_back` is its hand-back's status (given to 'ana')."""
     with store.connect() as conn:
         jira = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
         conn.execute(
             """INSERT INTO ka.notifications(project_id,kind,status,title,body,jira_status,jira_connection_id,
-            jira_issue_id,jira_issue_key,jira_comment_id,jira_comment_created)
-            VALUES (%s,'agent.response','succeeded','T','A','posted',%s,%s,%s,%s,now())""",
-            (jira['project_id'], jira['id'], issue['id'], issue['key'], comment_id),
+            jira_issue_id,jira_issue_key,jira_comment_id,jira_comment_created,give_back_key,give_back_status)
+            VALUES (%s,'agent.response','succeeded','T','A','posted',%s,%s,%s,%s,now(),%s,%s)""",
+            (
+                jira['project_id'],
+                jira['id'],
+                issue['id'],
+                issue['key'],
+                comment_id,
+                give_back and 'ana',
+                give_back,
+            ),
         )
 
 
@@ -295,6 +304,21 @@ def test_a_field_change_with_our_comment_is_recorded(store, tmp_path):
 
     summary, _ = pulled_twice(store, tmp_path, change)
     assert summary.endswith('1 new event.')
+
+
+@pytest.mark.parametrize(('give_back', 'recorded'), [('done', '1 new event.'), ('skipped', '0 new events.')])
+def test_our_reply_handed_back_and_assigned_to_the_agent_again_between_pulls_is_recorded(
+    store, tmp_path, give_back, recorded
+):
+    """The agent replied and gave the ticket back; someone assigned it to the agent again before the next pull. The
+    pull sees the same assignee and only our reply — but the ticket did come back, so it is the agent's work again."""
+
+    def change(store, issues):
+        commented(issues[0], ('501', 'mock-admin', OURS))
+        posted_comment(store, issues[0], '501', give_back)
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith(recorded)
 
 
 def test_our_comment_id_on_another_ticket_does_not_hide_an_update(store, tmp_path):

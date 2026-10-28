@@ -584,8 +584,9 @@ and search permission).
 to a mapped user is that agent's work. Search for a user as you type (or type a user key), choose an agent, **Add**;
 change a row's agent in place or remove it. A row whose agent is turned off says **Agent disabled**. An event handler
 with **Agent mapped to the assignee** (4.17) runs the mapped agent. The first mapping creates that handler when there
-is none: **Jira assignee agents** (every ticket event with new work for the assignee; the answer is posted on the
-ticket and the ticket is given back). The section shows **Handled by: Jira assignee agents (enabled)** (or
+is none: **Jira assignee agents** (every update of a ticket assigned to a mapped user — new, reassigned, a new
+comment or any other edit — runs that user's agent with the whole ticket and all comments; the agent's own answers
+never start it; the answer is posted on the ticket and the ticket is given back). The section shows **Handled by: Jira assignee agents (enabled)** (or
 **disabled**), which opens the handler, or **No handler runs these agents.** with **Create handler**. The handler is
 an ordinary one: edit, turn off or delete it under Events → Handlers; changing mappings never changes it.
 

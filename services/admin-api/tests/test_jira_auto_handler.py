@@ -66,7 +66,7 @@ def test_the_first_mapping_creates_the_handler(store, tmp_path):
         'name': NAME,
         'enabled': True,
         'type_pattern': 'jira.ticket.*',
-        'conditions': [{'field': 'payload.for_assignee', 'op': 'equals', 'value': 'true'}],
+        'conditions': [],
         'action': 'agent',
         'emit': None,
         'agent_from': 'assignee',

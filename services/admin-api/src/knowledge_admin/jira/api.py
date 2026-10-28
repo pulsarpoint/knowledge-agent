@@ -83,12 +83,13 @@ def assignee_handler(conn, project) -> dict | None:
 
 
 def create_assignee_handler(conn, project, actor) -> UUID:
-    """Create `Jira assignee agents` with its defaults, audited as automatic. Two first saves at once are kept to one
-    handler by the unique handler name: the second insert waits for the first and raises UniqueViolation."""
+    """Create `Jira assignee agents` with its defaults, audited as automatic. It has no condition: every recorded
+    update of a ticket assigned to a mapped user runs that user's agent with the whole ticket (our own replies are never
+    recorded). Two first saves at once are kept to one handler by the unique handler name: the second insert waits for
+    the first and raises UniqueViolation."""
     draft = handlers_api.HandlerDraft(
         name=ASSIGNEE_HANDLER,
         type_pattern='jira.ticket.*',
-        conditions=[handlers_api.Condition(field='payload.for_assignee', op='equals', value='true')],
         action='agent',
         agent_from='assignee',
         prompt=ASSIGNEE_PROMPT,
