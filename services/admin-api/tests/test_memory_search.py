@@ -1,7 +1,7 @@
 """memory/search.py: full text and vector distance merged by reciprocal rank, filtered by metadata and agent."""
 
 from knowledge_admin.memory import store as memory
-from knowledge_admin.memory.search import not_embedded, search
+from knowledge_admin.memory.search import count, not_embedded, search
 
 
 def add(conn, pid, name, content, metadata=None, vector=None, profile='p3', agent=None):
@@ -92,3 +92,18 @@ def test_a_query_of_only_punctuation_finds_nothing_without_error(store):
         add(conn, pid, 'deploy', 'Deploy payments.')
         assert search(conn, pid, query='/') == []
         assert search(conn, pid, query='--') == []
+
+
+def test_count_is_how_many_entries_search_can_page_through(store):
+    with store.connect() as conn:
+        pid = store.project(conn, 'shop')
+        add(conn, pid, 'deploy', 'Deploy payments.', vector=[1.0, 0.0, 0.0])
+        add(conn, pid, 'queue', 'Billing queue.', vector=[0.0, 1.0, 0.0])
+        add(conn, pid, 'old', 'Old payments.', vector=[1.0, 0.0], profile='p2')
+        add(conn, pid, 'plain', 'No vector.')
+        assert count(conn, pid) == 4
+        assert count(conn, pid, query='payments') == 2  # words only
+        # with a vector every entry of its profile is ranked, plus the word matches of other profiles
+        assert count(conn, pid, query='payments', profile='p3') == 3
+        assert len(search(conn, pid, query='payments', vector=[1.0, 0.0, 0.0], profile='p3', limit=10)) == 3
+        assert count(conn, pid, query='/') == 0

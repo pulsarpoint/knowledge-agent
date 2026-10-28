@@ -41,8 +41,19 @@ def test_newest_first_with_offsets(store, tmp_path):
     assert [e['id'] for e in page['events']] == ids[::-1][:2] and page['next_offset'] == 2
     rest = client.get('/api/events', headers=HEADERS, params={'limit': 10, 'offset': 2}).json()
     assert [e['id'] for e in rest['events']] == ids[::-1][2:] and rest['next_offset'] is None
+    assert page['total'] == rest['total'] == 5
     assert 'payload' not in page['events'][0]
     assert {'source', 'status', 'depth', 'parent_id', 'root_id', 'handler_id'} <= set(page['events'][0])
+
+
+def test_total_counts_the_filtered_events(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed(store, 3)
+    seed(store, 2, type='jira.ticket.updated')
+    updated = client.get('/api/events', headers=HEADERS, params={'type': 'jira.ticket.updated', 'limit': 1}).json()
+    assert len(updated['events']) == 1 and updated['total'] == 2
+    found = client.get('/api/events', headers=HEADERS, params={'q': 'Ticket 1'}).json()
+    assert found['total'] == 2  # "Ticket 1" of each seed
 
 
 def test_sorting_ties_page_by_id_without_repeats(store, tmp_path):

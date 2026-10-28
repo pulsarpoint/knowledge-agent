@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react-router";
-import { Copy, Play, Sparkles } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Bot, Copy, Play, Sparkles } from "lucide-react";
 import AgentWizard from "./AgentWizard";
 import { toast } from "sonner";
 import { cloneAgent } from "./clones";
@@ -14,20 +15,29 @@ import {
   type AgentSummary,
 } from "./api";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
-import { Skeleton } from "~/components/ui/skeleton";
 
+type AgentSort = "name" | "model" | "status";
+const byName = (a: AgentSummary, b: AgentSummary) => a.name.localeCompare(b.name);
+const AGENT_ORDER: Record<AgentSort, (a: AgentSummary, b: AgentSummary) => number> = {
+  name: byName,
+  model: (a, b) => (a.model_name ?? "").localeCompare(b.model_name ?? "") || byName(a, b),
+  status: (a, b) => Number(b.enabled) - Number(a.enabled) || byName(a, b),
+};
+
+/** Agents: a table (name with its description, resources, model, Enabled / Disabled; Run, and Clone / Delete in the row
+ * menu) with search and sortable headers; New agent opens the wizard in a right Sheet. */
 export default function AgentsView() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { hash } = useLocation();
   const [agents, setAgents] = useState<AgentSummary[]>();
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort<AgentSort>>({ key: "name", descending: false });
   const [creating, setCreating] = useState(false);
   const [removing, setRemoving] = useState<AgentSummary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,30 +123,89 @@ export default function AgentsView() {
     }
   }
   const chat = (id: string) => navigate(agentPath(id, "chat"));
-  const filtered = agents?.filter((a) =>
-    `${a.name} ${a.description} ${countsSummary(a.counts)}`.toLowerCase().includes(query.toLowerCase()),
+  const search = query.trim().toLowerCase();
+  const shown = sortRows(
+    (agents ?? []).filter((a) =>
+      `${a.name} ${a.description} ${countsSummary(a.counts)}`.toLowerCase().includes(search),
+    ),
+    sort,
+    AGENT_ORDER,
+  );
+  const columns: ColumnDef<AgentSummary, unknown>[] = [
+    {
+      id: "name",
+      header: () => sortHeader("Agent", "name", sort, setSort),
+      cell: ({ row: { original: a } }) => (
+        <div className="max-w-sm">
+          <Link className="font-medium underline-offset-4 hover:underline" to={`/agents/${a.id}`}>
+            {a.name}
+          </Link>
+          {a.expert && (
+            <>
+              {" "}
+              <Badge variant="secondary">Expert</Badge>
+            </>
+          )}
+          {a.original_name && <p className="mt-1 text-xs text-muted-foreground">Clone of {a.original_name}</p>}
+          {a.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{a.description}</p>}
+        </div>
+      ),
+    },
+    { id: "resources", header: "Resources", cell: ({ row: { original: a } }) => countsSummary(a.counts) },
+    {
+      id: "model",
+      header: () => sortHeader("Model", "model", sort, setSort),
+      cell: ({ row: { original: a } }) => a.model_name ?? "Not configured",
+    },
+    {
+      id: "status",
+      header: () => sortHeader("Status", "status", sort, setSort),
+      cell: ({ row: { original: a } }) => (
+        <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "Enabled" : "Disabled"}</Badge>
+      ),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row: { original: a } }) => (
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!a.enabled}
+            aria-label={`Run ${a.name}`}
+            title={a.enabled ? undefined : "Enable the agent to run it"}
+            onClick={() => chat(a.id)}
+          >
+            <Play data-icon="inline-start" />
+            Run
+          </Button>
+          <RowMenu
+            name={a.name}
+            disabled={busy}
+            items={[
+              { label: "Clone", icon: Copy, onSelect: () => void cloneRow(a) },
+              deleteMenuItem(() => {
+                setError("");
+                setRemoving(a);
+              }),
+            ]}
+          />
+        </div>
+      ),
+    },
+  ];
+  const newAgent = (
+    <Button onClick={() => setCreating(true)} disabled={creating}>
+      <Sparkles data-icon="inline-start" />
+      New agent
+    </Button>
   );
   return (
     <section className="flex flex-col gap-6" aria-label="Agent list">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Input
-          aria-label="Find agents"
-          placeholder="Find an agent…"
-          className="max-w-sm"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setCreating(true)} disabled={creating}>
-            <Sparkles data-icon="inline-start" />
-            New agent
-          </Button>
-        </div>
-      </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">{newAgent}</div>
       {creating && (
-        <section aria-label="New agent" className="flex flex-col gap-3">
-          <AgentWizard onClose={() => setCreating(false)} onCreated={(id) => navigate(`/agents/${id}`)} />
-        </section>
+        <AgentWizard open onClose={() => setCreating(false)} onCreated={(id) => navigate(`/agents/${id}`)} />
       )}
       {error && !removing && (
         <Alert variant="destructive">
@@ -148,84 +217,30 @@ export default function AgentsView() {
           </AlertDescription>
         </Alert>
       )}
-      {!agents ? (
-        <Skeleton className="h-64 w-full" />
-      ) : (
-        <div className="overflow-hidden rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Agent</TableHead>
-                <TableHead>Resources</TableHead>
-                <TableHead>Model</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered?.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell className="max-w-sm whitespace-normal">
-                    <Link className="font-medium underline-offset-4 hover:underline" to={`/agents/${a.id}`}>
-                      {a.name}
-                    </Link>
-                    {a.expert && (
-                      <>
-                        {" "}
-                        <Badge variant="secondary">Expert</Badge>
-                      </>
-                    )}
-                    {a.original_name && (
-                      <p className="mt-1 text-xs text-muted-foreground">Clone of {a.original_name}</p>
-                    )}
-                    {a.description && (
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{a.description}</p>
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-xs whitespace-normal">{countsSummary(a.counts)}</TableCell>
-                  <TableCell>{a.model_name ?? "Not configured"}</TableCell>
-                  <TableCell>
-                    <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "Enabled" : "Disabled"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!a.enabled}
-                      aria-label={`Run ${a.name}`}
-                      title={a.enabled ? undefined : "Enable the agent to run it"}
-                      onClick={() => chat(a.id)}
-                    >
-                      <Play data-icon="inline-start" />
-                      Run
-                    </Button>
-                    <RowMenu
-                      name={a.name}
-                      disabled={busy}
-                      items={[
-                        { label: "Clone", icon: Copy, onSelect: () => void cloneRow(a) },
-                        deleteMenuItem(() => {
-                          setError("");
-                          setRemoving(a);
-                        }),
-                      ]}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filtered?.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                    No agents match your search.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={shown}
+        loading={!agents && !error}
+        rowId={(a) => a.id}
+        search={{ plural: "agents", value: query, onChange: setQuery }}
+        sort={sort}
+        resetKey={`${sort.key}\n${sort.descending}`}
+        empty={
+          agents?.length === 0 ? (
+            <TableEmpty
+              icon={Bot}
+              title="No agents yet"
+              description="An agent answers questions and does tasks with the resources you give it."
+            >
+              {newAgent}
+            </TableEmpty>
+          ) : agents ? (
+            "No agents match your search."
+          ) : (
+            "Could not load agents."
+          )
+        }
+      />
       <ConfirmRemove
         removal={
           removing && {

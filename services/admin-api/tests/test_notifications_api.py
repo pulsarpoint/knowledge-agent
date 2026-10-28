@@ -34,6 +34,17 @@ def test_newest_first_with_offsets(store, tmp_path):
     assert [row['id'] for row in first['notifications']] == [ids[2], ids[1]] and first['next_offset'] == 2
     rest = client.get('/api/notifications', headers=HEADERS, params={'limit': 2, 'offset': 2}).json()
     assert [row['id'] for row in rest['notifications']] == [ids[0]] and rest['next_offset'] is None
+    assert first['total'] == rest['total'] == 3
+
+
+def test_total_counts_the_filtered_notifications(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    add(store, title='Alpha')
+    add(store, title='Beta', status='failed')
+    add(store, title='Alpha two', status='failed')
+    failed = client.get('/api/notifications', headers=HEADERS, params={'status': 'failed', 'limit': 1}).json()
+    assert len(failed['notifications']) == 1 and failed['total'] == 2
+    assert client.get('/api/notifications', headers=HEADERS, params={'q': 'alpha'}).json()['total'] == 2
 
 
 def test_rows_carry_a_preview_and_the_agent(store, tmp_path):

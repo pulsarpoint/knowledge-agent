@@ -439,3 +439,15 @@ def test_delete_takes_the_project_lock_first_as_promote_and_create_do(store, tmp
         assert conn.execute('SELECT 1 FROM ka.documents WHERE id=%s FOR UPDATE NOWAIT', (created['id'],)).fetchone()
     thread.join(10)
     assert outcome == {'status': 200}
+
+
+def test_the_document_list_pages_by_limit_and_offset(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    for number in range(3):
+        live(store, VALUE, slug=f'runbook-{number}', title=f'Runbook {number}')
+    page = client.get(f'{DOCS}/documents', params={'limit': 2}, headers=HEADERS).json()
+    assert len(page['documents']) == 2 and page['total'] == 3
+    rest = client.get(f'{DOCS}/documents', params={'limit': 2, 'offset': 2}, headers=HEADERS).json()
+    assert len(rest['documents']) == 1 and rest['total'] == 3
+    assert {d['id'] for d in page['documents']}.isdisjoint(d['id'] for d in rest['documents'])
+    assert client.get(f'{DOCS}/documents', params={'limit': 101}, headers=HEADERS).status_code in (400, 422)

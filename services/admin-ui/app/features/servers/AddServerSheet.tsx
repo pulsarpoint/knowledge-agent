@@ -16,7 +16,7 @@ const NEW = "new";
 
 /** Puts a server in the environment: one that is not in it yet, or a new one (created first). `uses`: the names of the
  * drafts the environment brings (itself when it is a draft); saving confirms them and a chosen draft server. */
-export default function AddServerDialog({
+export default function AddServerSheet({
   environmentId,
   memberIds,
   uses = [],

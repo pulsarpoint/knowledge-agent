@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { CalendarClock, History, Pencil, Play, Plus } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -19,14 +20,14 @@ import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
 import HandlerSheet from "./HandlerSheet";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Switch } from "~/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 
 const REFRESH_MS = 10_000;
 const when = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
@@ -75,6 +76,17 @@ export function ScheduleStatus({ schedule }: { schedule: Schedule }) {
   return <Badge variant={variant}>{STATUS_LABELS[schedule.last_status]}</Badge>;
 }
 
+type ScheduleSort = "enabled" | "name" | "next";
+const byName = (a: Schedule, b: Schedule) => a.name.localeCompare(b.name);
+const SCHEDULE_ORDER: Record<ScheduleSort, (a: Schedule, b: Schedule) => number> = {
+  enabled: (a, b) => Number(b.enabled) - Number(a.enabled) || byName(a, b),
+  name: byName,
+  // Paused and one-time schedules that have run have no next run: last.
+  next: (a, b) => (a.next_run_at ?? "~").localeCompare(b.next_run_at ?? "~") || byName(a, b),
+};
+
+/** Schedules: a table (Enabled switch, name, what it runs, when, next and last run; Run now, and Edit, History and
+ * Delete in the row menu) with search and sortable headers; New schedule, Edit and History open right Sheets. */
 export default function SchedulesView() {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +98,10 @@ export default function SchedulesView() {
   const deletingName = useRef("");
   const deletingEmit = useRef(false);
   const [adding, setAdding] = useState<Schedule | null>(null);
-  const [history, setHistory] = useState<{ id: string; runs: ScheduleRun[] | null } | null>(null);
+  // The History sheet: the schedule's newest runs (null while loading).
+  const [history, setHistory] = useState<{ id: string; name: string; runs: ScheduleRun[] | null } | null>(null);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<Sort<ScheduleSort>>({ key: "name", descending: false });
 
   const changes = useRef(0);
 
@@ -153,165 +168,184 @@ export default function SchedulesView() {
       setDeleting(null);
     }
   }
-  async function toggleHistory(schedule: Schedule) {
-    if (history?.id === schedule.id) {
-      setHistory(null);
-      return;
-    }
-    setHistory({ id: schedule.id, runs: null });
+  async function showHistory(schedule: Schedule) {
+    setHistory({ id: schedule.id, name: schedule.name, runs: null });
     try {
       const { runs } = await getScheduleRuns(schedule.id);
-      setHistory((current) => (current?.id === schedule.id ? { id: schedule.id, runs } : current));
+      setHistory((current) => (current?.id === schedule.id ? { ...current, runs } : current));
     } catch (reason) {
       setHistory(null);
       setError(text(reason, "Could not load the run history."));
     }
   }
 
+  const query = search.trim().toLowerCase();
+  const shown = sortRows(
+    (schedules ?? []).filter((schedule) =>
+      [schedule.name, TARGETS[schedule.target_kind] ?? schedule.target_kind, schedule.description].some((value) =>
+        (value ?? "").toLowerCase().includes(query),
+      ),
+    ),
+    sort,
+    SCHEDULE_ORDER,
+  );
+  const newSchedule = (
+    <Button onClick={() => setCreating(true)}>
+      <Plus data-icon="inline-start" />
+      New schedule
+    </Button>
+  );
+  const columns: ColumnDef<Schedule, unknown>[] = [
+    {
+      id: "enabled",
+      header: () => sortHeader("Enabled", "enabled", sort, setSort),
+      cell: ({ row: { original: schedule } }) => (
+        <Switch
+          aria-label={`Enabled: ${schedule.name}`}
+          checked={schedule.enabled}
+          disabled={busy === schedule.id}
+          onCheckedChange={(enabled) =>
+            change(
+              schedule,
+              () =>
+                saveSchedule(schedule.id, {
+                  ...(schedule.run_at ? { run_at: schedule.run_at } : { cron: schedule.cron ?? "" }),
+                  timezone: schedule.timezone,
+                  enabled,
+                  revision: schedule.revision,
+                }),
+              `Schedule “${schedule.name}” ${enabled ? "enabled" : "disabled"}.`,
+            )
+          }
+        />
+      ),
+    },
+    {
+      id: "name",
+      header: () => sortHeader("Name", "name", sort, setSort),
+      cell: ({ row: { original: schedule } }) => <span className="font-medium">{schedule.name}</span>,
+    },
+    {
+      id: "runs",
+      header: "Runs",
+      cell: ({ row: { original: schedule } }) => (
+        <div className="flex flex-col items-start gap-1">
+          <span>{TARGETS[schedule.target_kind] ?? schedule.target_kind}</span>
+          {schedule.target_kind === EMIT && <HandledBy schedule={schedule} onAdd={() => setAdding(schedule)} />}
+        </div>
+      ),
+    },
+    {
+      id: "when",
+      header: "When",
+      cell: ({ row: { original: schedule } }) => (
+        <>
+          <div>{schedule.description}</div>
+          <div className="text-xs text-muted-foreground">{schedule.timezone}</div>
+        </>
+      ),
+    },
+    {
+      id: "next",
+      header: () => sortHeader("Next run", "next", sort, setSort),
+      cell: ({ row: { original: schedule } }) => nextRun(schedule),
+    },
+    {
+      id: "last",
+      header: "Last run",
+      cell: ({ row: { original: schedule } }) => (
+        <div className="flex flex-col items-start gap-1">
+          <ScheduleStatus schedule={schedule} />
+          {schedule.last_message && <span className="text-xs text-muted-foreground">{schedule.last_message}</span>}
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row: { original: schedule } }) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy === schedule.id || schedule.running}
+            onClick={() => change(schedule, () => runSchedule(schedule.id), `Schedule “${schedule.name}” started.`)}
+          >
+            <Play data-icon="inline-start" />
+            Run now
+          </Button>
+          <RowMenu
+            name={schedule.name}
+            items={[
+              { label: "Edit", icon: Pencil, onSelect: () => setEditing(schedule) },
+              { label: "History", icon: History, onSelect: () => void showHistory(schedule) },
+              deleteMenuItem(() => {
+                deletingName.current = schedule.name;
+                deletingEmit.current = schedule.target_kind === EMIT;
+                setDeleting(schedule);
+              }),
+            ]}
+          />
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setCreating(true)}>
-          <Plus data-icon="inline-start" />
-          New schedule
-        </Button>
-      </div>
+      <div className="flex justify-end">{newSchedule}</div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {schedules === null && !error && <Skeleton className="h-32 w-full" />}
-      {schedules?.length === 0 && (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <CalendarClock />
-            </EmptyMedia>
-            <EmptyTitle>Schedules</EmptyTitle>
-            <EmptyDescription>No schedules yet. Create one with New schedule.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      )}
-      {schedules && schedules.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Enabled</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Runs</TableHead>
-              <TableHead>When</TableHead>
-              <TableHead>Next run</TableHead>
-              <TableHead>Last run</TableHead>
-              <TableHead>
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {schedules.map((schedule) => (
-              <Fragment key={schedule.id}>
-                <TableRow>
-                  <TableCell>
-                    <Switch
-                      aria-label={`Enabled: ${schedule.name}`}
-                      checked={schedule.enabled}
-                      disabled={busy === schedule.id}
-                      onCheckedChange={(enabled) =>
-                        change(
-                          schedule,
-                          () =>
-                            saveSchedule(schedule.id, {
-                              ...(schedule.run_at ? { run_at: schedule.run_at } : { cron: schedule.cron ?? "" }),
-                              timezone: schedule.timezone,
-                              enabled,
-                              revision: schedule.revision,
-                            }),
-                          `Schedule “${schedule.name}” ${enabled ? "enabled" : "disabled"}.`,
-                        )
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium">{schedule.name}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col items-start gap-1">
-                      <span>{TARGETS[schedule.target_kind] ?? schedule.target_kind}</span>
-                      {schedule.target_kind === EMIT && (
-                        <HandledBy schedule={schedule} onAdd={() => setAdding(schedule)} />
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div>{schedule.description}</div>
-                    <div className="text-xs text-muted-foreground">{schedule.timezone}</div>
-                  </TableCell>
-                  <TableCell>{nextRun(schedule)}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col items-start gap-1">
-                      <ScheduleStatus schedule={schedule} />
-                      {schedule.last_message && (
-                        <span className="text-xs text-muted-foreground">{schedule.last_message}</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy === schedule.id || schedule.running}
-                        onClick={() =>
-                          change(schedule, () => runSchedule(schedule.id), `Schedule “${schedule.name}” started.`)
-                        }
-                      >
-                        <Play data-icon="inline-start" />
-                        Run now
-                      </Button>
-                      <RowMenu
-                        name={schedule.name}
-                        items={[
-                          { label: "Edit", icon: Pencil, onSelect: () => setEditing(schedule) },
-                          {
-                            label: history?.id === schedule.id ? "Hide history" : "History",
-                            icon: History,
-                            onSelect: () => toggleHistory(schedule),
-                          },
-                          deleteMenuItem(() => {
-                            deletingName.current = schedule.name;
-                            deletingEmit.current = schedule.target_kind === EMIT;
-                            setDeleting(schedule);
-                          }),
-                        ]}
-                      />
-                    </div>
-                  </TableCell>
-                </TableRow>
-                {history?.id === schedule.id && (
-                  <TableRow>
-                    <TableCell colSpan={7}>
-                      {history.runs === null ? (
-                        <Skeleton className="h-8 w-full" />
-                      ) : history.runs.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">No runs yet.</p>
-                      ) : (
-                        <ul className="flex flex-col gap-1 text-sm">
-                          {history.runs.map((run) => (
-                            <li key={run.id}>
-                              {when(run.started_at)} · {run.trigger === "manual" ? "Run now" : "Scheduled"} ·{" "}
-                              {STATUS_LABELS[run.status]}
-                              {run.message ? ` · ${run.message}` : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </Fragment>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <DataTable
+        columns={columns}
+        data={shown}
+        loading={schedules === null && !error}
+        rowId={(schedule) => schedule.id}
+        search={{ plural: "schedules", value: search, onChange: setSearch }}
+        sort={sort}
+        resetKey={`${sort.key}\n${sort.descending}`}
+        empty={
+          schedules?.length === 0 ? (
+            <TableEmpty
+              icon={CalendarClock}
+              title="No schedules yet"
+              description="A schedule pulls Jira tickets or emits an event on a timetable."
+            >
+              {newSchedule}
+            </TableEmpty>
+          ) : schedules ? (
+            "No schedules match."
+          ) : (
+            "Could not load schedules."
+          )
+        }
+      />
+      <Sheet open={history !== null} onOpenChange={(open) => !open && setHistory(null)}>
+        <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>History of {history?.name}</SheetTitle>
+            <SheetDescription>The newest runs, scheduled or started with Run now.</SheetDescription>
+          </SheetHeader>
+          {history?.runs === null ? (
+            <Skeleton className="h-8 w-full" />
+          ) : history?.runs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No runs yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-1 text-sm">
+              {history?.runs.map((run) => (
+                <li key={run.id}>
+                  {when(run.started_at)} · {run.trigger === "manual" ? "Run now" : "Scheduled"} ·{" "}
+                  {STATUS_LABELS[run.status]}
+                  {run.message ? ` · ${run.message}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </SheetContent>
+      </Sheet>
       {creating && (
         <NewScheduleSheet
           open

@@ -33,7 +33,7 @@ const targetOf = (connection: Connection) =>
  * The target is a deployment (grouped by environment and server), an external service (a recorded one, or a new one:
  * name, address, description, created first), or a host; then port, protocol and description. A stale revision on an
  * edit is `onConflict`. */
-export default function AddConnectionDialog({
+export default function AddConnectionSheet({
   from,
   services,
   connection,

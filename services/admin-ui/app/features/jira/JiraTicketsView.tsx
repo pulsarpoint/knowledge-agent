@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Download, Ticket } from "lucide-react";
 import { ApiError } from "~/lib/api";
-import { fetchJiraTickets, getJiraTickets, type JiraTickets } from "./api";
+import { fetchJiraTickets, getJiraTickets, type JiraTicket, type JiraTickets } from "./api";
 import JiraPullStatus from "./JiraPullStatus";
+import DataTable from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -13,7 +15,6 @@ import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 const DEFAULT_JQL = "ORDER BY updated DESC, key DESC";
 
@@ -77,6 +78,45 @@ export default function JiraTicketsView() {
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
   );
+  const columns: ColumnDef<JiraTicket, unknown>[] = [
+    {
+      id: "ticket",
+      header: "Ticket",
+      cell: ({ row: { original: ticket } }) => (
+        <div className="max-w-md">
+          <a
+            href={`${data?.connection?.base_url}/browse/${encodeURIComponent(ticket.issue_key)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium underline underline-offset-4"
+          >
+            {ticket.issue_key}
+          </a>
+          <p className="mt-1 break-words text-sm">{ticket.summary}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {ticket.jira_project_key}
+            {ticket.issue_type && ` · ${ticket.issue_type}`}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: ({ row: { original: ticket } }) => <Badge variant="secondary">{ticket.status_name || "Unknown"}</Badge>,
+    },
+    { id: "priority", header: "Priority", cell: ({ row: { original: ticket } }) => ticket.priority || "—" },
+    {
+      id: "assignee",
+      header: "Assignee",
+      cell: ({ row: { original: ticket } }) => ticket.assignee_name || "Unassigned",
+    },
+    {
+      id: "updated",
+      header: "Updated",
+      cell: ({ row: { original: ticket } }) => new Date(ticket.source_updated_at).toLocaleString(),
+    },
+  ];
   return (
     <div className="flex flex-col gap-6">
       {data?.connection?.has_token && <JiraPullStatus refreshKey={data.connection.last_successful_sync_at} />}
@@ -166,31 +206,21 @@ export default function JiraTicketsView() {
         </Empty>
       )}
       {data?.connection?.last_successful_sync_at && (
-        <>
-          <div className="flex flex-col gap-3">
-            <FieldGroup className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_10rem]">
-              <Field>
-                <FieldLabel htmlFor="jira-filter">Filter saved tickets</FieldLabel>
-                <Input
-                  id="jira-filter"
-                  placeholder="Key, summary, assignee or label"
-                  value={query}
-                  disabled={busy}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                  }}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="jira-project">Project</FieldLabel>
-                <Select
-                  value={project}
-                  disabled={busy}
-                  onValueChange={(value) => {
-                    setProject(value);
-                  }}
-                >
-                  <SelectTrigger id="jira-project" className="w-full">
+        <div className="flex flex-col gap-3">
+          <p role="status" className="text-sm text-muted-foreground">
+            Showing {filtered.length} of {tickets.length} saved tickets · {data.connection.last_fetch_total} Jira
+            matches · Fetched {new Date(data.connection.last_successful_sync_at).toLocaleString()}
+          </p>
+          <DataTable
+            columns={columns}
+            data={filtered}
+            rowId={(ticket) => ticket.id}
+            search={{ plural: "tickets", value: query, onChange: setQuery }}
+            resetKey={`${project}\n${status}`}
+            toolbar={
+              <>
+                <Select value={project} disabled={busy} onValueChange={setProject}>
+                  <SelectTrigger aria-label="Project" className="w-full sm:w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -204,17 +234,8 @@ export default function JiraTicketsView() {
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="jira-status">Status</FieldLabel>
-                <Select
-                  value={status}
-                  disabled={busy}
-                  onValueChange={(value) => {
-                    setStatus(value);
-                  }}
-                >
-                  <SelectTrigger id="jira-status" className="w-full">
+                <Select value={status} disabled={busy} onValueChange={setStatus}>
+                  <SelectTrigger aria-label="Status" className="w-full sm:w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -228,67 +249,11 @@ export default function JiraTicketsView() {
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-              </Field>
-            </FieldGroup>
-            <p role="status" className="text-sm text-muted-foreground">
-              Showing {filtered.length} of {tickets.length} saved tickets · {data.connection.last_fetch_total} Jira
-              matches · Fetched {new Date(data.connection.last_successful_sync_at).toLocaleString()}
-            </p>
-          </div>
-          {filtered.length === 0 ? (
-            <Empty className="border">
-              <EmptyHeader>
-                <EmptyTitle>No matching tickets</EmptyTitle>
-                <EmptyDescription>Adjust the saved-list filters or fetch a different Jira query.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ticket</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Assignee</TableHead>
-                    <TableHead>Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((ticket) => (
-                    <TableRow key={ticket.id}>
-                      <TableCell className="max-w-md whitespace-normal align-top">
-                        <a
-                          href={`${data.connection!.base_url}/browse/${encodeURIComponent(ticket.issue_key)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium underline underline-offset-4"
-                        >
-                          {ticket.issue_key}
-                        </a>
-                        <p className="mt-1 break-words text-sm">{ticket.summary}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {ticket.jira_project_key}
-                          {ticket.issue_type && ` · ${ticket.issue_type}`}
-                        </p>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <Badge variant="secondary">{ticket.status_name || "Unknown"}</Badge>
-                      </TableCell>
-                      <TableCell className="align-top">{ticket.priority || "—"}</TableCell>
-                      <TableCell className="whitespace-normal align-top">
-                        {ticket.assignee_name || "Unassigned"}
-                      </TableCell>
-                      <TableCell className="whitespace-normal align-top">
-                        {new Date(ticket.source_updated_at).toLocaleString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </>
+              </>
+            }
+            empty="No tickets match. Adjust the filters or fetch a different Jira query."
+          />
+        </div>
       )}
     </div>
   );

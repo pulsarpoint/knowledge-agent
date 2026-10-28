@@ -16,6 +16,7 @@ import {
 import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import LeaveGuard from "~/components/LeaveGuard";
+import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -204,12 +205,19 @@ export default function OutputSchemaEditorView() {
             </p>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {entry && (
             <Button type="button" variant="outline" onClick={() => setVersionsOpen(true)}>
               <History data-icon="inline-start" />
               Versions ({entry.versions.length})
             </Button>
+          )}
+          <Button type="submit" disabled={busy}>
+            {busy && <Spinner data-icon="inline-start" />}
+            Save
+          </Button>
+          {entry && (
+            <RowMenu name={entry.name} disabled={busy} items={[deleteMenuItem(() => setConfirmDelete(true))]} />
           )}
         </div>
       </div>
@@ -284,17 +292,6 @@ export default function OutputSchemaEditorView() {
           </Field>
         </div>
       </FieldGroup>
-      <div className="flex justify-between gap-2">
-        <Button type="submit" disabled={busy}>
-          {busy && <Spinner data-icon="inline-start" />}
-          Save
-        </Button>
-        {entry && (
-          <Button type="button" variant="destructive" disabled={busy} onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
-        )}
-      </div>
       <ConfirmRemove
         removal={
           confirmDelete && entry

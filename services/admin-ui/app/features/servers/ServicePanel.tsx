@@ -19,8 +19,8 @@ import {
 import { getServices, type ServiceAsset } from "./services";
 import { serviceRoles, serviceTypes } from "./serviceClassification";
 import ServiceFields, { serviceFields, serviceValue } from "./ServiceFields";
-import AddConnectionDialog from "./AddConnectionDialog";
-import AddRelationDialog from "./AddRelationDialog";
+import AddConnectionSheet from "./AddConnectionSheet";
+import AddRelationSheet from "./AddRelationSheet";
 import { DraftBadge, DraftRowMenu } from "./ConfirmDraftSheet";
 import { CONFLICT, draftOf, List, Row, removeItem } from "./rows";
 import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
@@ -385,7 +385,7 @@ export default function ServicePanel({
         />
       )}
       {open?.kind === "connection" && (
-        <AddConnectionDialog
+        <AddConnectionSheet
           from={[...hereIds]}
           services={data.services}
           connection={open.connection}
@@ -395,7 +395,7 @@ export default function ServicePanel({
         />
       )}
       {open?.kind === "relation" && (
-        <AddRelationDialog
+        <AddRelationSheet
           serviceId={serviceId}
           services={data.services}
           kind={open.relation}

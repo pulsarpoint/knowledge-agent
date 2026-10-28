@@ -180,11 +180,56 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   expect(within(row).getByText("Claude on Bedrock")).toBeVisible();
   const other = screen.getByRole("link", { name: "Search agent" }).closest("tr")!;
   expect(within(other).getByText("1 document")).toBeVisible();
-  await user.type(screen.getByLabelText("Find agents"), "technical");
+  await user.type(screen.getByRole("searchbox", { name: "Search agents" }), "technical");
   expect(screen.queryByRole("link", { name: "Search agent" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "New agent" }));
   expect(screen.getByText("Agent wizard")).toBeVisible();
   expect(screen.queryByRole("tab")).toBeNull();
+});
+
+function agentsList() {
+  render(
+    <MemoryRouter initialEntries={["/agents"]}>
+      <Routes>
+        <Route path="/agents" element={<AgentsView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+const agentNames = () => screen.getAllByRole("link").map((link) => link.textContent);
+
+test("the agent list: Skeleton rows while loading, then an empty state with New agent", async () => {
+  let resolve: (value: { agents: profiles.AgentSummary[] }) => void = () => {};
+  vi.mocked(profiles.getAgents).mockReturnValue(new Promise((done) => (resolve = done)));
+  agentsList();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  resolve({ agents: [] });
+  expect(await screen.findByText("No agents yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "New agent" })).toHaveLength(2);
+});
+
+test("the agent list sorts by a header, pages 20 rows and searches from page 1", async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgents).mockResolvedValue({
+    agents: Array.from({ length: 25 }, (_, i) => ({
+      ...writer,
+      id: `a${i}`,
+      name: `Agent ${String(i).padStart(2, "0")}`,
+      counts: NO_COUNTS,
+      model_name: i % 2 ? "Zeta" : "Alpha",
+    })),
+  });
+  agentsList();
+  await screen.findByRole("link", { name: "Agent 00" });
+  expect(agentNames()).toHaveLength(20);
+  expect(screen.getByText("Showing 1–20 of 25")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Agent" }));
+  expect(agentNames()[0]).toBe("Agent 24");
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  expect(agentNames()).toHaveLength(5);
+  await user.type(screen.getByRole("searchbox", { name: "Search agents" }), "Agent 1");
+  expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+  expect(agentNames()).toHaveLength(10);
 });
 
 test("General has no role switch and saves Instructions", async () => {

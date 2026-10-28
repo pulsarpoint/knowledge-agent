@@ -314,10 +314,10 @@ test("New code project maps multiple existing folders into a local code project 
   show();
   const sheet = await newProject();
   fireEvent.change(sheet.getByLabelText("Project name"), { target: { value: "Local code" } });
-  expect(sheet.getByRole("button", { name: "Save project" })).toBeDisabled();
+  expect(sheet.getByRole("button", { name: "Create code project" })).toBeDisabled();
   fireEvent.click(await sheet.findByRole("checkbox", { name: "Select folder api" }));
   fireEvent.click(sheet.getByRole("checkbox", { name: "Select folder shared" }));
-  fireEvent.click(sheet.getByRole("button", { name: "Save project" }));
+  fireEvent.click(sheet.getByRole("button", { name: "Create code project" }));
   await screen.findByText("Code project saved.");
   expect(screen.queryByRole("dialog", { name: "New code project" })).toBeNull();
   const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
@@ -350,7 +350,7 @@ test("Git source asks for clone folder, cloning choice and automatic pull interv
   expect(screen.getByLabelText("Clone folder")).toHaveValue("remote-code");
   await user.click(screen.getByRole("switch", { name: "Automatic pulls" }));
   fireEvent.change(screen.getByLabelText("Pull interval (minutes)"), { target: { value: "15" } });
-  await user.click(screen.getByRole("button", { name: "Save and clone" }));
+  await user.click(screen.getByRole("button", { name: "Create code project" }));
   await screen.findByText("Code project saved. Clone queued.");
   const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
   expect(body).toMatchObject({
@@ -372,7 +372,7 @@ test("can save a Git project without cloning it", async () => {
   fireEvent.change(screen.getByLabelText("Git repository URL"), { target: { value: "example/later" } });
   fireEvent.change(screen.getByLabelText("Clone folder"), { target: { value: "later" } });
   await user.click(screen.getByRole("checkbox", { name: "Clone repository after saving" }));
-  await user.click(screen.getByRole("button", { name: "Save project" }));
+  await user.click(screen.getByRole("button", { name: "Create code project" }));
   await screen.findByText("Code project saved.");
   const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
   expect(body.clone_now).toBe(false);
@@ -394,11 +394,11 @@ test("new private repositories require credentials and submit them separately fr
     expect(screen.getByLabelText(label)).toBeRequired();
     expect(screen.getByLabelText(label)).toHaveAttribute("type", "password");
   }
-  await user.click(screen.getByRole("button", { name: "Save and clone" }));
+  await user.click(screen.getByRole("button", { name: "Create code project" }));
   expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   fireEvent.change(screen.getByLabelText("Git username"), { target: { value: "private-user" } });
   fireEvent.change(screen.getByLabelText("Access token"), { target: { value: "private-token" } });
-  await user.click(screen.getByRole("button", { name: "Save and clone" }));
+  await user.click(screen.getByRole("button", { name: "Create code project" }));
   await screen.findByText("Code project saved. Clone queued.");
   const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
   expect(body).toMatchObject({
@@ -427,7 +427,7 @@ test("selects nested folders across branches and keeps selections when collapsed
   expect(screen.getByRole("button", { name: "Unmap api/src/billing" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Expand api" }));
   expect(await screen.findByRole("checkbox", { name: "Select folder api/src/billing" })).toBeChecked();
-  await user.click(screen.getByRole("button", { name: "Save project" }));
+  await user.click(screen.getByRole("button", { name: "Create code project" }));
   await screen.findByText("Code project saved.");
   const body = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
   expect(body.folder_paths).toEqual(["api/src/billing", "shared"]);

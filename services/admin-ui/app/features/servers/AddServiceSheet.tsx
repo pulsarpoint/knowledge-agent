@@ -18,7 +18,7 @@ const NEW = "new";
 /** Adds a service to the server in the environment: a recorded service or a new one (created first), and its
  * deployment there. `uses`: the names of the drafts the placement brings (the environment, the server, its
  * membership); saving confirms them and a chosen draft service. */
-export default function AddServiceDialog({
+export default function AddServiceSheet({
   environmentId,
   server,
   uses = [],

@@ -46,24 +46,28 @@ const view = (entry = "/notifications") =>
   );
 afterEach(() => vi.unstubAllGlobals());
 
-test("lists notifications newest first with status and the answer's first line, and loads more", async () => {
+test("lists notifications newest first with status and the answer's first line, paged by the API's total", async () => {
   const user = userEvent.setup();
   api({
     "/api/notifications": {
       notifications: [row(3, { status: "failed", preview: "Agent is disabled." }), row(2)],
-      next_offset: 2,
+      next_offset: 50,
+      total: 51,
     },
-    "/api/notifications?offset=2": { notifications: [row(2), row(1)], next_offset: null },
+    "/api/notifications?offset=50": { notifications: [row(1)], next_offset: null, total: 51 },
   });
   view();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   const table = await screen.findByRole("table");
+  await within(table).findByText("Answer 2");
   expect(within(table).getByRole("columnheader", { name: "Preview" })).toBeInTheDocument();
   expect(within(table).getByText("Failed")).toBeInTheDocument();
-  expect(within(table).getByText("Answer 2")).toBeInTheDocument();
   expect(within(table).queryByText(/more/)).toBeNull(); // only the first line
-  await user.click(screen.getByRole("button", { name: "Load more" }));
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  expect(screen.getByText("Showing 1–50 of 51")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Next page" }));
   expect(await screen.findByText("Triage · jira.ticket.updated DEMO-1")).toBeInTheDocument();
-  expect(screen.getAllByText("Triage · jira.ticket.updated DEMO-2")).toHaveLength(1); // de-duplicated by id
+  expect(screen.queryByText("Triage · jira.ticket.updated DEMO-2")).toBeNull();
 });
 
 test("filters by status and searches the title", async () => {
@@ -78,7 +82,7 @@ test("filters by status and searches the title", async () => {
   await user.click(screen.getByRole("combobox", { name: "Status" }));
   await user.click(screen.getByRole("option", { name: "Failed" }));
   expect(await screen.findByText("No notifications match these filters.")).toBeInTheDocument();
-  await user.type(screen.getByLabelText("Search title"), "DEMO");
+  await user.type(screen.getByRole("searchbox", { name: "Search notifications" }), "DEMO");
   expect(await screen.findByText("Answer 2")).toBeInTheDocument();
   expect(fetch.mock.calls.map(([url]) => url)).toContain("/api/notifications?status=failed&q=DEMO");
 });
@@ -139,11 +143,7 @@ test("an address with ?id= opens that notification", async () => {
 test("empty and error states", async () => {
   api({ "/api/notifications": { notifications: [], next_offset: null } });
   view();
-  expect(
-    await screen.findByText(
-      "No notifications yet. A handler that sends events to an agent puts the agent's answers here.",
-    ),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("No notifications yet")).toBeInTheDocument();
   vi.unstubAllGlobals();
   vi.stubGlobal(
     "fetch",

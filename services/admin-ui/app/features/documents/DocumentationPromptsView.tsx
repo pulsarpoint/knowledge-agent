@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import LeaveGuard from "~/components/LeaveGuard";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { Plus, Save, Trash2 } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { MessageSquareText, Plus, Save, Trash2 } from "lucide-react";
 import {
   activateDocumentationPrompt,
   deleteDocumentationPrompt,
@@ -21,7 +23,6 @@ import TagsInput from "./TagsInput";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "~/components/ui/empty";
 import { Field, FieldGroup, FieldLabel, FieldDescription } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
@@ -33,12 +34,24 @@ import { Textarea } from "~/components/ui/textarea";
 
 const ALL_TAGS = "__all__";
 
+type PromptSort = "name" | "status" | "updated";
+const byName = (a: DocumentationPrompt, b: DocumentationPrompt) => a.name.localeCompare(b.name);
+const PROMPT_ORDER: Record<PromptSort, (a: DocumentationPrompt, b: DocumentationPrompt) => number> = {
+  name: byName,
+  status: (a, b) => Number(b.enabled) - Number(a.enabled) || byName(a, b),
+  updated: (a, b) => a.updated_at.localeCompare(b.updated_at) || byName(a, b),
+};
+
+/** Prompts: a table (prompt and description, tags, Enabled / Disabled, active version) with search, a tag filter and
+ * sortable headers; a prompt opens on its own page. */
 export default function DocumentationPromptsView() {
   const [rows, setRows] = useState<DocumentationPrompt[] | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [tag, setTag] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<Sort<PromptSort>>({ key: "name", descending: false });
   useEffect(() => {
     const controller = new AbortController();
     getPromptTags(controller.signal)
@@ -60,18 +73,73 @@ export default function DocumentationPromptsView() {
       });
     return () => controller.abort();
   }, [refresh, tag]);
+  const text = search.trim().toLowerCase();
+  const shown = sortRows(
+    (rows ?? []).filter((prompt) =>
+      [prompt.name, prompt.description, ...prompt.tags].some((value) => value.toLowerCase().includes(text)),
+    ),
+    sort,
+    PROMPT_ORDER,
+  );
+  const newPrompt = (
+    <Button asChild>
+      <Link to="/prompts/new">
+        <Plus data-icon="inline-start" />
+        New prompt
+      </Link>
+    </Button>
+  );
+  const columns: ColumnDef<DocumentationPrompt, unknown>[] = [
+    {
+      id: "name",
+      header: () => sortHeader("Prompt", "name", sort, setSort),
+      cell: ({ row: { original: prompt } }) => (
+        <div className="max-w-md">
+          <Link to={`/prompts/${prompt.id}`} className="font-medium underline-offset-4 hover:underline">
+            {prompt.name}
+          </Link>
+          <p className="mt-1 text-sm text-muted-foreground">{prompt.description}</p>
+        </div>
+      ),
+    },
+    {
+      id: "tags",
+      header: "Tags",
+      cell: ({ row: { original: prompt } }) => (
+        <div className="flex flex-wrap gap-1">
+          {prompt.tags.map((item) => (
+            <Badge key={item} variant="outline">
+              {item}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: () => sortHeader("Status", "status", sort, setSort),
+      cell: ({ row: { original: prompt } }) => (
+        <Badge variant={prompt.enabled ? "secondary" : "outline"}>{prompt.enabled ? "Enabled" : "Disabled"}</Badge>
+      ),
+    },
+    {
+      id: "version",
+      header: () => sortHeader("Active version", "updated", sort, setSort),
+      cell: ({ row: { original: prompt } }) => (
+        <>
+          {prompt.active_version ? `v${prompt.active_version}` : "None — inactive versions only"}
+          <p className="text-xs text-muted-foreground">{prompt.version_count} saved versions</p>
+        </>
+      ),
+    },
+  ];
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Reusable instructions for agents, organised by tags. New prompt versions stay inactive until activated.
         </p>
-        <Button asChild>
-          <Link to="/prompts/new">
-            <Plus data-icon="inline-start" />
-            New prompt
-          </Link>
-        </Button>
+        {newPrompt}
       </div>
       {error && (
         <Alert variant="destructive">
@@ -83,85 +151,49 @@ export default function DocumentationPromptsView() {
           </AlertDescription>
         </Alert>
       )}
-      <Select value={tag || ALL_TAGS} onValueChange={(value) => setTag(value === ALL_TAGS ? "" : value)}>
-        <SelectTrigger aria-label="Filter by tag" className="w-full sm:w-64">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            <SelectItem value={ALL_TAGS}>All tags</SelectItem>
-            {tags.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      {rows === null ? (
-        <Skeleton className="h-48 w-full" />
-      ) : rows.length === 0 ? (
-        tag ? (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyTitle>No prompts have this tag.</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyTitle>No prompts yet</EmptyTitle>
-              <EmptyDescription>
-                Create prompts for documentation, server discovery and other agent work, and tag them so features can
-                find them.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Prompt</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Active version</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((prompt) => (
-                <TableRow key={prompt.id}>
-                  <TableCell className="max-w-md whitespace-normal">
-                    <Link to={`/prompts/${prompt.id}`} className="font-medium underline-offset-4 hover:underline">
-                      {prompt.name}
-                    </Link>
-                    <p className="mt-1 text-sm text-muted-foreground">{prompt.description}</p>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {prompt.tags.map((item) => (
-                        <Badge key={item} variant="outline">
-                          {item}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={prompt.enabled ? "secondary" : "outline"}>
-                      {prompt.enabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {prompt.active_version ? `v${prompt.active_version}` : "None — inactive versions only"}
-                    <p className="text-xs text-muted-foreground">{prompt.version_count} saved versions</p>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={shown}
+        loading={rows === null && !error}
+        rowId={(prompt) => prompt.id}
+        search={{ plural: "prompts", value: search, onChange: setSearch }}
+        sort={sort}
+        resetKey={`${tag}\n${sort.key}\n${sort.descending}`}
+        toolbar={
+          <Select value={tag || ALL_TAGS} onValueChange={(value) => setTag(value === ALL_TAGS ? "" : value)}>
+            <SelectTrigger aria-label="Filter by tag" className="w-full sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value={ALL_TAGS}>All tags</SelectItem>
+                {tags.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        }
+        empty={
+          rows?.length === 0 && !tag ? (
+            <TableEmpty
+              icon={MessageSquareText}
+              title="No prompts yet"
+              description="Create prompts for documentation, server discovery and other agent work, and tag them so features can find them."
+            >
+              {newPrompt}
+            </TableEmpty>
+          ) : rows?.length === 0 ? (
+            "No prompts have this tag."
+          ) : rows ? (
+            "No prompts match."
+          ) : (
+            "Could not load prompts."
+          )
+        }
+      />
     </div>
   );
 }

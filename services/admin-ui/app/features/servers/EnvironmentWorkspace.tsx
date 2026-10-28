@@ -13,8 +13,8 @@ import {
 } from "./environments";
 import { membershipId } from "./inventory";
 import { DraftBadge, DraftRowMenu, type DraftTarget } from "./ConfirmDraftSheet";
-import AddServerDialog from "./AddServerDialog";
-import AddServiceDialog from "./AddServiceDialog";
+import AddServerSheet from "./AddServerSheet";
+import AddServiceSheet from "./AddServiceSheet";
 import ServerForm from "./ServerForm";
 import ServicePanel from "./ServicePanel";
 import ConfirmRemove, { type Removal } from "~/components/ConfirmRemove";
@@ -390,7 +390,7 @@ export default function EnvironmentWorkspace({
       </div>
 
       {adding === "server" && (
-        <AddServerDialog
+        <AddServerSheet
           environmentId={environmentId}
           memberIds={model.servers.map((item) => item.id)}
           uses={placeDrafts(model)}
@@ -403,7 +403,7 @@ export default function EnvironmentWorkspace({
         />
       )}
       {adding === "service" && server && (
-        <AddServiceDialog
+        <AddServiceSheet
           environmentId={environmentId}
           server={server}
           uses={placeDrafts(model, server)}

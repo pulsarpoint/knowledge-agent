@@ -123,8 +123,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         has_drafts: bool = False,
         tag: str | None = Query(default=None, max_length=80),
         offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=100),
     ) -> dict:
-        """Live documents, most recently updated first, 50 a page; `tag`: those with that tag (one tag, exact,
+        """Live documents, most recently updated first, `limit` (50) a page; `tag`: those with that tag (one tag, exact,
         case-insensitive)."""
         tag = (tag or '').strip() or None  # blank: no tag filter
         db = database()
@@ -156,8 +157,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             )
             rows = conn.execute(
                 f"""SELECT d.* FROM ka.document_details d WHERE {where}
-                ORDER BY updated_at DESC,id LIMIT 50 OFFSET %s""",
-                (*params, offset),
+                ORDER BY updated_at DESC,id LIMIT %s OFFSET %s""",
+                (*params, limit, offset),
             ).fetchall()
             total = conn.execute(f'SELECT count(*) AS n FROM ka.document_details d WHERE {where}', params).fetchone()[
                 'n'

@@ -191,8 +191,8 @@ def test_expert_calls_page_with_the_expert_runs(store, tmp_path):
     everything = get()
     assert [r.get('call_id', r['run_key']) for r in everything['runs']] == ['run:own', 'e3', 'e2', 'e1']
     assert everything['total'] == 4
-    first = get(page_size=25)
-    assert first['page'] == 1 and first['page_size'] == 25
+    first = get(page_size=20)
+    assert first['page'] == 1 and first['page_size'] == 20
     assert [r['kind'] for r in get(status='working')['runs']] == ['test', 'expert_call']
     assert [r.get('call_id') for r in get(status='failed')['runs']] == ['e2']
     assert [r.get('call_id', r['run_key']) for r in get(order='asc')['runs']] == ['e1', 'e2', 'e3', 'run:own']
@@ -326,13 +326,14 @@ def test_runs_come_in_pages(store, tmp_path):
     assert first['runs'][0]['run_key'] == 'run:59' and first['runs'][-1]['run_key'] == 'run:10'
     second = get(page=2)
     assert [r['run_key'] for r in second['runs']] == [f'run:{i}' for i in range(9, -1, -1)] and second['total'] == 60
-    small = get(page=3, page_size=25)
-    assert [r['run_key'] for r in small['runs']] == [f'run:{i}' for i in range(9, -1, -1)]
-    assert get(page=2, page_size=25)['runs'][0]['run_key'] == 'run:34'
-    beyond = get(page=4, page_size=25)
+    small = get(page=3, page_size=20)
+    assert [r['run_key'] for r in small['runs']] == [f'run:{i}' for i in range(19, -1, -1)]
+    assert get(page=2, page_size=20)['runs'][0]['run_key'] == 'run:39'
+    assert len(get(page_size=10)['runs']) == 10
+    beyond = get(page=4, page_size=20)
     assert beyond['runs'] == [] and beyond['total'] == 60
-    assert get(status='working', page_size=25)['total'] == 20
-    for bad in ({'page_size': 10}, {'page_size': 200}, {'page': 0}):
+    assert get(status='working', page_size=20)['total'] == 20
+    for bad in ({'page_size': 25}, {'page_size': 200}, {'page': 0}):
         assert client.get('/api/agent-runs', headers=HEADERS, params=bad).status_code == 400
 
 
@@ -348,12 +349,12 @@ def test_expert_calls_are_paged_with_the_runs(store, tmp_path):
                 (project, f'run:own:{i}', Jsonb({'kind': 'test', 'title': 'Own run', 'agent': 'Payments'})),
             )
     get = lambda **params: client.get(
-        '/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments', 'page_size': 25} | params
+        '/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments', 'page_size': 20} | params
     ).json()
     first, second = get(), get(page=2)
     assert first['total'] == second['total'] == 33
-    assert len(first['runs']) == 25 and first['runs'][0]['run_key'] == 'run:own:29'
-    assert [r.get('call_id', r['run_key']) for r in second['runs']] == [f'run:own:{i}' for i in range(4, -1, -1)] + [
+    assert len(first['runs']) == 20 and first['runs'][0]['run_key'] == 'run:own:29'
+    assert [r.get('call_id', r['run_key']) for r in second['runs']] == [f'run:own:{i}' for i in range(9, -1, -1)] + [
         'e3',
         'e2',
         'e1',

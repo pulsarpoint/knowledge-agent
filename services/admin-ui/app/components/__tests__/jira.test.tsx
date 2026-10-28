@@ -270,8 +270,8 @@ test("JQL is submitted and filtering the saved list limits bulk selection", asyn
     (fetch.mock.calls as unknown as [string, RequestInit][]).filter(([url]) => url !== "/api/schedules");
   await waitFor(() => expect(jiraCalls()).toHaveLength(2));
   expect(JSON.parse(jiraCalls()[1][1].body as string).jql).toBe("project = DEMO");
-  await waitFor(() => expect(screen.getByLabelText("Filter saved tickets")).toBeEnabled());
-  fireEvent.change(screen.getByLabelText("Filter saved tickets"), { target: { value: "payments" } });
+  await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search tickets" })).toBeEnabled());
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search tickets" }), { target: { value: "payments" } });
   expect(screen.queryByText("Worker retries")).not.toBeInTheDocument();
   expect(screen.getByText("Showing 1 of 2 saved tickets", { exact: false })).toBeInTheDocument();
 });

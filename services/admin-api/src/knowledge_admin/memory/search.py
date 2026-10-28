@@ -70,6 +70,28 @@ def search(
     return [{**row, 'score': scores[row['id']]} for row in rows[offset : offset + limit]]
 
 
+def count(
+    conn,
+    project_id: UUID,
+    *,
+    query: str | None = None,
+    metadata: dict | None = None,
+    agent_id: str | None = None,
+    profile: str | None = None,
+) -> int:
+    """How many entries `search` can return across its pages: the filtered entries; with a query, those matching its
+    text plus, with a vector (`profile`), every entry embedded with that profile (vector search ranks them all)."""
+    filters, values = _filters(project_id, metadata, agent_id)
+    if query and query.strip():
+        matched = ["m.search_vector @@ websearch_to_tsquery('simple',%s)"]
+        values.append(query)
+        if profile:
+            matched.append('m.embedding_profile=%s')
+            values.append(profile)
+        filters += f' AND ({" OR ".join(matched)})'
+    return conn.execute(f'SELECT count(*)::int AS n FROM ka.memories m WHERE {filters}', values).fetchone()['n']
+
+
 def not_embedded(conn, project_id: UUID, profile: str | None) -> int:
     """Entries without a vector of `profile` (all of them when there is no model)."""
     return conn.execute(

@@ -30,12 +30,25 @@ def test_create_list_and_read_with_history(client):
     listed = client.get('/api/memories', headers=HEADERS).json()
     assert [m['name'] for m in listed['memories']] == ['payments/deploy']
     assert (listed['not_embedded'], listed['embedding_model'], listed['next_offset']) == (1, False, None)
+    assert listed['total'] == 1
     filtered = client.get('/api/memories', headers=HEADERS, params={'metadata': '{"service": "billing"}'}).json()
-    assert filtered['memories'] == []
+    assert filtered['memories'] == [] and filtered['total'] == 0
     found = client.get('/api/memories', headers=HEADERS, params={'query': 'release'}).json()
-    assert [m['name'] for m in found['memories']] == ['payments/deploy']
+    assert [m['name'] for m in found['memories']] == ['payments/deploy'] and found['total'] == 1
     one = client.get(f'/api/memories/{entry["id"]}', headers=HEADERS).json()
     assert one['memory']['content'] == 'Use make release.' and one['versions'] == []
+
+
+def test_total_counts_every_match_across_pages(client):
+    for number in range(3):
+        created(client, name=f'notes/n{number}', content=f'Release step {number}.')
+    created(client, name='notes/other', content='Unrelated.')
+    page = client.get('/api/memories', headers=HEADERS, params={'limit': 2}).json()
+    assert len(page['memories']) == 2 and page['next_offset'] == 2 and page['total'] == 4
+    found = client.get('/api/memories', headers=HEADERS, params={'query': 'release', 'limit': 1}).json()
+    assert len(found['memories']) == 1 and found['total'] == 3
+    # the admin UI's page sizes go up to 100
+    assert client.get('/api/memories', headers=HEADERS, params={'limit': 100}).status_code == 200
 
 
 def test_bad_metadata_query_is_400(client):

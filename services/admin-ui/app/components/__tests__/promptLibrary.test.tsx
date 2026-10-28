@@ -71,6 +71,34 @@ test("lists prompts with their tags and filters by tag", async () => {
   await waitFor(() => expect(screen.queryByRole("link", { name: "Runbook" })).toBeNull());
 });
 
+test("the prompt list: Skeleton rows while loading, search, sort, and an empty state with New prompt", async () => {
+  const user = userEvent.setup();
+  api({ "/api/documentation/prompts": { prompts }, "/api/documentation/prompts/tags": { tags: [] } });
+  render(
+    <MemoryRouter initialEntries={["/prompts"]}>
+      <DocumentationPromptsView />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByRole("link", { name: "Discovery" });
+  const names = () => screen.getAllByRole("link", { name: /^(Discovery|Runbook)$/ }).map((link) => link.textContent);
+  await user.click(screen.getByRole("button", { name: "Prompt" }));
+  expect(names()).toEqual(["Runbook", "Discovery"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search prompts" }), "ssh");
+  expect(names()).toEqual(["Discovery"]);
+});
+
+test("no prompts at all shows an empty state with New prompt", async () => {
+  api({ "/api/documentation/prompts": { prompts: [] }, "/api/documentation/prompts/tags": { tags: [] } });
+  render(
+    <MemoryRouter initialEntries={["/prompts"]}>
+      <DocumentationPromptsView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("No prompts yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: "New prompt" })).toHaveLength(2);
+});
+
 test("a tag filter that matches nothing says so", async () => {
   const user = userEvent.setup();
   api({

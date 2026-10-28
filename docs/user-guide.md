@@ -182,6 +182,19 @@ has no Open. An action that is off says why under its label (for example *Enable
 graph** before there is one), **Publish** on
 a new document's draft and **Confirm** on an inventory draft.
 
+Every record list is the same table: a **Search <things>** box and the list's filters above it, column headers that sort
+when they show an arrow (click again to reverse), and below it *Showing 1–20 of 57*, **Rows per page** (10, 20, 50 or
+100) and the previous / next page arrows. A search, a filter or a new order starts again at page 1. Long lists (Agent
+runs, Documents, Events, Notifications, Memory) are paged by the server; there is no **Load more**. An empty list says
+so with its first-item button (for example **No schedules yet** with **New schedule**). **Refresh** is offered only
+where the list changes on its own: Agent runs, Events, Notifications, Memory and Code graphs.
+
+Small records are created and edited in a side sheet on the right: agents (the **New agent** wizard), models, MCP
+servers, environments, servers, schedules, handlers, events and memory entries. A create sheet ends with **Create
+<thing>** and **Cancel**, an edit sheet with **Save** and **Cancel**; closing a sheet with unsaved input asks **Stay** /
+**Leave**. Long documents (documents, prompts, skills, output schemas) open on their own page with **Save** in the
+header; their **Delete** is in the header's ⋯ menu.
+
 ### 4.2 LLM Settings
 
 `/llm-settings` — named model connections used by agents
@@ -201,6 +214,9 @@ and memory embeddings.
 | API key | Encrypted. Required for Anthropic and Bedrock (Bedrock uses a bearer API key, not IAM) |
 | Supports structured output | Chat models: the model accepts a JSON Schema as its answer format (on by default for OpenAI compatible). Off: a run with an output schema gets the schema in its instructions instead; its answer is still checked (4.22) |
 | Enabled | Disabled models cannot be selected or tested |
+
+**New model** and **Edit** (in a row's ⋯ menu) open a side sheet: **Create model** or **Save**, and **Cancel**. The list
+searches by name, provider and model, and sorts by Name, Type and Status.
 
 **Test connection** sends "Reply with OK." (or one embedding) with a 35 s limit.
 Changing provider, URL or region requires re-entering or removing the key. There is
@@ -399,8 +415,9 @@ member servers, and the deployments of services on them. A server is in an envir
 a deployment there; it stays a member (empty) when its last deployment there is removed. A service is in an
 environment when one of its deployments is; a service deployed in two environments is in both.
 
-- **New environment** adds one (name, description). The list shows each environment with the number of services and
-  servers in it: filter; the name opens its page, and the row's ⋯ menu has **Map** (the System map
+- **New environment** opens a side sheet (name, description; **Create environment** / **Cancel**); **Edit** opens the
+  same sheet with **Save**. The list shows each environment with the number of services and servers in it: search
+  (environment, service, server or hostname) and sort by Environment, Services or Servers; the name opens its page, and the row's ⋯ menu has **Map** (the System map
   rooted at the environment), **Documents**, **Edit** and **Delete**.
 - An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat** and
   **Discover** on the right; Chat opens the agent chat beside the page, its Chats sheet lists the earlier
@@ -614,9 +631,9 @@ shows which skills the run used. A run keeps the skill folders it started with, 
 ### 4.9 MCP servers
 
 `/mcp-servers` — external tool servers agents can call. Only the **Streamable HTTP**
-transport is supported. **New MCP server** opens the form: name, description, HTTP(S) endpoint (use
+transport is supported. **New MCP server** opens a side sheet: name, description, HTTP(S) endpoint (use
 `host.docker.internal` instead of `localhost`), optional bearer token (encrypted),
-enabled.
+enabled; **Create MCP server** or **Cancel**. **Edit** (in a row's ⋯ menu) opens the same sheet with **Save**.
 
 **Test connection** discovers the server's tools (25 s limit). A server can only be
 selected for an agent after it is enabled, tested successfully and exposes at least
@@ -626,7 +643,8 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 `/agents` lists agents with **Resources**, capabilities, model, active system prompt and status. **Resources** counts what the agent may use by type, for example `1 server · 2 documents` (or `No resources`).
 
-**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first field is **Agent model** (the model the agent runs on; it defaults to the first model in the catalog). Both a generated proposal and **Start blank** use that model; to change it go back with **Edit role**:
+**Create an agent** with **New agent** (the only way to create agents). It opens the wizard in a side sheet; **Cancel**
+(or closing the sheet) after typing a role or making a proposal asks **Stay** / **Leave**. Its first field is **Agent model** (the model the agent runs on; it defaults to the first model in the catalog). Both a generated proposal and **Start blank** use that model; to change it go back with **Edit role**:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, instructions and resources (servers, services, environments, code projects,
@@ -843,7 +861,8 @@ whole-environment and code-project generation; documents written by service phas
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
 title/slug/description and filter by linked resources and by one **Tag** (`?tag=`, exact, any case; the Drafts view
 filters by it too). Every tag badge — in the list, on a resource page and under a document's Tags — opens the list
-filtered by that tag. **New document** writes one manually.
+filtered by that tag. The list is paged by the server (50 a page at first; the page and its size are in the link as
+`?offset=` and `?limit=`). **New document** writes one manually.
 
 Every save is a draft: content goes live only by **Publish** (a document that is only a draft, or a draft
 of a live document). The editor has fields Title, Slug, Short description, Purpose, Audience (People and agents /
@@ -944,8 +963,8 @@ turns), **Agent test** (test chats from before the upgrade) and **Native run** (
 can also filter by agent, by status (Working, Completed, Failed, Stopped), by **Output** (**Has output**: runs that
 finished with an output schema's JSON; **No output**), by **Schedule** (the runs whose event chain a schedule
 started) and by user (part of the email, press Enter).
-Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 25, 50 or 100 runs (**Previous**
-/ **Next**); filters, sorting and the page are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat page and from each
+Click **Started** or **Tokens** to sort (again to reverse). The list comes in pages of 10, 20, 50 or 100 runs (50 at
+first; **Rows per page** and the page arrows below it); filters, sorting, the page and its size are in the link, so it can be shared or reloaded. **Full record** links lead here from each reply in an agent's Chat page and from each
 document run turn.
 Records are kept until deleted; only administrators can see them.
 
@@ -984,7 +1003,7 @@ Emit event schedule's name — renaming it also rewrites the `subject` condition
 asking `This also updates <n> handler(s).`; earlier events keep the old name as their subject) and the
 timetable: a preset or a custom cron
 expression (minute, hour, day of month, month, day of week), the time zone, with a preview of the next three runs.
-Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Schedules are run by the
+Schedules run at most every 5 minutes. **History** (in a row's ⋯ menu) opens a side sheet with the newest 20 runs. Schedules are run by the
 `repository-worker` service; after downtime a missed schedule runs once, not once per missed time.
 
 ### 4.16 Events
@@ -1003,7 +1022,7 @@ handler matched at all. The **Handlers** column says how many handlers ran on th
 **Handled** filter shows only events some handler ran on, or only those none did. Filter by source, type, status,
 Handled, **Emitted by** (the handler that emitted the event) and **Schedule** (an Emit event schedule: its events,
 source Schedule with the schedule's name as subject), search by ticket
-key or title, and open an event to see its
+key or title (**Search events**), page through them (50 a page at first), and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
 indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send
 to agent, the agent run's status, **Open run** and **Open notification**; events handled before agent runs existed show their old task status).
@@ -1105,7 +1124,7 @@ event still run. Deleting a handler keeps its run history on the events; a sched
 Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first: Time,
 Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the answer
 (taken from its first 200 characters, cut off when long). Everyone sees the same list. Filter by status or search the
-title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
+title (**Search notifications**); paging and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
 failed), the agent, **Open run**, which opens the run in the agent's Chat page, and **Open event**, which opens the event that
 triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
 A notification whose answer goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
@@ -1137,7 +1156,7 @@ delete or rename entries; only people can, on the page.
 
 **The page.** Administration → **Memory** lists entries with name, metadata, who saved them (agent or person) and when.
 Search by words; click a metadata badge to add it as a filter chip (click the chip to remove it); **Saved by agent**
-shows only the entries of one agent; **Load more** shows older ones. Open an entry (or **New entry**) to edit its
+shows only the entries of one agent; the list comes in pages (20 at first). A search starts when you stop typing. Open an entry (or **New entry**) to edit its
 **Name**, **Metadata** and **Content**, then **Save**. A link `/memory?entry=<id>` opens that entry directly. If an agent or another person changed the entry after you opened
 it, Save says so and **Load current** brings in the latest version (your edits are replaced). **History** lists every
 earlier version and shows what restoring it would change in the current text; **Restore** makes an old version the newest as a new revision,
@@ -1224,7 +1243,7 @@ editor.
 - **Versions.** Every save of a changed schema adds a version; old versions are kept. **Versions (n)** opens a side
   sheet with each version (when, by whom, **Current**); **View** shows its JSON and **Copy to editor** puts it back in
   the editor (save to make it the next version).
-- **Delete** asks first. A schema a handler uses is refused ("Used by: <handler names>."). Runs that used it keep their
+- **Save** is in the page header; **Delete** is in the header's ⋯ menu and asks first. A schema a handler uses is refused ("Used by: <handler names>."). Runs that used it keep their
   output.
 
 **Choosing a schema for a run.** The schema belongs to the run, not to the agent: the same agent answers normally or

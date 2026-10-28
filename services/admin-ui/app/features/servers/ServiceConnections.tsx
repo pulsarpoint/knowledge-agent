@@ -4,7 +4,7 @@ import type { Connection } from "./inventory";
 import { useServicePage } from "./ServiceLayout";
 import { connectionRows, servicePath } from "./ServicePanel";
 import { draftOf, List, Row } from "./rows";
-import AddConnectionDialog from "./AddConnectionDialog";
+import AddConnectionSheet from "./AddConnectionSheet";
 import { Button } from "~/components/ui/button";
 
 /** The network connections of the service's deployments, out (→) and in (←): each links to the other service, with
@@ -55,7 +55,7 @@ export default function ServiceConnections() {
         </List>
       )}
       {open && (
-        <AddConnectionDialog
+        <AddConnectionSheet
           from={from}
           services={services}
           connection={open.connection}

@@ -14,11 +14,11 @@ from knowledge_admin.db import audit as write_audit
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.memory import store as memory
 from knowledge_admin.memory.embedding import current_model, embed_text
-from knowledge_admin.memory.search import not_embedded, search
+from knowledge_admin.memory.search import count, not_embedded, search
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_llm import embeddings
 
-PAGE, MAX_PAGE, MAX_OFFSET = 25, 50, 100000
+PAGE, MAX_PAGE, MAX_OFFSET = 20, 100, 100000
 NOT_FOUND = 'Memory entry not found.'
 STALE = 'This entry changed since you opened it.'
 EXISTS = 'An entry named {name} already exists.'
@@ -126,10 +126,19 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 vector=vector,
                 profile=profile,
             )
+            total = count(
+                conn,
+                project,
+                query=query,
+                metadata=filters,
+                agent_id=agent,
+                profile=profile if vector is not None else None,
+            )
             missing = not_embedded(conn, project, profile)
         return {
             'memories': rows[:limit],
             'next_offset': offset + limit if len(rows) > limit else None,
+            'total': total,
             'not_embedded': missing,
             'embedding_model': model is not None,
             'current_profile': profile,

@@ -352,7 +352,7 @@ export default function CodeProjectForm({
           }
         >
           {busy && <Spinner />}
-          {editing ? "Save" : git && draft.clone_now ? "Save and clone" : "Save project"}
+          {editing ? "Save" : "Create code project"}
         </Button>
         <Button type="button" variant="outline" disabled={busy || (editing !== null && !dirty)} onClick={onCancel}>
           {editing ? "Discard" : "Cancel"}

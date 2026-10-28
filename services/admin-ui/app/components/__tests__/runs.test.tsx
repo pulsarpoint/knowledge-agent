@@ -1,10 +1,23 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import RunsView from "~/features/sessions/RunsView";
 import RunRecordView from "~/features/sessions/RunRecordView";
 
 afterEach(() => vi.unstubAllGlobals());
+/** Picks `option` in the toolbar Select named `label`. */
+async function choose(label: string, option: string) {
+  await userEvent.click(screen.getByRole("combobox", { name: label }));
+  await userEvent.click(await screen.findByRole("option", { name: option }));
+}
+/** The options of the toolbar Select named `label` (it is opened, then closed). */
+async function optionsOf(label: string) {
+  await userEvent.click(screen.getByRole("combobox", { name: label }));
+  const names = screen.getAllByRole("option").map((option) => option.textContent);
+  await userEvent.keyboard("{Escape}");
+  return names;
+}
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
@@ -44,7 +57,7 @@ test("runs list shows each run and filters by kind", async () => {
   expect(await screen.findByText("How many retries?")).toBeInTheDocument();
   expect(screen.getByText("alice@example.test")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "How many retries?" })).toHaveAttribute("href", "/activity/runs/run%3A1");
-  fireEvent.change(screen.getByLabelText("Run type"), { target: { value: "native_session" } });
+  await choose("Run type", "Native run");
   await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain("kind=native_session"));
 });
 
@@ -85,7 +98,7 @@ test("runs list and record show the tools each run used", async () => {
   expect(await screen.findByRole("columnheader", { name: "Tools" })).toBeVisible();
   const busy = screen.getByText("How many retries?").closest("tr")!;
   const cell = within(busy).getByText("read_file 31 · code_graph 12 · shell_run 4 +1");
-  expect(cell.closest("td")).toHaveAttribute("title", "read_file 31 · code_graph 12 · shell_run 4 · ssh_run 1");
+  expect(cell).toHaveAttribute("title", "read_file 31 · code_graph 12 · shell_run 4 · ssh_run 1");
   expect(within(screen.getByText("Quiet run").closest("tr")!).getByText("No tools used")).toBeVisible();
   render(
     <MemoryRouter>
@@ -163,14 +176,13 @@ test("run types have readable names in the filter and the list", async () => {
   expect(
     within((await screen.findByText("Claude Code session")).closest("tr")!).getByText("Claude Code"),
   ).toBeInTheDocument();
-  const options = within(screen.getByLabelText("Run type")).getAllByRole("option");
-  expect(options.map((option) => [option.getAttribute("value"), option.textContent])).toEqual([
-    ["", "All"],
-    ["test", "Agent test"],
-    ["event_session", "Event run"],
-    ["chat_session", "Chat"],
-    ["event_task", "Event task"],
-    ["native_session", "Native run"],
+  expect(await optionsOf("Run type")).toEqual([
+    "All run types",
+    "Agent test",
+    "Event run",
+    "Chat",
+    "Event task",
+    "Native run",
   ]);
 });
 
@@ -345,22 +357,19 @@ test("filters go into the URL and the request", async () => {
   renderRuns();
   await screen.findByText("How many retries?");
   expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs");
-  await screen.findByRole("option", { name: "Payments" });
-  fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "payments" } });
-  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "working" } });
-  const user = screen.getByLabelText("User");
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/agents")).toBe(true));
+  await choose("Agent", "Payments");
+  await choose("Status", "Working");
+  const user = screen.getByRole("searchbox", { name: "User" });
   fireEvent.change(user, { target: { value: " Alice " } });
   fireEvent.keyDown(user, { key: "Enter" });
-  fireEvent.change(screen.getByLabelText("Rows per page"), { target: { value: "25" } });
-  await waitFor(() => expect(where()).toBe("?agent_id=payments&status=working&user=Alice&page_size=25"));
+  await screen.findByText("How many retries?");
+  await choose("Rows per page", "20");
+  await waitFor(() => expect(where()).toBe("?agent_id=payments&status=working&user=Alice&page_size=20"));
   await waitFor(() =>
-    expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?agent_id=payments&status=working&user=Alice&page_size=25"),
+    expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?agent_id=payments&status=working&user=Alice&page_size=20"),
   );
-  expect(
-    within(screen.getByLabelText("Status"))
-      .getAllByRole("option")
-      .map((o) => o.textContent),
-  ).toEqual(["All", "Working", "Completed", "Failed", "Stopped"]);
+  expect(await optionsOf("Status")).toEqual(["All statuses", "Working", "Completed", "Failed", "Stopped"]);
 });
 
 test("Started and Tokens headers sort the list", async () => {
@@ -386,32 +395,35 @@ test("Started and Tokens headers sort the list", async () => {
 test("the footer counts pages and runs and moves between pages", async () => {
   const fetchMock = listing(1234);
   renderRuns("?page=2");
-  expect(await screen.findByText("Page 2 of 25 · 1,234 runs")).toBeVisible();
+  expect(await screen.findByText("Showing 51–100 of 1234")).toBeVisible();
+  expect(screen.getByText("Page 2 of 25")).toBeVisible();
   expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?page=2");
-  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
   await waitFor(() => expect(where()).toBe("?page=3"));
-  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Previous page" }));
   await waitFor(() => expect(where()).toBe("?page=2"));
-  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Previous page" }));
   await waitFor(() => expect(where()).toBe(""));
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs"));
-  expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+  expect(await screen.findByRole("button", { name: "Previous page" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
 });
 
-test("the last page has no Next; one run is singular", async () => {
+test("the last page has no Next; Skeleton rows while loading; no Previous/Next text pager", async () => {
   listing(1);
   renderRuns();
-  expect(await screen.findByText("Page 1 of 1 · 1 run")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  expect(await screen.findByText("Showing 1–1 of 1")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
 });
 
 test("changing a filter goes back to the first page", async () => {
   const fetchMock = listing(500);
   renderRuns("?page=3&sort=tokens");
-  await screen.findByText("Page 3 of 10 · 500 runs");
-  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
+  await screen.findByText("Page 3 of 10");
+  await choose("Status", "Failed");
   await waitFor(() => expect(where()).toBe("?sort=tokens&status=failed"));
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?status=failed&sort=tokens"));
 });
@@ -425,23 +437,19 @@ test("no runs under filters says so; an unknown agent in the URL still shows in 
   );
   renderRuns("?agent_id=gone&page_size=abc");
   expect(await screen.findByText("No runs match these filters.")).toBeVisible();
-  expect(screen.getByLabelText("Agent")).toHaveValue("gone");
-  expect(screen.getByText("Page 1 of 1 · 0 runs")).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "Agent" })).toHaveTextContent("gone");
 });
 
 test("the Output filter lists runs that finished with an output schema's JSON, or the ones without", async () => {
   const fetchMock = listing(1);
   renderRuns();
   await screen.findByText("How many retries?");
-  expect(
-    within(screen.getByLabelText("Output"))
-      .getAllByRole("option")
-      .map((o) => o.textContent),
-  ).toEqual(["All", "Has output", "No output"]);
-  fireEvent.change(screen.getByLabelText("Output"), { target: { value: "true" } });
+  expect(await optionsOf("Output")).toEqual(["With or without output", "Has output", "No output"]);
+  await choose("Output", "Has output");
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?has_output=true"));
   expect(where()).toBe("?has_output=true");
-  fireEvent.change(screen.getByLabelText("Output"), { target: { value: "false" } });
+  await screen.findByText("How many retries?");
+  await choose("Output", "No output");
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?has_output=false"));
 });
 
@@ -456,8 +464,8 @@ test("the Schedule filter lists the schedules and asks for the runs one started"
   vi.stubGlobal("fetch", fetchMock);
   renderRuns();
   await screen.findByText("How many retries?");
-  await screen.findByRole("option", { name: "Nightly check" });
-  fireEvent.change(screen.getByLabelText("Schedule"), { target: { value: "c1" } });
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/schedules")).toBe(true));
+  await choose("Schedule", "Nightly check");
   await waitFor(() => expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?schedule_id=c1"));
   expect(where()).toBe("?schedule_id=c1");
 });
@@ -471,6 +479,5 @@ test("a schedule in the URL that is no longer listed reads (deleted)", async () 
   );
   renderRuns("?schedule_id=gone");
   await screen.findByText("How many retries?");
-  expect(screen.getByLabelText("Schedule")).toHaveValue("gone");
-  expect(screen.getByRole("option", { name: "(deleted)" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Schedule" })).toHaveTextContent("(deleted)"));
 });

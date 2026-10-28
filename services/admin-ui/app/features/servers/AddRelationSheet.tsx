@@ -15,7 +15,7 @@ import { Textarea } from "~/components/ui/textarea";
 const KINDS: Record<RelationKind, string> = { depends_on: "Depends on", part_of: "Part of", built_from: "Built from" };
 
 /** Adds a relation from the service: depends on or part of another service, or built from a code project. */
-export default function AddRelationDialog({
+export default function AddRelationSheet({
   serviceId,
   services,
   kind: initialKind,

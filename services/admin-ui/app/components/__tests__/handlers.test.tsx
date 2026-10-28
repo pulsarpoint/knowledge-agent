@@ -141,9 +141,8 @@ test("a handler row has no inline buttons: Edit and Delete are in its menu", asy
 test("empty state", async () => {
   api({ "GET /api/event-handlers": { handlers: [] } });
   view();
-  expect(
-    await screen.findByText("No handlers yet. Create one to turn events into new events or agent sessions."),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("No handlers yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "New handler" })).toHaveLength(2);
 });
 
 test("creating an emit handler with a condition sends the draft", async () => {
@@ -158,7 +157,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Triage");
   await user.click(within(sheet).getByRole("button", { name: "Add condition" }));
@@ -195,12 +194,12 @@ test("closing the handler sheet with unsaved changes asks Stay / Leave; an untou
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   await screen.findByRole("dialog");
   await user.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  await user.click(screen.getByRole("button", { name: "New handler" }));
+  await user.click(screen.getAllByRole("button", { name: "New handler" })[0]);
   await user.type(within(await screen.findByRole("dialog")).getByLabelText("Name"), "Triage");
   await user.keyboard("{Escape}");
   const ask = within(await screen.findByRole("alertdialog"));
@@ -223,7 +222,7 @@ test("send to agent picks an agent and a prompt; server errors show in the form"
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Ask");
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
@@ -331,7 +330,7 @@ test("a broad Send to agent pattern warns that each matching event runs the agen
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   const warning = "Runs the agent once for every matching event.";
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
@@ -355,7 +354,7 @@ test("the broad-pattern warning adds that the agent comments on every matching t
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
   await user.click(screen.getByRole("option", { name: "Send to agent" }));
@@ -384,7 +383,7 @@ test("Agent mapped to the assignee saves no agent and offers the for_assignee co
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Inbox");
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
@@ -448,7 +447,7 @@ test("Give the ticket back is offered with Reply in Jira and the assignee's agen
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
   await user.click(screen.getByRole("option", { name: "Send to agent" }));
@@ -563,7 +562,7 @@ test("the Schedule picker sets the type pattern and replaces the schedule condit
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Summary");
   await user.click(within(sheet).getByRole("button", { name: "Add condition" }));
@@ -592,7 +591,7 @@ test("schedule payload fields are suggested for conditions", async () => {
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const options = [...document.querySelectorAll("#handler-fields option")].map((o) => o.getAttribute("value"));
   expect(options).toEqual(expect.arrayContaining(["payload.fired_at", "payload.last_run_at", "payload.trigger"]));
 });
@@ -640,7 +639,7 @@ test("the assignee's agent and Reply in Jira are offered only for patterns that 
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Ask");
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
@@ -685,7 +684,7 @@ test("the Event type select lists Any event, groups, labelled types and Custom p
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Mem");
   await user.click(within(sheet).getByRole("combobox", { name: "Event type" }));
@@ -720,7 +719,7 @@ test("Custom pattern shows the input and saves what is typed", async () => {
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   await user.type(within(sheet).getByLabelText("Name"), "Created");
   const input = await customPattern(user, sheet);
@@ -753,7 +752,7 @@ test("Send to agent can finish with an output schema at a fixed version or the c
     },
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).queryByRole("combobox", { name: "Output schema" })).toBeNull(); // emit: no agent run
   await user.type(within(sheet).getByLabelText("Name"), "Judge");
@@ -835,7 +834,29 @@ test("an emit handler has no Include the previous output switch", async () => {
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
   view();
-  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  await user.click((await screen.findAllByRole("button", { name: "New handler" }))[0]);
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).queryByRole("switch", { name: "Include the previous output" })).toBeNull();
+});
+
+test("the handler list: Skeleton rows while loading, search and sort by a header", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/event-handlers": {
+      handlers: [handler(), handler({ id: "h-2", name: "Alerts", enabled: false })],
+    },
+  });
+  view();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByText("Alerts");
+  const names = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[1].textContent);
+  expect(names()).toEqual(["Alerts", "Triage"]);
+  await user.click(screen.getByRole("button", { name: "Enabled" }));
+  expect(names()).toEqual(["Triage", "Alerts"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search handlers" }), "alert");
+  expect(names()).toEqual(["Alerts"]);
 });

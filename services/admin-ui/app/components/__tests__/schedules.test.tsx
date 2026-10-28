@@ -90,7 +90,8 @@ test("lists schedules with their timetable and last result", async () => {
 test("shows the empty state", async () => {
   api({ "GET /api/schedules": () => [200, { schedules: [] }] });
   view();
-  expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "New schedule" })).toHaveLength(2);
 });
 
 test("new schedule creates a Jira pull", async () => {
@@ -101,7 +102,7 @@ test("new schedule creates a Jira pull", async () => {
     "POST /api/schedules": () => [201, { schedule }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  await user.click((await screen.findAllByRole("button", { name: "New schedule" }))[0]);
   expect(screen.getByRole("combobox", { name: "What to run" })).toHaveTextContent("Jira tickets");
   await screen.findByText("Next runs");
   await user.click(screen.getByRole("button", { name: "Create" }));
@@ -123,7 +124,7 @@ test("new Jira schedule saves its own query and number of tickets", async () => 
     "POST /api/schedules": () => [201, { schedule }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  await user.click((await screen.findAllByRole("button", { name: "New schedule" }))[0]);
   const jql = screen.getByLabelText("Jira query (JQL)");
   expect(jql).toHaveValue("");
   expect(screen.getByText(/Leave empty to use the query of the last fetch on Jira → Tickets/)).toBeInTheDocument();
@@ -141,7 +142,7 @@ test("a taken Jira pull leaves Emit event, which can have many schedules", async
     "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  await user.click((await screen.findAllByRole("button", { name: "New schedule" }))[0]);
   expect(screen.getByRole("combobox", { name: "What to run" })).toHaveTextContent("Emit event");
 });
 
@@ -156,7 +157,7 @@ test("delete asks first and removes the row", async () => {
   expect(screen.getByText("Delete “Jira auto pull”?")).toBeInTheDocument();
   expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete schedule" }));
-  expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet")).toBeInTheDocument();
   expect(await screen.findByText("Schedule “Jira auto pull” deleted.")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
@@ -181,7 +182,7 @@ test("a double click on Delete sends one request and keeps the title", async () 
   await user.dblClick(confirm);
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   release();
-  expect(await screen.findByText("No schedules yet. Create one with New schedule.")).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet")).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
   expect(screen.queryByText("Delete “”?")).not.toBeInTheDocument();
 });
@@ -251,7 +252,31 @@ test("history lists the newest runs", async () => {
   });
   view();
   await choose(user, "History");
-  expect(await screen.findByText(/Run now · Failed · Could not reach Jira\./)).toBeInTheDocument();
+  const sheet = within(await screen.findByRole("dialog", { name: `History of ${schedule.name}` }));
+  expect(await sheet.findByText(/Run now · Failed · Could not reach Jira\./)).toBeInTheDocument();
+});
+
+test("the schedule list: Skeleton rows while loading, search, sort by a header, empty state with New schedule", async () => {
+  const user = userEvent.setup();
+  api({
+    "GET /api/schedules": () => [
+      200,
+      { schedules: [schedule, { ...schedule, id: "s-2", name: "Morning summary", enabled: false }] },
+    ],
+  });
+  view();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByText("Morning summary");
+  const names = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[1].textContent);
+  expect(names()).toEqual([schedule.name, "Morning summary"].sort((a, b) => a.localeCompare(b)));
+  await user.click(screen.getByRole("button", { name: "Enabled" }));
+  expect(names()[1]).toBe("Morning summary");
+  await user.type(screen.getByRole("searchbox", { name: "Search schedules" }), "morning");
+  expect(names()).toEqual(["Morning summary"]);
 });
 
 test("editor shows and saves the Jira query and number of tickets", async () => {
@@ -406,7 +431,7 @@ test("new schedule with Emit event sends its name and timing only", async () => 
     "POST /api/schedules": () => [201, { schedule: { ...emit(), handlers: undefined } }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  await user.click((await screen.findAllByRole("button", { name: "New schedule" }))[0]);
   await user.click(screen.getByRole("combobox", { name: "What to run" }));
   await user.click(screen.getByRole("option", { name: "Emit event" }));
   expect(screen.queryByLabelText("Jira query (JQL)")).toBeNull();
@@ -623,7 +648,7 @@ test("the Repeating / Once switch appears only for Emit event, and Once posts ru
     "POST /api/schedules": () => [201, { schedule: { ...once(), handlers: undefined } }],
   });
   view();
-  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  await user.click((await screen.findAllByRole("button", { name: "New schedule" }))[0]);
   expect(screen.queryByRole("tab", { name: "Once" })).toBeNull();
   expect(screen.getByRole("combobox", { name: "How often" })).toBeInTheDocument();
   await user.click(screen.getByRole("combobox", { name: "What to run" }));

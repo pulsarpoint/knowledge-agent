@@ -1,3 +1,4 @@
+import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
@@ -78,6 +79,28 @@ test("the list shows each schema with its version and the handlers that use it",
   expect(screen.getByRole("link", { name: "New schema" })).toHaveAttribute("href", "/output-schemas/new");
 });
 
+test("the schema list: Skeleton rows while loading, then search and sort by a header", async () => {
+  const user = userEvent.setup();
+  api((url) =>
+    url === "/api/output-schemas"
+      ? { schemas: [summary(), summary({ id: "s2", name: "Alert", description: "Pager", current_version: 5 })] }
+      : undefined,
+  );
+  render(
+    <MemoryRouter>
+      <OutputSchemasView />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByRole("link", { name: "Verdict" });
+  const names = () => screen.getAllByRole("link", { name: /^(Alert|Verdict)$/ }).map((link) => link.textContent);
+  expect(names()).toEqual(["Alert", "Verdict"]);
+  await user.click(screen.getByRole("button", { name: "Version" }));
+  expect(names()).toEqual(["Verdict", "Alert"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search output schemas" }), "pager");
+  expect(names()).toEqual(["Alert"]);
+});
+
 test("an empty library says how schemas are used", async () => {
   api((url) => (url === "/api/output-schemas" ? { schemas: [] } : undefined));
   render(
@@ -85,7 +108,8 @@ test("an empty library says how schemas are used", async () => {
       <OutputSchemasView />
     </MemoryRouter>,
   );
-  expect(await screen.findByText(/No output schemas yet/)).toBeInTheDocument();
+  expect(await screen.findByText("No output schemas yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: "New schema" })).toHaveLength(2);
 });
 
 test("Check shows the problems with their paths, or that the schema is accepted; bad JSON never reaches the API", async () => {
@@ -199,7 +223,7 @@ test("a version that cannot be read shows its error inside the Versions sheet", 
   expect(await within(sheet).findByText("Output schema version not found.")).toBeInTheDocument();
 });
 
-test("Delete asks first; a schema a handler uses is refused with the handler names", async () => {
+test("Delete asks first from the header's ⋯ menu; a schema a handler uses is refused with the handler names", async () => {
   let deletes = 0;
   const fetch = api((url, init) => {
     if (url === "/api/output-schemas/s1?revision=3" && init?.method === "DELETE")
@@ -207,7 +231,10 @@ test("Delete asks first; a schema a handler uses is refused with the handler nam
     if (url === "/api/output-schemas/s1") return { schema: detail() };
   });
   editor("/output-schemas/s1");
-  fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+  // Save is in the header; Delete is in its ⋯ menu, never a footer button.
+  const header = (await screen.findByRole("heading", { name: "Verdict" })).parentElement!.parentElement!;
+  expect(rowButtons(header)).toEqual(["Versions (2)", "Save", "Actions for Verdict"]);
+  await rowAction(userEvent, "Verdict", "Delete");
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText(/Runs that used it keep their output/)).toBeInTheDocument();
   expect(within(dialog).getByText("Delete “Verdict”?")).toBeInTheDocument();

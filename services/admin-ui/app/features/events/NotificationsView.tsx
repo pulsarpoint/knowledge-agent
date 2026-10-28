@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { agentPath } from "~/features/agents/api";
 import { Link, useSearchParams } from "react-router";
 import { Bell, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   NOTIFICATION_STATUS_LABELS,
+  NOTIFICATIONS_PAGE,
   NO_NOTIFICATION_FILTERS,
   getNotification,
   getNotifications,
@@ -13,16 +15,12 @@ import {
   type NotificationRow,
   type NotificationStatus,
 } from "./notifications";
+import DataTable, { TableEmpty } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
-import { Field, FieldLabel } from "~/components/ui/field";
-import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
-import { Skeleton } from "~/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 const DEBOUNCE_MS = 300;
 const ALL = "all";
@@ -54,64 +52,45 @@ export default function NotificationsView() {
   const [filters, setFilters] = useState<NotificationFilters>(NO_NOTIFICATION_FILTERS);
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<NotificationRow[] | null>(null);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(NOTIFICATIONS_PAGE);
   const [selected, setSelected] = useState<NotificationDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [reload, setReload] = useState(0);
-  /** Bumped whenever the first page is reloaded, so a Load more that started earlier is ignored. */
-  const generation = useRef(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(filters.q), DEBOUNCE_MS);
+    const timer = setTimeout(() => {
+      setQuery(filters.q);
+      setPage(1);
+    }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [filters.q]);
 
   useEffect(() => {
     const controller = new AbortController();
-    generation.current += 1;
     setRows(null);
-    setNextOffset(null);
-    setLoadingMore(false);
-    getNotifications({ status: filters.status, q: query }, 0, controller.signal)
+    getNotifications({ status: filters.status, q: query }, (page - 1) * pageSize, controller.signal, pageSize)
       .then((result) => {
+        if (controller.signal.aborted) return; // a page answered after the filters changed
         setRows(result.notifications);
-        setNextOffset(result.next_offset);
+        setTotal(result.total ?? result.notifications.length);
         setError(null);
       })
       .catch((reason) => {
         if (!controller.signal.aborted) {
           setRows([]);
-          setNextOffset(null);
+          setTotal(0);
           setError(text(reason, "Could not load notifications."));
         }
       });
     return () => controller.abort();
-  }, [filters.status, query, reload]);
+  }, [filters.status, query, page, pageSize, reload]);
 
   useEffect(() => {
     if (linked && /^\d+$/.test(linked)) void open(Number(linked));
   }, [linked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadMore() {
-    if (nextOffset === null) return;
-    const started = generation.current;
-    setLoadingMore(true);
-    try {
-      const result = await getNotifications({ status: filters.status, q: query }, nextOffset);
-      if (generation.current !== started) return;
-      setRows((current) =>
-        current
-          ? [...current, ...result.notifications.filter((item) => !current.some((existing) => existing.id === item.id))]
-          : current,
-      );
-      setNextOffset(result.next_offset);
-    } catch (reason) {
-      if (generation.current === started) setError(text(reason, "Could not load more notifications."));
-    } finally {
-      if (generation.current === started) setLoadingMore(false);
-    }
-  }
   async function open(id: number) {
     try {
       setSelected((await getNotification(id)).notification);
@@ -132,35 +111,29 @@ export default function NotificationsView() {
   }
 
   const filtered = Boolean(filters.status || filters.q.trim());
+  const columns: ColumnDef<NotificationRow, unknown>[] = [
+    {
+      id: "time",
+      header: "Time",
+      cell: ({ row: { original: item } }) => <span className="whitespace-nowrap">{when(item.created_at)}</span>,
+    },
+    { id: "status", header: "Status", cell: ({ row: { original: item } }) => <StatusBadge status={item.status} /> },
+    {
+      id: "title",
+      header: "Title",
+      cell: ({ row: { original: item } }) => <span className="font-medium">{item.title}</span>,
+    },
+    {
+      id: "preview",
+      header: "Preview",
+      cell: ({ row: { original: item } }) => (
+        <span className="line-clamp-1 max-w-md text-muted-foreground">{firstLine(item.preview)}</span>
+      ),
+    },
+  ];
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <Field className="w-full sm:w-40">
-          <FieldLabel htmlFor="notifications-status">Status</FieldLabel>
-          <Select
-            value={filters.status || ALL}
-            onValueChange={(next) => setFilters((current) => ({ ...current, status: next === ALL ? "" : next }))}
-          >
-            <SelectTrigger id="notifications-status" aria-label="Status" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value={ALL}>All statuses</SelectItem>
-                <SelectItem value="succeeded">Succeeded</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field className="w-full sm:w-64">
-          <FieldLabel htmlFor="notifications-search">Search title</FieldLabel>
-          <Input
-            id="notifications-search"
-            value={filters.q}
-            onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
-          />
-        </Field>
+      <div className="flex justify-end">
         <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
           <RefreshCw data-icon="inline-start" />
           Refresh
@@ -172,63 +145,59 @@ export default function NotificationsView() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {rows === null && !error && <Skeleton className="h-32 w-full" />}
-      {rows?.length === 0 && !error && (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Bell />
-            </EmptyMedia>
-            <EmptyTitle>Notifications</EmptyTitle>
-            <EmptyDescription>
-              {filtered
-                ? "No notifications match these filters."
-                : "No notifications yet. A handler that sends events to an agent puts the agent's answers here."}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      )}
-      {rows && rows.length > 0 && (
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>Preview</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((item) => (
-                <TableRow
-                  key={item.id}
-                  tabIndex={0}
-                  className="cursor-pointer"
-                  onClick={() => void open(item.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void open(item.id);
-                  }}
-                >
-                  <TableCell className="whitespace-nowrap">{when(item.created_at)}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={item.status} />
-                  </TableCell>
-                  <TableCell className="font-medium">{item.title}</TableCell>
-                  <TableCell className="max-w-md truncate text-muted-foreground">{firstLine(item.preview)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-      {nextOffset !== null && (
-        <div className="flex justify-center">
-          <Button variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
-            Load more
-          </Button>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={rows ?? []}
+        loading={rows === null}
+        rowId={(item) => String(item.id)}
+        onRowClick={(item) => void open(item.id)}
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        search={{
+          plural: "notifications",
+          value: filters.q,
+          onChange: (q) => setFilters((current) => ({ ...current, q })),
+        }}
+        toolbar={
+          <Select
+            value={filters.status || ALL}
+            onValueChange={(next) => {
+              setFilters((current) => ({ ...current, status: next === ALL ? "" : next }));
+              setPage(1);
+            }}
+          >
+            <SelectTrigger aria-label="Status" className="w-full sm:w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value="succeeded">Succeeded</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        }
+        empty={
+          error ? (
+            "Could not load notifications."
+          ) : filtered ? (
+            "No notifications match these filters."
+          ) : (
+            <TableEmpty
+              icon={Bell}
+              title="No notifications yet"
+              description="A handler that sends events to an agent puts the agent's answers here."
+            />
+          )
+        }
+      />
       <Sheet
         open={selected !== null}
         onOpenChange={(next) => {

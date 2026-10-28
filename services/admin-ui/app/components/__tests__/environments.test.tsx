@@ -78,12 +78,12 @@ test("leaving with unsaved changes in the environment form asks Stay / Leave; an
     vi.fn(async () => new Response(JSON.stringify({ environments: [] }))),
   );
   const router = page();
-  await userEvent.click(await screen.findByRole("button", { name: "New environment" }));
+  await userEvent.click((await screen.findAllByRole("button", { name: "New environment" }))[0]);
   await userEvent.click(screen.getByRole("link", { name: "Services page" }));
   expect(await screen.findByText("Services page")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   await router.navigate("/environments");
-  await userEvent.click(await screen.findByRole("button", { name: "New environment" }));
+  await userEvent.click((await screen.findAllByRole("button", { name: "New environment" }))[0]);
   await userEvent.type(screen.getByLabelText("Environment name"), "QA");
   await userEvent.click(screen.getByRole("link", { name: "Services page" }));
   const dialog = within(await screen.findByRole("alertdialog"));
@@ -138,12 +138,15 @@ function setup(
 test("create sends the name and description only; contents come from deployments", async () => {
   const fetch = setup();
   await screen.findByText("No environments yet");
-  await userEvent.click(screen.getByRole("button", { name: "New environment" }));
+  // the empty state repeats New environment as its first-item button
+  expect(screen.getAllByRole("button", { name: "New environment" })).toHaveLength(2);
+  await userEvent.click(screen.getAllByRole("button", { name: "New environment" })[0]);
+  expect(screen.getByRole("dialog", { name: "New environment" })).toBeInTheDocument();
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.getByRole("link", { name: "Services page" })).toHaveAttribute("href", "/services");
   fireEvent.change(screen.getByLabelText("Environment name"), { target: { value: "Development" } });
   fireEvent.change(screen.getByLabelText("Description (optional)"), { target: { value: "Daily testing" } });
-  await userEvent.click(screen.getByRole("button", { name: "Save environment" }));
+  await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
   expect(await screen.findByText("Environment “Development” saved.")).toBeInTheDocument();
   const request = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
   expect(JSON.parse(request[1]!.body as string)).toEqual({ name: "Development", description: "Daily testing" });
@@ -157,7 +160,7 @@ test("edit sends the saved revision", async () => {
   await rowAction(userEvent, "Development", "Edit");
   expect(screen.getByLabelText("Environment name")).toHaveValue("Development");
   fireEvent.change(screen.getByLabelText("Environment name"), { target: { value: "Dev" } });
-  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Environment “Dev” saved.");
   const request = fetch.mock.calls.find(([, init]) => init?.method === "PUT")!;
   expect(request[0]).toBe("/api/environments/development");
@@ -168,7 +171,7 @@ test("stale edits keep the form", async () => {
   const fetch = setup([{ ...development }], { saveStatus: 409 });
   await rowAction(userEvent, "Development", "Edit");
   fireEvent.change(screen.getByLabelText("Environment name"), { target: { value: "Unsaved" } });
-  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText(/This environment changed/)).toBeInTheDocument();
   expect(screen.getByLabelText("Environment name")).toHaveValue("Unsaved");
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
@@ -222,18 +225,51 @@ test("list filtering includes deployed services and hostnames", async () => {
   setup([{ ...development }]);
   await screen.findByRole("button", { name: "Actions for Development" });
   for (const query of ["Daily testing", "Database", "host1.internal"]) {
-    fireEvent.change(screen.getByRole("textbox", { name: "Filter environments" }), { target: { value: query } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search environments" }), { target: { value: query } });
     expect(screen.getByRole("button", { name: "Actions for Development" })).toBeInTheDocument();
   }
-  fireEvent.change(screen.getByRole("textbox", { name: "Filter environments" }), { target: { value: "missing" } });
-  expect(screen.getByText("No environments match this filter.")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search environments" }), { target: { value: "missing" } });
+  expect(screen.getByText("No environments match.")).toBeInTheDocument();
 });
 
 test("inventory errors disable creation and provide retry", async () => {
   setup([], { loadError: true });
   expect(await screen.findByText("Inventory unavailable")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "New environment" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+});
+
+test("New environment's sheet: Cancel closes it untouched; with input it asks Stay / Leave", async () => {
+  setup();
+  await userEvent.click((await screen.findAllByRole("button", { name: "New environment" }))[0]);
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "New environment" })).toBeNull();
+  await userEvent.click(screen.getAllByRole("button", { name: "New environment" })[0]);
+  await userEvent.type(screen.getByLabelText("Environment name"), "QA");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
+  expect(screen.getByLabelText("Environment name")).toHaveValue("QA");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New environment" })).toBeNull());
+});
+
+test("the environment list: Skeleton rows while loading, sort by a header", async () => {
+  const user = userEvent.setup();
+  let answer: (value: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise<Response>((done) => (answer = done))),
+  );
+  page();
+  expect(await screen.findAllByTestId("skeleton-row")).not.toHaveLength(0);
+  const staging = { ...development, id: "staging", name: "Staging", services: [], servers: [] };
+  await act(async () => answer(new Response(JSON.stringify({ environments: [staging, { ...development }] }))));
+  await screen.findByRole("link", { name: "Staging" });
+  const names = () => screen.getAllByRole("link").map((link) => link.textContent);
+  expect(names()).toEqual(["Development", "Staging"]);
+  await user.click(screen.getByRole("button", { name: "Services" }));
+  expect(names()).toEqual(["Staging", "Development"]);
 });
 
 test("an environment's name links to its page", async () => {

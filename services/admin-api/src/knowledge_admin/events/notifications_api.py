@@ -47,8 +47,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 ORDER BY n.id DESC LIMIT %s OFFSET %s""",
                 (*values, limit + 1, offset),
             ).fetchall()
+            total = conn.execute(
+                f'SELECT count(*)::int AS n FROM ka.notifications n WHERE {" AND ".join(where)}', values
+            ).fetchone()['n']
         more = len(rows) > limit
-        return {'notifications': rows[:limit], 'next_offset': offset + limit if more else None}
+        return {'notifications': rows[:limit], 'next_offset': offset + limit if more else None, 'total': total}
 
     @router.get('/notifications/{notification_id}')
     def one(notification_id: int) -> dict:

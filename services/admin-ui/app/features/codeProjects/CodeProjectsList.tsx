@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCw } from "lucide-react";
+import { FolderGit2, RefreshCw } from "lucide-react";
 import { getCodeProjects, pullCodeProject, removeCodeProject, type CodeProject } from "./api";
 import { useCodeProjectsPage } from "./CodeProjectsLayout";
 import { graphStatus, syncStatus, syncing } from "./status";
-import DataTable from "~/components/DataTable";
+import DataTable, { sortHeader as header, TableEmpty, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
@@ -14,7 +14,6 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "~/components/ui/field";
-import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 
@@ -68,8 +67,6 @@ export default function CodeProjectsList() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<ListView>({ search: "", sync: ALL, graph: ALL, sort: "name", descending: false });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [removing, setRemoving] = useState<CodeProject | null>(null);
   const [deleteFiles, setDeleteFiles] = useState(false);
 
@@ -98,12 +95,7 @@ export default function CodeProjectsList() {
     };
   }, [refresh, reloaded]);
 
-  /** A new search, filter or sort starts again at page 1. */
-  const change = (next: Partial<ListView>) => {
-    setView((current) => ({ ...current, ...next }));
-    setPage(1);
-  };
-  const sortBy = (sort: SortKey) => change({ sort, descending: view.sort === sort ? !view.descending : false });
+  const change = (next: Partial<ListView>) => setView((current) => ({ ...current, ...next }));
 
   async function act(run: () => Promise<string>) {
     setBusy(true);
@@ -133,15 +125,10 @@ export default function CodeProjectsList() {
           : `${project.name} deleted. No files were found to delete.`;
     });
 
-  const sortHeader = (label: string, key: SortKey) => {
-    const Icon = view.sort !== key ? ArrowUpDown : view.descending ? ArrowDown : ArrowUp;
-    return (
-      <Button variant="ghost" size="sm" className="-ml-3" onClick={() => sortBy(key)}>
-        {label}
-        <Icon data-icon="inline-end" aria-hidden />
-      </Button>
+  const sortHeader = (label: string, key: SortKey) =>
+    header(label, key, { key: view.sort, descending: view.descending }, (next: Sort<SortKey>) =>
+      change({ sort: next.key, descending: next.descending }),
     );
-  };
   const columns: ColumnDef<CodeProject, unknown>[] = [
     {
       id: "name",
@@ -237,22 +224,11 @@ export default function CodeProjectsList() {
   ];
 
   const shown = visibleProjects(projects, view);
-  // A delete or a reload can empty the last page: show the last page there is.
-  const lastPage = Math.max(1, Math.ceil(shown.length / pageSize));
-  if (page > lastPage) setPage(lastPage);
   /** A filter's statuses: those in the list, and the chosen one even when no project has it any more. */
   const options = (status: (project: CodeProject) => string, chosen: string) =>
     [...new Set([...projects.map(status), ...(chosen === ALL ? [] : [chosen])])].sort();
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
-      <Input
-        type="search"
-        aria-label="Search code projects"
-        placeholder="Search name or source"
-        className="max-w-xs"
-        value={view.search}
-        onChange={(event) => change({ search: event.target.value })}
-      />
       <Select value={view.sync} onValueChange={(sync) => change({ sync })}>
         <SelectTrigger className="w-48" aria-label="Sync status">
           <SelectValue />
@@ -295,22 +271,26 @@ export default function CodeProjectsList() {
       )}
       <DataTable
         columns={columns}
-        data={shown.slice((page - 1) * pageSize, page * pageSize)}
-        total={shown.length}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPage(1);
+        data={shown}
+        search={{ plural: "code projects", value: view.search, onChange: (search) => change({ search }) }}
+        sort={{
+          key: view.sort === "synced" ? "commit" : view.sort === "status" ? "sync" : "name",
+          descending: view.descending,
         }}
+        resetKey={`${view.sync}\n${view.graph}\n${view.sort}\n${view.descending}`}
         toolbar={toolbar}
         loading={loading}
         rowId={(project) => project.id}
         empty={
-          projects.length === 0
-            ? "No code projects yet. New code project maps existing folders or clones a Git repository."
-            : "No code projects match."
+          projects.length === 0 ? (
+            <TableEmpty
+              icon={FolderGit2}
+              title="No code projects yet"
+              description="New code project maps existing folders or clones a Git repository."
+            />
+          ) : (
+            "No code projects match."
+          )
         }
       />
       <ConfirmRemove

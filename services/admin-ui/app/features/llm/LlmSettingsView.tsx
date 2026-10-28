@@ -1,24 +1,36 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { Pencil, Plug, Plus, RefreshCw } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Cpu, Pencil, Plug, Plus } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { getLlmSettings, providerLabels, testModel, type LlmSettings, type ModelProfile } from "./api";
 import LlmModelForm from "./LlmModelForm";
+import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import RowMenu from "~/components/RowMenu";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Spinner } from "~/components/ui/spinner";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
+type ModelSort = "name" | "type" | "status";
+const byName = (a: ModelProfile, b: ModelProfile) => a.name.localeCompare(b.name);
+const MODEL_ORDER: Record<ModelSort, (a: ModelProfile, b: ModelProfile) => number> = {
+  name: byName,
+  type: (a, b) => a.api_format.localeCompare(b.api_format) || byName(a, b),
+  status: (a, b) => Number(b.enabled) - Number(a.enabled) || byName(a, b),
+};
+
+/** LLM settings: the model connections in a table (name, type, provider and model, credential, Enabled / Disabled;
+ * Test connection, and Edit in the row menu) with search and sortable headers; New model and Edit open a right Sheet. */
 export default function LlmSettingsView() {
   const [settings, setSettings] = useState<LlmSettings | null>(null);
   const [editing, setEditing] = useState<ModelProfile | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<Sort<ModelSort>>({ key: "name", descending: false });
 
   async function refresh() {
     setBusy(true);
@@ -61,6 +73,85 @@ export default function LlmSettingsView() {
     setEditing(undefined);
     toast.success(`Model “${model.name}” saved.`);
   }
+  const text = search.trim().toLowerCase();
+  const shown = sortRows(
+    (settings?.models ?? []).filter((model) =>
+      `${model.name}\n${providerLabels[model.provider]}\n${model.model}`.toLowerCase().includes(text),
+    ),
+    sort,
+    MODEL_ORDER,
+  );
+  const newModel = (
+    <Button disabled={editing !== undefined || !settings} onClick={() => setEditing(null)}>
+      <Plus data-icon="inline-start" />
+      New model
+    </Button>
+  );
+  const columns: ColumnDef<ModelProfile, unknown>[] = [
+    {
+      id: "name",
+      header: () => sortHeader("Name", "name", sort, setSort),
+      cell: ({ row: { original: model } }) => <span className="font-medium">{model.name}</span>,
+    },
+    {
+      id: "type",
+      header: () => sortHeader("Type", "type", sort, setSort),
+      cell: ({ row: { original: model } }) => (
+        <Badge variant="outline">{model.api_format === "embeddings" ? "Embeddings" : "Chat"}</Badge>
+      ),
+    },
+    {
+      id: "provider",
+      header: "Provider / model",
+      cell: ({ row: { original: model } }) => (
+        <>
+          <div>{providerLabels[model.provider]}</div>
+          <div className="max-w-md break-all text-xs text-muted-foreground">{model.model}</div>
+          {model.api_format === "embeddings" && (
+            <div className="text-xs text-muted-foreground">
+              {model.embedding_dimensions} dimensions · Version {model.embedding_version}
+            </div>
+          )}
+          {model.aws_region && <div className="text-xs text-muted-foreground">{model.aws_region}</div>}
+        </>
+      ),
+    },
+    {
+      id: "credential",
+      header: "Credential",
+      cell: ({ row: { original: model } }) => (model.has_api_key ? "Key saved" : "No key"),
+    },
+    {
+      id: "status",
+      header: () => sortHeader("Status", "status", sort, setSort),
+      cell: ({ row: { original: model } }) => (
+        <Badge variant={model.enabled ? "secondary" : "outline"}>{model.enabled ? "Enabled" : "Disabled"}</Badge>
+      ),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row: { original: model } }) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Test connection for ${model.name}`}
+            disabled={!model.enabled || testing !== null || editing !== undefined}
+            onClick={() => void test(model)}
+          >
+            {testing === model.id ? <Spinner data-icon="inline-start" /> : <Plug data-icon="inline-start" />}
+            Test connection
+          </Button>
+          <RowMenu
+            name={model.name}
+            disabled={editing !== undefined || testing !== null}
+            items={[{ label: "Edit", icon: Pencil, onSelect: () => setEditing(model) }]}
+          />
+        </div>
+      ),
+    },
+  ];
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -73,22 +164,9 @@ export default function LlmSettingsView() {
           <Link className="underline underline-offset-4" to="/memory">
             Memory page
           </Link>
-          .
+          . Test connection sends a small chat or embedding request and may incur provider usage.
         </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={busy || editing !== undefined || testing !== null}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw data-icon="inline-start" />
-            Refresh
-          </Button>
-          <Button disabled={editing !== undefined || !settings} onClick={() => setEditing(null)}>
-            <Plus data-icon="inline-start" />
-            New model
-          </Button>
-        </div>
+        {newModel}
       </div>
       {error && (
         <Alert variant="destructive">
@@ -103,91 +181,30 @@ export default function LlmSettingsView() {
           onClose={() => setEditing(undefined)}
         />
       )}
-      {!settings && busy && (
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Spinner />
-          Loading model settings…
-        </div>
-      )}
-      {settings && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Model connections</CardTitle>
-            <CardDescription>
-              Test connection sends a small chat or embedding request to the saved model and may incur provider usage.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {settings.models.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                No models configured. Add a connection for agents or memory embeddings.
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Provider / model</TableHead>
-                    <TableHead>Credential</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {settings.models.map((model) => (
-                    <TableRow key={model.id}>
-                      <TableCell className="font-medium">{model.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{model.api_format === "embeddings" ? "Embeddings" : "Chat"}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div>{providerLabels[model.provider]}</div>
-                        <div className="max-w-md break-all text-xs text-muted-foreground">{model.model}</div>
-                        {model.api_format === "embeddings" && (
-                          <div className="text-xs text-muted-foreground">
-                            {model.embedding_dimensions} dimensions · Version {model.embedding_version}
-                          </div>
-                        )}
-                        {model.aws_region && <div className="text-xs text-muted-foreground">{model.aws_region}</div>}
-                      </TableCell>
-                      <TableCell>{model.has_api_key ? "Key saved" : "No key"}</TableCell>
-                      <TableCell>
-                        <Badge variant={model.enabled ? "secondary" : "outline"}>
-                          {model.enabled ? "Enabled" : "Disabled"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Test connection for ${model.name}`}
-                            disabled={!model.enabled || testing !== null || editing !== undefined}
-                            onClick={() => void test(model)}
-                          >
-                            {testing === model.id ? (
-                              <Spinner data-icon="inline-start" />
-                            ) : (
-                              <Plug data-icon="inline-start" />
-                            )}
-                            Test connection
-                          </Button>
-                          <RowMenu
-                            name={model.name}
-                            disabled={editing !== undefined || testing !== null}
-                            items={[{ label: "Edit", icon: Pencil, onSelect: () => setEditing(model) }]}
-                          />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <DataTable
+        columns={columns}
+        data={shown}
+        loading={!settings && busy}
+        rowId={(model) => model.id}
+        search={{ plural: "models", value: search, onChange: setSearch }}
+        sort={sort}
+        resetKey={`${sort.key}\n${sort.descending}`}
+        empty={
+          settings?.models.length === 0 ? (
+            <TableEmpty
+              icon={Cpu}
+              title="No models yet"
+              description="Add a connection for agents or memory embeddings."
+            >
+              {newModel}
+            </TableEmpty>
+          ) : settings ? (
+            "No models match."
+          ) : (
+            "Could not load models."
+          )
+        }
+      />
     </div>
   );
 }

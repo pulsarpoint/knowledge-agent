@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -38,7 +38,7 @@ const page = () => {
   ).router;
 };
 
-test("leaving with unsaved changes in the model form asks Stay / Leave; an untouched form does not", async () => {
+test("leaving with unsaved changes in the model sheet asks Stay / Leave; an untouched sheet does not", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ models: [bedrock], assignments: { revision: 1 } }))),
@@ -46,21 +46,79 @@ test("leaving with unsaved changes in the model form asks Stay / Leave; an untou
   const router = page();
   await waitFor(() => expect(screen.getByRole("button", { name: "New model" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "New model" }));
-  fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
+  await act(() => router.navigate("/agents"));
   expect(await screen.findByText("Agents list")).toBeInTheDocument();
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  await router.navigate("/llm-settings");
+  await act(() => router.navigate("/llm-settings"));
   await waitFor(() => expect(screen.getByRole("button", { name: "New model" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "New model" }));
   fireEvent.change(screen.getByLabelText("Connection name"), { target: { value: "Search" } });
-  fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
+  await act(() => router.navigate("/agents"));
   const dialog = within(await screen.findByRole("alertdialog"));
   fireEvent.click(dialog.getByRole("button", { name: "Stay" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(router.state.location.pathname).toBe("/llm-settings");
-  fireEvent.click(screen.getByRole("link", { name: "Agents page" }));
+  await act(() => router.navigate("/agents"));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
   expect(await screen.findByText("Agents list")).toBeInTheDocument();
+});
+
+test("New model is a right sheet with Create model and Cancel; Cancel with input asks Stay / Leave", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ models: [bedrock], assignments: { revision: 1 } }))),
+  );
+  page();
+  await waitFor(() => expect(screen.getByRole("button", { name: "New model" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "New model" }));
+  const sheet = within(screen.getByRole("dialog", { name: "New model" }));
+  expect(sheet.getByRole("button", { name: "Create model" })).toBeInTheDocument();
+  await user.click(sheet.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "New model" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "New model" }));
+  await user.type(screen.getByLabelText("Connection name"), "Search");
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New model" })).toBeNull());
+});
+
+test("the model list: Skeleton rows while loading, an empty state with New model, search and sort", async () => {
+  const user = userEvent.setup();
+  let answer: (value: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise<Response>((done) => (answer = done))),
+  );
+  page();
+  expect(await screen.findAllByTestId("skeleton-row")).not.toHaveLength(0);
+  await act(async () => answer(new Response(JSON.stringify({ models: [], assignments: { revision: 1 } }))));
+  expect(await screen.findByText("No models yet")).toBeInTheDocument();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            models: [bedrock, { ...bedrock, id: "a", name: "Atlas", enabled: false, model: "atlas-1" }],
+            assignments: { revision: 1 },
+          }),
+        ),
+    ),
+  );
+  cleanup();
+  page();
+  await screen.findByRole("cell", { name: "Atlas" });
+  const names = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.querySelector("td")?.textContent);
+  expect(names()).toEqual(["Atlas", "Bedrock Claude"]);
+  await user.click(screen.getByRole("button", { name: "Status" }));
+  expect(names()).toEqual(["Bedrock Claude", "Atlas"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search models" }), "atlas");
+  expect(names()).toEqual(["Atlas"]);
 });
 
 test("editing a Bedrock model preserves its saved key and supports disabling", async () => {
@@ -75,7 +133,7 @@ test("editing a Bedrock model preserves its saved key and supports disabling", a
   expect(screen.getByLabelText("Bedrock API key")).toHaveValue("");
   expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("switch", { name: "Enabled" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(saved).toHaveBeenCalled());
   const body = JSON.parse(fetch.mock.calls[0][1]!.body as string);
   expect(body).toMatchObject({
@@ -101,7 +159,7 @@ test("a stale model edit keeps the new key and other unsaved values", async () =
   );
   form(<LlmModelForm model={bedrock} onSaved={() => {}} onClose={() => {}} />);
   fireEvent.change(screen.getByLabelText("Bedrock API key"), { target: { value: "replacement-key" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByRole("alert");
   expect(screen.getByLabelText("Bedrock API key")).toHaveValue("replacement-key");
 });
@@ -153,7 +211,7 @@ test("model settings manages connections and links to Agents for model selection
   expect(await screen.findByRole("cell", { name: "Bedrock Claude" })).toBeVisible();
   expect(screen.getByRole("link", { name: "Agents page" })).toHaveAttribute("href", "/agents");
   expect(screen.queryByText("Agent models")).not.toBeInTheDocument();
-  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: /model/i })).not.toBeInTheDocument();
 });
 
 test("creating an embedding connection includes its dimensions and version", async () => {
@@ -172,7 +230,7 @@ test("creating an embedding connection includes its dimensions and version", asy
   await user.type(screen.getByLabelText("Connection name"), "Document embeddings");
   await user.type(screen.getByLabelText("Model ID"), "text-embedding-test");
   fireEvent.change(screen.getByLabelText("Embedding dimensions"), { target: { value: "1536" } });
-  await user.click(screen.getByRole("button", { name: "Save model" }));
+  await user.click(screen.getByRole("button", { name: "Create model" }));
   await waitFor(() => expect(saved).toHaveBeenCalled());
   expect(JSON.parse(fetch.mock.calls[0][1]!.body as string)).toMatchObject({
     api_format: "embeddings",
@@ -202,7 +260,7 @@ test("Bedrock embedding form keeps embedding type and saves its region", async (
   await user.type(screen.getByLabelText("Model ID"), "amazon.titan-embed-text-v2:0");
   await user.type(screen.getByLabelText("AWS region"), "eu-central-1");
   await user.type(screen.getByLabelText("Bedrock API key"), "test-key");
-  await user.click(screen.getByRole("button", { name: "Save model" }));
+  await user.click(screen.getByRole("button", { name: "Create model" }));
   await waitFor(() => expect(saved).toHaveBeenCalled());
   expect(JSON.parse(fetch.mock.calls[0][1]!.body as string)).toMatchObject({
     api_format: "embeddings",
@@ -231,7 +289,7 @@ test("a chat model saves Supports structured output (on by default for OpenAI, k
   const toggle = screen.getByRole("switch", { name: "Supports structured output" });
   expect(toggle).toBeChecked();
   fireEvent.click(toggle);
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(saved).toHaveBeenCalled());
   expect(JSON.parse(fetch.mock.calls[0][1]!.body as string).capabilities).toEqual({
     supports_structured_output: false,

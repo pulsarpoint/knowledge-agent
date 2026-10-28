@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { agentPath } from "~/features/agents/api";
 import { Link, useSearchParams } from "react-router";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Inbox, Plus, RefreshCw } from "lucide-react";
+import { Copy, Inbox, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import {
   DEFAULT_SORT,
+  EVENTS_PAGE,
   NO_FILTERS,
   SOURCE_LABELS,
   STATUS_LABELS,
@@ -24,16 +26,12 @@ import {
 } from "./api";
 import { statusLabels } from "~/features/sessions/api";
 import NewEventSheet, { type Prefill } from "./NewEventSheet";
+import DataTable, { sortHeader, TableEmpty, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
-import { Field, FieldLabel } from "~/components/ui/field";
-import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
-import { Skeleton } from "~/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 const DEBOUNCE_MS = 300;
 const ALL = "all";
@@ -41,15 +39,6 @@ const when = (value: string) => new Date(value).toLocaleString();
 const text = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
 const typeLabel = (type: string) => TYPE_LABELS[type] ?? type;
 const sourceLabel = (source: string) => SOURCE_LABELS[source] ?? source;
-const COLUMNS: { key: SortKey | null; label: string }[] = [
-  { key: "time", label: "Time" },
-  { key: "source", label: "Source" },
-  { key: "type", label: "Type" },
-  { key: "subject", label: "Subject" },
-  { key: null, label: "Title" },
-  { key: "status", label: "Status" },
-  { key: null, label: "Handlers" },
-];
 /** "—", "1 handler" or "3 handlers": how many handlers ran on the event. */
 export const handlersLabel = (count = 0) => (count === 0 ? "—" : count === 1 ? "1 handler" : `${count} handlers`);
 
@@ -61,8 +50,8 @@ export function StatusBadge({ status }: { status: EventStatus }) {
   );
 }
 
+/** A toolbar filter: an unlabelled Select named by its `label`, "All …" first. */
 function FilterSelect({
-  id,
   label,
   value,
   all,
@@ -70,7 +59,6 @@ function FilterSelect({
   onChange,
   className,
 }: {
-  id: string;
   label: string;
   value: string;
   all: string;
@@ -79,24 +67,21 @@ function FilterSelect({
   className: string;
 }) {
   return (
-    <Field className={className}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? "" : next)}>
-        <SelectTrigger id={id} aria-label={label} className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            <SelectItem value={ALL}>{all}</SelectItem>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </Field>
+    <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? "" : next)}>
+      <SelectTrigger aria-label={label} className={className}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value={ALL}>{all}</SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -107,7 +92,9 @@ export default function EventsView() {
   const [sort, setSort] = useState<EventSort>(DEFAULT_SORT);
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<EventRow[] | null>(null);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(EVENTS_PAGE);
   const [facets, setFacets] = useState<EventFacets>({
     sources: [],
     types: [],
@@ -117,15 +104,15 @@ export default function EventsView() {
   });
   const [selected, setSelected] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [reload, setReload] = useState(0);
   /** The New event form: null when closed, else what it starts with (a copy, or nothing). */
   const [form, setForm] = useState<{ key: number; prefill?: Prefill } | null>(null);
-  /** Bumped whenever the first page is reloaded, so a Load more that started earlier is ignored. */
-  const generation = useRef(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(filters.q), DEBOUNCE_MS);
+    const timer = setTimeout(() => {
+      setQuery(filters.q);
+      setPage(1);
+    }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [filters.q]);
 
@@ -143,20 +130,18 @@ export default function EventsView() {
 
   useEffect(() => {
     const controller = new AbortController();
-    generation.current += 1;
     setEvents(null);
-    setNextOffset(null);
-    setLoadingMore(false);
-    getEvents(active, sort, 0, controller.signal)
+    getEvents(active, sort, (page - 1) * pageSize, controller.signal, pageSize)
       .then((result) => {
+        if (controller.signal.aborted) return; // a page answered after the filters changed
         setEvents(result.events);
-        setNextOffset(result.next_offset);
+        setTotal(result.total ?? result.events.length);
         setError(null);
       })
       .catch((reason) => {
         if (!controller.signal.aborted) {
           setEvents([]);
-          setNextOffset(null);
+          setTotal(0);
           setError(text(reason, "Could not load events."));
         }
       });
@@ -171,28 +156,11 @@ export default function EventsView() {
     query,
     sort.key,
     sort.order,
+    page,
+    pageSize,
     reload,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadMore() {
-    if (nextOffset === null) return;
-    const started = generation.current;
-    setLoadingMore(true);
-    try {
-      const result = await getEvents(active, sort, nextOffset);
-      if (generation.current !== started) return;
-      setEvents((current) =>
-        current
-          ? [...current, ...result.events.filter((row) => !current.some((existing) => existing.id === row.id))]
-          : current,
-      );
-      setNextOffset(result.next_offset);
-    } catch (reason) {
-      if (generation.current === started) setError(text(reason, "Could not load more events."));
-    } finally {
-      if (generation.current === started) setLoadingMore(false);
-    }
-  }
   async function open(id: number) {
     try {
       setSelected((await getEvent(id)).event);
@@ -214,13 +182,20 @@ export default function EventsView() {
         { replace: true },
       );
   }
-  /** A new column sorts newest/last first; the same column again flips the order. */
-  const sortBy = (key: SortKey) =>
+  /** A new column sorts newest/last first; the same column again flips the order. A new order starts at page 1. */
+  const sortBy = (key: SortKey) => {
     setSort((current) =>
       current.key === key ? { key, order: current.order === "desc" ? "asc" : "desc" } : { key, order: "desc" },
     );
-  const set = (field: keyof EventFilters) => (value: string) =>
+    setPage(1);
+  };
+  const shownSort: Sort<SortKey> = { key: sort.key, descending: sort.order === "desc" };
+  const header = (label: string, key: SortKey) => sortHeader(label, key, shownSort, (next) => sortBy(next.key));
+  /** A filter change starts at page 1 (the search waits for typing to pause first). */
+  const set = (field: keyof EventFilters) => (value: string) => {
     setFilters((current) => ({ ...current, [field]: value }));
+    if (field !== "q") setPage(1);
+  };
 
   function created(event: EventDetail) {
     setForm(null);
@@ -263,78 +238,56 @@ export default function EventsView() {
       ? selected.payload.url
       : null;
 
+  const columns: ColumnDef<EventRow, unknown>[] = [
+    {
+      id: "time",
+      header: () => header("Time", "time"),
+      cell: ({ row: { original: row } }) => <span className="whitespace-nowrap">{when(row.occurred_at)}</span>,
+    },
+    {
+      id: "source",
+      header: () => header("Source", "source"),
+      cell: ({ row: { original: row } }) => <span className="whitespace-nowrap">{sourceLabel(row.source)}</span>,
+    },
+    {
+      id: "type",
+      header: () => header("Type", "type"),
+      cell: ({ row: { original: row } }) => <span className="whitespace-nowrap">{typeLabel(row.type)}</span>,
+    },
+    {
+      id: "subject",
+      header: () => header("Subject", "subject"),
+      cell: ({ row: { original: row } }) => <span className="font-medium">{row.subject}</span>,
+    },
+    { id: "title", header: "Title", cell: ({ row: { original: row } }) => row.title },
+    {
+      id: "status",
+      header: () => header("Status", "status"),
+      cell: ({ row: { original: row } }) => <StatusBadge status={row.status} />,
+    },
+    {
+      id: "handlers",
+      header: "Handlers",
+      cell: ({ row: { original: row } }) => (
+        <span className="whitespace-nowrap text-muted-foreground">{handlersLabel(row.handlers)}</span>
+      ),
+    },
+  ];
+  const newEvent = (
+    <Button onClick={() => setForm({ key: Date.now() })}>
+      <Plus data-icon="inline-start" />
+      New event
+    </Button>
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <FilterSelect
-          id="events-source"
-          label="Source"
-          all="All sources"
-          className="w-full sm:w-40"
-          value={filters.source}
-          onChange={set("source")}
-          options={facets.sources.map((source) => ({ value: source, label: sourceLabel(source) }))}
-        />
-        <FilterSelect
-          id="events-type"
-          label="Type"
-          all="All types"
-          className="w-full sm:w-52"
-          value={filters.type}
-          onChange={set("type")}
-          options={facets.types.map((type) => ({ value: type, label: typeLabel(type) }))}
-        />
-        <FilterSelect
-          id="events-status"
-          label="Status"
-          all="All statuses"
-          className="w-full sm:w-40"
-          value={filters.status}
-          onChange={set("status")}
-          options={facets.statuses.map((status) => ({ value: status, label: STATUS_LABELS[status] ?? status }))}
-        />
-        <FilterSelect
-          id="events-handled"
-          label="Handled"
-          all="Handled or not"
-          className="w-full sm:w-40"
-          value={filters.handled}
-          onChange={set("handled")}
-          options={[
-            { value: "yes", label: "Handled" },
-            { value: "no", label: "Not handled" },
-          ]}
-        />
-        <FilterSelect
-          id="events-handler"
-          label="Emitted by"
-          all="All handlers"
-          className="w-full sm:w-44"
-          value={filters.handler}
-          onChange={set("handler")}
-          options={facets.handlers.map((handler) => ({ value: handler.id, label: handler.name }))}
-        />
-        <FilterSelect
-          id="events-schedule"
-          label="Schedule"
-          all="All schedules"
-          className="w-full sm:w-44"
-          value={filters.schedule}
-          onChange={set("schedule")}
-          options={facets.schedules.map((name) => ({ value: name, label: name }))}
-        />
-        <Field className="w-full sm:w-56">
-          <FieldLabel htmlFor="events-search">Ticket or title</FieldLabel>
-          <Input id="events-search" value={filters.q} onChange={(event) => set("q")(event.target.value)} />
-        </Field>
+      <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
           <RefreshCw data-icon="inline-start" />
           Refresh
         </Button>
-        <Button onClick={() => setForm({ key: Date.now() })}>
-          <Plus data-icon="inline-start" />
-          New event
-        </Button>
+        {newEvent}
       </div>
       {error && (
         <Alert variant="destructive">
@@ -342,88 +295,93 @@ export default function EventsView() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {events === null && !error && <Skeleton className="h-32 w-full" />}
-      {events?.length === 0 && !error && (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Inbox />
-            </EmptyMedia>
-            <EmptyTitle>Events</EmptyTitle>
-            <EmptyDescription>
-              {filtered
-                ? "No events match these filters."
-                : "No events yet. Add a Jira tickets schedule in Administration → Schedules to record ticket changes."}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      )}
-      {events && events.length > 0 && (
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {COLUMNS.map((column) => {
-                  const sorted = column.key !== null && sort.key === column.key;
-                  const Arrow = !sorted ? ArrowUpDown : sort.order === "asc" ? ArrowUp : ArrowDown;
-                  return (
-                    <TableHead
-                      key={column.label}
-                      aria-sort={sorted ? (sort.order === "asc" ? "ascending" : "descending") : undefined}
-                    >
-                      {column.key === null ? (
-                        column.label
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="-ml-2"
-                          onClick={() => sortBy(column.key as SortKey)}
-                        >
-                          {column.label}
-                          <Arrow data-icon="inline-end" aria-hidden="true" />
-                        </Button>
-                      )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.map((row) => (
-                <TableRow
-                  key={row.id}
-                  tabIndex={0}
-                  className="cursor-pointer"
-                  onClick={() => void open(row.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void open(row.id);
-                  }}
-                >
-                  <TableCell className="whitespace-nowrap">{when(row.occurred_at)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{sourceLabel(row.source)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{typeLabel(row.type)}</TableCell>
-                  <TableCell className="font-medium">{row.subject}</TableCell>
-                  <TableCell>{row.title}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={row.status} />
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {handlersLabel(row.handlers)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-      {nextOffset !== null && (
-        <div className="flex justify-center">
-          <Button variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
-            Load more
-          </Button>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={events ?? []}
+        loading={events === null}
+        rowId={(row) => String(row.id)}
+        onRowClick={(row) => void open(row.id)}
+        sort={shownSort}
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        search={{ plural: "events", value: filters.q, onChange: set("q") }}
+        toolbar={
+          <>
+            <FilterSelect
+              label="Source"
+              all="All sources"
+              className="w-full sm:w-40"
+              value={filters.source}
+              onChange={set("source")}
+              options={facets.sources.map((source) => ({ value: source, label: sourceLabel(source) }))}
+            />
+            <FilterSelect
+              label="Type"
+              all="All types"
+              className="w-full sm:w-52"
+              value={filters.type}
+              onChange={set("type")}
+              options={facets.types.map((type) => ({ value: type, label: typeLabel(type) }))}
+            />
+            <FilterSelect
+              label="Status"
+              all="All statuses"
+              className="w-full sm:w-40"
+              value={filters.status}
+              onChange={set("status")}
+              options={facets.statuses.map((status) => ({ value: status, label: STATUS_LABELS[status] ?? status }))}
+            />
+            <FilterSelect
+              label="Handled"
+              all="Handled or not"
+              className="w-full sm:w-40"
+              value={filters.handled}
+              onChange={set("handled")}
+              options={[
+                { value: "yes", label: "Handled" },
+                { value: "no", label: "Not handled" },
+              ]}
+            />
+            <FilterSelect
+              label="Emitted by"
+              all="All handlers"
+              className="w-full sm:w-44"
+              value={filters.handler}
+              onChange={set("handler")}
+              options={facets.handlers.map((handler) => ({ value: handler.id, label: handler.name }))}
+            />
+            <FilterSelect
+              label="Schedule"
+              all="All schedules"
+              className="w-full sm:w-44"
+              value={filters.schedule}
+              onChange={set("schedule")}
+              options={facets.schedules.map((name) => ({ value: name, label: name }))}
+            />
+          </>
+        }
+        empty={
+          error ? (
+            "Could not load events."
+          ) : filtered ? (
+            "No events match these filters."
+          ) : (
+            <TableEmpty
+              icon={Inbox}
+              title="No events yet"
+              description="Add a Jira tickets schedule in Administration → Schedules to record ticket changes, or make one by hand."
+            >
+              {newEvent}
+            </TableEmpty>
+          )
+        }
+      />
       {form && (
         <NewEventSheet
           key={form.key}

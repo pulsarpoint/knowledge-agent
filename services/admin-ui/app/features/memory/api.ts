@@ -39,6 +39,7 @@ export interface MemoryDraft {
 export interface MemoryList {
   memories: MemoryEntry[];
   next_offset: number | null;
+  total: number;
   not_embedded: number;
   embedding_model: boolean;
   current_profile: string | null;
@@ -61,12 +62,16 @@ export function savedBy(entry: Pick<MemoryEntry, "updated_by_agent_name" | "upda
   return entry.updated_by_agent_name ?? entry.updated_by_email ?? "—";
 }
 
-export function getMemories(filters: MemoryFilters, offset = 0, signal?: AbortSignal) {
+/** The API's page size: a request for it leaves `limit` out. */
+export const MEMORY_PAGE = 20;
+
+export function getMemories(filters: MemoryFilters, offset = 0, signal?: AbortSignal, limit = MEMORY_PAGE) {
   const query = new URLSearchParams();
   if (filters.query.trim()) query.set("query", filters.query.trim());
   if (Object.keys(filters.metadata).length) query.set("metadata", JSON.stringify(filters.metadata));
   if (filters.agent) query.set("agent", filters.agent);
   if (offset > 0) query.set("offset", String(offset));
+  if (limit !== MEMORY_PAGE) query.set("limit", String(limit));
   const suffix = query.toString();
   return request<MemoryList>(`/api/memories${suffix ? `?${suffix}` : ""}`, { signal });
 }

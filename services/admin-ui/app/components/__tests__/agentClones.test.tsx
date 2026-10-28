@@ -211,7 +211,7 @@ test("an agent that is no longer a clone hides Apply", async () => {
 test("the agent list empty row spans every column", async () => {
   const user = userEvent.setup();
   open("/agents");
-  await user.type(await screen.findByRole("textbox", { name: "Find agents" }), "nothing like it");
+  await user.type(await screen.findByRole("searchbox", { name: "Search agents" }), "nothing like it");
   const cell = await screen.findByText("No agents match your search.");
   expect(cell).toHaveAttribute("colspan", String(screen.getAllByRole("columnheader").length));
 });

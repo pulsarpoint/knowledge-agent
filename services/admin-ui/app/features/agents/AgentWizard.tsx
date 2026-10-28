@@ -14,7 +14,6 @@ import { PROMPT_LIMIT } from "./AgentPromptCard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
   Field,
@@ -27,12 +26,14 @@ import {
 } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem } from "~/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { Switch } from "~/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { toast } from "sonner";
+import { useSheetGuard } from "~/components/LeaveGuard";
 
 function Toggle({
   label,
@@ -128,7 +129,17 @@ function catalogList(catalog: WizardOptions["catalog"], type: AccessType): Wizar
   }
 }
 
-export default function AgentWizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+/** New agent, in a right Sheet: 1. describe the role (or start blank), 2. review the proposal and Create agent. Closing it
+ * with a role typed or a proposal made asks Stay / Leave first. */
+export default function AgentWizard({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
   const [options, setOptions] = useState<WizardOptions>();
   const [role, setRole] = useState("");
   const [model, setModel] = useState("");
@@ -162,6 +173,8 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     };
   }, [reload]);
   const catalog = options?.catalog;
+  const guard = useSheetGuard(busy !== "create" && (role.trim() !== "" || proposal !== undefined));
+  const close = () => guard.close(onClose);
   const agentModelField = (
     <Field>
       <FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel>
@@ -235,16 +248,17 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     }
   }
   return (
-    <Card aria-label="New Agent Wizard">
-      <CardHeader>
-        <CardTitle>New Agent Wizard</CardTitle>
-        <CardDescription>
-          {step === "describe"
-            ? "1. Describe the role and let AI propose a configuration from your resources, or start blank and fill it in yourself."
-            : "2. Review and edit. Nothing is saved until you create the agent."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6 pb-6">
+    <Sheet open={open} onOpenChange={(next) => !next && close()}>
+      {guard.dialog}
+      <SheetContent className="flex w-full flex-col gap-6 overflow-y-auto sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle>New agent</SheetTitle>
+          <SheetDescription>
+            {step === "describe"
+              ? "1. Describe the role and let AI propose a configuration from your resources, or start blank and fill it in yourself."
+              : "2. Review and edit. Nothing is saved until you create the agent."}
+          </SheetDescription>
+        </SheetHeader>
         {error && (
           <Alert variant="destructive">
             <AlertDescription>
@@ -479,48 +493,52 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
             )}
           </fieldset>
         )}
-      </CardContent>
-      <CardFooter className="flex-wrap gap-2">
-        {step === "describe" ? (
-          <>
-            <Button disabled={busy !== null || !role.trim() || !model || !options} onClick={() => void generate()}>
-              {busy === "generate" ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
-              {busy === "generate" ? "Generating proposal…" : proposal ? "Generate new proposal" : "Generate proposal"}
-            </Button>
-            <Button variant="outline" disabled={busy !== null || !options} onClick={startBlank}>
-              Start blank
-            </Button>
-            {proposal && (
-              <Button variant="outline" disabled={busy !== null} onClick={() => setStep("review")}>
-                Back to proposal
+        <SheetFooter className="flex-wrap gap-2 sm:justify-start sm:space-x-0">
+          {step === "describe" ? (
+            <>
+              <Button disabled={busy !== null || !role.trim() || !model || !options} onClick={() => void generate()}>
+                {busy === "generate" ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
+                {busy === "generate"
+                  ? "Generating proposal…"
+                  : proposal
+                    ? "Generate new proposal"
+                    : "Generate proposal"}
               </Button>
-            )}
-          </>
-        ) : (
-          <>
-            <Button
-              disabled={busy !== null || !proposal?.name.trim() || !proposal?.system_prompt.trim()}
-              onClick={() => void create()}
-            >
-              {busy === "create" && <Spinner data-icon="inline-start" />}
-              {busy === "create" ? "Creating…" : "Create agent"}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy !== null}
-              onClick={() => {
-                setError("");
-                setStep("describe");
-              }}
-            >
-              Edit role
-            </Button>
-          </>
-        )}
-        <Button variant="ghost" disabled={busy !== null} onClick={onClose}>
-          Cancel
-        </Button>
-      </CardFooter>
-    </Card>
+              <Button variant="outline" disabled={busy !== null || !options} onClick={startBlank}>
+                Start blank
+              </Button>
+              {proposal && (
+                <Button variant="outline" disabled={busy !== null} onClick={() => setStep("review")}>
+                  Back to proposal
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button
+                disabled={busy !== null || !proposal?.name.trim() || !proposal?.system_prompt.trim()}
+                onClick={() => void create()}
+              >
+                {busy === "create" && <Spinner data-icon="inline-start" />}
+                {busy === "create" ? "Creating…" : "Create agent"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy !== null}
+                onClick={() => {
+                  setError("");
+                  setStep("describe");
+                }}
+              >
+                Edit role
+              </Button>
+            </>
+          )}
+          <Button variant="outline" disabled={busy !== null} onClick={close}>
+            Cancel
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

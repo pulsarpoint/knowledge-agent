@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { serviceAsset as asset, stubApi as api } from "~/lib/__tests__/serviceFixture";
 import type { RelationKind } from "./inventory";
-import AddRelationDialog from "./AddRelationDialog";
+import AddRelationSheet from "./AddRelationSheet";
 
 const services = [asset("v1", "payments-api"), asset("v5", "billing"), asset("v2", "postgres")];
 const repositories = [
@@ -13,7 +13,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function dialog(kind: RelationKind = "depends_on") {
   const handlers = { onSaved: vi.fn(), onClose: vi.fn() };
-  render(<AddRelationDialog serviceId="v1" services={services} kind={kind} {...handlers} />);
+  render(<AddRelationSheet serviceId="v1" services={services} kind={kind} {...handlers} />);
   return handlers;
 }
 const routes = {
@@ -91,7 +91,7 @@ test("a relation to a draft service says saving confirms it", async () => {
   const user = userEvent.setup();
   api(routes);
   render(
-    <AddRelationDialog
+    <AddRelationSheet
       serviceId="v1"
       services={[services[0], services[1], { ...services[2], status: "draft" }]}
       kind="depends_on"

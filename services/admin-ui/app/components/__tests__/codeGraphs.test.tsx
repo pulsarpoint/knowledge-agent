@@ -162,7 +162,7 @@ test("empty state points to Code projects", async () => {
     </MemoryRouter>,
   );
   expect(await screen.findByText("No code projects yet")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Add a code project" })).toHaveAttribute("href", "/code-projects");
+  expect(screen.getByRole("link", { name: "Code projects" })).toHaveAttribute("href", "/code-projects");
 });
 
 test("a project in the URL opens its graph", async () => {
@@ -174,4 +174,26 @@ test("a project in the URL opens its graph", async () => {
     </MemoryRouter>,
   );
   expect(await screen.findByText("Explorer p1 h1")).toBeInTheDocument();
+});
+
+test("the code graph list: Skeleton rows while loading, search and sort by a header", async () => {
+  const user = userEvent.setup();
+  api([indexed, missing, running]);
+  render(
+    <MemoryRouter>
+      <CodeGraphsView />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByRole("cell", { name: "Payments" });
+  const names = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[0].textContent);
+  expect(names()).toEqual(["Billing", "Ledger", "Payments"]);
+  await user.click(screen.getByRole("button", { name: "Code project" }));
+  expect(names()).toEqual(["Payments", "Ledger", "Billing"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search code graphs" }), "led");
+  expect(names()).toEqual(["Ledger"]);
 });

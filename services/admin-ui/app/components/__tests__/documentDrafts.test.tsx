@@ -313,3 +313,40 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
   expect(screen.getByRole("link", { name: "Runbook, shorter" })).toBeInTheDocument();
   expect(calls.some((c) => c.key.startsWith("GET /api/documentation/documents"))).toBe(false);
 });
+
+test("the documents list: Skeleton rows while loading, pages by the API's total, rows per page go into ?limit=", async () => {
+  const user = userEvent.setup();
+  const calls = api({
+    "GET /api/documentation/documents?": () => [200, { documents: [doc], total: 120 }],
+    "GET /api/documentation/documents?offset=50": () => [
+      200,
+      { documents: [{ ...doc, id: "doc-9", title: "Later" }], total: 120 },
+    ],
+    "GET /api/documentation/documents?limit=20": () => [200, { documents: [doc], total: 120 }],
+    "GET /api/documentation/resources": () => [200, resources],
+    "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
+  });
+  const router = show("/documents");
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  expect(await screen.findByText("Showing 1–50 of 120")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  expect(await screen.findByRole("link", { name: "Later" })).toBeInTheDocument();
+  expect(router.state.location.search).toBe("?offset=50");
+  await user.click(screen.getByRole("combobox", { name: "Rows per page" }));
+  await user.click(screen.getByRole("option", { name: "20" }));
+  await waitFor(() => expect(calls.some((c) => c.key === "GET /api/documentation/documents?limit=20")).toBe(true));
+  expect(router.state.location.search).toBe("?limit=20");
+  expect(await screen.findByText("Page 1 of 6")).toBeInTheDocument();
+});
+
+test("no documents at all shows an empty state with New document", async () => {
+  api({
+    "GET /api/documentation/documents?": () => [200, { documents: [], total: 0 }],
+    "GET /api/documentation/resources": () => [200, resources],
+    "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
+  });
+  show("/documents");
+  expect(await screen.findByText("No documents yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: "New document" })).toHaveLength(2);
+});

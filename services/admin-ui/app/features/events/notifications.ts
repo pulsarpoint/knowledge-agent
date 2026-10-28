@@ -40,13 +40,22 @@ export const NOTIFICATION_STATUS_LABELS: Record<NotificationStatus, string> = {
   failed: "Failed",
 };
 
-export function getNotifications(filters: NotificationFilters, offset = 0, signal?: AbortSignal) {
+/** The API's page size: a request for it leaves `limit` out. */
+export const NOTIFICATIONS_PAGE = 50;
+
+export function getNotifications(
+  filters: NotificationFilters,
+  offset = 0,
+  signal?: AbortSignal,
+  limit = NOTIFICATIONS_PAGE,
+) {
   const query = new URLSearchParams();
   if (filters.status) query.set("status", filters.status);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (offset > 0) query.set("offset", String(offset));
+  if (limit !== NOTIFICATIONS_PAGE) query.set("limit", String(limit));
   const suffix = query.toString();
-  return request<{ notifications: NotificationRow[]; next_offset: number | null }>(
+  return request<{ notifications: NotificationRow[]; next_offset: number | null; total: number }>(
     `/api/notifications${suffix ? `?${suffix}` : ""}`,
     { signal },
   );

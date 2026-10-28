@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { getRuns, RUN_DEFAULTS, runPath, topTools, toolUsageLine, type RunPage } from "./runs";
+import { getRuns, RUN_DEFAULTS, runPath, topTools, toolUsageLine, type RunPage, type RunSummary } from "./runs";
 import { getAgents, type AgentSummary } from "~/features/agents/api";
 import { getSchedules } from "~/features/events/schedules";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Activity, RefreshCw } from "lucide-react";
+import DataTable, { sortHeader, TableEmpty, type Sort } from "~/components/DataTable";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyDescription } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
-import { Skeleton } from "~/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 
 const KINDS: Record<string, string> = {
   test: "Agent test",
@@ -27,8 +28,43 @@ const STATUSES: Record<string, string> = {
   failed: "Failed",
   stopped: "Stopped",
 };
-const SELECT = "h-9 rounded-md border bg-background px-2";
+const ALL = "all";
 
+/** A toolbar filter on a search param: an unlabelled Select named by `label`, "All …" first. */
+function FilterSelect({
+  label,
+  all,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  all: string;
+  value: string;
+  options: [string, string][];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? "" : next)}>
+      <SelectTrigger aria-label={label} className="w-full sm:w-44">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value={ALL}>{all}</SelectItem>
+          {options.map(([key, text]) => (
+            <SelectItem key={key} value={key}>
+              {text}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** Activity → Runs: every recorded agent run in a table paged by the server, with filters in the URL (type, agent,
+ * status, output, schedule, user), sortable Tokens and Started headers, and Refresh (runs come in on their own). */
 export default function RunsView() {
   const [params, setParams] = useSearchParams();
   const value = (key: string) => params.get(key) || RUN_DEFAULTS[key] || "";
@@ -42,10 +78,12 @@ export default function RunsView() {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [schedules, setSchedules] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
   const query = params.toString();
   useEffect(() => {
     const controller = new AbortController();
     setError("");
+    setData(null);
     getRuns(new URLSearchParams(query), controller.signal)
       .then((page) => {
         if (!controller.signal.aborted) setData(page);
@@ -54,7 +92,7 @@ export default function RunsView() {
         if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load runs");
       });
     return () => controller.abort();
-  }, [query]);
+  }, [query, reload]);
   useEffect(() => {
     getAgents()
       .then((data) => setAgents(data.agents ?? []))
@@ -73,222 +111,172 @@ export default function RunsView() {
       }
       return current;
     });
-  const sortBy = (column: string) =>
-    update(column === sort ? { order: order === "desc" ? "asc" : "desc" } : { sort: column, order: "desc" });
-  const sortable = (column: string, label: string) => (
-    <TableHead aria-sort={sort === column ? (order === "desc" ? "descending" : "ascending") : undefined}>
-      <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => sortBy(column)}>
-        {label}
-        {sort === column && <span aria-hidden>{order === "desc" ? "↓" : "↑"}</span>}
-      </button>
-    </TableHead>
-  );
-  const rows = data?.runs ?? null;
-  const total = data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  /** A new column sorts newest/largest first; the same column again flips the order. */
+  const shownSort: Sort = { key: sort, descending: order === "desc" };
+  const header = (label: string, column: string) =>
+    sortHeader(label, column, shownSort, (next) =>
+      update(next.key === sort ? { order: order === "desc" ? "asc" : "desc" } : { sort: next.key, order: "desc" }),
+    );
+  const agentId = value("agent_id");
+  const scheduleId = value("schedule_id");
+  const columns: ColumnDef<RunSummary, unknown>[] = [
+    {
+      id: "run",
+      header: "Run",
+      cell: ({ row: { original: row } }) => (
+        <Link
+          className="max-w-md underline underline-offset-4"
+          to={runPath(row.run_key, row.kind === "expert_call" ? row.call_id : undefined)}
+        >
+          {row.title || row.run_key}
+        </Link>
+      ),
+    },
+    {
+      id: "type",
+      header: "Type",
+      cell: ({ row: { original: row } }) => (
+        <Badge variant="secondary">
+          {row.kind === "expert_call"
+            ? `Called as expert by ${row.caller ?? "another agent"}`
+            : row.kind
+              ? (KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind)
+              : "run"}
+        </Badge>
+      ),
+    },
+    { id: "agent", header: "Agent", cell: ({ row: { original: row } }) => row.agent ?? row.agent_id },
+    { id: "user", header: "User", cell: ({ row: { original: row } }) => row.user ?? "—" },
+    { id: "status", header: "Status", cell: ({ row: { original: row } }) => row.status ?? "working" },
+    {
+      id: "tokens",
+      header: () => header("Tokens", "tokens"),
+      cell: ({ row: { original: row } }) => row.total_tokens.toLocaleString(),
+    },
+    {
+      id: "tools",
+      header: "Tools",
+      cell: ({ row: { original: row } }) => (
+        <span className="max-w-xs" title={toolUsageLine(row.tool_counts)}>
+          {topTools(row.tool_counts)}
+        </span>
+      ),
+    },
+    {
+      id: "started",
+      header: () => header("Started", "started"),
+      cell: ({ row: { original: row } }) => new Date(row.started_at).toLocaleString(),
+    },
+  ];
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          Run type
-          <select
-            aria-label="Run type"
-            className={SELECT}
-            value={value("kind")}
-            onChange={(e) => update({ kind: e.target.value })}
-          >
-            <option value="">All</option>
-            {Object.entries(KINDS).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Agent
-          <select
-            aria-label="Agent"
-            className={SELECT}
-            value={value("agent_id")}
-            onChange={(e) => update({ agent_id: e.target.value })}
-          >
-            <option value="">All</option>
-            {value("agent_id") && !agents.some((agent) => agent.id === value("agent_id")) && (
-              <option value={value("agent_id")}>{value("agent_id")}</option>
-            )}
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Status
-          <select
-            aria-label="Status"
-            className={SELECT}
-            value={value("status")}
-            onChange={(e) => update({ status: e.target.value })}
-          >
-            <option value="">All</option>
-            {Object.entries(STATUSES).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Output
-          <select
-            aria-label="Output"
-            className={SELECT}
-            value={value("has_output")}
-            onChange={(e) => update({ has_output: e.target.value })}
-          >
-            <option value="">All</option>
-            <option value="true">Has output</option>
-            <option value="false">No output</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Schedule
-          <select
-            aria-label="Schedule"
-            className={SELECT}
-            value={value("schedule_id")}
-            onChange={(e) => update({ schedule_id: e.target.value })}
-          >
-            <option value="">All</option>
-            {value("schedule_id") && !schedules.some((schedule) => schedule.id === value("schedule_id")) && (
-              <option value={value("schedule_id")}>(deleted)</option>
-            )}
-            {schedules.map((schedule) => (
-              <option key={schedule.id} value={schedule.id}>
-                {schedule.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          User
-          <Input
-            key={user}
-            aria-label="User"
-            placeholder="email contains"
-            defaultValue={user}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") update({ user: e.currentTarget.value.trim() });
-            }}
-            onBlur={(e) => {
-              if (e.target.value.trim() !== user) update({ user: e.target.value.trim() });
-            }}
-          />
-        </label>
-        {keyPrefix && (
-          <Button variant="outline" size="sm" onClick={() => update({ key_prefix: "" })}>
-            Clear run filter
-          </Button>
-        )}
-      </div>
-      {error ? (
+      {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-      ) : rows === null ? (
-        <Skeleton className="h-40 w-full" />
-      ) : rows.length === 0 ? (
-        <Empty className="border">
-          <EmptyDescription>
-            {total > 0 ? "No runs on this page." : filtered ? "No runs match these filters." : "No recorded runs yet."}
-          </EmptyDescription>
-        </Empty>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Run</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Agent</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Status</TableHead>
-                {sortable("tokens", "Tokens")}
-                <TableHead>Tools</TableHead>
-                {sortable("started", "Started")}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id ?? row.run_key}>
-                  <TableCell className="max-w-md">
-                    <Link
-                      className="underline underline-offset-4"
-                      to={runPath(row.run_key, row.kind === "expert_call" ? row.call_id : undefined)}
-                    >
-                      {row.title || row.run_key}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">
-                      {row.kind === "expert_call"
-                        ? `Called as expert by ${row.caller ?? "another agent"}`
-                        : row.kind
-                          ? (KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind)
-                          : "run"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{row.agent ?? row.agent_id}</TableCell>
-                  <TableCell>{row.user ?? "—"}</TableCell>
-                  <TableCell>{row.status ?? "working"}</TableCell>
-                  <TableCell>{row.total_tokens.toLocaleString()}</TableCell>
-                  <TableCell className="max-w-xs whitespace-normal" title={toolUsageLine(row.tool_counts)}>
-                    {topTools(row.tool_counts)}
-                  </TableCell>
-                  <TableCell>{new Date(row.started_at).toLocaleString()}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
       )}
-      {data && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <span className="text-muted-foreground">
-            Page {page} of {pageCount} · {total.toLocaleString()} {total === 1 ? "run" : "runs"}
-          </span>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-muted-foreground">
-              Rows per page
-              <select
-                aria-label="Rows per page"
-                className="h-8 rounded-md border bg-background px-2 text-foreground"
-                value={String(pageSize)}
-                onChange={(e) => update({ page_size: e.target.value })}
-              >
-                {[25, 50, 100].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => update({ page: String(page - 1) })}>
-              Previous
+      <DataTable
+        columns={columns}
+        data={data?.runs ?? []}
+        loading={data === null && !error}
+        rowId={(row) => String(row.id ?? row.run_key)}
+        sort={shownSort}
+        total={data?.total ?? 0}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={(next) => update({ page: String(next) })}
+        onPageSizeChange={(size) => update({ page_size: String(size) })}
+        toolbar={
+          <>
+            <FilterSelect
+              label="Run type"
+              all="All run types"
+              value={value("kind")}
+              options={Object.entries(KINDS)}
+              onChange={(kind) => update({ kind })}
+            />
+            <FilterSelect
+              label="Agent"
+              all="All agents"
+              value={agentId}
+              options={[
+                ...(agentId && !agents.some((agent) => agent.id === agentId)
+                  ? ([[agentId, agentId]] as [string, string][])
+                  : []),
+                ...agents.map((agent): [string, string] => [agent.id, agent.name]),
+              ]}
+              onChange={(agent_id) => update({ agent_id })}
+            />
+            <FilterSelect
+              label="Status"
+              all="All statuses"
+              value={value("status")}
+              options={Object.entries(STATUSES)}
+              onChange={(status) => update({ status })}
+            />
+            <FilterSelect
+              label="Output"
+              all="With or without output"
+              value={value("has_output")}
+              options={[
+                ["true", "Has output"],
+                ["false", "No output"],
+              ]}
+              onChange={(has_output) => update({ has_output })}
+            />
+            <FilterSelect
+              label="Schedule"
+              all="All schedules"
+              value={scheduleId}
+              options={[
+                ...(scheduleId && !schedules.some((schedule) => schedule.id === scheduleId)
+                  ? ([[scheduleId, "(deleted)"]] as [string, string][])
+                  : []),
+                ...schedules.map((schedule): [string, string] => [schedule.id, schedule.name]),
+              ]}
+              onChange={(schedule_id) => update({ schedule_id })}
+            />
+            <Input
+              key={user}
+              type="search"
+              aria-label="User"
+              placeholder="User email contains"
+              className="w-full sm:w-48"
+              defaultValue={user}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") update({ user: e.currentTarget.value.trim() });
+              }}
+              onBlur={(e) => {
+                if (e.target.value.trim() !== user) update({ user: e.target.value.trim() });
+              }}
+            />
+            {keyPrefix && (
+              <Button variant="outline" size="sm" onClick={() => update({ key_prefix: "" })}>
+                Clear run filter
+              </Button>
+            )}
+            <Button variant="outline" className="sm:ml-auto" onClick={() => setReload((count) => count + 1)}>
+              <RefreshCw data-icon="inline-start" />
+              Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= pageCount}
-              onClick={() => update({ page: String(page + 1) })}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+          </>
+        }
+        empty={
+          error ? (
+            "Could not load runs."
+          ) : (data?.total ?? 0) > 0 ? (
+            "No runs on this page."
+          ) : filtered ? (
+            "No runs match these filters."
+          ) : (
+            <TableEmpty
+              icon={Activity}
+              title="No recorded runs yet"
+              description="Chats, event runs and agent tests show up here as they run."
+            />
+          )
+        }
+      />
     </div>
   );
 }

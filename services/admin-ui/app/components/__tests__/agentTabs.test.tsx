@@ -16,6 +16,10 @@ vi.mock("~/features/agents/api", async () => ({
   deleteAgent: vi.fn(),
   getAgentHistory: vi.fn(),
 }));
+vi.mock("~/features/agents/wizard", async () => ({
+  ...(await vi.importActual("~/features/agents/wizard")),
+  getWizardOptions: vi.fn(() => new Promise(() => {})),
+}));
 vi.mock("~/features/llm/mcp", () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })) }));
 vi.mock("../CodeSearchAgentView", () => ({
   default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div>,
@@ -104,13 +108,13 @@ test("catalog opens distinct agents with one model field; the sections are sub-p
   expect(await screen.findByText("SSH test custom-code")).toBeVisible();
 });
 
-test("agents are created only through one New agent panel with the wizard", async () => {
+test("agents are created only through one New agent sheet with the wizard", async () => {
   app("/agents");
   const button = await screen.findByRole("button", { name: "New agent" });
   expect(screen.queryByRole("button", { name: "New Agent Wizard" })).toBeNull();
   expect(screen.queryByLabelText("System prompt")).toBeNull();
   fireEvent.click(button);
-  const panel = screen.getByRole("region", { name: "New agent" });
+  const panel = await screen.findByRole("dialog", { name: "New agent" });
   expect(within(panel).queryByRole("tab")).toBeNull();
   expect(within(panel).getByRole("button", { name: /Generate proposal/ })).toBeInTheDocument();
 });

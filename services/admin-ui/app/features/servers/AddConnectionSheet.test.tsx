@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Connection } from "./inventory";
 import { serviceAsset as asset, serviceDeployment as deployment, stubApi as api } from "~/lib/__tests__/serviceFixture";
-import AddConnectionDialog from "./AddConnectionDialog";
+import AddConnectionSheet from "./AddConnectionSheet";
 
 const services = [
   asset("v1", "payments-api", [deployment("d1", "prod", "app-1"), deployment("d3", "staging", "app-2")]),
@@ -16,7 +16,7 @@ afterEach(() => vi.unstubAllGlobals());
 function dialog(props: { from?: string[]; connection?: Connection; services?: typeof services } = {}) {
   const handlers = { onSaved: vi.fn(), onConflict: vi.fn(), onClose: vi.fn() };
   render(
-    <AddConnectionDialog
+    <AddConnectionSheet
       from={props.from ?? ["d1"]}
       services={props.services ?? services}
       connection={props.connection}

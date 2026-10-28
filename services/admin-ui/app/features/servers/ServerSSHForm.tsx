@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { ApiError } from "~/lib/api";
 import { getSSH, saveSSH, testSSH, type SSHServer, type SSHInput, type SSHTestResult } from "./operations";
+import { useSheetGuard } from "~/components/LeaveGuard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
@@ -34,6 +35,8 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
     };
   }, [id]);
   const hasChanges = dirty || key.trim().length > 0 || removeKey;
+  const guard = useSheetGuard(hasChanges && !busy);
+  const close = () => guard.close(onClose);
   function clearFeedback() {
     setError(null);
     setTestResult(null);
@@ -93,9 +96,10 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open && !busy) close();
       }}
     >
+      {guard.dialog}
       <SheetContent className="overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>SSH connection{server ? ` · ${server.name}` : ""}</SheetTitle>
@@ -256,7 +260,7 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
                 </FieldGroup>
               </fieldset>
               <div className="flex flex-wrap gap-2">
-                <Button disabled={busy}>{busy && <Spinner />}Save settings</Button>
+                <Button disabled={busy}>{busy && <Spinner />}Save</Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -274,13 +278,13 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
                 >
                   Test connection
                 </Button>
-                <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
-                  Close
+                <Button type="button" variant="outline" disabled={busy} onClick={close}>
+                  Cancel
                 </Button>
               </div>
               <p className="text-sm text-muted-foreground">
-                Testing uses the current form values. {hasChanges ? "You have unsaved changes. " : ""}Save settings to
-                keep changes.
+                Testing uses the current form values. {hasChanges ? "You have unsaved changes. " : ""}Save to keep
+                changes.
               </p>
               {testResult?.host_key && (
                 <FieldGroup>
@@ -308,9 +312,7 @@ export default function ServerSSHForm({ id, onClose }: { id: string; onClose: ()
                       const line = testResult.host_key?.known_hosts_line;
                       if (!line) return;
                       update({ known_hosts: [server.known_hosts.trim(), line].filter(Boolean).join("\n") });
-                      toast.success(
-                        "Public host key added to the field. Save settings to trust it for future connections.",
-                      );
+                      toast.success("Public host key added to the field. Save to trust it for future connections.");
                     }}
                   >
                     Add to trusted hosts

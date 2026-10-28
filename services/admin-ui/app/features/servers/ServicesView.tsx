@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router";
-import { FileText, Layers, Pencil, Plus, RefreshCw } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { FileText, Layers, Pencil, Plus } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteService, getServices, type ServiceAsset } from "./services";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
@@ -9,19 +10,26 @@ import { servicePath } from "./ServicePanel";
 import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import DataTable, { sortHeader, sortRows, TableEmpty, type Sort } from "~/components/DataTable";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
-import { Input } from "~/components/ui/input";
-import { Skeleton } from "~/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
+type ServiceSort = "name" | "deployments";
+const byName = (a: ServiceAsset, b: ServiceAsset) => a.name.localeCompare(b.name);
+const SERVICE_ORDER: Record<ServiceSort, (a: ServiceAsset, b: ServiceAsset) => number> = {
+  name: byName,
+  deployments: (a, b) => a.deployments.length - b.deployments.length || byName(a, b),
+};
+
+/** Services: a table (service with its type, role, description and owner, code projects, environments, deployments;
+ * Documents, Edit and Delete in the row menu) with search and sortable headers. */
 export default function ServicesView() {
   const [data, setData] = useState<{ services: ServiceAsset[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort<ServiceSort>>({ key: "name", descending: false });
   const [deleteTarget, setDeleteTarget] = useState<ServiceAsset | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -65,7 +73,8 @@ export default function ServicesView() {
       setDeleting(false);
     }
   }
-  const matching =
+  const text = query.trim().toLowerCase();
+  const shown = sortRows(
     data?.services.filter((service) =>
       [
         service.name,
@@ -80,164 +89,145 @@ export default function ServicesView() {
           deployment.server.hostname,
           deployment.environment,
         ]),
-      ].some((value) => value.toLowerCase().includes(query.trim().toLowerCase())),
-    ) ?? [];
+      ].some((value) => value.toLowerCase().includes(text)),
+    ) ?? [],
+    sort,
+    SERVICE_ORDER,
+  );
+  const newService = (
+    <Button asChild>
+      <Link to="/services/new">
+        <Plus data-icon="inline-start" />
+        New service
+      </Link>
+    </Button>
+  );
+  const columns: ColumnDef<ServiceAsset, unknown>[] = [
+    {
+      id: "name",
+      header: () => sortHeader("Service", "name", sort, setSort),
+      cell: ({ row: { original: service } }) => (
+        <div className="max-w-xs">
+          <Link className="font-medium underline" to={servicePath(service.id)}>
+            {service.name}
+          </Link>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Badge variant="secondary">{serviceTypes[service.service_type]}</Badge>
+            <Badge variant="outline">{serviceRoles[service.service_role].label}</Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{service.description || "No description yet"}</p>
+          {service.owner && <p className="mt-2 text-xs text-muted-foreground">{service.owner}</p>}
+        </div>
+      ),
+    },
+    {
+      id: "code",
+      header: "Code projects",
+      cell: ({ row: { original: service } }) => (
+        <div className="flex flex-col gap-2">
+          {service.repositories.map((repo) => (
+            <span key={repo.id} className="text-sm">
+              {repo.name}
+            </span>
+          ))}
+          {service.repositories.length === 0 && <span className="text-sm text-muted-foreground">Not linked</span>}
+        </div>
+      ),
+    },
+    {
+      id: "environments",
+      header: "Environments",
+      cell: ({ row: { original: service } }) => (
+        <div className="flex flex-wrap gap-2">
+          {service.environments.map((environment) => (
+            <Badge key={environment.id} variant="outline">
+              {environment.name}
+            </Badge>
+          ))}
+          {service.environments.length === 0 && <span className="text-sm text-muted-foreground">Not assigned</span>}
+        </div>
+      ),
+    },
+    {
+      id: "deployments",
+      header: () => sortHeader("Deployments", "deployments", sort, setSort),
+      cell: ({ row: { original: service } }) => (
+        <div className="flex flex-col items-start gap-2">
+          {service.deployments.map((deployment) => (
+            <div key={deployment.id} className="flex flex-col gap-1">
+              <Badge variant="secondary">{deployment.environment}</Badge>
+              <span className="text-xs text-muted-foreground">{deployment.server.name}</span>
+            </div>
+          ))}
+          {service.deployments.length === 0 && <span className="text-sm text-muted-foreground">Not recorded</span>}
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row: { original: service } }) => (
+        <div className="flex justify-end">
+          <RowMenu
+            name={service.name}
+            items={[
+              { label: "Documents", icon: FileText, to: `/documents?service_id=${service.id}` },
+              { label: "Edit", icon: Pencil, to: servicePath(service.id, "edit") },
+              {
+                ...deleteMenuItem(() => {
+                  setDeleteTarget(service);
+                  setDeleteError(null);
+                }),
+                disabled: loading || error !== null || deleting,
+              },
+            ]}
+          />
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {data
-            ? `${data.services.length} ${data.services.length === 1 ? "service" : "services"}`
-            : "Loading inventory…"}{" "}
-          · Application assets
-        </p>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>
-            <RefreshCw data-icon="inline-start" />
-            Refresh
-          </Button>
-          <Button asChild>
-            <Link to="/services/new">
-              <Plus data-icon="inline-start" />
-              New service
-            </Link>
-          </Button>
-        </div>
+        <p className="text-sm text-muted-foreground">Application assets</p>
+        {newService}
       </div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Service inventory unavailable</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            {error}
+            <Button variant="outline" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>
+              Retry
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
-      {data === null && loading && <Skeleton className="h-48 w-full" />}
-      {data !== null && (
-        <>
-          {data.services.length === 0 ? (
-            <Empty className="mt-4 border">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Layers />
-                </EmptyMedia>
-                <EmptyTitle>Build your service inventory</EmptyTitle>
-                <EmptyDescription>
-                  Describe an application, link its code projects, and record where it runs.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button asChild variant="outline">
-                  <Link to="/services/new">
-                    <Plus data-icon="inline-start" />
-                    Add your first service
-                  </Link>
-                </Button>
-              </EmptyContent>
-            </Empty>
+      <DataTable
+        columns={columns}
+        data={shown}
+        loading={data === null && loading}
+        rowId={(service) => service.id}
+        search={{ plural: "services", value: query, onChange: setQuery }}
+        sort={sort}
+        resetKey={`${sort.key}\n${sort.descending}`}
+        empty={
+          data?.services.length === 0 ? (
+            <TableEmpty
+              icon={Layers}
+              title="Build your service inventory"
+              description="Describe an application, link its code projects, and record where it runs."
+            >
+              {newService}
+            </TableEmpty>
+          ) : data ? (
+            "No services match."
           ) : (
-            <>
-              <Input
-                aria-label="Filter services"
-                placeholder="Filter by service, code project, server, or environment…"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              <div className="rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Code projects</TableHead>
-                      <TableHead>Environments</TableHead>
-                      <TableHead>Deployments</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {matching.map((service) => (
-                      <TableRow key={service.id}>
-                        <TableCell className="max-w-xs whitespace-normal align-top">
-                          <Link className="font-medium underline" to={servicePath(service.id)}>
-                            {service.name}
-                          </Link>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Badge variant="secondary">{serviceTypes[service.service_type]}</Badge>
-                            <Badge variant="outline">{serviceRoles[service.service_role].label}</Badge>
-                          </div>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {service.description || "No description yet"}
-                          </p>
-                          {service.owner && <p className="mt-2 text-xs text-muted-foreground">{service.owner}</p>}
-                        </TableCell>
-                        <TableCell className="whitespace-normal align-top">
-                          <div className="flex flex-col gap-2">
-                            {service.repositories.map((repo) => (
-                              <span key={repo.id} className="text-sm">
-                                {repo.name}
-                              </span>
-                            ))}
-                            {service.repositories.length === 0 && (
-                              <span className="text-sm text-muted-foreground">Not linked</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="whitespace-normal align-top">
-                          <div className="flex flex-wrap gap-2">
-                            {service.environments.map((environment) => (
-                              <Badge key={environment.id} variant="outline">
-                                {environment.name}
-                              </Badge>
-                            ))}
-                            {service.environments.length === 0 && (
-                              <span className="text-sm text-muted-foreground">Not assigned</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="whitespace-normal align-top">
-                          <div className="flex flex-col items-start gap-2">
-                            {service.deployments.map((deployment) => (
-                              <div key={deployment.id} className="flex flex-col gap-1">
-                                <Badge variant="secondary">{deployment.environment}</Badge>
-                                <span className="text-xs text-muted-foreground">{deployment.server.name}</span>
-                              </div>
-                            ))}
-                            {service.deployments.length === 0 && (
-                              <span className="text-sm text-muted-foreground">Not recorded</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right align-top">
-                          <RowMenu
-                            name={service.name}
-                            items={[
-                              { label: "Documents", icon: FileText, to: `/documents?service_id=${service.id}` },
-                              { label: "Edit", icon: Pencil, to: servicePath(service.id, "edit") },
-                              {
-                                ...deleteMenuItem(() => {
-                                  setDeleteTarget(service);
-                                  setDeleteError(null);
-                                }),
-                                disabled: loading || error !== null || deleting,
-                              },
-                            ]}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {matching.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center">
-                          No services match this filter.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
-          )}
-        </>
-      )}
+            "Could not load services."
+          )
+        }
+      />
       <ConfirmRemove
         removal={
           deleteTarget && {

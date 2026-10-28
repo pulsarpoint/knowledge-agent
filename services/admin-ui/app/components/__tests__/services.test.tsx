@@ -136,7 +136,7 @@ test("deletion sends the revision, waits for success and removes the row", async
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.queryByRole("button", { name: "Actions for Payments" })).toBeNull();
   expect(await screen.findByText("Build your service inventory")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Add your first service" })).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: "New service" })).toHaveLength(2);
 });
 
 test("failed deletion keeps the dialog and service available", async () => {
@@ -173,7 +173,7 @@ test("service list can be filtered by type or role", async () => {
   setup([service, postgres]);
   await screen.findByRole("button", { name: "Actions for PostgreSQL" });
   for (const query of ["Built-in software", "Database"]) {
-    fireEvent.change(screen.getByRole("textbox", { name: "Filter services" }), { target: { value: query } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search services" }), { target: { value: query } });
     expect(screen.getByRole("button", { name: "Actions for PostgreSQL" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Actions for Payments" })).toBeNull();
   }
@@ -182,7 +182,7 @@ test("service list can be filtered by type or role", async () => {
 test("services remains an inventory page without a graph tab", async () => {
   setup([service], { initialEntry: "/services?view=graph&layout=tala" });
   expect(await screen.findByRole("button", { name: "Actions for Payments" })).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "Filter services" })).toBeInTheDocument();
+  expect(screen.getByRole("searchbox", { name: "Search services" })).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Dependency graph" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Service dependency graph" })).toBeNull();
 });
@@ -204,5 +204,25 @@ test("a service's name opens its View, Edit opens its Edit page and New service 
 
 test("an empty inventory offers New service", async () => {
   setup([]);
-  expect(await screen.findByRole("link", { name: "Add your first service" })).toHaveAttribute("href", "/services/new");
+  await screen.findByText("Build your service inventory");
+  for (const link of screen.getAllByRole("link", { name: "New service" }))
+    expect(link).toHaveAttribute("href", "/services/new");
+});
+
+test("the service list: Skeleton rows while loading, sort by a header, 20 rows a page", async () => {
+  const user = userEvent.setup();
+  const many = Array.from({ length: 21 }, (_, i) => ({
+    ...service,
+    id: `s${i}`,
+    name: `Service ${String(i).padStart(2, "0")}`,
+  }));
+  setup(many);
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByRole("link", { name: "Service 00" });
+  const names = () => screen.queryAllByRole("link", { name: /^Service \d/ }).map((link) => link.textContent);
+  expect(names()).toHaveLength(20);
+  await user.click(screen.getByRole("button", { name: "Service" }));
+  expect(names()[0]).toBe("Service 20");
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  expect(names()).toEqual(["Service 00"]);
 });

@@ -224,8 +224,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 ORDER BY {SORTS[sort]} {direction},id {direction} LIMIT %s OFFSET %s""",
                 (*values, limit + 1, offset),
             ).fetchall()
+            total = conn.execute(
+                f'SELECT count(*)::int AS n FROM ka.events e WHERE {" AND ".join(where)}', values
+            ).fetchone()['n']
         more = len(rows) > limit
-        return {'events': rows[:limit], 'next_offset': offset + limit if more else None}
+        return {'events': rows[:limit], 'next_offset': offset + limit if more else None, 'total': total}
 
     @router.get('/events/facets')
     def facets() -> dict:

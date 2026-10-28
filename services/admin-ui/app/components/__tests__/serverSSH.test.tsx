@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ServerSSHForm from "~/features/servers/ServerSSHForm";
 import { Toaster } from "~/components/ui/sonner";
@@ -25,6 +25,21 @@ beforeEach(() => {
   render(<Toaster />);
 });
 describe("SSH settings", () => {
+  it("has Save and Cancel; Cancel closes untouched settings and asks Stay / Leave with unsaved changes", async () => {
+    const close = vi.fn();
+    render(<ServerSSHForm id={server.id} onClose={close} />);
+    await screen.findByText("Private key saved");
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(close).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("switch", { name: "Allow sudo to root" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
+    expect(close).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Leave" }));
+    expect(close).toHaveBeenCalledTimes(2);
+  });
   it.each(["closed", "empty", "whitespace", "cancelled"])(
     "keeps the saved key with replacement %s and allows testing with unsaved permissions",
     async (mode) => {
@@ -45,7 +60,7 @@ describe("SSH settings", () => {
       }
       fireEvent.click(screen.getByRole("switch", { name: "Allow sudo to root" }));
       expect(screen.getByRole("button", { name: "Test connection" })).toBeEnabled();
-      fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() =>
         expect(api.saveSSH).toHaveBeenCalledWith(server.id, {
           revision: 2,
@@ -63,7 +78,7 @@ describe("SSH settings", () => {
     render(<ServerSSHForm id={server.id} onClose={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Replace key" }));
     fireEvent.change(screen.getByLabelText("SSH private key"), { target: { value: "replacement-test-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(api.saveSSH).toHaveBeenCalledWith(
         server.id,
@@ -111,7 +126,7 @@ describe("SSH settings", () => {
     expect(screen.getByLabelText("Trusted host keys (optional)")).toHaveValue(hostKey.known_hosts_line);
     expect(screen.queryByText("SHA256:test-fingerprint")).not.toBeInTheDocument();
     expect(api.saveSSH).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(api.saveSSH).toHaveBeenCalledWith(
         server.id,

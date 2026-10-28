@@ -294,3 +294,25 @@ test("the line diff is skipped for texts over 2,000 lines", () => {
   expect(tooLongToCompare("short", long)).toBe(true);
   expect(tooLongToCompare("a\nb", "a\nc")).toBe(false);
 });
+
+test("the memory list: Skeleton rows while loading, pages by the API's total, a filter goes back to page 1", async () => {
+  const user = userEvent.setup();
+  const fetch = api((url) => {
+    if (url === "/api/memories/agents") return { agents: [{ id: "coder", name: "Coder" }] };
+    if (url === "/api/memories") return page([entry("first")], { next_offset: 20, total: 25 });
+    if (url === "/api/memories?offset=20") return page([entry("later")], { total: 25 });
+    if (url === "/api/memories?agent=coder") return page([entry("by-coder")], { total: 1 });
+  });
+  view();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByRole("button", { name: "first" });
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  expect(screen.getByText("Showing 1–20 of 25")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  expect(await screen.findByRole("button", { name: "later" })).toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "Saved by agent" }));
+  await user.click(screen.getByRole("option", { name: "Coder" }));
+  expect(await screen.findByRole("button", { name: "by-coder" })).toBeInTheDocument();
+  expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+  expect(fetch.mock.calls.map(([url]) => url)).not.toContain("/api/memories?agent=coder&offset=20");
+});

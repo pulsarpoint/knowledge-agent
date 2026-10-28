@@ -63,7 +63,7 @@ it("preserves a saved token on edit and requires confirmation to remove a connec
   expect(screen.getByLabelText("Replace bearer token")).toHaveValue("");
   expect(screen.getByText(/Leave blank to keep it/)).toBeVisible();
   await user.type(screen.getByLabelText("Description"), " and health");
-  await user.click(screen.getByRole("button", { name: "Save MCP server" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(api.saveMCPServer).toHaveBeenCalledWith("mcp-1", {
       name: connection.name,
@@ -109,4 +109,56 @@ it("an MCP server row keeps Test inline and Edit and Delete in its menu", async 
   expect(rowButtons(row)).toEqual(["Test connection for Deployment tools", "Actions for Deployment tools"]);
   await user.click(within(row).getByRole("button", { name: "Actions for Deployment tools" }));
   expect(menuItems()).toEqual(["Edit", "Delete"]);
+});
+it("New MCP server opens a right sheet with Create MCP server and Cancel; Cancel with input asks Stay / Leave", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.saveMCPServer).mockResolvedValue(connection);
+  page();
+  await user.click(await screen.findByRole("button", { name: "New MCP server" }));
+  const sheet = within(screen.getByRole("dialog", { name: "New MCP server" }));
+  await user.click(sheet.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "New MCP server" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "New MCP server" }));
+  await user.type(screen.getByLabelText("Name"), "Search");
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stay" }));
+  await user.type(screen.getByLabelText("HTTP endpoint"), "https://search.test/mcp");
+  await user.click(screen.getByRole("button", { name: "Create MCP server" }));
+  await waitFor(() =>
+    expect(api.saveMCPServer).toHaveBeenCalledWith(null, {
+      name: "Search",
+      description: "",
+      url: "https://search.test/mcp",
+      enabled: true,
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New MCP server" })).toBeNull());
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+it("the MCP server list: Skeleton rows while loading, then an empty state with New MCP server", async () => {
+  let resolve: (value: { servers: api.MCPServer[] }) => void = () => {};
+  vi.mocked(api.getMCPServers).mockReturnValue(new Promise((done) => (resolve = done)));
+  page();
+  expect(await screen.findAllByTestId("skeleton-row")).not.toHaveLength(0);
+  await act(async () => resolve({ servers: [] }));
+  expect(await screen.findByText("No MCP servers yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "New MCP server" })).toHaveLength(2);
+});
+it("the MCP server list searches and sorts by a header", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getMCPServers).mockResolvedValue({
+    servers: [connection, { ...connection, id: "m2", name: "Atlas", description: "Maps", enabled: false }],
+  });
+  page();
+  await screen.findByText("Atlas");
+  const names = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.querySelector("p.font-medium")?.textContent);
+  expect(names()).toEqual(["Atlas", "Deployment tools"]);
+  await user.click(screen.getByRole("button", { name: "Enabled" }));
+  expect(names()).toEqual(["Deployment tools", "Atlas"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search MCP servers" }), "deploy");
+  expect(names()).toEqual(["Deployment tools"]);
 });

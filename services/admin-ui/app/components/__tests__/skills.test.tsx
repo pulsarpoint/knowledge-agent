@@ -203,7 +203,9 @@ test("New skill creates SKILL.md from the template and opens the editor", async 
   });
   const router = show();
   await screen.findByText("No skills yet");
-  fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+  // the empty state repeats New skill as its first-item button
+  expect(screen.getAllByRole("button", { name: "New skill" })).toHaveLength(2);
+  fireEvent.click(screen.getAllByRole("button", { name: "New skill" })[1]);
   fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "pdf-forms" } });
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Fill PDF forms." } });
   fireEvent.click(screen.getByRole("button", { name: "Create and edit" }));
@@ -237,6 +239,31 @@ test("unavailable skill storage shows the error and disables New skill and Impor
   await screen.findByText("The skills folder is unavailable.");
   expect(screen.getByRole("button", { name: "New skill" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
+});
+
+test("the skill list: Skeleton rows while loading, search, sort by a header and 20 rows a page", async () => {
+  const user = userEvent.setup();
+  const many = Array.from({ length: 22 }, (_, i) => ({
+    ...notes,
+    id: `n${i}`,
+    name: `skill-${String(i).padStart(2, "0")}`,
+    description: i === 7 ? "Reads invoices." : "Notes.",
+  }));
+  api({ "GET /api/skills": () => [200, { skills: many }] });
+  show();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  await screen.findByRole("link", { name: "skill-00" });
+  const names = () => screen.getAllByRole("link").map((link) => link.textContent);
+  expect(names()).toHaveLength(20);
+  await user.click(screen.getByRole("button", { name: "Skill" }));
+  expect(names()[0]).toBe("skill-21");
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  expect(names()).toEqual(["skill-01", "skill-00"]);
+  await user.type(screen.getByRole("searchbox", { name: "Search skills" }), "invoices");
+  expect(names()).toEqual(["skill-07"]);
+  await user.clear(screen.getByRole("searchbox", { name: "Search skills" }));
+  await user.type(screen.getByRole("searchbox", { name: "Search skills" }), "nothing");
+  expect(screen.getByText("No skills match.")).toBeInTheDocument();
 });
 
 test("sourceLabel names where a skill came from", () => {

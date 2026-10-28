@@ -136,7 +136,16 @@ const FIELD_LABELS: Record<string, string> = {
   description: "Description",
 };
 
-export function getEvents(filters: EventFilters, sort: EventSort = DEFAULT_SORT, offset = 0, signal?: AbortSignal) {
+/** The API's page size: a request for it leaves `limit` out. */
+export const EVENTS_PAGE = 50;
+
+export function getEvents(
+  filters: EventFilters,
+  sort: EventSort = DEFAULT_SORT,
+  offset = 0,
+  signal?: AbortSignal,
+  limit = EVENTS_PAGE,
+) {
   const query = new URLSearchParams();
   if (filters.source || filters.schedule) query.set("source", filters.schedule ? "schedule" : filters.source);
   if (filters.type) query.set("type", filters.type);
@@ -148,10 +157,14 @@ export function getEvents(filters: EventFilters, sort: EventSort = DEFAULT_SORT,
   if (sort.key !== DEFAULT_SORT.key) query.set("sort", sort.key);
   if (sort.key !== DEFAULT_SORT.key || sort.order !== DEFAULT_SORT.order) query.set("order", sort.order);
   if (offset > 0) query.set("offset", String(offset));
+  if (limit !== EVENTS_PAGE) query.set("limit", String(limit));
   const suffix = query.toString();
-  return request<{ events: EventRow[]; next_offset: number | null }>(`/api/events${suffix ? `?${suffix}` : ""}`, {
-    signal,
-  });
+  return request<{ events: EventRow[]; next_offset: number | null; total: number }>(
+    `/api/events${suffix ? `?${suffix}` : ""}`,
+    {
+      signal,
+    },
+  );
 }
 export interface NewEventInput {
   source: "manual" | "jira";

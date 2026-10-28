@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import type { EnvironmentModel } from "./environments";
 import type { ServiceAsset } from "./services";
-import AddServiceDialog from "./AddServiceDialog";
+import AddServiceSheet from "./AddServiceSheet";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
 
 const asset = (id: string, name: string): ServiceAsset => ({
@@ -47,7 +47,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function dialog(onAdded = vi.fn()) {
   render(
-    <AddServiceDialog environmentId="e1" server={{ id: "s1", name: "app-1" }} onAdded={onAdded} onClose={vi.fn()} />,
+    <AddServiceSheet environmentId="e1" server={{ id: "s1", name: "app-1" }} onAdded={onAdded} onClose={vi.fn()} />,
   );
   return onAdded;
 }
@@ -256,7 +256,7 @@ test("deploying a draft service on a draft placement says saving confirms them",
   const user = userEvent.setup();
   api({ "GET /api/services": () => [200, { services: [services[0], { ...services[1], status: "draft" }] }] });
   render(
-    <AddServiceDialog
+    <AddServiceSheet
       environmentId="e1"
       server={{ id: "s1", name: "app-1" }}
       uses={["app-1 in prod"]}

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import type { ServerAsset } from "./api";
 import type { EnvironmentModel } from "./environments";
-import AddServerDialog from "./AddServerDialog";
+import AddServerSheet from "./AddServerSheet";
 import EnvironmentWorkspace from "./EnvironmentWorkspace";
 
 const asset = (id: string, name: string): ServerAsset => ({
@@ -42,7 +42,7 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
 afterEach(() => vi.unstubAllGlobals());
 
 function dialog(onAdded = vi.fn()) {
-  render(<AddServerDialog environmentId="e1" memberIds={["s1"]} onAdded={onAdded} onClose={vi.fn()} />);
+  render(<AddServerSheet environmentId="e1" memberIds={["s1"]} onAdded={onAdded} onClose={vi.fn()} />);
   return onAdded;
 }
 
@@ -172,7 +172,7 @@ test("the workspace's Add server reloads the model and selects the server", asyn
 test("adding a draft server to a draft environment says saving confirms both", async () => {
   const user = userEvent.setup();
   api({ "GET /api/servers": () => [200, { servers: [servers[0], { ...servers[1], status: "draft" }, servers[2]] }] });
-  render(<AddServerDialog environmentId="e1" memberIds={["s1"]} uses={["prod"]} onAdded={vi.fn()} onClose={vi.fn()} />);
+  render(<AddServerSheet environmentId="e1" memberIds={["s1"]} uses={["prod"]} onAdded={vi.fn()} onClose={vi.fn()} />);
   await user.click(await screen.findByRole("combobox", { name: "Server" }));
   await user.click(screen.getByRole("option", { name: "db-1 · db-1.internal" }));
   expect(screen.getByText("Saving confirms the drafts it uses: prod, db-1.")).toBeInTheDocument();

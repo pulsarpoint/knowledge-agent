@@ -54,22 +54,30 @@ const view = () =>
   );
 afterEach(() => vi.unstubAllGlobals());
 
-test("lists events with source and status and loads more by offset", async () => {
+test("lists events with source and status and pages by the API's offset and total", async () => {
   const user = userEvent.setup();
   api({
     "/api/events/facets": FACETS,
-    "/api/events": { events: [row(3, { source: "handler", status: "failed" }), row(2)], next_offset: 2 },
-    "/api/events?offset=2": { events: [row(1)], next_offset: null },
+    "/api/events": { events: [row(3, { source: "handler", status: "failed" }), row(2)], next_offset: 50, total: 52 },
+    "/api/events?offset=50": { events: [row(1)], next_offset: null, total: 52 },
+    "/api/events?limit=20": { events: [row(4)], next_offset: 20, total: 52 },
   });
   view();
+  expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   expect(await screen.findByText("DEMO-3")).toBeInTheDocument();
   const table = screen.getByRole("table");
   expect(within(table).getByText("Handler")).toBeInTheDocument();
   expect(within(table).getByText("Failed")).toBeInTheDocument();
   expect(within(table).getAllByText("Processed")).toHaveLength(1);
-  await user.click(screen.getByRole("button", { name: "Load more" }));
-  expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+  expect(screen.getByText("Showing 1–50 of 52")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+  expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "Rows per page" }));
+  await user.click(screen.getByRole("option", { name: "20" }));
+  expect(await screen.findByText("DEMO-4")).toBeInTheDocument();
+  expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
 });
 
 test("a column header sorts, and clicking it again flips the order", async () => {
@@ -119,7 +127,7 @@ test("filters by type, status, handler and search", async () => {
   await user.click(screen.getByRole("combobox", { name: "Emitted by" }));
   await user.click(screen.getByRole("option", { name: "Triage" }));
   expect(await screen.findByText("DEMO-7")).toBeInTheDocument();
-  await user.type(screen.getByLabelText("Ticket or title"), "DEMO-7");
+  await user.type(screen.getByRole("searchbox", { name: "Search events" }), "DEMO-7");
   await waitFor(() =>
     expect(
       fetch.mock.calls.some(
@@ -281,11 +289,8 @@ test("empty state", async () => {
     "/api/events": { events: [], next_offset: null },
   });
   view();
-  expect(
-    await screen.findByText(
-      "No events yet. Add a Jira tickets schedule in Administration → Schedules to record ticket changes.",
-    ),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("No events yet")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "New event" })).toHaveLength(2);
 });
 
 test("describeChanges", () => {
@@ -300,7 +305,7 @@ test("describeChanges", () => {
   expect(describeChanges({ a: null, b: "x", labels: { added: "z" } })).toEqual([]);
 });
 
-test("a Load more answered after a filter change is ignored", async () => {
+test("a page answered after a filter change is ignored", async () => {
   const user = userEvent.setup();
   let release: (response: Response) => void = () => {};
   const late = new Promise<Response>((resolve) => {
@@ -308,27 +313,31 @@ test("a Load more answered after a filter change is ignored", async () => {
   });
   const pages: Record<string, unknown> = {
     "/api/events/facets": FACETS,
-    "/api/events": { events: [row(3)], next_offset: 1 },
-    "/api/events?type=jira.ticket.updated": { events: [row(9, { type: "jira.ticket.updated" })], next_offset: null },
+    "/api/events": { events: [row(3)], next_offset: 50, total: 60 },
+    "/api/events?type=jira.ticket.updated": {
+      events: [row(9, { type: "jira.ticket.updated" })],
+      next_offset: null,
+      total: 1,
+    },
   };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      if (url === "/api/events?offset=1") return late;
+      if (url === "/api/events?offset=50") return late;
       if (pages[url] === undefined) throw new Error(`unexpected ${url}`);
       return new Response(JSON.stringify(pages[url]));
     }),
   );
   view();
   await screen.findByText("DEMO-3");
-  await user.click(screen.getByRole("button", { name: "Load more" }));
+  await user.click(screen.getByRole("button", { name: "Next page" }));
   await user.click(screen.getByRole("combobox", { name: "Type" }));
   await user.click(screen.getByRole("option", { name: "Ticket updated" }));
   expect(await screen.findByText("DEMO-9")).toBeInTheDocument();
-  release(new Response(JSON.stringify({ events: [row(1)], next_offset: 2 })));
+  expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+  release(new Response(JSON.stringify({ events: [row(1)], next_offset: null, total: 60 })));
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(screen.queryByText("DEMO-1")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 });
 
 test("a non-http payload url gets no Jira link", async () => {
@@ -342,20 +351,6 @@ test("a non-http payload url gets no Jira link", async () => {
   await user.click(await screen.findByText("DEMO-7"));
   const sheet = await screen.findByRole("dialog");
   expect(within(sheet).queryByRole("link", { name: "Open in Jira" })).toBeNull();
-});
-
-test("Load more skips an event already on the page", async () => {
-  const user = userEvent.setup();
-  api({
-    "/api/events/facets": FACETS,
-    "/api/events": { events: [row(3), row(2)], next_offset: 2 },
-    "/api/events?offset=2": { events: [row(2), row(1)], next_offset: null },
-  });
-  view();
-  await screen.findByText("DEMO-3");
-  await user.click(screen.getByRole("button", { name: "Load more" }));
-  expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
-  expect(screen.getAllByText("DEMO-2")).toHaveLength(1);
 });
 
 test("the chain renders when the open event is missing from a capped chain", async () => {

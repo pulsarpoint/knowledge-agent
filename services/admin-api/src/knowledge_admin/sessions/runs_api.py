@@ -62,7 +62,7 @@ EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS 
 MATCHING = """FROM ({rows}) r WHERE %(status)s::text IS NULL
     OR CASE WHEN r.status='cancelled' THEN 'stopped' ELSE coalesce(r.status, 'working') END=%(status)s"""
 SORT_COLUMNS = {'started': 'r.started_at', 'tokens': 'r.total_tokens'}
-PAGE_SIZES = (25, 50, 100)
+PAGE_SIZES = (10, 20, 50, 100)  # the admin UI's table page sizes
 
 NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent_run_events e
     WHERE e.run_key=%s AND e.kind='tool_call' AND e.payload->>'parent_call_id'=%s AND e.payload->>'call_id' IS NOT NULL
@@ -90,7 +90,7 @@ def build_api(app_name: str, store) -> APIRouter:
         page_size: int = 50,
     ):
         if page_size not in PAGE_SIZES:
-            raise HTTPException(400, 'Page size must be 25, 50 or 100.')
+            raise HTTPException(400, 'Page size must be 10, 20, 50 or 100.')
         # expert calls of this agent from other agents' runs list with its own runs
         rows = RUNS + (
             f' UNION ALL {EXPERT_CALLS}'

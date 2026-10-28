@@ -156,9 +156,9 @@ export default function ServerForm({
           <div className="flex gap-2">
             <Button disabled={saving}>
               {saving && <Spinner data-icon="inline-start" />}
-              {server ? "Save changes" : "Create server"}
+              {server ? "Save" : "Create server"}
             </Button>
-            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => guard.close(onClose)}>
               Cancel
             </Button>
           </div>
