@@ -87,7 +87,7 @@ function stubFetch(posted: { method: string; args: Record<string, unknown> }[] =
         return json({
           result: {
             format: "text",
-            text: "Run cc:s1:1 digest",
+            text: "Session s1 digest",
             size_chars: 2000,
             full_chars: 50000,
             shortened_turns: [],
@@ -96,14 +96,14 @@ function stubFetch(posted: { method: string; args: Record<string, unknown> }[] =
           approx_tokens: 525,
         });
       if (body.method === "timeline" && body.args.turn === 99)
-        return json({ error: { message: "turn: there is no turn 99; the run has 3 turns." } }, 400);
+        return json({ error: { message: "turn: there is no turn 99; the session has turns 1, 2." } }, 400);
       return json({
         result: { tool_calls: [{ call_id: "c1", name: "read_file", status: "ok" }], truncated: false },
         size_chars: 120,
         approx_tokens: 30,
       });
     }
-    if (url.endsWith("/explore")) return json({ methods });
+    if (url.endsWith("/explore")) return json({ methods, session_id: "s1", turn: 2 });
     return json(record);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -131,21 +131,23 @@ test("the run page has Record and Debug sub-pages with a way back", async () => 
   expect(screen.getByText(/Every event of the run/)).toBeInTheDocument();
   await userEvent.click(within(nav).getByRole("link", { name: "Debug" }));
   expect(router.state.location.pathname).toBe("/activity/runs/cc:s1:1/debug");
-  expect(await screen.findByText(/Query the run with the session explorer/)).toBeInTheDocument();
+  expect(await screen.findByText(/Query the run's whole session with the session explorer/)).toBeInTheDocument();
 });
 
 test("the Debug page shows the digest ratio, runs a method and shows the tool schema", async () => {
   const posted: { method: string; args: Record<string, unknown> }[] = [];
   const fetchMock = stubFetch(posted);
   renderRoutes(routes, "/activity/runs/cc%3As1%3A1/debug");
-  expect(await screen.findByText(/2,000 chars of 50,000 in the full run \(4%\)/)).toBeInTheDocument();
+  expect(await screen.findByText(/2,000 chars of 50,000 in the full session \(4%\)/)).toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([url]) => url === "/api/agent-runs/cc%3As1%3A1/explore")).toBe(true);
 
   await userEvent.click(screen.getByRole("combobox", { name: "Method" }));
   await userEvent.click(await screen.findByRole("option", { name: "timeline" }));
   expect(screen.getByText("The run events in order.")).toBeInTheDocument();
+  expect(screen.getByText("Exploring session s1: every turn; this run is turn 2.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("checkbox", { name: "tool_call" }));
-  await userEvent.type(screen.getByRole("spinbutton", { name: "turn" }), "2");
+  // the run's own turn is preselected
+  expect(screen.getByRole("spinbutton", { name: "turn" })).toHaveValue(2);
   await userEvent.type(screen.getByRole("textbox", { name: "tool" }), "read_file");
   await userEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() =>
@@ -162,6 +164,7 @@ test("a validation error shows inline", async () => {
   renderRoutes(routes, "/activity/runs/cc%3As1%3A1/debug");
   await userEvent.click(await screen.findByRole("combobox", { name: "Method" }));
   await userEvent.click(await screen.findByRole("option", { name: "timeline" }));
+  await userEvent.clear(screen.getByRole("spinbutton", { name: "turn" }));
   await userEvent.type(screen.getByRole("spinbutton", { name: "turn" }), "99");
   await userEvent.click(screen.getByRole("button", { name: "Run" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("turn: there is no turn 99");
@@ -187,6 +190,6 @@ test("the digest result shows as text", async () => {
   stubFetch();
   renderRoutes(routes, "/activity/runs/cc%3As1%3A1/debug");
   await userEvent.click(await screen.findByRole("button", { name: "Show digest" }));
-  expect(await screen.findByText("Run cc:s1:1 digest")).toBeInTheDocument();
+  expect(await screen.findByText("Session s1 digest")).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Method" })).toHaveTextContent("digest");
 });

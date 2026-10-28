@@ -26,19 +26,23 @@ export interface ExploreResult {
   size_chars: number;
   approx_tokens: number;
 }
-/** The digest method's result. */
+/** The digest method's result: the session as text. */
 export interface DigestResult {
   format: "text";
   text: string;
   size_chars: number;
   full_chars: number;
+  focus_turn: number;
   shortened_turns: number[];
+  /** Per turn kept in full, the steps shortened to one line. */
+  shortened_steps: Record<string, number[]>;
 }
 
 const explore = (runKey: string) => `/api/agent-runs/${encodeURIComponent(runKey)}/explore`;
 
+/** The methods, and the session the run belongs to with the run's turn (a run outside a session: turn 1, no id). */
 export const getExploreMethods = (runKey: string, signal?: AbortSignal) =>
-  request<{ methods: ExploreMethod[] }>(explore(runKey), { signal });
+  request<{ methods: ExploreMethod[]; session_id: string | null; turn: number }>(explore(runKey), { signal });
 
 export const runExplore = (runKey: string, method: string, args: Record<string, unknown>, signal?: AbortSignal) =>
   request<ExploreResult>(explore(runKey), {

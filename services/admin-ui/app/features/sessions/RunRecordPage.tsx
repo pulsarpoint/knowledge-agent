@@ -14,12 +14,12 @@ const SECTIONS = [
   {
     page: "debug",
     label: "Debug",
-    help: "Query the run with the session explorer: the methods a reviewer model calls as tools, with each result's size.",
+    help: "Query the run's whole session with the session explorer: the methods a reviewer model calls as tools, with each result's size.",
   },
 ];
 
 /** One run record (`/activity/runs/:runKey`): the way back, the sub-pages Record and Debug as links and the open one.
- * Record keeps an expert call's `?call=`; Debug always explores the whole run. */
+ * Record keeps an expert call's `?call=`; Debug explores the run's whole session (every turn), this run's turn preselected. */
 export default function RunRecordLayout() {
   const call = useSearchParams()[0].get("call");
   const search = call ? `?${new URLSearchParams({ call })}` : "";
@@ -46,7 +46,7 @@ export function RunRecordIndex() {
   return <RunRecordView key={runKey} runKey={runKey} />;
 }
 
-/** Debug: the session explorer on this run. */
+/** Debug: the session explorer on this run's session. */
 export function RunDebugPage() {
   const { runKey } = useParams() as { runKey: string };
   return <RunDebugView key={runKey} runKey={runKey} />;

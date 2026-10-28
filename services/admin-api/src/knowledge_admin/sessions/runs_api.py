@@ -82,13 +82,18 @@ class ExploreInput(BaseModel):
 
 
 def explored(conn, store, project, run_key: str) -> explorer.SessionRecord:
-    """The run's explorer record in this workspace (404 like the record), redacted as the Debug tab is: with the
-    secrets the session's pinned configuration references (known_secrets)."""
-    pinned = conn.execute(
-        """SELECT agent_config FROM ka.agent_sessions
-        WHERE project_id=%s AND id::text=split_part(%s, ':', 2) AND starts_with(%s, 'cc:')""",
-        (project, run_key, run_key),
-    ).fetchone()
+    """The explorer record of the run's whole session (every turn `cc:<session>:<n>`; a run outside a session alone),
+    in this workspace: whoever may read the run record reads its session's (admin, same workspace; 404 like the record).
+    Redacted as the session Debug tab is: with the secrets the session's pinned configuration references."""
+    match = explorer.SESSION_KEY.fullmatch(run_key)
+    pinned = (
+        conn.execute(
+            'SELECT agent_config FROM ka.agent_sessions WHERE project_id=%s AND id::text=%s',
+            (project, match.group(1)),
+        ).fetchone()
+        if match
+        else None
+    )
     secrets = known_secrets(store, pinned['agent_config']) if pinned and pinned['agent_config'] else []
     try:
         return explorer.SessionRecord.load(conn, project, run_key, secrets)
@@ -195,14 +200,15 @@ def build_api(app_name: str, store) -> APIRouter:
 
     @router.get('/{run_key}/explore')
     def explore_methods(run_key: str):
-        """The explorer's methods exactly as the run reviewer's model gets them (explorer.listing)."""
+        """The explorer's methods exactly as the session reviewer's model gets them (explorer.listing), with the
+        session and the run key's turn (the Debug tab preselects it)."""
         with database().connect() as conn:
-            explored(conn, store, store.project(conn, app_name), run_key)
-        return {'methods': explorer.listing()}
+            record = explored(conn, store, store.project(conn, app_name), run_key)
+        return {'methods': explorer.listing(), 'session_id': record.session_id, 'turn': record.focus_turn}
 
     @router.post('/{run_key}/explore')
     def explore(run_key: str, value: ExploreInput):
-        """Run one explorer method on the run's record: its result and the size of the serialised result."""
+        """Run one explorer method on the run's session: its result and the size of the serialised result."""
         with database().connect() as conn:
             record = explored(conn, store, store.project(conn, app_name), run_key)
         try:

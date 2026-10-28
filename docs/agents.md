@@ -258,8 +258,9 @@ cannot call it (and the adapter's backstop refuses a forged call: `Tool <name> i
 the project was synced after the graph was generated, the answer carries a note to regenerate it or confirm with
 `read_file`).
 
-A run record can be queried as an object (overview, timeline, tool calls and outputs, turns, search, expert calls and
-a budgeted digest), on the run page's **Debug** tab and as tools for a model: see
+A session's run records (one per turn) can be queried as one object (overview, timeline, tool calls and outputs,
+turns with their steps, search, expert calls and a budgeted digest), on the run page's **Debug** tab and as tools for
+a model: see
 [Session explorer](session-explorer.md).
 
 Tool usage per run is recorded as counts: the **Tools** column of Agent runs (top three and `+n`, the tooltip lists

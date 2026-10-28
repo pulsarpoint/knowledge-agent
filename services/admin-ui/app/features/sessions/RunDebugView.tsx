@@ -123,11 +123,13 @@ function ArgumentField({
   );
 }
 
-/** The Debug sub-page of a run: the session explorer's methods (the tools a reviewer model gets) run on this record.
- * At the top the digest's size against the full run's; then a method picker, a form generated from the method's
- * schema, Run, the result with its size and the schema the model sees. A call id in a result opens tool_output. */
+/** The Debug sub-page of a run: the session explorer's methods (the tools a reviewer model gets) run on the run's whole
+ * session, its own turn preselected (a method's `turn` argument starts at it). At the top the digest's size against the
+ * full session's; then a method picker, a form generated from the method's schema, Run, the result with its size and
+ * the schema the model sees. A call id in a result opens tool_output. */
 export default function RunDebugView({ runKey }: { runKey: string }) {
   const [methods, setMethods] = useState<ExploreMethod[] | null>(null);
+  const [session, setSession] = useState<{ id: string | null; turn: number }>({ id: null, turn: 1 });
   const [digest, setDigest] = useState<ExploreResult | null>(null);
   const [name, setName] = useState("overview");
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -138,7 +140,11 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
   useEffect(() => {
     const controller = new AbortController();
     getExploreMethods(runKey, controller.signal)
-      .then((data) => !controller.signal.aborted && setMethods(data.methods))
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setMethods(data.methods);
+        setSession({ id: data.session_id, turn: data.turn });
+      })
       .catch((e) => !controller.signal.aborted && setError(message(e, "Could not load the explorer.")));
     runExplore(runKey, "digest", {}, controller.signal)
       .then((data) => !controller.signal.aborted && setDigest(data))
@@ -156,8 +162,14 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
     );
   const method = methods.find((item) => item.method === name) ?? methods[0];
   const pick = (next: string, nextValues: Record<string, unknown> = {}) => {
+    const properties = methods.find((item) => item.method === next)?.parameters.properties ?? {};
     setName(next);
-    setValues(nextValues);
+    // the run's own turn is preselected wherever a method takes a turn
+    setValues(
+      "turn" in properties && nextValues.turn === undefined
+        ? { ...nextValues, turn: String(session.turn) }
+        : nextValues,
+    );
     setError("");
   };
   const run = async () => {
@@ -178,14 +190,18 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
   const shown = result?.value.result as DigestResult | undefined;
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        Exploring {session.id ? `session ${session.id}` : "this run"}: every turn; this run is turn {session.turn}.
+      </p>
       {digestValue && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
           <span className="font-medium">Digest</span>
           <span className="text-muted-foreground">
-            {number(digestValue.size_chars)} chars of {number(digestValue.full_chars)} in the full run (
+            {number(digestValue.size_chars)} chars of {number(digestValue.full_chars)} in the full session (
             {Math.round((100 * digestValue.size_chars) / Math.max(1, digestValue.full_chars))}%) · ~
             {number(digest!.approx_tokens)} tokens
             {digestValue.shortened_turns.length > 0 && ` · ${digestValue.shortened_turns.length} turns shortened`}
+            {Object.keys(digestValue.shortened_steps ?? {}).length > 0 && " · steps shortened"}
           </span>
           <Button
             variant="outline"
