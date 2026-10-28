@@ -151,7 +151,7 @@ def _clean(value: Any, secrets: tuple[str, ...]) -> Any:
     if isinstance(value, str):
         return redact(URL.sub(lambda match: safe_url(match.group()), value), secrets)
     if isinstance(value, dict):
-        return {key: _clean(item, secrets) for key, item in value.items()}
+        return {_clean(key, secrets): _clean(item, secrets) for key, item in value.items()}
     if isinstance(value, list):
         return [_clean(item, secrets) for item in value]
     return value
@@ -173,9 +173,15 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(',', ':'))
 
 
-def _build_run(rows: list[dict], groups: dict[str | None, list[dict]], turn: int, parent: str | None = None) -> Run:
+def _build_run(
+    rows: list[dict],
+    groups: dict[str | None, list[dict]],
+    turn: int,
+    parent: str | None = None,
+    seen: frozenset[str] = frozenset(),
+) -> Run:
     """One run (a turn's own events, or a nested run under call `parent`) out of its rows in seq order; nested runs
-    recursively."""
+    recursively (seen: the calls above it, so a call id repeated in its own nested run cannot loop)."""
     run = Run(turn=turn, parent_call_id=parent)
     steps: list[Step] = []
     answer = ''
@@ -204,6 +210,8 @@ def _build_run(rows: list[dict], groups: dict[str | None, list[dict]], turn: int
             if item['kind'] in ('expert', 'subagent'):
                 run.kind = item['kind']
                 run.agent = (payload.get('expert') or {}).get('name') or run.agent
+            if item['kind'] == 'retry':
+                answer = ''  # the retried attempt answers afresh (SessionEvents.draft of a new turn)
             step.inputs.append(item)
             entry.update(input=item['kind'], text=item['text'])
         elif kind == 'reasoning':
@@ -217,8 +225,8 @@ def _build_run(rows: list[dict], groups: dict[str | None, list[dict]], turn: int
         elif kind == 'tool_call':
             call_id = payload.get('call_id') or f'#{turn}.{row["seq"]}'  # an old event without one
             found = Call(call_id, payload.get('name', ''), payload.get('arguments'), turn, step.n, row['seq'])
-            if call_id in groups:
-                found.child = _build_run(groups[call_id], groups, turn, call_id)
+            if call_id in groups and call_id not in seen and call_id != parent:
+                found.child = _build_run(groups[call_id], groups, turn, call_id, seen | {call_id})
             step.calls.append(found)
             run.calls[call_id] = found
             answer = ''  # a message before a tool call was not the answer
@@ -267,6 +275,13 @@ def _build_run(rows: list[dict], groups: dict[str | None, list[dict]], turn: int
     return run
 
 
+def _record_size(payload: dict) -> int:
+    """A payload's serialised size without what repeats other fields (a result's preview, a call's summary)."""
+    repeated = {'summary', 'preview'} if 'output' in payload else {'summary'}
+    kept = {key: value for key, value in payload.items() if key not in repeated}
+    return len(json.dumps(kept, ensure_ascii=False, default=str))
+
+
 def _turn_number(run_key: str) -> int | None:
     match = SESSION_KEY.fullmatch(run_key)
     return int(match.group(2)) if match else None
@@ -280,7 +295,7 @@ def _build_turn(run_key: str, n: int, rows: list[dict]) -> Run:
     linked = {call.call_id for call in run.all_calls() if call.child is not None}
     for parent, child_rows in groups.items():
         if parent is not None and parent not in linked:
-            run.unlinked[parent] = _build_run(child_rows, groups, n, parent)
+            run.unlinked[parent] = _build_run(child_rows, groups, n, parent, frozenset({parent}))
     run.run_key = run_key
     for child in [call.child for call in run.all_calls() if call.child is not None] + list(run.unlinked.values()):
         child.run_key = run_key
@@ -315,50 +330,82 @@ def build(
         model=meta.get('model'),
         user=next((row.get('user') for row in rows if row.get('user')), None),
         turns=turns,
-        full_chars=sum(len(json.dumps(row['payload'], ensure_ascii=False, default=str)) for row in rows),
+        full_chars=sum(_record_size(row['payload']) for row in rows),
         agent=first.agent,
         agent_id=first.agent_id,
         title=first.title,
     )
 
 
-# --- caps -----------------------------------------------------------------------------------------------------------
+# --- caps and paging ------------------------------------------------------------------------------------------------
 
 
 def _size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False))
 
 
-def _shorten(value: Any, limit: int) -> Any:
+def _shorten(value: Any, chars: int, items: int | None = None) -> Any:
+    """Strings cut to `chars` (with how much was cut) and lists to their first `items`, at every depth."""
     if isinstance(value, str):
-        return value if len(value) <= limit else value[:limit] + f'… [{len(value) - limit} more chars]'
+        return value if len(value) <= chars else value[:chars] + f'… [{len(value) - chars} more chars]'
     if isinstance(value, dict):
-        return {key: _shorten(item, limit) for key, item in value.items()}
+        return {key: _shorten(item, chars, items) for key, item in value.items()}
     if isinstance(value, list):
-        return [_shorten(item, limit) for item in value]
+        return [_shorten(item, chars, items) for item in (value if items is None else value[:items])]
     return value
 
 
-def _fit(result: dict, items: str | None = None) -> dict:
-    """The result within MAX_CHARS: total_chars is its full size; when it is over, items are dropped from the end of
-    result[items] (total_items: how many there were), then long strings are shortened, and truncated is true."""
-    result = {**result, 'truncated': False, 'total_chars': 0}
-    full = _size(result)
-    result['total_chars'] = full
-    if full <= MAX_CHARS:
-        return result
-    result['truncated'] = True
-    if items is not None:
-        result['total_items'] = len(result[items])
-        while len(result[items]) > 1 and _size(result) > MAX_CHARS:
-            result[items] = result[items][: max(1, len(result[items]) * 3 // 4)]
-        while len(result[items]) > 1 and _size(result) > MAX_CHARS:
-            result[items] = result[items][:-1]
-    limit = 4_000
-    while _size(result) > MAX_CHARS and limit > 20:
-        result = {**_shorten(result, limit), 'truncated': True, 'total_chars': full}
-        limit //= 2
-    return result
+PAGING = ('offset', 'limit', 'next_offset', 'total_items', 'total_chars')
+TOO_LARGE = 'This result is too large even shortened; ask for a smaller part (limit, a turn, a call).'
+
+
+def _squeeze(result: dict) -> dict:
+    """The last resort for a result over MAX_CHARS: every string and nested list shortened, shorter and shorter, until
+    it fits (its paging fields kept as they are)."""
+    kept = {key: result[key] for key in PAGING if key in result}
+    chars, items = 2_000, 100
+    while True:
+        squeezed = {**_shorten(result, chars, items), **kept, 'truncated': True}
+        if _size(squeezed) <= MAX_CHARS or (chars <= 20 and items <= 1):
+            break
+        chars, items = max(20, chars // 2), max(1, items // 2)
+    return squeezed if _size(squeezed) <= MAX_CHARS else {**kept, 'truncated': True, 'error': TOO_LARGE}
+
+
+def _page(head: dict, key: str, items: list, offset: int = 0, limit: int | None = None) -> dict:
+    """result[key] = items[offset:offset+limit], in order, as many as fit in MAX_CHARS with the rest of the result:
+    next_offset is where the next page starts (null: nothing after it), total_items how many there are, total_chars
+    the size of the whole unpaged result; truncated is true when the cap cut anything (fewer items than asked, or
+    shortened content when one item alone does not fit)."""
+    total = len(items)
+    window = items[offset : offset + limit] if limit is not None else items[offset:]
+    full = _size({**head, key: items})
+
+    def result(n: int, cut: bool) -> dict:
+        end = offset + n
+        return {
+            **head,
+            key: window[:n],
+            'offset': offset,
+            'next_offset': end if end < total else None,
+            'total_items': total,
+            'total_chars': full,
+            'truncated': cut,
+        }
+
+    whole = result(len(window), False)
+    if _size(whole) <= MAX_CHARS:
+        return whole
+    if len(window) <= 1 or _size(result(1, True)) > MAX_CHARS:
+        return _squeeze(result(min(1, len(window)), True))
+    low, high = 1, len(window) - 1  # the most items that fit
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _size(result(middle, True)) <= MAX_CHARS:
+            low = middle
+        else:
+            high = middle - 1
+    return result(low, True)
 
 
 def _nested_run(call: Call) -> dict | None:
@@ -369,7 +416,7 @@ def _step_line(step: Step) -> dict:
     return {
         'step': step.n,
         'input': _shorten(step.inputs[0]['text'], PREVIEW) if step.inputs else None,
-        'tools': [call.name for call in step.calls],
+        'tools': dict(Counter(call.name for call in step.calls)),
         'errors': len(step.errors) + sum(call.status == 'error' for call in step.calls),
         'end': step.end,
         'tokens': step.usage.get('total_tokens', 0),
@@ -406,35 +453,44 @@ def _step_in_full(step: Step) -> dict:
 
 def _totals(runs: list[Run]) -> dict:
     calls = [call for run in runs for call in run.own_calls()]
+    nested = [child for run in runs for child in run.nested()]
     return {
         'steps': sum(len(run.steps) for run in runs),
         'tool_calls': dict(Counter(call.name for call in calls)),
         'tool_errors': sum(call.status == 'error' for call in calls),
         'errors': sum(len(step.errors) for run in runs for step in run.steps),
-        'tokens': sum(run.tokens() for run in runs),
-        'expert_calls': sum(len(run.nested()) for run in runs),
-        'expert_tokens': sum(run.nested_tokens() for run in runs),
-    }
-
-
-def _run_overview(run: Run) -> dict:
-    """A nested run at a glance: what it is, one line per step and its totals."""
-    return {
-        'run': {
-            'kind': run.kind,
-            'agent': run.agent,
-            'agent_id': run.agent_id,
-            'turn': run.turn,
-            'call_id': run.parent_call_id,
-            'status': run.status,
-            'started_at': run.started_at,
-        },
-        'steps': [_step_line(step) for step in run.steps],
-        'totals': _totals([run]),
+        'tokens': sum(run.tokens() for run in runs),  # its own model calls, nested runs not included
+        'expert_calls': sum(child.kind == 'expert' for child in nested),
+        'nested_runs': len(nested),  # expert calls and subagent runs
+        'nested_tokens': sum(run.nested_tokens() for run in runs),
     }
 
 
 # --- the record -----------------------------------------------------------------------------------------------------
+
+EVENTS = """SELECT e.run_key,e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.email AS "user"
+    FROM ka.agent_run_events e LEFT JOIN ka.principals p ON p.id=e.actor_id
+    WHERE e.project_id=%s AND (e.run_key=%s OR (%s::text IS NOT NULL AND starts_with(e.run_key, %s)))
+    ORDER BY e.run_key,e.seq"""
+
+
+def session_secrets(conn, store, project, session_id: str | None) -> list[str]:
+    """The secrets the session's pinned configuration references (agents.runner.known_secrets), for the second
+    redaction pass, as the session Debug tab redacts (records were redacted when written, experts' own keys too)."""
+    if session_id is None:
+        return []
+    from knowledge_admin.agents.runner import known_secrets
+
+    pinned = conn.execute(
+        'SELECT agent_config FROM ka.agent_sessions WHERE project_id=%s AND id::text=%s', (project, session_id)
+    ).fetchone()
+    return known_secrets(store, pinned['agent_config']) if pinned and pinned['agent_config'] else []
+
+
+def session_of(run_key: str) -> tuple[str | None, int]:
+    """(session id, turn) of a run key; (None, 1) for a run outside a session."""
+    match = SESSION_KEY.fullmatch(run_key)
+    return (match.group(1), int(match.group(2))) if match else (None, 1)
 
 
 @dataclass
@@ -451,22 +507,25 @@ class SessionRecord:
     full_chars: int = 0
 
     @classmethod
-    def load(cls, conn, project, key: str, secrets: Iterable[str] = ()) -> 'SessionRecord':
-        """The session of a run key (`cc:<session_id>:<n>`) or a session id in this workspace, every turn read once
-        (a run outside a session: that run alone); RunNotFound when there is no record."""
-        match = SESSION_KEY.fullmatch(key)
-        session_id = match.group(1) if match else (key if ':' not in key else None)
+    def load(cls, conn, project, run_key: str, secrets: Iterable[str] = ()) -> 'SessionRecord':
+        """The whole session of a run key (`cc:<session_id>:<n>`; a run outside a session alone), every turn read once,
+        in this workspace; RunNotFound unless this workspace has that run key's own record."""
+        session_id, _ = session_of(run_key)
+        return cls._read(conn, project, run_key, session_id, secrets, focus=run_key)
+
+    @classmethod
+    def load_session(cls, conn, project, session_id: str, secrets: Iterable[str] = ()) -> 'SessionRecord':
+        """A session by its id (for internal callers such as the session reviewer; the API takes run keys only), its
+        last turn the focus turn; RunNotFound when it has no record."""
+        return cls._read(conn, project, None, session_id, secrets, focus=None)
+
+    @classmethod
+    def _read(cls, conn, project, run_key, session_id, secrets, focus) -> 'SessionRecord':
         prefix = f'cc:{session_id}:' if session_id is not None else None
-        rows = conn.execute(
-            """SELECT e.run_key,e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.email AS "user"
-            FROM ka.agent_run_events e LEFT JOIN ka.principals p ON p.id=e.actor_id
-            WHERE e.project_id=%s AND (e.run_key=%s OR (%s::text IS NOT NULL AND starts_with(e.run_key, %s)))
-            ORDER BY e.run_key,e.seq""",
-            (project, key, prefix, prefix),
-        ).fetchall()
-        rows = [row for row in rows if row['run_key'] == key or SESSION_KEY.fullmatch(row['run_key'])]
-        if not rows or (session_id != key and not any(row['run_key'] == key for row in rows)):
-            raise RunNotFound(NOT_FOUND)  # a run key reads its session only when this workspace has its record
+        rows = conn.execute(EVENTS, (project, run_key, prefix, prefix)).fetchall()
+        rows = [row for row in rows if row['run_key'] == run_key or SESSION_KEY.fullmatch(row['run_key'])]
+        if not rows or (focus is not None and not any(row['run_key'] == focus for row in rows)):
+            raise RunNotFound(NOT_FOUND)
         model = None
         if session_id is not None:
             found = conn.execute(
@@ -475,8 +534,8 @@ class SessionRecord:
                 (project, session_id),
             ).fetchone()
             model = found['name'] if found else None
-        run_key = key if match or session_id is None else max((row['run_key'] for row in rows), key=_turn_number)
-        return build(rows, run_key=run_key, meta={'session_id': session_id, 'model': model}, secrets=secrets)
+        focus = focus or max((row['run_key'] for row in rows), key=lambda key: _turn_number(key) or 0)
+        return build(rows, run_key=focus, meta={'session_id': session_id, 'model': model}, secrets=secrets)
 
     # helpers
 
@@ -503,14 +562,21 @@ class SessionRecord:
     def _turns(self, n: int | None) -> list[Run]:
         return self.turns if n is None else [self._turn(n)]
 
-    def _unlinked(self, call_id: str) -> Run | None:
-        return next((turn.unlinked[call_id] for turn in self.turns if call_id in turn.unlinked), None)
+    def _nested(self, call_id: str) -> tuple[Call | None, Run]:
+        """The call (None for a nested run whose call is not recorded) and the nested run it started."""
+        for turn in self.turns:
+            if call_id in turn.unlinked:
+                return None, turn.unlinked[call_id]
+        call = self._call(call_id)
+        if call.child is None:
+            raise ValueError(f'call_id: {call_id} is not an expert call or subagent run.')
+        return call, call.child
 
     # methods
 
-    def overview(self) -> dict:
-        """The session's metadata, one line per turn (with its step count) and the totals."""
-        result = {
+    def overview(self, offset: int = 0, limit: int | None = None) -> dict:
+        """The session's metadata and totals, and one line per turn (with its step count), paged."""
+        head = {
             'session': {
                 'session_id': self.session_id,
                 'run_key': self.run_key,
@@ -525,36 +591,51 @@ class SessionRecord:
                 'ended_at': self.turns[-1].ended_at,
                 'instructions_chars': len(self.turns[0].instructions),
             },
-            'turns': [
-                {
-                    'turn': turn.turn,
-                    'run_key': turn.run_key,
-                    'input': _shorten(turn.input, PREVIEW),
-                    'steps': len(turn.steps),
-                    'tools': [call.name for call in turn.own_calls()],
-                    'errors': sum(len(s.errors) for s in turn.steps)
-                    + sum(c.status == 'error' for c in turn.own_calls()),
-                    'status': turn.status,
-                    'tokens': turn.tokens(),
-                }
-                for turn in self.turns
-            ],
             'totals': {'turns': len(self.turns), **_totals(self.turns)},
         }
-        return _fit(result, 'turns')
+        lines = [
+            {
+                'turn': turn.turn,
+                'run_key': turn.run_key,
+                'input': _shorten(turn.input, PREVIEW),
+                'steps': len(turn.steps),
+                'tools': dict(Counter(call.name for call in turn.own_calls())),
+                'errors': sum(len(s.errors) for s in turn.steps) + sum(c.status == 'error' for c in turn.own_calls()),
+                'status': turn.status,
+                'tokens': turn.tokens(),
+            }
+            for turn in self.turns
+        ]
+        return _page(head, 'turns', lines, offset, limit)
 
-    def timeline(self, kinds: list[str] | None = None, turn: int | None = None, tool: str | None = None) -> dict:
-        """The events in order, each with its turn and step, filtered by kind, turn and tool name; tool outputs as
-        their size only."""
+    def timeline(
+        self,
+        kinds: list[str] | None = None,
+        turn: int | None = None,
+        tool: str | None = None,
+        call_id: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> dict:
+        """The events in order, each with its turn and step (of the session, or of one nested run: call_id), filtered
+        by kind, turn and tool name, paged; tool outputs as their size only."""
+        runs = [self._nested(call_id)[1]] if call_id is not None else self._turns(turn)
         events = [
             event
-            for run in self._turns(turn)
+            for run in runs
             for event in run.events
             if (kinds is None or event['kind'] in kinds) and (tool is None or event.get('name') == tool)
         ]
-        return _fit({'events': events}, 'events')
+        return _page({}, 'events', events, offset, limit)
 
-    def tool_calls(self, turn: int | None = None, name: str | None = None, errors_only: bool = False) -> dict:
+    def tool_calls(
+        self,
+        turn: int | None = None,
+        name: str | None = None,
+        errors_only: bool = False,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> dict:
         found = [
             {
                 'call_id': call.call_id,
@@ -571,27 +652,31 @@ class SessionRecord:
             for call in run.own_calls()
             if (name is None or call.name == name) and (not errors_only or call.status == 'error')
         ]
-        return _fit({'tool_calls': found}, 'tool_calls')
+        return _page({}, 'tool_calls', found, offset, limit)
 
     def tool_output(self, call_id: str, offset: int = 0, max_chars: int = OUTPUT_PAGE) -> dict:
         call = self._call(call_id)
-        text = call.output[offset : offset + max_chars]
-        end = offset + len(text)
-        return {
-            'call_id': call.call_id,
-            'turn': call.turn,
-            'name': call.name,
-            'status': call.status,
-            'total_chars': call.size,
-            'offset': offset,
-            'text': text,
-            'next_offset': end if end < call.size else None,
-        }
+        while True:  # escaped characters can make a page's JSON longer than its text: the page shrinks to the cap
+            text = call.output[offset : offset + max_chars]
+            end = offset + len(text)
+            result = {
+                'call_id': call.call_id,
+                'turn': call.turn,
+                'name': call.name,
+                'status': call.status,
+                'total_chars': call.size,
+                'offset': offset,
+                'text': text,
+                'next_offset': end if end < call.size else None,
+            }
+            if _size(result) <= MAX_CHARS or max_chars <= 100:
+                return result
+            max_chars = max(100, max_chars * 3 // 4)
 
-    def turn(self, n: int) -> dict:
-        """Session turn n in full: its steps with outputs as their size (and a short error text)."""
+    def turn(self, n: int, offset: int = 0, limit: int | None = None) -> dict:
+        """Session turn n with its steps in full (paged: offset is a step offset), outputs as their size."""
         run = self._turn(n)
-        result = {
+        head = {
             'turn': run.turn,
             'run_key': run.run_key,
             'status': run.status,
@@ -599,13 +684,19 @@ class SessionRecord:
             'ended_at': run.ended_at,
             'tokens': run.tokens(),
             'answer': run.answer,
-            'steps': [_step_in_full(step) for step in run.steps],
         }
-        return _fit(result, 'steps')
+        return _page(head, 'steps', [_step_in_full(step) for step in run.steps], offset, limit)
 
-    def search(self, text: str, kinds: list[str] | None = None, turn: int | None = None, max_hits: int = 20) -> dict:
+    def search(
+        self,
+        text: str,
+        kinds: list[str] | None = None,
+        turn: int | None = None,
+        offset: int = 0,
+        max_hits: int = 20,
+    ) -> dict:
         """Case-insensitive substring search; one hit per text, with how often it matched and a snippet around the
-        first match."""
+        first match; paged (max_hits per page)."""
         needle = text.lower()
         hits = []
         for kind, run, step, call_id, value in (item for r in self._turns(turn) for item in _texts(r)):
@@ -628,29 +719,28 @@ class SessionRecord:
             if run.parent_call_id is not None:
                 hit['in_call'] = run.parent_call_id
             hits.append(hit)
-        return _fit({'total_hits': len(hits), 'hits': hits[:max_hits]}, 'hits')
+        return _page({'total_hits': len(hits)}, 'hits', hits, offset, max_hits)
 
-    def expert_call(self, call_id: str) -> dict:
-        unlinked = self._unlinked(call_id)
-        if unlinked is not None:
-            return _fit(
-                {'call_id': call_id, 'overview': _run_overview(unlinked), 'timeline': unlinked.events}, 'timeline'
-            )
-        call = self._call(call_id)
-        if call.child is None:
-            raise ValueError(f'call_id: {call_id} is not an expert call or subagent run.')
-        return _fit(
-            {
-                'call_id': call.call_id,
-                'turn': call.turn,
-                'name': call.name,
-                'arguments': call.arguments,
-                'status': call.status,
-                'overview': _run_overview(call.child),
-                'timeline': call.child.events,
+    def expert_call(self, call_id: str, offset: int = 0, limit: int | None = None) -> dict:
+        """The call, the nested run it started with its totals, and one line per step of it, paged."""
+        call, run = self._nested(call_id)
+        head = {
+            'call_id': call_id,
+            'turn': run.turn,
+            'name': call.name if call else None,
+            'arguments': call.arguments if call else None,
+            'status': call.status if call else 'unlinked',
+            'run': {
+                'kind': run.kind,
+                'agent': run.agent,
+                'agent_id': run.agent_id,
+                'status': run.status,
+                'started_at': run.started_at,
+                'answer': _shorten(run.answer, 2_000),
             },
-            'timeline',
-        )
+            'totals': _totals([run]),
+        }
+        return _page(head, 'steps', [_step_line(step) for step in run.steps], offset, limit)
 
     def digest(self, budget_chars: int = DEFAULT_DIGEST_CHARS, turn: int | None = None) -> dict:
         return digest(self, budget_chars, turn)
@@ -678,6 +768,10 @@ def _texts(run: Run):
 
 INSTRUCTIONS_SHARE = 4  # the instructions take at most a quarter of the budget
 INPUT_CHARS, MESSAGE_CHARS, REASONING_CHARS, ARGUMENT_CHARS = 1_500, 1_500, 800, 300
+# How a turn shows, from the most to the least: every step in full; its first, last and failed steps in full and the
+# others one line each; the same with the other steps grouped into one line per run of them; one line; left out
+# (consecutive left-out turns share one line).
+FORMS = ('full', 'steps', 'compact', 'line', 'dropped')
 
 
 def _cut(text: str, limit: int) -> str:
@@ -688,9 +782,9 @@ def _call_line(call: Call) -> str:
     line = f'- {call.name}({_cut(_text(call.arguments), ARGUMENT_CHARS)}) -> {call.status}, {call.size} chars'
     if call.child is not None:
         child = call.child
-        calls = len(child.own_calls())
         line += (
-            f' [{child.kind} {child.agent}: {len(child.steps)} steps, {calls} tool calls; expert_call({call.call_id})]'
+            f' [{child.kind} {child.agent}: {len(child.steps)} steps, {len(child.own_calls())} tool calls; '
+            f'record_expert_call({call.call_id})]'
         )
     return line
 
@@ -707,36 +801,57 @@ def _full_step(step: Step) -> str:
 
 
 def _short_step(step: Step) -> str:
-    calls = ', '.join(f'{call.name} -> {call.status}' for call in step.calls) or 'no tool calls'
-    return f'Step {step.n}: {calls} · {len(step.messages)} messages · {step.usage.get("total_tokens", 0)} tokens'
+    calls = ', '.join(f'{name} x{n}' for name, n in Counter(call.name for call in step.calls).items())
+    return f'Step {step.n}: {calls or "no tool calls"} · {len(step.messages)} messages · {step.usage.get("total_tokens", 0)} tokens'
 
 
-def _full_turn(run: Run, kept_steps: set[int] | None) -> str:
-    """A turn in full; kept_steps: the steps in full (None: all), the others one line each."""
+def _step_group(run: Run, steps: list[Step]) -> str:
+    calls = sum(len(step.calls) for step in steps)
+    span = f'{steps[0].n}' if len(steps) == 1 else f'{steps[0].n}-{steps[-1].n}'
+    return (
+        f'[Steps {span}: {len(steps)} steps, {calls} tool calls left out; '
+        f'record_turn(turn={run.turn}, offset={steps[0].n - 1}) reads them]'
+    )
+
+
+def _turn_text(run: Run, form: str) -> str:
+    if form == 'line':
+        return (
+            f'Turn {run.turn}: {_cut(run.input, 120)!r} · {len(run.steps)} steps · {len(run.own_calls())} tool calls · '
+            f'status {run.status} · {run.tokens()} tokens'
+        )
     head = f'## Turn {run.turn} ({run.run_key}) · {len(run.steps)} steps · status {run.status} · {run.tokens()} tokens'
-    shortened = 0 if kept_steps is None else len(run.steps) - len(kept_steps)
-    parts = [head]
-    if shortened:
-        parts.append(f'[{shortened} steps shortened; use turn({run.turn}) to read them in full]')
-    parts += [
-        _full_step(step) if kept_steps is None or step.n in kept_steps else _short_step(step) for step in run.steps
-    ]
+    numbers = [step.n for step in run.steps]
+    kept = (
+        set(numbers)
+        if form == 'full'
+        else {numbers[0], numbers[-1], *(s.n for s in run.steps if s.failed)}
+        if numbers
+        else set()
+    )
+    parts, group = [head], []
+    for step in run.steps:
+        if step.n in kept or form == 'steps':
+            if group:
+                parts.append(_step_group(run, group))
+                group = []
+            parts.append(_full_step(step) if step.n in kept else _short_step(step))
+        else:
+            group.append(step)
+    if group:
+        parts.append(_step_group(run, group))
     parts.append(f'Answer: {_cut(run.answer, MESSAGE_CHARS)}' if run.answer else 'Answer: (none)')
     return '\n'.join(parts)
 
 
-def _short_turn(run: Run) -> str:
-    calls = len(run.own_calls())
+def _dropped_line(runs: list[Run]) -> str:
+    calls = sum(len(run.own_calls()) for run in runs)
+    errors = sum(run.failed for run in runs)
+    span = f'{runs[0].turn}' if len(runs) == 1 else f'{runs[0].turn}-{runs[-1].turn}'
     return (
-        f'Turn {run.turn}: {_cut(run.input, 120)!r} · {len(run.steps)} steps · {calls} tool calls · '
-        f'status {run.status} · {run.tokens()} tokens'
+        f'[Turns {span}: {len(runs)} turns, {calls} tool calls, {errors} with errors left out; '
+        f'record_overview(offset={runs[0].turn - 1}) lists them, record_turn(n) reads one]'
     )
-
-
-def _essential_steps(run: Run) -> set[int]:
-    """The steps a shortened turn keeps in full: the first, the last and those with errors."""
-    numbers = [step.n for step in run.steps]
-    return {numbers[0], numbers[-1], *(step.n for step in run.steps if step.failed)} if numbers else set()
 
 
 def digest(record: SessionRecord, budget_chars: int = DEFAULT_DIGEST_CHARS, focus: int | None = None) -> dict:
@@ -744,72 +859,77 @@ def digest(record: SessionRecord, budget_chars: int = DEFAULT_DIGEST_CHARS, focu
     header, the instructions (at most a quarter of the budget), every turn (its steps: inputs, reasoning, messages,
     tool calls as name(arguments) -> ok/error, output size; outputs never; then its answer and status) and the end.
 
-    Over budget: the first and last turns, the turns with errors and the focus turn (the run being looked at) stay in
-    full, as many other last turns as fit too; the others become one line each, with a note. Still over: only the first,
-    last and focus turns stay in full, then their middle steps are shortened the same way (first, last and failed steps
-    in full); as a last resort the text is cut at the budget."""
+    Over budget, turns are reduced one at a time, oldest first, until it fits (FORMS): the middle turns (not the first,
+    last, focus or errored ones) to steps, then compact, then one line, then left out; then the errored turns the same
+    way; then the first, focus and last turns to steps and compact (never shorter). The end is always there. As a last
+    resort the instructions are left out, then the text before the focus and last turns is cut."""
     focus = record.focus_turn if focus is None else record._turn(focus).turn
-    turns = {run.turn: run for run in record.turns}
-    numbers = list(turns)
-    calls = len([call for run in record.turns for call in run.own_calls()])
+    runs = {run.turn: run for run in record.turns}
+    numbers = list(runs)
+    essential = list(dict.fromkeys([numbers[0], focus, numbers[-1]]))
+    errored = [n for n in numbers if runs[n].failed and n not in essential]
+    middle = [n for n in numbers if n not in essential and n not in errored]
+    calls = sum(len(run.own_calls()) for run in record.turns)
     header = (
         f'Session {record.session_id or record.run_key} · agent {record.agent or record.agent_id} · '
         f'model {record.model or "unknown"} · status {record.status} · {len(numbers)} turns · '
         f'{sum(len(run.steps) for run in record.turns)} steps · {calls} tool calls · focus turn {focus}'
     )
     instructions = record.turns[0].instructions
-    shown_instructions = _cut(instructions, max(500, budget_chars // INSTRUCTIONS_SHARE))
+    end = f'End: {record.status}'
+    form = dict.fromkeys(numbers, 'full')
+    pieces: dict[tuple[int, str], str] = {}
+    shown_instructions = [_cut(instructions, max(500, budget_chars // INSTRUCTIONS_SHARE))]
 
-    def render(kept: set[int], steps: dict[int, set[int]] | None = None) -> str:
-        shortened = len(numbers) - len(kept)
-        parts = [header, f'Instructions ({len(instructions)} chars):\n{shown_instructions}']
-        if shortened:
-            parts.append(f'[{shortened} turns shortened; use turn(n) to read one in full]')
-        parts += [_full_turn(turns[n], (steps or {}).get(n)) if n in kept else _short_turn(turns[n]) for n in numbers]
-        parts.append(f'End: {record.status}')
-        return '\n\n'.join(parts)
+    def piece(n: int) -> str:
+        key = (n, form[n])
+        if key not in pieces:
+            pieces[key] = _turn_text(runs[n], form[n])
+        return pieces[key]
 
-    kept = set(numbers)
-    steps: dict[int, set[int]] = {}
-    text = render(kept)
-    if len(text) > budget_chars:
-        essential = {numbers[0], numbers[-1], focus}
-        kept = essential | {n for n in numbers if turns[n].failed}
-        if len(render(kept)) > budget_chars:
-            kept = set(essential)
-        for n in reversed(numbers):  # the last turns, as many as fit
-            if n in kept:
+    def render() -> str:
+        reduced = sum(f != 'full' for f in form.values())
+        parts = [header, f'Instructions ({len(instructions)} chars):\n{shown_instructions[0]}']
+        if reduced:
+            parts.append(f'[{reduced} turns shortened or left out; record_turn(n) reads one in full]')
+        dropped: list[Run] = []
+        for n in numbers:
+            if form[n] == 'dropped':
+                dropped.append(runs[n])
                 continue
-            if len(render(kept | {n})) > budget_chars:
-                break
-            kept.add(n)
-        text = render(kept)
+            if dropped:
+                parts.append(_dropped_line(dropped))
+                dropped = []
+            parts.append(piece(n))
+        if dropped:
+            parts.append(_dropped_line(dropped))
+        return '\n\n'.join([*parts, end])
+
+    actions = [(n, f) for f in FORMS[1:] for n in middle]
+    actions += [(n, f) for f in FORMS[1:] for n in errored]
+    actions += [(n, f) for f in ('steps', 'compact') for n in essential]
+    text = render()
+    for n, f in actions:
+        if len(text) <= budget_chars:
+            break
+        form[n] = f
+        text = render()
     if len(text) > budget_chars:
-        steps = {n: _essential_steps(turns[n]) for n in kept}
-        for n in sorted(kept, key=lambda n: (n != focus, -n)):  # the focus turn first, then the last turns
-            for step in reversed(turns[n].steps):  # its last steps, as many as fit
-                if step.n in steps[n]:
-                    continue
-                if len(render(kept, {**steps, n: steps[n] | {step.n}})) > budget_chars:
-                    break
-                steps[n].add(step.n)
-        text = render(kept, steps)
+        shown_instructions[0] = '(left out: over budget)'
+        text = render()
     truncated = len(text) > budget_chars
-    if truncated:
-        marker = '\n[cut at the budget]'
-        text = text[: budget_chars - len(marker)] + marker
+    if truncated:  # keep the focus and last turns and the end; cut what is before them
+        marker = '\n[… cut at the budget …]\n'
+        tail = '\n\n'.join([*(piece(n) for n in essential[1:]), end])
+        tail = tail[-(budget_chars - len(marker) - 200) :] if len(tail) > budget_chars - len(marker) - 200 else tail
+        text = text[: budget_chars - len(marker) - len(tail)] + marker + tail
     return {
         'format': 'text',
         'text': text,
         'size_chars': len(text),
         'full_chars': record.full_chars,
         'focus_turn': focus,
-        'shortened_turns': [n for n in numbers if n not in kept],
-        'shortened_steps': {
-            str(n): [step.n for step in turns[n].steps if step.n not in kept_steps]
-            for n, kept_steps in steps.items()
-            if len(kept_steps) < len(turns[n].steps)
-        },
+        'reduced': {str(n): f for n, f in form.items() if f != 'full'},
         'truncated': truncated,
     }
 
@@ -821,20 +941,30 @@ class _Arguments(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
-class NoArguments(_Arguments):
+TURN = 'Only this session turn (1 is the first; record_overview lists them); null for all turns.'
+OFFSET = 'Where the page starts (next_offset of the previous page); null for 0.'
+LIMIT = 'The most items on the page; null for as many as fit in the cap.'
+
+
+class PageArguments(_Arguments):
+    offset: int | None = Field(None, ge=0, description=OFFSET)
+    limit: int | None = Field(None, ge=1, le=1_000, description=LIMIT)
+
+
+class OverviewArguments(PageArguments):
     pass
 
 
-TURN = 'Only this session turn (1 is the first; record_overview lists them); null for all turns.'
-
-
-class TimelineArguments(_Arguments):
+class TimelineArguments(PageArguments):
     kinds: list[EventKind] | None = Field(None, description='Only these event kinds; null for all.')
     turn: int | None = Field(None, ge=1, description=TURN)
     tool: str | None = Field(None, max_length=200, description='Only tool calls and results of this tool name.')
+    call_id: str | None = Field(
+        None, max_length=200, description='The events of the expert call or subagent run this call started instead.'
+    )
 
 
-class ToolCallsArguments(_Arguments):
+class ToolCallsArguments(PageArguments):
     turn: int | None = Field(None, ge=1, description=TURN)
     name: str | None = Field(None, max_length=200, description='Only calls of this tool name; null for all.')
     errors_only: bool | None = Field(None, description='true: only the calls whose result was an error.')
@@ -850,16 +980,19 @@ class ToolOutputArguments(_Arguments):
 
 class TurnArguments(_Arguments):
     turn: int = Field(ge=1, description='The session turn number (1 is the first; record_overview lists them).')
+    offset: int | None = Field(None, ge=0, description='The first step on the page, as a step offset; null for 0.')
+    limit: int | None = Field(None, ge=1, le=1_000, description='The most steps on the page; null for as many as fit.')
 
 
 class SearchArguments(_Arguments):
     text: str = Field(min_length=1, max_length=200, description='The text to find (case does not matter).')
     kinds: list[SearchKind] | None = Field(None, description='Only in these kinds of text; null for all.')
     turn: int | None = Field(None, ge=1, description=TURN)
-    max_hits: int | None = Field(None, ge=1, le=50, description='The most hits returned; null for 20.')
+    offset: int | None = Field(None, ge=0, description=OFFSET)
+    max_hits: int | None = Field(None, ge=1, le=50, description='The most hits on the page; null for 20.')
 
 
-class ExpertCallArguments(_Arguments):
+class ExpertCallArguments(PageArguments):
     call_id: str = Field(min_length=1, max_length=200, description='The id of the call that started the nested run.')
 
 
@@ -871,7 +1004,7 @@ class DigestArguments(_Arguments):
         description=f'The most characters the digest may have; null for {DEFAULT_DIGEST_CHARS}.',
     )
     turn: int | None = Field(
-        None, ge=1, description='The turn kept in full whatever the budget; null for the turn of the run looked at.'
+        None, ge=1, description='The turn kept whatever the budget; null for the turn of the run looked at.'
     )
 
 
@@ -891,27 +1024,39 @@ SESSION = (
     " A session is made of turns (turn n: the person's input, everything the agent did, its answer and status); a "
     'turn is made of steps (one model response each: reasoning, messages, tool calls).'
 )
-CAPPED = f' Results are capped at {MAX_CHARS} characters: truncated is true and total_chars gives the full size.'
+PAGED = (
+    f' Paged and capped at {MAX_CHARS} characters: next_offset (null at the end) is the offset of the next page, '
+    'total_items how many there are; truncated is true when the cap cut the page or shortened its content.'
+)
+CAPPED = f' Capped at {MAX_CHARS} characters.'
+
+
+def _page_args(value) -> dict:
+    return {'offset': value.offset or 0, 'limit': value.limit}
+
+
 METHODS: dict[str, Method] = {
     method.name: method
     for method in (
         Method(
             'overview',
             'record_overview',
-            'The session at a glance: its agent, model, status and times, and the turn being looked at (focus_turn); '
-            'one line per turn (input preview, step count, tools called, errors, status, tokens); and totals (tool '
-            'calls by name, errors, tokens, expert calls). Start here.' + SESSION + CAPPED,
-            NoArguments,
-            lambda record, value: record.overview(),
+            'The session at a glance: its agent, model, status and times, the turn being looked at (focus_turn) and '
+            'totals (tool calls by name, errors, tokens of its own model calls, expert calls and nested runs with '
+            'their tokens); then one line per turn (input preview, step count, tools called, errors, status, '
+            'tokens). Start here.' + SESSION + PAGED,
+            OverviewArguments,
+            lambda record, value: record.overview(**_page_args(value)),
         ),
         Method(
             'digest',
             'record_digest',
             'The whole session as compact text within a character budget: the instructions, then per turn its steps '
             '(input, reasoning, messages, tool calls as name(arguments) -> ok/error with the output size; outputs '
-            'are never included), its answer and status. Over budget, the first and last turns, turns with errors '
-            'and the focus turn stay in full and the others are shortened to one line (then middle steps the same '
-            'way); read those with record_turn. Use it to read the session once from start to end.',
+            'are never included), its answer and status, and the end. Over budget, middle turns are shortened first '
+            '(their middle steps, then one line, then left out with a count), errored turns last; the first, last '
+            'and focus turns and the end always stay. The notes in the text say which record_turn or '
+            'record_overview call reads what was left out. Use it to read the session once from start to end.',
             DigestArguments,
             lambda record, value: record.digest(value.budget_chars or DEFAULT_DIGEST_CHARS, value.turn),
         ),
@@ -920,53 +1065,62 @@ METHODS: dict[str, Method] = {
             'record_timeline',
             'The session events in order (input, instructions, reasoning, message, tool_call, tool_result, usage, '
             'error, end), each with its turn and step; tool results give their status and size, not the output. '
-            'Filter by kinds, turn or tool name to follow one part of the session.' + CAPPED,
+            'Filter by kinds, turn or tool name, or give call_id for the events of one expert call.' + PAGED,
             TimelineArguments,
-            lambda record, value: record.timeline(value.kinds, value.turn, value.tool),
+            lambda record, value: record.timeline(
+                value.kinds, value.turn, value.tool, value.call_id, **_page_args(value)
+            ),
         ),
         Method(
             'tool_calls',
             'record_tool_calls',
             'The tool calls of the session: call id, turn, step, tool name, arguments, status (ok, error, or pending '
             'without a result), output size and whether it was an expert call (open it with record_expert_call). '
-            'Filter by turn, tool name or errors only.' + CAPPED,
+            'Filter by turn, tool name or errors only.' + PAGED,
             ToolCallsArguments,
-            lambda record, value: record.tool_calls(value.turn, value.name, bool(value.errors_only)),
+            lambda record, value: record.tool_calls(
+                value.turn, value.name, bool(value.errors_only), **_page_args(value)
+            ),
         ),
         Method(
             'tool_output',
             'record_tool_output',
             "One page of one tool call's output, in any turn and also inside an expert call: the text from offset, "
             'the total size and next_offset (null at the end). Use it when the size or an error says the output '
-            'matters; read further pages with next_offset.',
+            'matters; read further pages with next_offset.' + CAPPED,
             ToolOutputArguments,
             lambda record, value: record.tool_output(value.call_id, value.offset or 0, value.max_chars or OUTPUT_PAGE),
         ),
         Method(
             'turn',
             'record_turn',
-            'One session turn in full: its status, answer and steps, each step with its inputs, reasoning, '
+            'One session turn in full: its status and answer, then its steps, each with its inputs, reasoning, '
             'messages, tool calls with arguments and status (outputs as their size, with a short error text for a '
-            'failed call), errors, usage and end. Use it for a turn the digest shortened or one with errors.' + CAPPED,
+            'failed call), errors, usage and end. offset is a step offset: a long turn is read page by page. Use it '
+            'for a turn the digest shortened or one with errors.' + PAGED,
             TurnArguments,
-            lambda record, value: record.turn(value.turn),
+            lambda record, value: record.turn(value.turn, value.offset or 0, value.limit),
         ),
         Method(
             'search',
             'record_search',
             'Find text in the session (messages, inputs, reasoning, tool arguments, tool outputs and errors, expert '
             'calls included), case-insensitive: per hit its kind, turn, step, call id (in_call: the expert call it '
-            'is inside) and a snippet around it. Use it to find where something was said or returned.' + CAPPED,
+            'is inside) and a snippet around it; total_hits counts them all. Use it to find where something was '
+            'said or returned.' + PAGED,
             SearchArguments,
-            lambda record, value: record.search(value.text, value.kinds, value.turn, value.max_hits or 20),
+            lambda record, value: record.search(
+                value.text, value.kinds, value.turn, value.offset or 0, value.max_hits or 20
+            ),
         ),
         Method(
             'expert_call',
             'record_expert_call',
-            "One expert call (or subagent run) started by a tool call: the call, the nested run's overview (one line "
-            'per step) and its timeline. Read its tool outputs with record_tool_output.' + CAPPED,
+            'One expert call (or subagent run) started by a tool call: the call, the nested run (agent, status, '
+            'answer) with its totals, and one line per step of it. Its events: record_timeline with call_id; its '
+            'tool outputs: record_tool_output.' + PAGED,
             ExpertCallArguments,
-            lambda record, value: record.expert_call(value.call_id),
+            lambda record, value: record.expert_call(value.call_id, **_page_args(value)),
         ),
     )
 }

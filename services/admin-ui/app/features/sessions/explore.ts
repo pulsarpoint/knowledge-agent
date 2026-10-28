@@ -33,9 +33,9 @@ export interface DigestResult {
   size_chars: number;
   full_chars: number;
   focus_turn: number;
-  shortened_turns: number[];
-  /** Per turn kept in full, the steps shortened to one line. */
-  shortened_steps: Record<string, number[]>;
+  /** The turns not shown in full, by number: steps | compact | line | dropped. */
+  reduced: Record<string, string>;
+  truncated: boolean;
 }
 
 const explore = (runKey: string) => `/api/agent-runs/${encodeURIComponent(runKey)}/explore`;

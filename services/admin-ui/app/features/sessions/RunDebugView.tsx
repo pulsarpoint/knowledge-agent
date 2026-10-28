@@ -20,10 +20,11 @@ import {
 
 const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 const number = (value: number) => value.toLocaleString("en-US");
-const CALL_ID = /("call_id": ")([^"]+)(")/g;
+const CALL_ID = /("(call_id|in_call)": ")([^"]+)(")/g;
 
-/** Pretty JSON where each call id is a button that opens it in tool_output. */
-function ResultJson({ value, onCall }: { value: unknown; onCall: (callId: string) => void }) {
+/** Pretty JSON where each call id is a button: a call_id opens its output (tool_output), an in_call (the expert call
+ * a search hit is inside) opens that expert call (expert_call). */
+function ResultJson({ value, onCall }: { value: unknown; onCall: (callId: string, key: string) => void }) {
   const text = JSON.stringify(value, null, 2);
   const parts: ReactNode[] = [];
   let last = 0;
@@ -35,13 +36,13 @@ function ResultJson({ value, onCall }: { value: unknown; onCall: (callId: string
         key={start}
         type="button"
         className="underline"
-        title="Open this call's output"
-        onClick={() => onCall(match[2])}
+        title={match[2] === "in_call" ? "Open this expert call" : "Open this call's output"}
+        onClick={() => onCall(match[3], match[2])}
       >
-        {match[2]}
+        {match[3]}
       </button>,
     );
-    last = start + match[2].length;
+    last = start + match[3].length;
   }
   parts.push(text.slice(last));
   return (
@@ -131,6 +132,7 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
   const [methods, setMethods] = useState<ExploreMethod[] | null>(null);
   const [session, setSession] = useState<{ id: string | null; turn: number }>({ id: null, turn: 1 });
   const [digest, setDigest] = useState<ExploreResult | null>(null);
+  const [digestError, setDigestError] = useState("");
   const [name, setName] = useState("overview");
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [result, setResult] = useState<{ method: string; value: ExploreResult } | null>(null);
@@ -148,7 +150,7 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
       .catch((e) => !controller.signal.aborted && setError(message(e, "Could not load the explorer.")));
     runExplore(runKey, "digest", {}, controller.signal)
       .then((data) => !controller.signal.aborted && setDigest(data))
-      .catch(() => {});
+      .catch((e) => !controller.signal.aborted && setDigestError(message(e, "Could not build the digest.")));
     return () => controller.abort();
   }, [runKey]);
 
@@ -164,6 +166,7 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
   const pick = (next: string, nextValues: Record<string, unknown> = {}) => {
     const properties = methods.find((item) => item.method === next)?.parameters.properties ?? {};
     setName(next);
+    setResult(null);
     // the run's own turn is preselected wherever a method takes a turn
     setValues(
       "turn" in properties && nextValues.turn === undefined
@@ -172,13 +175,13 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
     );
     setError("");
   };
-  const run = async () => {
+  const run = async (runValues: Record<string, unknown> = values) => {
     setRunning(true);
     setError("");
     try {
       setResult({
         method: method.method,
-        value: await runExplore(runKey, method.method, formArgs(method.parameters, values)),
+        value: await runExplore(runKey, method.method, formArgs(method.parameters, runValues)),
       });
     } catch (e) {
       setError(message(e, "The method failed."));
@@ -188,11 +191,18 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
   };
   const digestValue = digest?.result as DigestResult | undefined;
   const shown = result?.value.result as DigestResult | undefined;
+  // a paged result: where its next page starts (null or absent: nothing after it)
+  const nextOffset = (result?.value.result as { next_offset?: number | null } | undefined)?.next_offset;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         Exploring {session.id ? `session ${session.id}` : "this run"}: every turn; this run is turn {session.turn}.
       </p>
+      {digestError && (
+        <Alert>
+          <AlertDescription>Digest unavailable: {digestError}</AlertDescription>
+        </Alert>
+      )}
       {digestValue && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
           <span className="font-medium">Digest</span>
@@ -200,8 +210,8 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
             {number(digestValue.size_chars)} chars of {number(digestValue.full_chars)} in the full session (
             {Math.round((100 * digestValue.size_chars) / Math.max(1, digestValue.full_chars))}%) · ~
             {number(digest!.approx_tokens)} tokens
-            {digestValue.shortened_turns.length > 0 && ` · ${digestValue.shortened_turns.length} turns shortened`}
-            {Object.keys(digestValue.shortened_steps ?? {}).length > 0 && " · steps shortened"}
+            {Object.keys(digestValue.reduced).length > 0 &&
+              ` · ${Object.keys(digestValue.reduced).length} turns shortened or left out`}
           </span>
           <Button
             variant="outline"
@@ -243,7 +253,7 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
             onChange={(value) => setValues((current) => ({ ...current, [field]: value }))}
           />
         ))}
-        <Button className="self-start" onClick={run} disabled={running}>
+        <Button className="self-start" onClick={() => run()} disabled={running}>
           Run
         </Button>
         <details>
@@ -273,7 +283,25 @@ export default function RunDebugView({ runKey }: { runKey: string }) {
           {result.method === "digest" && typeof shown?.text === "string" ? (
             <Block>{shown.text}</Block>
           ) : (
-            <ResultJson value={result.value.result} onCall={(callId) => pick("tool_output", { call_id: callId })} />
+            <ResultJson
+              value={result.value.result}
+              onCall={(callId, key) => pick(key === "in_call" ? "expert_call" : "tool_output", { call_id: callId })}
+            />
+          )}
+          {typeof nextOffset === "number" && "offset" in (method.parameters.properties ?? {}) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-start"
+              disabled={running}
+              onClick={() => {
+                const next = { ...values, offset: String(nextOffset) };
+                setValues(next);
+                run(next);
+              }}
+            >
+              Next page (offset {nextOffset})
+            </Button>
           )}
         </div>
       )}

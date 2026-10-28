@@ -218,14 +218,15 @@ def test_overview_has_a_line_per_turn(record):
     assert session['status'] == 'failed' and session['started_at'] == (T0 + timedelta(seconds=1)).isoformat()
     lines = result['turns']
     assert [(t['turn'], t['steps'], t['status']) for t in lines] == [(1, 3, 'completed'), (2, 1, 'failed')]
-    assert lines[0]['tools'] == ['read_file', 'ask_payments', 'shell_run'] and lines[0]['tokens'] == 690
+    assert lines[0]['tools'] == {'read_file': 1, 'ask_payments': 1, 'shell_run': 1} and lines[0]['tokens'] == 690
     assert lines[1]['input'] == 'Now write the release notes' and lines[1]['errors'] == 1
     totals = result['totals']
     assert totals['turns'] == 2 and totals['steps'] == 4
     assert totals['tool_calls'] == {'read_file': 2, 'ask_payments': 1, 'shell_run': 1}
-    assert totals['tool_errors'] == 1 and totals['errors'] == 1 and totals['expert_calls'] == 1
-    assert totals['tokens'] == 750 and totals['expert_tokens'] == 87
-    assert result['truncated'] is False and result['total_chars'] > 0
+    assert totals['tool_errors'] == 1 and totals['errors'] == 1
+    assert totals['expert_calls'] == 1 and totals['nested_runs'] == 1
+    assert totals['tokens'] == 750 and totals['nested_tokens'] == 87
+    assert result['truncated'] is False and result['total_chars'] > 0 and result['next_offset'] is None
 
 
 def test_timeline_filters_and_omits_outputs(record):
@@ -328,10 +329,11 @@ def test_search_across_turns(record):
 def test_expert_call(record):
     result = record.expert_call('e1')
     assert result['call_id'] == 'e1' and result['status'] == 'ok' and result['turn'] == 1
-    overview = result['overview']
-    assert overview['run']['agent'] == 'Payments' and overview['totals']['expert_calls'] == 1
-    assert [line['step'] for line in overview['steps']] == [1, 2]
-    assert [e['kind'] for e in result['timeline']][:2] == ['input', 'tool_call']
+    assert result['run']['agent'] == 'Payments' and result['run']['answer'] == 'Payments map done'
+    assert result['totals']['nested_runs'] == 1 and result['totals']['expert_calls'] == 0
+    assert [line['step'] for line in result['steps']] == [1, 2]
+    events = record.timeline(call_id='e1')['events']
+    assert [e['kind'] for e in events][:2] == ['input', 'tool_call'] and {e.get('call_id') for e in events} >= {'x1'}
     with pytest.raises(ValueError, match='call_id: c1 is not an expert call'):
         record.expert_call('c1')
 
@@ -360,60 +362,7 @@ def test_digest_has_the_compressed_session(record):
     assert 'I should read the changelog.' in text and 'Answer: Release plan' in text
     assert 'error: TimeoutError' in text and text.endswith('End: failed')
     assert 'v1.2: retries' not in text  # outputs are never included
-    assert result['shortened_turns'] == [] and result['shortened_steps'] == {}
-
-
-def long_session(turns=20, error_turn=7):
-    rows = []
-    for n in range(1, turns + 1):
-        output = 'An error occurred while running the tool. boom' if n == error_turn else 'ok'
-        rows += rows_of(
-            ('start', {'kind': 'chat_session', 'title': 't', 'agent': 'Lead', 'turn': n}),
-            ('input', {'task': f'question {n} ' + 'q' * 200}),
-            ('message', {'text': f'answer {n} ' + 'x' * 300}),
-            ('tool_call', {'name': 'read_file', 'call_id': f'c{n}', 'arguments': {'path': f'f{n}'}}),
-            ('usage', {'total_tokens': 10}),
-            ('tool_result', {'name': 'read_file', 'call_id': f'c{n}', 'output': output}),
-            ('message', {'text': f'final {n}'}),
-            ('usage', {'total_tokens': 10}),
-            ('end', {'status': 'completed'}),
-            run_key=f'cc:long:{n}',
-            at=n * 100,
-        )
-    return rows
-
-
-def test_digest_keeps_first_last_error_and_focus_turns_over_budget():
-    record = build(long_session(), run_key='cc:long:10')
-    result = record.digest(budget_chars=9000)
-    text = result['text']
-    assert result['size_chars'] <= 9000 and result['focus_turn'] == 10
-    shortened = result['shortened_turns']
-    assert shortened and not {1, 7, 10, 20} & set(shortened)
-    assert f'{len(shortened)} turns shortened; use turn(n)' in text
-    assert 'answer 1 ' in text and 'answer 7 ' in text and 'answer 10 ' in text and 'answer 20 ' in text
-    assert f'Turn {shortened[0]}: ' in text and 'answer 3 ' not in text
-    # another focus turn stays in full instead
-    assert 4 not in record.digest(budget_chars=9000, turn=4)['shortened_turns']
-    assert record.digest(budget_chars=100_000)['shortened_turns'] == []
-
-
-def test_digest_shortens_middle_steps_of_a_long_turn():
-    events = [('start', {'kind': 'chat_session', 'title': 't', 'agent': 'Lead'}), ('input', {'task': 'go'})]
-    for n in range(1, 31):
-        events.append(('message', {'text': f'step {n} ' + 'x' * 300}))
-        events.append(('tool_call', {'name': 'read_file', 'call_id': f'c{n}', 'arguments': {'path': f'f{n}'}}))
-        events.append(('usage', {'total_tokens': 10}))
-        output = 'An error occurred while running the tool. boom' if n == 12 else 'ok'
-        events.append(('tool_result', {'name': 'read_file', 'call_id': f'c{n}', 'output': output}))
-    events += [('message', {'text': 'done'}), ('usage', {'total_tokens': 10}), ('end', {'status': 'completed'})]
-    record = build(rows_of(*events, run_key='cc:one:1'), run_key='cc:one:1')
-    result = record.digest(budget_chars=4000)
-    assert result['size_chars'] <= 4000 and result['shortened_turns'] == []
-    steps = result['shortened_steps']['1']
-    assert steps and not {1, 12, 31} & set(steps)
-    assert f'{len(steps)} steps shortened; use turn(1)' in result['text']
-    assert f'Step {steps[0]}: read_file -> ok' in result['text'] and 'step 12 ' in result['text']
+    assert result['reduced'] == {} and result['truncated'] is False
 
 
 # --- the shared method table: tools and API ---------------------------------------------------------------------------
@@ -534,8 +483,202 @@ def test_load_from_a_run_key_or_a_session_id(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         by_key = explorer.SessionRecord.load(conn, project, 'cc:s1:1')
-        by_id = explorer.SessionRecord.load(conn, project, 's1')
-        with pytest.raises(RunNotFound):
-            explorer.SessionRecord.load(conn, project, 'nobody')
+        by_id = explorer.SessionRecord.load_session(conn, project, 's1')
+        for key in ('nobody', 's1', 'cc:s1:9'):  # load takes run keys of this workspace only
+            with pytest.raises(RunNotFound):
+                explorer.SessionRecord.load(conn, project, key)
     assert [t.run_key for t in by_key.turns] == [t.run_key for t in by_id.turns] == ['cc:s1:1', 'cc:s1:2']
     assert (by_key.focus_turn, by_id.focus_turn, by_id.run_key) == (1, 2, 'cc:s1:2')
+
+
+# --- big sessions: hard caps, paging and the digest ---------------------------------------------------------------
+
+
+def big_session(turns=100, steps=1, calls=1, errors=(), message='x' * 300, arguments=None):
+    """`turns` session turns of `steps` steps with `calls` tool calls each; a turn in `errors` fails its last call."""
+    rows = []
+    for n in range(1, turns + 1):
+        events = [('start', {'kind': 'chat_session', 'title': 'Big', 'agent': 'Lead', 'turn': n})]
+        events.append(('input', {'task': f'question {n} ' + 'q' * 150}))
+        for step in range(1, steps + 1):
+            events.append(('message', {'text': f'turn {n} step {step} {message}'}))
+            ids = [f't{n}s{step}c{i}' for i in range(calls)]
+            for call_id in ids:
+                events.append(
+                    ('tool_call', {'name': 'read_file', 'call_id': call_id, 'arguments': arguments or {'p': call_id}})
+                )
+            events.append(('usage', {'total_tokens': 10}))
+            for call_id in ids:
+                failed = n in errors and step == steps and call_id == ids[-1]
+                output = 'An error occurred while running the tool. boom' if failed else 'ok ' * 20
+                events.append(('tool_result', {'name': 'read_file', 'call_id': call_id, 'output': output}))
+        events += [('message', {'text': f'final answer {n}'}), ('usage', {'total_tokens': 5})]
+        events.append(('end', {'status': 'completed'}))
+        rows += rows_of(*events, run_key=f'cc:big:{n}', at=n * 10_000)
+    return rows
+
+
+def fits(result):
+    assert len(json.dumps(result, ensure_ascii=False)) <= explorer.MAX_CHARS
+    return result
+
+
+def follow(page, key, **args):
+    """Every item of a paged method, page after page."""
+    items, offset = [], 0
+    while offset is not None:
+        result = fits(page(offset=offset, **args))
+        items += result[key]
+        offset = result['next_offset']
+    return items
+
+
+def test_every_method_stays_under_the_cap_on_a_big_session():
+    record = build(big_session(turns=300, steps=3, calls=3), run_key='cc:big:150')
+    for name, args in [
+        ('overview', {}),
+        ('timeline', {}),
+        ('tool_calls', {}),
+        ('turn', {'turn': 150}),
+        ('search', {'text': 'turn'}),
+        ('tool_output', {'call_id': 't1s1c0'}),
+    ]:
+        fits(call(record, name, args))
+    overview = record.overview()
+    assert overview['truncated'] is True and overview['next_offset'] is not None
+    assert overview['total_items'] == 300 and overview['totals']['turns'] == 300
+    assert [line['turn'] for line in follow(record.overview, 'turns')] == list(range(1, 301))
+
+
+def test_nested_lists_are_capped_too():
+    one_step = build(big_session(turns=1, calls=800), run_key='cc:big:1')
+    result = fits(one_step.turn(1))
+    assert result['truncated'] is True and len(result['steps']) == 1
+    assert len(follow(one_step.tool_calls, 'tool_calls')) == 800  # every call can still be read, page by page
+    huge = build(big_session(turns=1, calls=3, arguments={'rows': ['r' * 50] * 2000}), run_key='cc:big:1')
+    assert fits(huge.tool_calls())['truncated'] is True
+    noisy = build(
+        rows_of(
+            ('tool_call', {'name': 'x', 'call_id': 'c', 'arguments': {}}),
+            ('tool_result', {'name': 'x', 'call_id': 'c', 'output': '\x01' * 20_000}),
+            run_key='cc:n:1',
+        ),
+        run_key='cc:n:1',
+    )
+    page = fits(noisy.tool_output('c', max_chars=20_000))
+    assert page['next_offset'] == len(page['text']) < 20_000
+
+
+def test_a_big_expert_call_is_capped_and_paged():
+    events = [('input', {'task': 'go'}), ('tool_call', {'name': 'ask_payments', 'call_id': 'e1', 'arguments': {}})]
+    events.append(('usage', {'total_tokens': 1}))
+    events.append(('input', {'task': 'deep', 'expert': EXPERT, 'parent_call_id': 'e1'}, 'payments'))
+    for n in range(2000):
+        events.append(('message', {'text': f'expert step {n} ' + 'y' * 100, 'parent_call_id': 'e1'}, 'payments'))
+        events.append(('usage', {'total_tokens': 1, 'parent_call_id': 'e1'}, 'payments'))
+    events += [
+        ('tool_result', {'name': 'ask_payments', 'call_id': 'e1', 'output': 'done'}),
+        ('end', {'status': 'completed'}),
+    ]
+    record = build(rows_of(*events, run_key='cc:e:1'), run_key='cc:e:1')
+    result = fits(record.expert_call('e1'))
+    assert result['truncated'] is True and result['next_offset'] is not None and result['total_items'] == 2000
+    assert len(follow(record.expert_call, 'steps', call_id='e1')) == 2000
+    assert len(follow(record.timeline, 'events', call_id='e1')) == 4001
+
+
+def test_a_long_turn_is_read_page_by_page():
+    record = build(big_session(turns=1, steps=300), run_key='cc:big:1')
+    steps = follow(record.turn, 'steps', n=1)
+    assert [step['step'] for step in steps] == list(range(1, 302))  # 300 steps and the answer's
+    page = record.turn(1, offset=100, limit=5)
+    assert [step['step'] for step in page['steps']] == [101, 102, 103, 104, 105] and page['next_offset'] == 105
+    assert page['truncated'] is False
+
+
+@pytest.mark.parametrize('turns', [85, 200])
+def test_the_digest_keeps_the_last_and_focus_turns_and_the_end(turns):
+    record = build(big_session(turns=turns, errors={40}), run_key='cc:big:60')
+    result = record.digest(budget_chars=16_000)
+    text = result['text']
+    assert result['size_chars'] <= 16_000 and result['truncated'] is False
+    assert f'## Turn {turns} (cc:big:{turns})' in text and '## Turn 60 (cc:big:60)' in text
+    assert '## Turn 1 (cc:big:1)' in text and text.endswith('End: completed')
+    assert '[Turns ' in text and 'record_overview(offset=' in text
+    assert result['reduced'].get('40') != 'dropped'  # errored turns go last
+    assert all(result['reduced'].get(str(n)) == 'dropped' for n in range(2, 15))  # the oldest middle turns first
+
+
+def test_the_digest_shortens_middle_steps_before_anything_else():
+    record = build(big_session(turns=30, steps=5, errors={10}), run_key='cc:big:30')
+    full = record.digest(budget_chars=100_000)['size_chars']
+    result = record.digest(budget_chars=int(full * 0.85))
+    assert result['size_chars'] <= int(full * 0.85) and result['reduced']
+    assert set(result['reduced'].values()) == {'steps'}
+    assert not {'1', '10', '30'} & set(result['reduced'])
+
+
+def test_the_digest_of_a_very_long_turn_says_how_to_read_it():
+    record = build(big_session(turns=1, steps=2000), run_key='cc:big:1')
+    result = record.digest(budget_chars=16_000)
+    text = result['text']
+    assert result['size_chars'] <= 16_000 and result['reduced'] == {'1': 'compact'}
+    assert 'record_turn(turn=1, offset=1)' in text and text.endswith('End: completed')
+    assert record.turn(1, offset=1, limit=1)['steps'][0]['step'] == 2
+
+
+# --- minor rules --------------------------------------------------------------------------------------------------
+
+
+def test_a_failed_retry_does_not_keep_the_first_attempts_answer():
+    rows = rows_of(
+        ('input', {'task': 'go'}),
+        ('message', {'text': 'half an answer'}),
+        ('usage', {'total_tokens': 1}),
+        ('error', {'type': 'RateLimitError', 'message': 'slow'}),
+        ('end', {'status': 'retrying'}),
+        ('input', {'task': 'go', 'retry': True}),
+        ('error', {'type': 'RateLimitError', 'message': 'slow'}),
+        ('end', {'status': 'failed'}),
+        run_key='cc:r:1',
+    )
+    assert build(rows, run_key='cc:r:1').turns[0].answer == ''
+
+
+def test_a_call_id_repeated_inside_its_own_nested_run_does_not_loop():
+    rows = rows_of(
+        ('tool_call', {'name': 'ask_x', 'call_id': 'e1', 'arguments': {}}),
+        ('tool_call', {'name': 'ask_x', 'call_id': 'e1', 'arguments': {}, 'parent_call_id': 'e1'}, 'x'),
+        run_key='cc:loop:1',
+    )
+    record = build(rows, run_key='cc:loop:1')
+    assert record.expert_call('e1')['total_items'] == 1
+
+
+def test_secret_keys_are_redacted_too():
+    rows = rows_of(('tool_call', {'name': 'x', 'call_id': 'c', 'arguments': {SECRET: 1}}), run_key='cc:k:1')
+    assert SECRET not in json.dumps(build(rows, run_key='cc:k:1', secrets=[SECRET]).tool_calls())
+
+
+def test_api_refuses_a_bare_session_id(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed(store)
+    assert client.get('/api/agent-runs/s1/explore', headers=HEADERS).status_code == 404
+    response = client.post('/api/agent-runs/s1/explore', headers=HEADERS, json={'method': 'overview'})
+    assert response.status_code == 404
+
+
+def test_api_redacts_with_the_sessions_pinned_secrets(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    seed(store)
+    asked = []
+
+    def pinned(conn, store_, project, session_id):
+        asked.append(session_id)
+        return ['Payments map done']
+
+    monkeypatch.setattr(explorer, 'session_secrets', pinned)
+    body = client.post(
+        '/api/agent-runs/cc:s1:1/explore', headers=HEADERS, json={'method': 'tool_output', 'args': {'call_id': 'e1'}}
+    ).json()
+    assert body['result']['text'] == '[redacted]' and asked == ['s1']

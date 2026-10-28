@@ -43,8 +43,33 @@ const methods: ExploreMethod[] = [
     description: "The tool calls.",
     parameters: {
       type: "object",
-      properties: { errors_only: { anyOf: [{ type: "boolean" }, { type: "null" }], description: "Only errors." } },
-      required: ["errors_only"],
+      properties: {
+        errors_only: { anyOf: [{ type: "boolean" }, { type: "null" }], description: "Only errors." },
+        offset: { anyOf: [{ type: "integer", minimum: 0 }, { type: "null" }], description: "Where the page starts." },
+      },
+      required: ["errors_only", "offset"],
+      additionalProperties: false,
+    },
+  },
+  {
+    method: "search",
+    tool: "record_search",
+    description: "Find text.",
+    parameters: {
+      type: "object",
+      properties: { text: { type: "string", description: "The text." } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    method: "expert_call",
+    tool: "record_expert_call",
+    description: "One expert call.",
+    parameters: {
+      type: "object",
+      properties: { call_id: { type: "string", description: "The call." } },
+      required: ["call_id"],
       additionalProperties: false,
     },
   },
@@ -90,15 +115,28 @@ function stubFetch(posted: { method: string; args: Record<string, unknown> }[] =
             text: "Session s1 digest",
             size_chars: 2000,
             full_chars: 50000,
-            shortened_turns: [],
+            focus_turn: 2,
+            reduced: { "3": "line" },
+            truncated: false,
           },
           size_chars: 2100,
           approx_tokens: 525,
         });
       if (body.method === "timeline" && body.args.turn === 99)
         return json({ error: { message: "turn: there is no turn 99; the session has turns 1, 2." } }, 400);
+      if (body.method === "search")
+        return json({
+          result: { hits: [{ kind: "tool_result", call_id: "x1", in_call: "e1" }], next_offset: null },
+          size_chars: 90,
+          approx_tokens: 23,
+        });
+      const offset = Number(body.args.offset ?? 0);
       return json({
-        result: { tool_calls: [{ call_id: "c1", name: "read_file", status: "ok" }], truncated: false },
+        result: {
+          tool_calls: [{ call_id: offset ? "c2" : "c1", name: "read_file", status: "ok" }],
+          next_offset: offset ? null : 1,
+          truncated: false,
+        },
         size_chars: 120,
         approx_tokens: 30,
       });
@@ -179,6 +217,7 @@ test("a call id in a result fills the tool_output form", async () => {
   await userEvent.click(screen.getByRole("checkbox", { name: "errors_only" }));
   await userEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(posted.at(-1)).toEqual({ method: "tool_calls", args: { errors_only: true } }));
+  expect(await screen.findByRole("button", { name: /Next page/ })).toBeInTheDocument();
   await userEvent.click(await screen.findByRole("button", { name: "c1" }));
   expect(screen.getByRole("combobox", { name: "Method" })).toHaveTextContent("tool_output");
   expect(screen.getByRole("textbox", { name: "call_id" })).toHaveValue("c1");
@@ -192,4 +231,50 @@ test("the digest result shows as text", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Show digest" }));
   expect(await screen.findByText("Session s1 digest")).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Method" })).toHaveTextContent("digest");
+});
+
+test("Next page asks for the next offset", async () => {
+  const posted: { method: string; args: Record<string, unknown> }[] = [];
+  stubFetch(posted);
+  renderRoutes(routes, "/activity/runs/cc%3As1%3A1/debug");
+  await userEvent.click(await screen.findByRole("combobox", { name: "Method" }));
+  await userEvent.click(await screen.findByRole("option", { name: "tool_calls" }));
+  await userEvent.click(screen.getByRole("button", { name: "Run" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Next page (offset 1)" }));
+  await waitFor(() => expect(posted.at(-1)).toEqual({ method: "tool_calls", args: { offset: 1 } }));
+  expect(await screen.findByRole("button", { name: "c2" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Next page/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("spinbutton", { name: "offset" })).toHaveValue(1);
+});
+
+test("an in_call in a search hit opens that expert call", async () => {
+  stubFetch();
+  renderRoutes(routes, "/activity/runs/cc%3As1%3A1/debug");
+  await userEvent.click(await screen.findByRole("combobox", { name: "Method" }));
+  await userEvent.click(await screen.findByRole("option", { name: "search" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "text" }), "boom");
+  await userEvent.click(screen.getByRole("button", { name: "Run" }));
+  await userEvent.click(await screen.findByRole("button", { name: "e1" }));
+  expect(screen.getByRole("combobox", { name: "Method" })).toHaveTextContent("expert_call");
+  expect(screen.getByRole("textbox", { name: "call_id" })).toHaveValue("e1");
+});
+
+test("a failed digest says so", async () => {
+  const fetchMock = stubFetch();
+  const answer = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    init?.method === "POST" && JSON.parse(String(init.body)).method === "digest"
+      ? json({ error: { message: "Run record not found." } }, 404)
+      : answer(url, init),
+  );
+  renderRoutes(routes, "/activity/runs/cc%3As1%3A1/debug");
+  expect(await screen.findByText(/Digest unavailable: Run record not found/)).toBeInTheDocument();
+});
+
+test("the Record link keeps an expert call's ?call=", async () => {
+  stubFetch();
+  renderRoutes(routes, "/activity/runs/cc%3As1%3A1?call=e1");
+  const nav = screen.getByRole("navigation", { name: "Run record sections" });
+  expect(within(nav).getByRole("link", { name: "Record" })).toHaveAttribute("href", "/activity/runs/cc:s1:1?call=e1");
+  expect(within(nav).getByRole("link", { name: "Debug" })).toHaveAttribute("href", "/activity/runs/cc:s1:1/debug");
 });

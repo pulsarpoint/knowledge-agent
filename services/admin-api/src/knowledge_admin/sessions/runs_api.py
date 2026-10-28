@@ -9,7 +9,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from knowledge_admin.agents.runner import known_secrets
 from knowledge_admin.db import storage
 from knowledge_admin.http_errors import validation_text
 from knowledge_admin.sessions import explorer
@@ -82,19 +81,11 @@ class ExploreInput(BaseModel):
 
 
 def explored(conn, store, project, run_key: str) -> explorer.SessionRecord:
-    """The explorer record of the run's whole session (every turn `cc:<session>:<n>`; a run outside a session alone),
-    in this workspace: whoever may read the run record reads its session's (admin, same workspace; 404 like the record).
-    Redacted as the session Debug tab is: with the secrets the session's pinned configuration references."""
-    match = explorer.SESSION_KEY.fullmatch(run_key)
-    pinned = (
-        conn.execute(
-            'SELECT agent_config FROM ka.agent_sessions WHERE project_id=%s AND id::text=%s',
-            (project, match.group(1)),
-        ).fetchone()
-        if match
-        else None
-    )
-    secrets = known_secrets(store, pinned['agent_config']) if pinned and pinned['agent_config'] else []
+    """The explorer record of the run's whole session (every turn `cc:<session>:<n>`; a run outside a session alone).
+    Run keys only, as the run record: whoever may read the run record reads its session's (admin, a record of that run
+    key in this workspace; 404 otherwise). Redacted again with the session's pinned secrets, as the session Debug tab."""
+    session_id, _ = explorer.session_of(run_key)
+    secrets = explorer.session_secrets(conn, store, project, session_id)
     try:
         return explorer.SessionRecord.load(conn, project, run_key, secrets)
     except explorer.RunNotFound:
@@ -201,10 +192,16 @@ def build_api(app_name: str, store) -> APIRouter:
     @router.get('/{run_key}/explore')
     def explore_methods(run_key: str):
         """The explorer's methods exactly as the session reviewer's model gets them (explorer.listing), with the
-        session and the run key's turn (the Debug tab preselects it)."""
+        run's session and turn (the Debug tab preselects it); 404 like the run record."""
         with database().connect() as conn:
-            record = explored(conn, store, store.project(conn, app_name), run_key)
-        return {'methods': explorer.listing(), 'session_id': record.session_id, 'turn': record.focus_turn}
+            found = conn.execute(
+                'SELECT 1 FROM ka.agent_run_events WHERE run_key=%s AND project_id=%s LIMIT 1',
+                (run_key, store.project(conn, app_name)),
+            ).fetchone()
+        if found is None:
+            raise HTTPException(404, 'Run record not found.')
+        session_id, turn = explorer.session_of(run_key)
+        return {'methods': explorer.listing(), 'session_id': session_id, 'turn': turn}
 
     @router.post('/{run_key}/explore')
     def explore(run_key: str, value: ExploreInput):

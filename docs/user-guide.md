@@ -997,7 +997,7 @@ reviewer model gets. The run's own turn is preselected. At the top, the **Digest
 size (how much it compresses; **Show digest** shows it); then pick a **Method** (overview, digest, timeline,
 tool_calls, tool_output, turn, search, expert_call), fill in its arguments and click **Run**. The result shows as JSON
 (the digest as text) with its size in characters and approximate tokens; click a call id in it to open that call's
-output with tool_output. **Tool schema the LLM sees** shows the tool exactly as the model gets it. See
+output with tool_output (an `in_call` opens that expert call), and **Next page** reads the next part of a long result. **Tool schema the LLM sees** shows the tool exactly as the model gets it. See
 [Session explorer](session-explorer.md).
 
 ### 4.15 Schedules
