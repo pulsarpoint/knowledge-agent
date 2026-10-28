@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
-import { Sparkles } from "lucide-react";
-import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
+import { Link, useSearchParams } from "react-router";
+import { MessageSquare, Sparkles } from "lucide-react";
+import { getRunRecord, runPath, toolUsageLine, type RunEvent, type RunRecord } from "./runs";
 import { getSession, isWorking, type SessionDetail } from "./api";
 import { reviewReason, sessionOfRunKey } from "./reviews";
-import ReviewSheet from "./ReviewSheet";
+import ReviewSheet, { useReviewParam } from "./ReviewSheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -99,13 +99,13 @@ function Event({ event }: { event: RunEvent }) {
 const REVIEW_POLL_MS = 5000; // how often a working session's status is loaded again
 
 /** Improve agent on a run of a session (`cc:` keys; none for a run outside a session): the review chat (ReviewSheet)
- * on this run's key; disabled with the reason while the session works (its status is loaded again every 5 s until it
+ * on this run's key, open while the URL has `?review=`; disabled with the reason while the session works (its status is loaded again every 5 s until it
  * finishes) or when it is not a saved agent's chat or event run (the API refuses those with the same texts). */
 function ImproveAgent({ runKey }: { runKey: string }) {
   const sessionId = sessionOfRunKey(runKey);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [failed, setFailed] = useState(false);
-  const [open, setOpen] = useState(false);
+  const setReview = useReviewParam()[1];
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!isWorking(session?.status)) return;
@@ -135,16 +135,29 @@ function ImproveAgent({ runKey }: { runKey: string }) {
         variant="outline"
         disabled={loading || reason !== null}
         title={reason ?? undefined}
-        onClick={() => setOpen(true)}
+        onClick={() => setReview("new")}
       >
         <Sparkles data-icon="inline-start" />
         Improve agent
       </Button>
       {reason && <span className="text-xs text-muted-foreground">{reason}</span>}
-      {session && reason === null && (
-        <ReviewSheet runKey={runKey} agentName={session.agent_name} open={open} onOpenChange={setOpen} />
-      )}
+      {session && reason === null && <ReviewSheet runKey={runKey} agentName={session.agent_name} />}
     </div>
+  );
+}
+
+/** A review session's run: Continue review opens the reviewed run's record with this review in its sheet (a review
+ * is never reviewed itself, so it has no Improve agent). */
+function ContinueReview({ runKey, reviewOf }: { runKey: string; reviewOf: string }) {
+  const review = sessionOfRunKey(runKey);
+  if (review === null) return null;
+  return (
+    <Button type="button" size="sm" variant="outline" asChild>
+      <Link to={`${runPath(reviewOf)}?${new URLSearchParams({ review })}`}>
+        <MessageSquare data-icon="inline-start" />
+        Continue review
+      </Link>
+    </Button>
   );
 }
 
@@ -180,7 +193,11 @@ export default function RunRecordView({ runKey }: { runKey: string }) {
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <h2 className="min-w-0 break-words text-xl font-semibold">{String(start.title ?? record.run_key)}</h2>
-          <ImproveAgent runKey={record.run_key} />
+          {record.purpose === "review" ? (
+            record.review_of && <ContinueReview runKey={record.run_key} reviewOf={record.review_of} />
+          ) : (
+            <ImproveAgent runKey={record.run_key} />
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Badge variant="secondary">{String(start.kind ?? "run")}</Badge>

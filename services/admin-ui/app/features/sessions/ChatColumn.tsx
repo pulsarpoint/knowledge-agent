@@ -14,7 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
  * another page is refused by the chat itself) and follows the shown one. A resource's page (ResourceChats) and Write
  * with an agent use it. `onSessionChange` reports the shown conversation (null: a new one) whenever its turns or status
  * change; `mention` and `onDocumentWrite` pass through to the chat. Improve agent (ReviewSheet) holds it in a Sheet: `list`
- * replaces the runs list (the session's reviews), `selection` replaces `?chat=` (the Sheet keeps the shown review),
+ * replaces the runs list (the session's reviews), `selection` replaces `?chat=` (the Sheet keeps the shown review in `?review=`),
  * `labels` names the list and New, `startFresh` starts on a new conversation and `inSheet` fills the Sheet. */
 export default function ChatColumn({
   scope,
@@ -37,7 +37,8 @@ export default function ChatColumn({
   settings?: ReturnType<typeof useAgentSettings>;
   filter?: { tag?: string; purpose?: SessionPurpose };
   list?: (signal: AbortSignal) => Promise<RunSummary[]>;
-  selection?: [string | null, (id: string | null) => void];
+  /** The shown review and its setter; `replace` is set when the chat's own run follows (a review just started). */
+  selection?: [string | null, (id: string | null, replace?: boolean) => void];
   labels?: { list: string; empty: string; new: string };
   startFresh?: boolean;
   inSheet?: boolean;
@@ -80,9 +81,9 @@ export default function ChatColumn({
     if (chat !== left) setLeft(null);
   }, [chat]);
 
-  const setChat = (id: string | null) =>
+  const setChat = (id: string | null, follow = false) =>
     selection
-      ? selection[1](id)
+      ? selection[1](id, follow)
       : setParams(
           (current) => {
             const next = new URLSearchParams(current);
@@ -94,7 +95,7 @@ export default function ChatColumn({
         );
   /** The URL follows the chat's run (a reload reopens it). */
   const followRun = (id: string | null) => {
-    if (id !== initialRunId) setChat(id);
+    if (id !== initialRunId) setChat(id, true);
     if (id !== null && !runs?.some((item) => item.id === id)) setListed((n) => n + 1); // a chat just started
   };
   const pick = (id: string) => {

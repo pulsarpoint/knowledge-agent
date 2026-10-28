@@ -172,7 +172,8 @@ test("run types have readable names in the filter and the list", async () => {
   const row = (await screen.findByText("Payments API reference")).closest("tr")!;
   expect(within(row).getByText("Native run")).toBeInTheDocument();
   expect(
-    within((await screen.findByText("Review: Check disk")).closest("tr")!).getByText("Session review"),
+    // a review is labelled with the reviewed agent (its id while the agents are unknown)
+    within((await screen.findByText("Review: Check disk")).closest("tr")!).getByText("Review of search"),
   ).toBeInTheDocument();
   // a run kind without a name shows as is
   expect(within((await screen.findByText("Old session")).closest("tr")!).getByText("retired_kind")).toBeInTheDocument();
@@ -494,4 +495,31 @@ test("an old link's page size that the table does not offer (25) asks for the ne
   expect(runCalls(fetchMock).at(-1)).toBe("/api/agent-runs?page_size=20");
   expect(screen.getByRole("combobox", { name: "Rows per page" })).toHaveTextContent("20");
   expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+});
+
+test("a review run is labelled Review of <agent name>", async () => {
+  const review = {
+    ...runs.runs[0],
+    run_key: "cc:rv1:1",
+    agent_id: "ops",
+    agent: "Session reviewer (Operations)",
+    kind: "review_session",
+    title: "Review: Be shorter",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/agents"
+        ? json({ agents: [{ id: "ops", name: "Operations" }] })
+        : url.startsWith("/api/agent-runs")
+          ? json({ ...runs, runs: [review] })
+          : json({ schedules: [] }),
+    ),
+  );
+  render(
+    <MemoryRouter>
+      <RunsView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("Review of Operations")).toBeInTheDocument();
 });

@@ -33,7 +33,7 @@ import { runPath } from "./runs";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
 import AgentSettingsSheet from "./AgentSettingsSheet";
-import ReviewSheet from "./ReviewSheet";
+import ReviewSheet, { useReviewParam } from "./ReviewSheet";
 import { getReviews, latestRunKey, reviewReason, sessionOfRunKey, startReview } from "./reviews";
 import RunWorkspace from "./RunWorkspace";
 import DebugPanel from "./DebugPanel";
@@ -85,7 +85,7 @@ function writeDraft(key: string | null, text: string) {
  * New chat closes the run; Earlier runs opens another. A changed initialRunId (a run link) opens that run; onRunChange
  * reports the shown run (the page keeps it in the URL). Documents: confirmUnsaved wraps the first message, and
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
- * agents: blockedReason blocks starting a run; Improve agent (a finished run) opens the review chat (ReviewSheet) and
+ * agents: blockedReason blocks starting a run; Improve agent (a finished run) opens the review chat (ReviewSheet, kept in ?review=) and
  * onAgentChanged reports the reviewer's turns (it may have changed the agent). A review (Improve agent): the reviews
  * of one session; ChatColumn lists them and has New review; the first message starts the review (POST …/reviews) and
  * is sent as the person's feedback; no settings (the reviewer is pinned by the API); `inSheet` fills the Sheet instead
@@ -197,7 +197,7 @@ export default function AgentChat({
   const [refused, setRefused] = useState("");
   const [sheet, setSheet] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
-  const [reviewing, setReviewing] = useState(false); // the Improve agent sheet is open
+  const setReview = useReviewParam()[1]; // the Improve agent sheet is open while the URL has ?review=
   const [view, setView] = useState<"conversation" | "debug">("conversation");
   const { notice, clear, stopping, sent } = useSessionNotice(session?.status);
   const fill = useFillViewport<HTMLElement>();
@@ -523,7 +523,7 @@ export default function AgentChat({
                     variant="outline"
                     disabled={cannotReview !== null}
                     title={cannotReview ?? undefined}
-                    onClick={() => setReviewing(true)}
+                    onClick={() => setReview("new")}
                   >
                     <Sparkles data-icon="inline-start" />
                     Improve agent
@@ -617,13 +617,7 @@ export default function AgentChat({
         />
       )}
       {scope.kind === "agent" && session && (
-        <ReviewSheet
-          runKey={latestRunKey(session)}
-          agentName={scope.name}
-          open={reviewing}
-          onOpenChange={setReviewing}
-          onAgentChanged={onAgentChanged}
-        />
+        <ReviewSheet runKey={latestRunKey(session)} agentName={scope.name} onAgentChanged={onAgentChanged} />
       )}
       <AlertDialog open={confirmNew} onOpenChange={setConfirmNew}>
         <AlertDialogContent>

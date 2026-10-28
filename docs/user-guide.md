@@ -734,8 +734,16 @@ review chat (the agent as the reviewer read it); a skill is created disabled; a 
 **Reviews** in the sheet lists the earlier reviews of that session (newest first) to reopen one; **New review**
 starts another. Reviews use the agent's model: an agent without an enabled model is refused with "Select an enabled
 model in this agent’s General tab."; a chat without a saved agent (a document's or a resource's chat) cannot be
-reviewed ("Reviews are for a saved agent's chats and event runs."). Refusals show in the sheet. Review turns are
-listed in Agent runs as **Session review**.
+reviewed ("Reviews are for a saved agent's chats and event runs."), and neither can a review ("Reviews can't be
+reviewed."). Refusals show in the sheet. Review turns are listed in Agent runs as **Review of <agent name>** (the type
+filter calls them **Session review**).
+**The open review is in the link.** Opening the sheet adds `?review=new` to the page's address (the chat's own
+parameters stay); once your first message starts the review it becomes `?review=<review id>`, and picking a review in
+**Reviews** puts that review's id there. Closing the sheet removes it. So a refresh, Back, or a shared link reopens the
+sheet on the same review with its whole conversation (messages, tool calls and results), and you can keep talking to
+the reviewer. A link to a review that is not one of this chat's shows "This review was not found for this chat.
+Showing a new review." and opens a new review instead. A review turn's own record in Agent runs has no Improve agent:
+**Continue review** there opens the reviewed run's record with that review open in the sheet.
 
 **Tools.** Every run gets every tool it has not switched off: under **Advanced** (collapsed below the General fields) in an agent's settings, **Tools** lists the built-in tools by group; an off tool is never offered to that agent, and tools added later are on. In a chat's **Agent settings** (Advanced → Tools) a conversation can switch more tools off, never back on one its agent has off: those show as *Off for this agent* and are locked. What a tool may do follows the run's resources (there are
 no roles): a tool without what it needs refuses (for example `This run has no servers.`). Every agent can read the inventory of its resources
@@ -1007,7 +1015,8 @@ document run turn.
 Records are kept until deleted; only administrators can see them.
 
 A run's page (`/activity/runs/<run key>`) has two tabs. **Record** is the list above, with **Improve agent** beside the
-title for a finished run of a saved agent's chat or event session (4.10; disabled with the reason otherwise). **Debug**
+title for a finished run of a saved agent's chat or event session (4.10; disabled with the reason otherwise); a review
+turn's record shows **Continue review** instead (it opens the reviewed run with the review in its sheet). **Debug**
 (`/activity/runs/<run key>/debug`) queries the run's whole session (all of its turns; a turn is one message and
 everything the agent did for it, a step is one model response in a turn) with the session explorer, the tools a
 reviewer model gets. The run's own turn is preselected. At the top, the **Digest** size against the full session's

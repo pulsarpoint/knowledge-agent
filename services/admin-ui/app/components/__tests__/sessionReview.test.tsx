@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import AgentChatView from "~/features/agents/AgentChatView";
 import { RunRecordIndex } from "~/features/sessions/RunRecordPage";
@@ -69,6 +69,10 @@ const review = (id: string, title: string, turns = 0) =>
     config: { review_of: "cc:r1:1", reviewed_agent_id: "ops" },
   }) as unknown as SessionDetail;
 const fresh = review("rv1", "Review: Check disk");
+const elsewhere = {
+  ...review("rv9", "Review: another chat", 1),
+  config: { review_of: "cc:r2:1", reviewed_agent_id: "ops" },
+} as unknown as SessionDetail;
 const earlier = review("rv0", "Review: Check disk (earlier)", 1);
 const chatEvents = [
   { id: 1, turn: 1, seq: 1, kind: "input", payload: { task: "Check disk" } },
@@ -99,16 +103,21 @@ function serve({
   reviews = [] as SessionDetail[],
   refuse = null as null | { status: number; message: string },
   failSend = false,
-  record = { kind: "chat_session", key: "cc:r1:1" },
+  record = { kind: "chat_session", key: "cc:r1:1" } as {
+    kind: string;
+    key: string;
+    purpose?: string;
+    review_of?: string;
+  },
 }: {
   run?: SessionDetail;
   reviews?: SessionDetail[];
   refuse?: null | { status: number; message: string };
   failSend?: boolean;
-  record?: { kind: string; key: string };
+  record?: { kind: string; key: string; purpose?: string; review_of?: string };
 } = {}) {
   const calls: { key: string; body: any }[] = [];
-  const sessions: Record<string, SessionDetail> = { r1: run, rv1: fresh, rv0: earlier };
+  const sessions: Record<string, SessionDetail> = { r1: run, rv1: fresh, rv0: earlier, rv9: elsewhere };
   const history: Record<string, unknown[]> = { r1: chatEvents, rv1: [], rv0: reviewEvents };
   vi.stubGlobal(
     "fetch",
@@ -123,6 +132,8 @@ function serve({
           run_key: record.key,
           agent_id: "ops",
           user: "admin@test",
+          purpose: record.purpose ?? (record.key.startsWith("cc:") ? "chat" : null),
+          review_of: record.review_of ?? null,
           events: [
             {
               seq: 1,
@@ -154,19 +165,31 @@ function serve({
   );
   return calls;
 }
-const renderChatTab = () =>
+/** The URL's search and how it last changed (PUSH or REPLACE). */
+function Where() {
+  const location = useLocation();
+  return (
+    <output data-testid="where" data-how={useNavigationType()}>
+      {location.search}
+    </output>
+  );
+}
+const where = () => new URLSearchParams(screen.getByTestId("where").textContent ?? "");
+const renderChatTab = (search = "") =>
   render(
-    <MemoryRouter initialEntries={["/agents/ops/chat?session_id=r1"]}>
+    <MemoryRouter initialEntries={[`/agents/ops/chat?session_id=r1${search}`]}>
       <AgentChatView agentId="ops" agentName="Operations" available revision={3} />
+      <Where />
       <Toaster />
     </MemoryRouter>,
   );
-const renderRecord = (key = "cc:r1:1") =>
+const renderRecord = (key = "cc:r1:1", search = "") =>
   render(
-    <MemoryRouter initialEntries={[`/activity/runs/${encodeURIComponent(key)}`]}>
+    <MemoryRouter initialEntries={[`/activity/runs/${encodeURIComponent(key)}${search}`]}>
       <Routes>
         <Route path="/activity/runs/:runKey" element={<RunRecordIndex />} />
       </Routes>
+      <Where />
       <Toaster />
     </MemoryRouter>,
   );
@@ -367,6 +390,110 @@ test("the run record page: a run outside a session has no Improve agent", async 
   serve({ record: { kind: "event_task", key: "task-1" } });
   renderRecord("task-1");
   expect(await screen.findByRole("heading", { name: "Check disk" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Improve agent" })).toBeNull();
+  expect(screen.queryByText(NOT_REVIEWABLE)).toBeNull();
+});
+
+// --- the open review lives in the URL (?review=new | <review session id>) -----------------------------------------
+
+test("Improve agent sets ?review=new (other params kept); the first message turns it into the review's id (replace)", async () => {
+  serve();
+  renderChatTab();
+  const sheet = await openReview();
+  await waitFor(() => expect(where().get("review")).toBe("new"));
+  expect(where().get("session_id")).toBe("r1");
+  fireEvent.change(sheet.getByRole("textbox", { name: "Message" }), { target: { value: "Be shorter" } });
+  await waitFor(() => expect(sheet.getByRole("button", { name: "Send message" })).toBeEnabled());
+  fireEvent.click(sheet.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(where().get("review")).toBe("rv1"));
+  expect(screen.getByTestId("where")).toHaveAttribute("data-how", "REPLACE");
+  expect(where().get("session_id")).toBe("r1");
+});
+
+test("?review=new opens the sheet on a new review after a refresh", async () => {
+  const calls = serve({ reviews: [earlier] });
+  renderChatTab("&review=new");
+  const sheet = within(await screen.findByRole("dialog", { name: "Improve agent" }));
+  expect(sheet.getByTestId("conversation-title")).toHaveTextContent("New review");
+  expect(sheet.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
+  expect(calls.some((c) => c.key === `POST /api/agent-runs/${KEY}/reviews`)).toBe(false);
+});
+
+test("?review=<id> reopens that review after a refresh: its history with tool calls, and it accepts messages", async () => {
+  const calls = serve({ reviews: [earlier] });
+  renderChatTab("&review=rv0");
+  const sheet = within(await screen.findByRole("dialog", { name: "Improve agent" }));
+  expect(await sheet.findByText("I propose a one-line answer rule.")).toBeVisible();
+  expect(sheet.getByText("record_digest")).toBeInTheDocument();
+  expect(sheet.getByText("1 turn, 0 tool calls")).toBeInTheDocument();
+  const box = sheet.getByRole("textbox", { name: "Message" });
+  fireEvent.change(box, { target: { value: "Yes, add it." } });
+  await waitFor(() => expect(sheet.getByRole("button", { name: "Send message" })).toBeEnabled());
+  fireEvent.click(sheet.getByRole("button", { name: "Send message" }));
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/sessions/rv0/messages")?.body).toEqual({ text: "Yes, add it." }),
+  );
+  expect(calls.some((c) => c.key === `POST /api/agent-runs/${KEY}/reviews`)).toBe(false); // continued, not a new one
+  expect(where().get("review")).toBe("rv0");
+});
+
+test("picking an earlier review from Reviews puts its id in the URL", async () => {
+  serve({ reviews: [earlier] });
+  renderChatTab();
+  const sheet = await openReview();
+  fireEvent.click(sheet.getByRole("button", { name: "Reviews" }));
+  const list = within(await screen.findByRole("list", { name: "Reviews" }));
+  fireEvent.click(await list.findByRole("button", { name: /Review: Check disk \(earlier\)/ }));
+  await waitFor(() => expect(where().get("review")).toBe("rv0"));
+  expect(where().get("session_id")).toBe("r1");
+});
+
+test("closing the sheet removes ?review and keeps the other params", async () => {
+  serve({ reviews: [earlier] });
+  renderChatTab("&review=rv0");
+  const sheet = within(await screen.findByRole("dialog", { name: "Improve agent" }));
+  fireEvent.click(sheet.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Improve agent" })).toBeNull());
+  expect(where().has("review")).toBe(false);
+  expect(where().get("session_id")).toBe("r1");
+});
+
+test.each([
+  ["an unknown id", "nope"],
+  ["a review of another session", "rv9"],
+])("?review with %s shows an Alert and falls back to a new review", async (_, id) => {
+  serve({ reviews: [earlier] });
+  renderChatTab(`&review=${id}`);
+  const sheet = within(await screen.findByRole("dialog", { name: "Improve agent" }));
+  expect(await sheet.findByRole("alert")).toHaveTextContent("This review was not found for this chat");
+  await waitFor(() => expect(where().get("review")).toBe("new"));
+  expect(sheet.getByTestId("conversation-title")).toHaveTextContent("New review");
+});
+
+test("the run record page: ?review=<id> reopens that review after a refresh", async () => {
+  serve({ reviews: [earlier] });
+  renderRecord("cc:r1:1", "?review=rv0");
+  const sheet = within(await screen.findByRole("dialog", { name: "Improve agent" }));
+  expect(await sheet.findByText("I propose a one-line answer rule.")).toBeVisible();
+});
+
+test("the run record page: Improve agent sets ?review=new; closing removes it", async () => {
+  serve();
+  renderRecord();
+  const sheet = await openReview();
+  await waitFor(() => expect(where().get("review")).toBe("new"));
+  fireEvent.click(sheet.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(where().has("review")).toBe(false));
+});
+
+test("a review's run record: Continue review links back to the reviewed run with the review open; no Improve agent", async () => {
+  serve({
+    run: earlier,
+    record: { kind: "review_session", key: "cc:rv0:1", purpose: "review", review_of: "cc:r1:1" },
+  });
+  renderRecord("cc:rv0:1");
+  const link = await screen.findByRole("link", { name: /Continue review/ });
+  expect(link).toHaveAttribute("href", "/activity/runs/cc%3Ar1%3A1?review=rv0");
   expect(screen.queryByRole("button", { name: "Improve agent" })).toBeNull();
   expect(screen.queryByText(NOT_REVIEWABLE)).toBeNull();
 });

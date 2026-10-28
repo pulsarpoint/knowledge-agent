@@ -58,6 +58,9 @@ export interface RunRecord {
   user: string | null;
   events: RunEvent[];
   tool_counts?: ToolCount[];
+  /** The run's session purpose (null: a run outside a session) and, for a review, the run key it reviews. */
+  purpose?: string | null;
+  review_of?: string | null;
 }
 /** The listing's URL search params, in request order; each has a default left out of the URL. */
 export const RUN_PARAMS = [

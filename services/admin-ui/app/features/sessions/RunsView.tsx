@@ -150,9 +150,11 @@ export default function RunsView() {
         <Badge variant="secondary">
           {row.kind === "expert_call"
             ? `Called as expert by ${row.caller ?? "another agent"}`
-            : row.kind
-              ? (KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind)
-              : "run"}
+            : row.kind === "review_session"
+              ? `Review of ${agents.find((agent) => agent.id === row.agent_id)?.name ?? row.agent_id}`
+              : row.kind
+                ? (KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind)
+                : "run"}
         </Badge>
       ),
     },
