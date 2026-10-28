@@ -95,7 +95,11 @@ export default [
   route("jira/settings", "./routes/jiraSettings.tsx"),
   route("jira/tickets", "./routes/jiraTickets.tsx"),
   route("activity/runs", "./routes/runs.tsx"),
-  route("activity/runs/:runKey", "./routes/runRecord.tsx"),
+  // A run record: Record (every event) and Debug (the session explorer) are sub-pages.
+  route("activity/runs/:runKey", "./routes/runRecord.tsx", [
+    index("./routes/runRecordIndex.tsx"),
+    route("debug", "./routes/runRecordDebug.tsx"),
+  ]),
   route("schedules", "./routes/schedules.tsx"),
   // Events: Events and Handlers are sub-pages.
   route("events", "./routes/events.tsx", [

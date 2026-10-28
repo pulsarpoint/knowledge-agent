@@ -10,7 +10,17 @@ export interface Section {
   help?: string;
 }
 
-const trimmed = (path: string) => (path.length > 1 ? path.replace(/\/$/, "") : path);
+/** A path without its trailing slash, decoded: a link built with encodeURIComponent (`cc%3As1`) and the path the
+ * router resolves (`cc:s1`) compare equal, as NavLink compares them. */
+function trimmed(path: string) {
+  let decoded = path;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    /* a malformed escape: compare the path as it is */
+  }
+  return decoded.length > 1 ? decoded.replace(/\/$/, "") : decoded;
+}
 
 /** A section's help line, shown while the section is open (open as its NavLink is). */
 function SectionHelp({ section }: { section: Section }) {

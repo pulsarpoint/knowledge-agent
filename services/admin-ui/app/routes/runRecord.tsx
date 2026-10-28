@@ -1,12 +1,11 @@
-import { useParams } from "react-router";
 import AdminLayout from "../components/AdminLayout";
-import RunRecordView from "~/features/sessions/RunRecordView";
+import RunRecordLayout from "~/features/sessions/RunRecordPage";
 
+/** A run record's page: the way back and its sub-pages; the open one is a child route. */
 export default function RunRecordPage() {
-  const { runKey } = useParams() as { runKey: string };
   return (
     <AdminLayout>
-      <RunRecordView runKey={runKey} />
+      <RunRecordLayout />
     </AdminLayout>
   );
 }

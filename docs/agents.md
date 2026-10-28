@@ -258,6 +258,10 @@ cannot call it (and the adapter's backstop refuses a forged call: `Tool <name> i
 the project was synced after the graph was generated, the answer carries a note to regenerate it or confirm with
 `read_file`).
 
+A run record can be queried as an object (overview, timeline, tool calls and outputs, turns, search, expert calls and
+a budgeted digest), on the run page's **Debug** tab and as tools for a model: see
+[Session explorer](session-explorer.md).
+
 Tool usage per run is recorded as counts: the **Tools** column of Agent runs (top three and `+n`, the tooltip lists
 all), the run record, the session page and the Chat tab show a line such as `code_graph 12 · read_file 31 · shell_run 4`
 or `No tools used`. The workspace counts live: the session detail returns its counts with the id of the

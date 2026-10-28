@@ -990,6 +990,14 @@ first; **Rows per page** and the page arrows below it; an older link's 25 opens 
 document run turn.
 Records are kept until deleted; only administrators can see them.
 
+A run's page (`/activity/runs/<run key>`) has two tabs. **Record** is the list above. **Debug**
+(`/activity/runs/<run key>/debug`) queries the run with the session explorer, the tools a reviewer model gets: at
+the top, the **Digest** size against the full run's size (how much the run compresses; **Show digest** shows it);
+then pick a **Method** (overview, digest, timeline, tool_calls, tool_output, turn, search, expert_call), fill in its
+arguments and click **Run**. The result shows as JSON (the digest as text) with its size in characters and
+approximate tokens; click a call id in it to open that call's output with tool_output. **Tool schema the LLM sees**
+shows the tool exactly as the model gets it. See [Session explorer](session-explorer.md).
+
 ### 4.15 Schedules
 
 Administration → Schedules lists everything that runs on a timetable and is the only place to set it up. **New
