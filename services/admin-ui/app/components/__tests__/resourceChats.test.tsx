@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router";
+import { createMemoryRouter, MemoryRouter, Outlet, RouterProvider, useLocation } from "react-router";
 import routes from "~/routes";
 import ResourceChats from "~/features/sessions/ResourceChats";
-import EnvironmentPage from "~/features/servers/EnvironmentPage";
+import { environmentRoute } from "~/lib/__tests__/pageRoutes";
 import SessionView from "~/features/sessions/SessionView";
 import { resourceChatPath, resourceOf } from "~/features/sessions/api";
 import { WidePageContext } from "~/lib/widePage";
@@ -162,6 +162,35 @@ function show(url = "/services/v1", actions?: React.ReactNode) {
   );
   return router;
 }
+
+/** The environment page at `url`, as routes.ts declares it; `rerender` renders it again. */
+function showEnvironment(url: string) {
+  const router = createMemoryRouter(
+    [
+      {
+        element: (
+          <>
+            <Outlet />
+            <Where />
+          </>
+        ),
+        children: [environmentRoute],
+      },
+    ],
+    { initialEntries: [url] },
+  );
+  // a new context value each render: the page renders again (the chat reads its session again)
+  const view = () => (
+    <WidePageContext.Provider value={() => {}}>
+      <RouterProvider router={router} />
+    </WidePageContext.Provider>
+  );
+  const { rerender, unmount } = render(view());
+  return { router, unmount, rerender: () => rerender(view()) };
+}
+const where = () => screen.getByTestId("where").textContent;
+const environmentSection = (name: string) =>
+  within(screen.getByRole("navigation", { name: "Environment sections" })).getByRole("link", { name });
 
 /** Opens the Chats sheet from the chat panel's header; returns its list. */
 async function openConversations() {
@@ -331,7 +360,7 @@ test("with no chats yet the Chats sheet says so", async () => {
   expect(menu.queryByRole("list", { name: "Chats" })).toBeNull();
 });
 
-test("the environment page shows its workspace of servers and services; no Chats tab (?view=chats falls back)", async () => {
+test("the environment page shows its workspace of servers and services; no Chats section (?view=chats falls back)", async () => {
   api({
     "GET /api/environments/e1": () => [
       200,
@@ -383,11 +412,7 @@ test("the environment page shows its workspace of servers and services; no Chats
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
     "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
-  render(
-    <MemoryRouter initialEntries={["/environments/e1?server=s1&view=chats"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>,
-  );
+  showEnvironment("/environments/e1?server=s1&view=chats");
   expect(await screen.findByRole("heading", { name: "Production", level: 2 })).toBeInTheDocument();
   const servers = within(await screen.findByRole("region", { name: "Servers" }));
   expect(servers.getByRole("button", { name: /^web-1/ })).toHaveAttribute("aria-pressed", "true");
@@ -399,9 +424,15 @@ test("the environment page shows its workspace of servers and services; no Chats
   expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
   expect(screen.queryByRole("tab", { name: "Chats" })).toBeNull();
-  const page = within(screen.getByRole("tablist", { name: "Page" }));
-  expect(page.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Workspace", "Documents"]);
-  expect(page.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+  const nav = within(screen.getByRole("navigation", { name: "Environment sections" }));
+  expect(nav.getAllByRole("link").map((link) => link.textContent)).toEqual(["Workspace", "Documents"]);
+  expect(environmentSection("Workspace")).toHaveAttribute("aria-current", "page");
+  expect(where()).toBe("/environments/e1/workspace?server=s1");
+  expect(
+    screen.getByText(
+      "The servers in this environment and the services deployed on them. Drafts wait here to be confirmed.",
+    ),
+  ).toBeVisible();
 });
 
 test("the environment header links its drafts to the workspace's Drafts filter", async () => {
@@ -428,14 +459,11 @@ test("the environment header links its drafts to the workspace's Drafts filter",
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
     "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
-  render(
-    <MemoryRouter initialEntries={["/environments/e1?view=documents"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>,
-  );
+  showEnvironment("/environments/e1?view=documents");
+  await waitFor(() => expect(where()).toBe("/environments/e1/documents"));
   expect(await screen.findByRole("link", { name: "2 drafts to review" })).toHaveAttribute(
     "href",
-    "/environments/e1?drafts=only",
+    "/environments/e1/workspace?drafts=only",
   );
 });
 
@@ -463,25 +491,17 @@ test("the header counts document drafts: apart in the text, and alone they link 
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
     "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
-  const { unmount } = render(
-    <MemoryRouter initialEntries={["/environments/e1"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>,
-  );
+  const { unmount } = showEnvironment("/environments/e1");
   expect(await screen.findByRole("link", { name: "3 drafts to review (1 document)" })).toHaveAttribute(
     "href",
-    "/environments/e1?drafts=only",
+    "/environments/e1/workspace?drafts=only",
   );
   unmount();
   model = { drafts: 0, document_drafts: 2 };
-  render(
-    <MemoryRouter initialEntries={["/environments/e1"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>,
-  );
+  showEnvironment("/environments/e1");
   expect(await screen.findByRole("link", { name: "2 drafts to review" })).toHaveAttribute(
     "href",
-    "/environments/e1?view=documents",
+    "/environments/e1/documents",
   );
 });
 
@@ -514,14 +534,11 @@ test("the header link to the drafts keeps the open chat and goes to the workspac
     ],
     "GET /api/sessions/options?environment_id=e1": () => [200, options],
   });
-  render(
-    <MemoryRouter initialEntries={["/environments/e1?view=documents&chat=r1"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>,
-  );
+  showEnvironment("/environments/e1?view=documents&chat=r1");
+  await waitFor(() => expect(where()).toBe("/environments/e1/documents?chat=r1"));
   expect(await screen.findByRole("link", { name: "1 draft to review" })).toHaveAttribute(
     "href",
-    "/environments/e1?chat=r1&drafts=only",
+    "/environments/e1/workspace?chat=r1&drafts=only",
   );
 });
 
@@ -555,12 +572,7 @@ test("a turn of the page chat reloads the workspace and the drafts count (its ag
     ],
     "GET /api/sessions/options?environment_id=e1": () => [200, options],
   });
-  const page = () => (
-    <MemoryRouter initialEntries={["/environments/e1?chat=r1"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>
-  );
-  const { rerender } = render(page());
+  const { rerender } = showEnvironment("/environments/e1?chat=r1");
   expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
   await screen.findByRole("region", { name: "Servers" });
   const models = () => calls.filter((call) => call.key === "GET /api/environments/e1/model").length;
@@ -568,13 +580,13 @@ test("a turn of the page chat reloads the workspace and the drafts count (its ag
   // The agent saves drafts during its turn; the turn ends.
   drafts = 4;
   live.sessions.r1 = { ...detail("r1", "waiting", ["environments/e1"]), turns: 2 };
-  rerender(page());
+  rerender();
   expect(await screen.findByRole("link", { name: "4 drafts to review" })).toBeInTheDocument();
   // The header and the workspace both read the model again.
   await waitFor(() => expect(models()).toBeGreaterThanOrEqual(before + 2));
 });
 
-test("the environment's Documents tab lists only the environment's own documents and is kept in the URL", async () => {
+test("the environment's Documents sub-page lists only the environment's own documents", async () => {
   const doc = (id: string, title: string, resource: { id: string; name: string }) => ({
     id,
     title,
@@ -608,21 +620,48 @@ test("the environment's Documents tab lists only the environment's own documents
     ],
     "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
-  let location = "";
-  function Where() {
-    location = useLocation().search;
-    return null;
-  }
-  render(
-    <MemoryRouter initialEntries={["/environments/e1?view=documents"]}>
-      <EnvironmentPage environmentId="e1" />
-      <Where />
-    </MemoryRouter>,
-  );
+  showEnvironment("/environments/e1/documents");
   expect(await screen.findByRole("link", { name: "Release process" })).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Web host notes" })).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole("tab", { name: "Workspace" }));
-  expect(location).toBe("");
+  expect(
+    screen.getByText("Document drafts waiting to be published, then the environment's own documents."),
+  ).toBeVisible();
+  await userEvent.click(environmentSection("Workspace"));
+  await waitFor(() => expect(where()).toBe("/environments/e1/workspace"));
+});
+
+test.each([
+  ["/environments/e1", "/environments/e1/workspace"],
+  ["/environments/e1?view=workspace", "/environments/e1/workspace"],
+  ["/environments/e1?view=documents", "/environments/e1/documents"],
+  ["/environments/e1?view=documents&chat=r1", "/environments/e1/documents?chat=r1"],
+  ["/environments/e1?server=s1&service=v1", "/environments/e1/workspace?server=s1&service=v1"],
+])("an old environment link %s opens its sub-page, keeping the rest of the query", async (url, target) => {
+  live.sessions.r1 = detail("r1", "waiting", ["environments/e1"]);
+  api({
+    "GET /api/environments/e1": () => [
+      200,
+      {
+        id: "e1",
+        name: "Production",
+        description: "",
+        revision: 1,
+        created_at: at,
+        updated_at: at,
+        services: [],
+        servers: [],
+      },
+    ],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
+    "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [
+      200,
+      { sessions: [run("r1", "waiting", "Chat r1", ["environments/e1"])] },
+    ],
+    "GET /api/sessions/options?environment_id=e1": () => [200, options],
+  });
+  showEnvironment(url);
+  await waitFor(() => expect(where()).toBe(target));
+  expect(await screen.findByRole("heading", { name: "Production", level: 2 })).toBeInTheDocument();
 });
 
 test("the header's document drafts link opens the Documents tab, where Drafts to review lists every counted draft", async () => {
@@ -658,11 +697,7 @@ test("the header's document drafts link opens the Documents tab, where Drafts to
     "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
     "GET /api/sessions?tag=environments%2Fe1&purpose=resource": () => [200, { sessions: [] }],
   });
-  render(
-    <MemoryRouter initialEntries={["/environments/e1"]}>
-      <EnvironmentPage environmentId="e1" />
-    </MemoryRouter>,
-  );
+  showEnvironment("/environments/e1");
   await userEvent.click(await screen.findByRole("link", { name: "2 drafts to review" }));
   const review = within(await screen.findByRole("region", { name: "Drafts to review" }));
   const items = review.getAllByRole("listitem");
@@ -686,7 +721,11 @@ test("routes: resource pages; the proposals and discovery run routes are gone", 
       ["environments/:environmentId", "./routes/environment.tsx"],
     ]),
   );
-  expect(routes.find((item) => item.path === "servers/:serverId")!.children ?? []).toEqual([]);
+  expect(routes.find((item) => item.path === "environments/:environmentId")!.children).toEqual([
+    expect.objectContaining({ index: true, file: "./routes/environmentIndex.tsx" }),
+    expect.objectContaining({ path: "workspace", file: "./routes/environmentWorkspace.tsx" }),
+    expect.objectContaining({ path: "documents", file: "./routes/environmentDocuments.tsx" }),
+  ]);
   expect(JSON.stringify(routes)).not.toContain("discovery");
   expect(JSON.stringify(routes)).not.toContain("roposals");
 });

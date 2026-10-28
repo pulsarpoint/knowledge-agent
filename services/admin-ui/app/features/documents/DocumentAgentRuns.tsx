@@ -6,7 +6,7 @@ import { statusLabels } from "~/features/sessions/api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** The document page's Agent runs tab: the Ask agent runs on this document, open ones first, with their drafts. */
+/** The document page's Agent runs sub-page: the Ask agent runs on this document, open ones first, with their drafts. */
 export default function DocumentAgentRuns({ documentId }: { documentId: string }) {
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [error, setError] = useState("");

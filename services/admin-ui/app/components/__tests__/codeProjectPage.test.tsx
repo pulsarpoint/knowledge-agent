@@ -141,6 +141,16 @@ test("the page shows the code project's header and opens Overview: details, fold
   expect(built.getByRole("link", { name: "storefront" })).toHaveAttribute("href", "/services/v1/view");
 });
 
+test.each([
+  ["overview", "What the code project is, its files and its code graph."],
+  ["documents", "Documents about this code project and drafts waiting to be published."],
+  ["settings", "Change the code project's name, source and sync options, or delete it."],
+])("the %s sub-page has its help line under the section links", async (page, help) => {
+  api();
+  show(`/code-projects/c1/${page}`);
+  expect(await screen.findByText(help)).toBeInTheDocument();
+});
+
 test("an old ?view= link opens its sub-page and keeps the rest of the query", async () => {
   api();
   const { router } = show("/code-projects/c1?view=documents&chat=r1");

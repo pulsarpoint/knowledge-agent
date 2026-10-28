@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import { Link } from "react-router";
+import OldLinkRedirect from "~/components/OldLinkRedirect";
 import LeaveGuard from "~/components/LeaveGuard";
 import AgentChatView from "./AgentChatView";
 import { useAgentPage } from "./AgentLayout";
@@ -9,16 +10,9 @@ import AgentResources from "./AgentResources";
 
 /** `/agents/:agentId`: opens General; an old link (`?view=general|resources|chat|test`) opens its sub-page (test: Chat),
  * keeping the rest of the query. */
-export function AgentIndex() {
-  const [current] = useSearchParams();
-  const { hash } = useLocation();
-  const params = new URLSearchParams(current);
-  const view = params.get("view");
-  params.delete("view");
-  const page = view === "chat" || view === "test" ? "chat" : view === "resources" ? "resources" : "general";
-  const query = params.toString();
-  return <Navigate replace to={`${page}${query ? `?${query}` : ""}${hash}`} />;
-}
+export const AgentIndex = () => (
+  <OldLinkRedirect pages={{ chat: "chat", test: "chat", resources: "resources" }} fallback="general" />
+);
 
 /** The agent's details, model and instructions, and its prompt. */
 export function AgentGeneralPage() {

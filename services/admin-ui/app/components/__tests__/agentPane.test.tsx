@@ -375,7 +375,7 @@ test("a run of another document is not shown as this document's; New chat still 
   expect(within(pane).getByRole("heading", { name: "Another document's run" })).toBeInTheDocument();
   expect(within(pane).getByRole("link", { name: "Open it on its document" })).toHaveAttribute(
     "href",
-    "/documents/doc-2/agent/rx",
+    "/documents/doc-2?run=rx",
   );
   expect(onDraftChange).toHaveBeenLastCalledWith(null, expect.any(String));
   expect(onDraftChange).not.toHaveBeenCalledWith(expect.objectContaining({ id: "d-rx" }), expect.anything());

@@ -551,7 +551,7 @@ test("a document run shows where it started, with no Save as draft", async () =>
     </MemoryRouter>,
   );
   expect(await screen.findByRole("heading", { name: detail.title })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "the document" })).toHaveAttribute("href", "/documents/doc-1/agent/s1");
+  expect(screen.getByRole("link", { name: "the document" })).toHaveAttribute("href", "/documents/doc-1?run=s1");
   expect(screen.queryByRole("button", { name: "Save as draft" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Draft" })).toBeNull();
 });
@@ -571,7 +571,7 @@ test("a revision run with an open document draft shows Open draft", async () => 
   );
   expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute(
     "href",
-    "/documents/doc-1?tab=drafts&draft=x2",
+    "/documents/doc-1/drafts?draft=x2",
   );
   expect(screen.queryByRole("button", { name: "Preview draft" })).toBeNull();
 });

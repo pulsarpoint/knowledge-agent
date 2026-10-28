@@ -20,8 +20,17 @@ export default function NewDocumentLayout() {
       <SectionLinks
         label="New document"
         sections={[
-          { to: { pathname: "/documents/new", search }, label: "Write", end: true },
-          { to: { pathname: "/documents/new/agent", search: agentSearch }, label: "Write with an agent" },
+          {
+            to: { pathname: "/documents/new", search },
+            label: "Write",
+            end: true,
+            help: "Write the document yourself. Save keeps it as a draft until it is published.",
+          },
+          {
+            to: { pathname: "/documents/new/agent", search: agentSearch },
+            label: "Write with an agent",
+            help: "Tell an agent what to write. It saves a draft you review, edit and publish.",
+          },
         ]}
       />
       <Outlet />

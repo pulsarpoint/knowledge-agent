@@ -98,7 +98,7 @@ export default function ServiceLayout() {
 }
 
 function ServicePage({ serviceId }: { serviceId: string }) {
-  const { pathname, search } = useLocation();
+  const { search } = useLocation();
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +158,6 @@ function ServicePage({ serviceId }: { serviceId: string }) {
     new Set(data.deployments.map((item) => item.id)),
     serviceId,
   );
-  const page = pathname.split("/").filter(Boolean)[2] ?? "view";
   const sections = [
     { page: "view", label: "View" },
     { page: "edit", label: "Edit" },
@@ -192,9 +191,12 @@ function ServicePage({ serviceId }: { serviceId: string }) {
     >
       <SectionLinks
         label="Service sections"
-        sections={sections.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
+        sections={sections.map(({ page, label }) => ({
+          to: { pathname: page, search },
+          label,
+          help: SECTION_HELP[page],
+        }))}
       />
-      {SECTION_HELP[page] && <p className="text-sm text-muted-foreground">{SECTION_HELP[page]}</p>}
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>

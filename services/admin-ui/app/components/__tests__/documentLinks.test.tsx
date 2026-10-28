@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import DocumentEditorView from "~/features/documents/DocumentEditorView";
+import { documentRoute } from "~/lib/__tests__/pageRoutes";
 
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
@@ -93,7 +93,7 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
   return calls;
 }
 function show(url: string) {
-  const router = createMemoryRouter([{ path: "/documents/:documentId", element: <DocumentEditorView /> }], {
+  const router = createMemoryRouter([documentRoute], {
     initialEntries: [url],
   });
   render(<RouterProvider router={router} />);

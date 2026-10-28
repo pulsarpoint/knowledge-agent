@@ -10,6 +10,7 @@ import TagLinks from "./TagLinks";
 import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import ConfirmRemove from "~/components/ConfirmRemove";
+import OldLinkRedirect from "~/components/OldLinkRedirect";
 import DataTable, { TableEmpty } from "~/components/DataTable";
 import RowMenu, { deleteMenuItem } from "~/components/RowMenu";
 import { Badge } from "~/components/ui/badge";
@@ -18,7 +19,6 @@ import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 /** The resource filters above the list, and the link counts each document shows. */
 const FILTERS = kindsOf(["code_projects", "services", "servers", "environments"]);
@@ -33,8 +33,9 @@ function trimmedTag(params: URLSearchParams): URLSearchParams {
   tag ? next.set("tag", tag) : next.delete("tag");
   return next;
 }
-/** The filters both tabs share: the resource filters' query parameters and the tag, passed to GET /drafts as they are. */
-function draftFilter(params: URLSearchParams): Record<string, string> {
+/** The filters both sub-pages share: the resource filters' query parameters and the tag, passed to GET /drafts as they
+ * are. */
+export function draftFilter(params: URLSearchParams): Record<string, string> {
   const filter: Record<string, string> = {};
   for (const key of [...FILTERS.map(({ field }) => field.slice(0, -1)), "tag"]) {
     const value = key === "tag" ? params.get(key)?.trim() : params.get(key);
@@ -43,11 +44,20 @@ function draftFilter(params: URLSearchParams): Record<string, string> {
   return filter;
 }
 
+/** `/documents`: the documents list; an old link (`?view=drafts`) opens Drafts, keeping the filters. */
+export function DocumentsIndex() {
+  const [params] = useSearchParams();
+  return params.has("view") ? <OldLinkRedirect pages={{ drafts: "drafts" }} fallback="." /> : <DocumentsView />;
+}
+
+/** `/documents/drafts`: every draft. */
+export const DocumentDraftsList = () => <DocumentsView drafts />;
+
 /** Documents: the live documents in a table paged by the server (?offset=, ?limit=) with search, resource filters, tag
  * and Has drafts, and the new documents' drafts above them,
- * or, on the Drafts tab (?view=drafts), every draft (new documents and drafts of documents) with the same resource and
- * tag filters. Every tag badge links to the list filtered by that tag (?tag=). */
-export default function DocumentsView() {
+ * or, with `drafts` (the Drafts sub-page), every draft (new documents and drafts of documents) with the same resource
+ * and tag filters. Every tag badge links to the list filtered by that tag (?tag=). */
+export default function DocumentsView({ drafts: draftsView = false }: { drafts?: boolean }) {
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<DocumentSummary[]>([]);
   const [resources, setResources] = useState<DocumentResources | null>(null);
@@ -63,7 +73,6 @@ export default function DocumentsView() {
   const offset = Number(params.get("offset") || 0);
   const pageSize = Number(params.get("limit")) || DOCUMENTS_PAGE;
   const page = Math.floor(offset / pageSize) + 1;
-  const draftsView = params.get("view") === "drafts";
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -92,7 +101,7 @@ export default function DocumentsView() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [params, refresh]);
+  }, [params, refresh, draftsView]);
   function filter(key: string, value: string) {
     setParams(
       (old) => {
@@ -274,7 +283,7 @@ export default function DocumentsView() {
       header: "Drafts",
       cell: ({ row: { original: doc } }) =>
         (doc.draft_count ?? 0) > 0 ? (
-          <Link className="underline-offset-4 hover:underline" to={`/documents/${doc.id}?tab=drafts`}>
+          <Link className="underline-offset-4 hover:underline" to={`/documents/${doc.id}/drafts`}>
             {draftsLabel(doc.draft_count!)}
           </Link>
         ) : (
@@ -287,7 +296,7 @@ export default function DocumentsView() {
       cell: ({ row: { original: doc } }) => new Date(doc.updated_at).toLocaleString(),
     },
   ];
-  /** The filters both tabs share (tag and resources); the documents list adds Has drafts. */
+  /** The filters both sub-pages share (tag and resources); the documents list adds Has drafts. */
   const filters = (
     <>
       <Input
@@ -329,24 +338,9 @@ export default function DocumentsView() {
       )}
     </>
   );
-  const filtered = [...params.keys()].some((key) => !["view", "offset", "limit"].includes(key));
+  const filtered = [...params.keys()].some((key) => !["offset", "limit"].includes(key));
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs
-          value={draftsView ? "drafts" : "documents"}
-          onValueChange={(v) =>
-            // The resource and tag filters carry over; search, Has drafts and paging belong to the documents list.
-            setParams({ ...draftFilter(params), ...(v === "drafts" ? { view: "drafts" } : {}) }, { replace: true })
-          }
-        >
-          <TabsList>
-            <TabsTrigger value="documents">Documents</TabsTrigger>
-            <TabsTrigger value="drafts">Drafts</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        {newDocument}
-      </div>
       {(error || discardError) && (
         <Alert variant="destructive">
           <AlertDescription>{error || discardError}</AlertDescription>

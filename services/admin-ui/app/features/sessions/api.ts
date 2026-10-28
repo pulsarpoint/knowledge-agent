@@ -366,8 +366,9 @@ export type RunSummary = SessionSummary & {
   started_by: string | null;
   draft_id: string | null;
 };
+/** A document's Ask agent run: the document page with the run open in its pane (?run=). */
 export const agentRunPath = (documentId: string, runId: string) =>
-  `/documents/${encodeURIComponent(documentId)}/agent/${encodeURIComponent(runId)}`;
+  `/documents/${encodeURIComponent(documentId)}?${new URLSearchParams({ run: runId })}`;
 
 const SAVE_TOOLS = ["update_document", "edit_document"];
 /** Whether the turn saved the document's draft: a save or edit call that did not fail. */

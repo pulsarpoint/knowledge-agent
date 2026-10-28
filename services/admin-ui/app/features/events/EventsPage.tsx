@@ -1,23 +1,27 @@
-import { useNavigate } from "react-router";
-import EventsView from "./EventsView";
-import HandlersView from "./HandlersView";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Outlet } from "react-router";
+import SectionLinks from "~/components/SectionLinks";
 
-/** Administration → Events: the Events and Handlers tabs, each its own address (/events, /events/handlers). */
-export default function EventsPage({ tab }: { tab: "events" | "handlers" }) {
-  const navigate = useNavigate();
+const SECTIONS = [
+  {
+    to: "/events",
+    label: "Events",
+    end: true,
+    help: "What happened at your sources, newest first, and what each event led to.",
+  },
+  {
+    to: "/events/handlers",
+    label: "Handlers",
+    help: "Rules that turn a matching event into a new event or an agent's answer.",
+  },
+];
+
+/** Administration → Events (`/events`): the sub-pages Events and Handlers (`/events/handlers`) as links, above the open
+ * one. */
+export default function EventsLayout() {
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(value) => navigate(value === "handlers" ? "/events/handlers" : "/events")}
-      className="flex flex-col gap-4"
-    >
-      <TabsList>
-        <TabsTrigger value="events">Events</TabsTrigger>
-        <TabsTrigger value="handlers">Handlers</TabsTrigger>
-      </TabsList>
-      <TabsContent value="events">{tab === "events" && <EventsView />}</TabsContent>
-      <TabsContent value="handlers">{tab === "handlers" && <HandlersView />}</TabsContent>
-    </Tabs>
+    <div className="flex min-w-0 flex-col gap-4">
+      <SectionLinks label="Events sections" sections={SECTIONS} />
+      <Outlet />
+    </div>
   );
 }

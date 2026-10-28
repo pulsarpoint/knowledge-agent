@@ -1,7 +1,8 @@
 import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router";
-import ServerPage from "~/features/servers/ServerPage";
+import { createMemoryRouter, Outlet, RouterProvider, useLocation } from "react-router";
+import routes from "~/routes";
+import { serverRoute } from "~/lib/__tests__/pageRoutes";
 import { WidePageContext } from "~/lib/widePage";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 
@@ -169,29 +170,69 @@ function show(url = "/servers/s1") {
   const router = createMemoryRouter(
     [
       {
-        path: "/servers/:serverId",
         element: (
           <>
-            <ServerPage serverId="s1" />
+            <Outlet />
             <Where />
           </>
         ),
+        children: [serverRoute],
       },
     ],
     { initialEntries: [url] },
   );
   wide.value = false;
-  render(
+  const view = () => (
     <WidePageContext.Provider
       value={(on) => {
         wide.value = on;
       }}
     >
       <RouterProvider router={router} />
-    </WidePageContext.Provider>,
+    </WidePageContext.Provider>
   );
-  return router;
+  const { rerender } = render(view());
+  return Object.assign(router, { rerender: () => rerender(view()) });
 }
+const where = () => screen.getByTestId("where").textContent;
+const section = (name: string) =>
+  within(screen.getByRole("navigation", { name: "Server sections" })).getByRole("link", { name });
+
+test("routes: the server page has Overview and Documents as sub-pages", () => {
+  const page = routes.find((item) => item.path === "servers/:serverId")!;
+  expect(page.file).toBe("./routes/server.tsx");
+  expect(page.children?.map((item) => [item.index ?? false, item.path, item.file])).toEqual([
+    [true, undefined, "./routes/serverIndex.tsx"],
+    [false, "overview", "./routes/serverOverview.tsx"],
+    [false, "documents", "./routes/serverDocuments.tsx"],
+  ]);
+});
+
+test.each([
+  ["/servers/s1", "/servers/s1/overview"],
+  ["/servers/s1?view=overview", "/servers/s1/overview"],
+  ["/servers/s1?view=documents", "/servers/s1/documents"],
+  ["/servers/s1?view=documents&chat=r1", "/servers/s1/documents?chat=r1"],
+  ["/servers/s1?chat=r1", "/servers/s1/overview?chat=r1"],
+])("an old link %s opens its sub-page, keeping the rest of the query", async (url, target) => {
+  live.sessions.r1 = detail("r1", "waiting");
+  api({ ...base(), [RUNS]: () => [200, { sessions: [run("r1", "waiting")] }] });
+  show(url);
+  await waitFor(() => expect(where()).toBe(target));
+  expect(await screen.findByRole("heading", { name: "web-1", level: 2 })).toBeInTheDocument();
+});
+
+test.each([
+  ["overview", "The services deployed on this server, in each environment."],
+  ["documents", "Documents about this server and drafts waiting to be published."],
+])("the %s sub-page has its help line; the section links keep the query", async (page, help) => {
+  api(base());
+  show(`/servers/s1/${page}?chat=x`);
+  expect(await screen.findByText(help)).toBeInTheDocument();
+  expect(section("Overview")).toHaveAttribute("href", "/servers/s1/overview?chat=x");
+  expect(section("Documents")).toHaveAttribute("href", "/servers/s1/documents?chat=x");
+  expect(section(page === "overview" ? "Overview" : "Documents")).toHaveAttribute("aria-current", "page");
+});
 
 test("shows the server, its services and documents; its chats are in the chat panel's Chats sheet", async () => {
   api({
@@ -216,10 +257,10 @@ test("shows the server, its services and documents; its chats are in the chat pa
   });
   show();
   expect(await screen.findByRole("heading", { name: "web-1", level: 2 })).toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
+  expect(within(await screen.findByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1/view");
   expect(screen.queryByRole("link", { name: "Proposals" })).toBeNull();
-  await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
+  await userEvent.click(section("Documents"));
   expect(await screen.findByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");
   expect(screen.queryByRole("region", { name: "Services" })).not.toBeInTheDocument();
   expect(screen.queryByText("No inventory document yet.")).toBeNull();
@@ -265,7 +306,7 @@ test("Chat opens a new conversation; the first message starts a run from the ser
   expect(body).not.toHaveProperty("tools");
   expect(body.message).toBe("Disk usage?");
   expect(body.resources.server_ids).toContain("s1");
-  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1?chat=r1"));
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1/overview?chat=r1"));
 });
 
 test("a ?chat= link opens the page with the chat on that run", async () => {
@@ -318,7 +359,7 @@ test("empty services and documents are explained", async () => {
   api({ ...base(), "GET /api/servers/s1": () => [200, { ...page(true), deployments: [] }] });
   show();
   expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("tab", { name: "Documents" }));
+  await userEvent.click(section("Documents"));
   expect(await screen.findByText("No documents yet.")).toBeInTheDocument();
 });
 
@@ -356,16 +397,11 @@ test("a draft server and a draft deployment show Draft; the services table confi
 test("a turn of the page chat reloads the server page (its agent may have written drafts)", async () => {
   live.sessions.r1 = detail("r1", "waiting");
   const calls = api({ ...base(), [RUNS]: () => [200, { sessions: [run("r1", "waiting")] }] });
-  const view = () => (
-    <MemoryRouter initialEntries={["/servers/s1?chat=r1"]}>
-      <ServerPage serverId="s1" />
-    </MemoryRouter>
-  );
-  const { rerender } = render(view());
+  const page = show("/servers/s1/overview?chat=r1");
   expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
   const loads = () => calls.filter((call) => call.key === "GET /api/servers/s1").length;
   const before = loads();
   live.sessions.r1 = { ...detail("r1", "waiting"), turns: 2 };
-  rerender(view());
+  page.rerender();
   await waitFor(() => expect(loads()).toBe(before + 1));
 });

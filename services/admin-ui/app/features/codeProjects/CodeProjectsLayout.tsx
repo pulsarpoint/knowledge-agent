@@ -14,8 +14,17 @@ export interface CodeProjectsPageContext {
 export const useCodeProjectsPage = () => useOutletContext<CodeProjectsPageContext>();
 
 const SECTIONS = [
-  { to: "/code-projects", label: "Code projects", end: true },
-  { to: "/code-projects/folder", label: "Code folder" },
+  {
+    to: "/code-projects",
+    label: "Code projects",
+    end: true,
+    help: "Local folders and Git sources organized into projects that agents can search.",
+  },
+  {
+    to: "/code-projects/folder",
+    label: "Code folder",
+    help: "Browse the mounted code folder that projects point into.",
+  },
 ];
 
 /** Code projects (`/code-projects`): the sub-pages Code projects (the table) and Code folder (the code root browser)

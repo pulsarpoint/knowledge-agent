@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import CodeGraphsView from "~/features/codeProjects/CodeGraphsView";
@@ -106,8 +106,11 @@ test("lists every project with its graph summary and opens a graph", async () =>
   expect(menuItems()).toEqual(["Regenerate graph"]);
   await user.keyboard("{Escape}");
   await user.click(within(row).getByRole("button", { name: "View graph for Payments" }));
-  expect(await screen.findByText("Explorer p1 h1")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Close graph" }));
+  // the explorer opens in a side sheet over the list, not below it
+  const sheet = await screen.findByRole("dialog", { name: "Payments · Code graph" });
+  expect(within(sheet).getByText("Explorer p1 h1")).toBeInTheDocument();
+  await user.click(within(sheet).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(screen.queryByText("Explorer p1 h1")).toBeNull();
 });
 
@@ -165,7 +168,7 @@ test("empty state points to Code projects", async () => {
   expect(screen.getByRole("link", { name: "Code projects" })).toHaveAttribute("href", "/code-projects");
 });
 
-test("a project in the URL opens its graph", async () => {
+test("an old link with the project in the URL (?project=) opens its graph in the sheet", async () => {
   api([indexed]);
   render(
     <MemoryRouter initialEntries={["/code-graphs?project=p1"]}>
@@ -173,7 +176,8 @@ test("a project in the URL opens its graph", async () => {
       <Toaster />
     </MemoryRouter>,
   );
-  expect(await screen.findByText("Explorer p1 h1")).toBeInTheDocument();
+  const sheet = await screen.findByRole("dialog", { name: "Payments · Code graph" });
+  expect(within(sheet).getByText("Explorer p1 h1")).toBeInTheDocument();
 });
 
 test("the code graph list: Skeleton rows while loading, search and sort by a header", async () => {

@@ -47,7 +47,7 @@ function LeaveDialog({ open, onStay, onLeave }: { open: boolean; onStay: () => v
 const differentPath = (a: string, b: string) => a !== b;
 
 /** Leaving the page (another section, back, any link) while it has unsaved changes asks first. `samePage(a, b)` says
- * which path changes stay on the page (the document page with its agent run); a page that navigates on its own after
+ * which path changes stay on the page (a document's sub-pages); a page that navigates on its own after
  * saving or discarding sets `leaving` first, so its own navigation never asks. */
 export default function LeaveGuard({
   dirty,

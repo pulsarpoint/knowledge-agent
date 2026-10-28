@@ -1,12 +1,11 @@
-import { useParams } from "react-router";
 import AdminLayout from "../components/AdminLayout";
-import EnvironmentPage from "~/features/servers/EnvironmentPage";
+import EnvironmentLayout from "~/features/servers/EnvironmentPage";
 
+/** An environment's page: its header and sub-pages; the open one is a child route. */
 export default function Page() {
-  const { environmentId } = useParams();
   return (
     <AdminLayout>
-      <EnvironmentPage key={environmentId} environmentId={environmentId!} />
+      <EnvironmentLayout />
     </AdminLayout>
   );
 }

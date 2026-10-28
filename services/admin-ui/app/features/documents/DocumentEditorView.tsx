@@ -3,13 +3,13 @@ import { toast } from "sonner";
 import BackLink from "~/components/BackLink";
 import ConfirmRemove from "~/components/ConfirmRemove";
 import LeaveGuard from "~/components/LeaveGuard";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router";
+import SectionLinks from "~/components/SectionLinks";
 import { Bot, Save, Trash2 } from "lucide-react";
 import {
   deleteDocument,
   getDocument,
   getDocumentResources,
-  getDocumentVersion,
   isBuiltForRefusal,
   newDocumentResource,
   saveDocumentLinks,
@@ -20,7 +20,6 @@ import {
   type DocumentVersion,
 } from "./api";
 import { ApiError } from "~/lib/api";
-import { agentRunPath } from "~/features/sessions/api";
 import { useAgentSettings } from "~/features/sessions/agentSettings";
 import { useWidePage } from "~/lib/widePage";
 import type { SessionDetail } from "~/features/sessions/api";
@@ -32,13 +31,11 @@ import {
   promotedNotice,
   publishedNotice,
   updateDraft,
+  type DraftDetail,
   type PromoteResult,
 } from "./drafts";
 import AgentDraftBar from "./AgentDraftBar";
 import AgentChat from "~/features/sessions/AgentChat";
-import DocumentAgentRuns from "./DocumentAgentRuns";
-import DocumentConnections from "./DocumentConnections";
-import DocumentDrafts from "./DocumentDrafts";
 import DocumentLinkHistory from "./DocumentLinkHistory";
 import Markdown from "~/components/Markdown";
 import DocumentResourceSelection from "./DocumentResourceSelection";
@@ -55,13 +52,31 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { DOCUMENT_KINDS, emptyIds, pickIds } from "~/lib/resources";
 
-// The document page with its Ask agent run (/documents/:id/agent/:runId) is the same page: the editor stays.
-const documentPage = (pathname: string) => pathname.replace(/\/agent\/[^/]+\/?$/, "");
+/** The document page's sub-pages (its index is Edit, the editor itself). */
+const SUBPAGES = ["history", "drafts", "connections", "agent-runs"];
+/** The editor's in-page tabs. */
+type EditorTab = "write" | "preview" | "resources";
+const EDITOR_TABS: string[] = ["write", "preview", "resources"];
+/** A document's sub-pages are the same page as its Edit: the editor stays, and so do its unsaved changes. */
+const documentPage = (pathname: string) => {
+  const [, section, id, page, ...rest] = pathname.replace(/\/$/, "").split("/");
+  return section === "documents" && rest.length === 0 && SUBPAGES.includes(page) ? `/documents/${id}` : pathname;
+};
 const samePage = (a: string, b: string) => documentPage(a) === documentPage(b);
 
-const TABS = ["write", "preview", "resources", "history", "drafts", "connections", "agent-runs"];
-/** A brand-new draft's tabs: no versions, drafts or connections until it is published. */
-const DRAFT_TABS = ["write", "preview", "resources", "agent-runs"];
+/** What the document's sub-pages get from the editor: the document, a version's or a draft's text loaded into the editor
+ * (it opens Edit), and the Drafts sub-page's hooks: a draft published, `confirm` (runs an action, asking first when the
+ * editor has unsaved changes), the drafts count for the section link and a draft discarded. */
+export interface DocumentPageContext {
+  document: DocumentDetail;
+  loadVersion: (version: DocumentVersion) => void;
+  editDraft: (draft: DraftDetail) => void;
+  onPromoted: (result: PromoteResult) => void;
+  confirm: (run: () => void) => void;
+  setDraftCount: (count: number) => void;
+  draftDiscarded: (draftId: string) => void;
+}
+export const useDocumentPage = () => useOutletContext<DocumentPageContext>();
 
 const PANE_KEY = "ask-agent-pane";
 function readPane() {
@@ -112,7 +127,10 @@ interface EditingDraft {
 /** The editor, in three modes. The New page (`document` null): Save creates a brand-new draft and opens it. A brand-new
  * draft (`document.is_draft`): Save updates it (its name too), Publish makes it the live document, Discard deletes it.
  * A live document: the first Save creates the person's draft and the editor switches to it (later Saves update it);
- * Publish on the Drafts tab makes a draft live. Links are saved apart, with Save links. */
+ * Publish on the Drafts sub-page makes a draft live. Links are saved apart, with Save links. A document's page has
+ * sub-pages (Edit, then Version history, Drafts and Connections for a live document, and Agent runs): the editor stays
+ * mounted under them, so unsaved changes stay too; its fields and the Write / Preview / Linked resources tabs are on
+ * Edit. */
 function Editor({
   document,
   resources,
@@ -133,9 +151,12 @@ function Editor({
   registerConfirm: (confirm: (run: () => void) => void) => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const isDraft = document?.is_draft === true; // a brand-new draft: not published yet
   const isLive = document !== null && !isDraft;
   const [params] = useSearchParams();
+  const base = document ? `/documents/${encodeURIComponent(document.id)}` : "";
+  const page = document ? (location.pathname.replace(/\/$/, "").split("/")[3] ?? "") : "";
   // The New page opened by a resource's New document (?resource=server&resource_id=…): built for that resource.
   const [resourceFor] = useState(() => {
     const found = document ? null : newDocumentResource(params);
@@ -199,23 +220,17 @@ function Editor({
   // The document's revision (a brand-new draft's is the draft's): Save links and Delete send it, a brand-new draft's
   // Save too; Save links bumps it.
   const [revision, setRevision] = useState(document?.revision ?? 0);
-  const tabs = isDraft ? DRAFT_TABS : TABS;
-  const [tab, setTab] = useState(() => {
-    const wanted = params.get("tab") ?? "";
-    return document && tabs.includes(wanted) ? wanted : "write";
+  // An old ?tab=preview|resources link opens its tab (DocumentEditorView passes it in the navigation's state).
+  const [tab, setTab] = useState<EditorTab>(() => {
+    const wanted = (location.state as { editorTab?: string } | null)?.editorTab ?? "";
+    return EDITOR_TABS.includes(wanted) ? (wanted as EditorTab) : "write";
   });
-  // The URL may change after this editor mounted (Publish sets ?tab= while the editor reloads).
-  const wantedTab = params.get("tab") ?? "";
-  useEffect(() => {
-    if (document && tabs.includes(wantedTab)) setTab(wantedTab);
-  }, [wantedTab]);
   // The person's draft of the live document: created by the first Save (or loaded with Edit); later Saves update it.
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [draftCount, setDraftCount] = useState(document?.drafts.length ?? 0);
   // The live version the page loaded (reloaded when the edited draft is gone): the first Save's draft is based on it,
   // so a version promoted meanwhile makes that draft stale.
   const [liveVersion, setLiveVersion] = useState(isLive ? document.version : null);
-  const [historical, setHistorical] = useState<DocumentVersion | null>(null);
   // The document's active links: the built-for ones are locked in Linked resources. Save links refused because it
   // unticked a built-for link (the page was loaded before that link existed) reloads them; refusals show under the
   // picker.
@@ -228,7 +243,7 @@ function Editor({
   const [nameError, setNameError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // An action from the Drafts tab (Edit, Publish) waiting for the confirmation that unsaved changes may be lost.
+  // An action from Drafts (Edit, Publish) waiting for the confirmation that unsaved changes may be lost.
   // An in-page action that would replace unsaved text (Edit or Publish a draft, the agent's first message) asks
   // "Discard unsaved changes?" here; leaving the page is asked by LeaveGuard (Stay / Leave).
   const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
@@ -375,18 +390,6 @@ function Editor({
       /* the refusal stays shown; a page reload loads the links */
     }
   }
-  async function openVersion(number: number) {
-    if (!document) return;
-    setPending(true);
-    setError("");
-    try {
-      setHistorical(await getDocumentVersion(document.id, number));
-    } catch (e) {
-      failed(e, "Could not load version");
-    } finally {
-      setPending(false);
-    }
-  }
   async function remove() {
     if (!document) return;
     setError("");
@@ -432,6 +435,97 @@ function Editor({
       setPending(false);
     }
   }
+  /** Opens Edit, where the text just loaded is (the query stays: the open run, and the draft Drafts shows again). */
+  const openEdit = () => {
+    setTab("write");
+    navigate({ pathname: base, search: location.search });
+  };
+  /** A version's text into the editor (links are saved apart, with Save links). */
+  function loadVersion(version: DocumentVersion) {
+    setValue((old) => ({
+      ...old,
+      title: version.title,
+      description: version.description,
+      purpose: version.purpose,
+      audience: version.audience,
+      tags: version.tags,
+      markdown: version.markdown,
+    }));
+    setTags(version.tags.join(", "));
+    openEdit();
+    toast.success(`Version ${version.version} loaded into the editor. Save keeps it as your draft.`);
+  }
+  /** A draft into the editor: Save updates that draft. */
+  function editDraft(draft: DraftDetail) {
+    setValue((old) => ({
+      ...old,
+      title: draft.title,
+      description: draft.description,
+      purpose: draft.purpose,
+      audience: draft.audience,
+      tags: draft.tags,
+      markdown: draft.markdown,
+    }));
+    setTags(draft.tags.join(", "));
+    setSavedContent({
+      ...content(),
+      title: draft.title,
+      description: draft.description,
+      purpose: draft.purpose,
+      audience: draft.audience,
+      tags: draft.tags.join(", "),
+      markdown: draft.markdown,
+    });
+    setEditingDraft({
+      id: draft.id,
+      revision: draft.revision,
+      created_at: draft.created_at,
+      base_version: draft.base_version,
+    });
+    openEdit();
+    toast.success(`Draft “${draft.title}” loaded into the editor.`);
+  }
+  /** A draft was discarded on Drafts: when it is the one being edited, Save starts a new draft from the editor's text. */
+  function draftDiscarded(id: string) {
+    if (editingDraft?.id === id) {
+      setEditingDraft(null);
+      setSavedContent(loadedContent());
+    }
+  }
+  const sections = [
+    {
+      to: { pathname: base, search: location.search },
+      label: "Edit",
+      end: true,
+      help: isLive
+        ? "The document's text and links. Save keeps your changes as your draft; publish a draft on Drafts."
+        : "The document's text and links. Save keeps it as a draft until it is published.",
+    },
+    ...(isLive
+      ? [
+          {
+            to: { pathname: `${base}/history`, search: location.search },
+            label: "Version history",
+            help: "Every published version. Open one to read it or start a new draft from it.",
+          },
+          {
+            to: { pathname: `${base}/drafts`, search: location.search },
+            label: draftCount > 0 ? `Drafts (${draftCount})` : "Drafts",
+            help: "Drafts of this document by people and agents: compare one with the live version, edit it or publish it.",
+          },
+          {
+            to: { pathname: `${base}/connections`, search: location.search },
+            label: "Connections",
+            help: "Documents this one depends on, documents that depend on it, and what it was built from.",
+          },
+        ]
+      : []),
+    {
+      to: { pathname: `${base}/agent-runs`, search: location.search },
+      label: "Agent runs",
+      help: "Ask agent runs on this document, open ones first, with the drafts they wrote.",
+    },
+  ];
   return (
     <form onSubmit={save} className="flex flex-col gap-6">
       <LeaveGuard dirty={dirty} samePage={samePage} leaving={leaving} />
@@ -517,349 +611,218 @@ function Editor({
           <AlertDescription>{`Editing your draft (created ${new Date(editingDraft.created_at).toLocaleString()}, from version ${editingDraft.base_version ?? "?"}). Save updates it; Publish makes it live.`}</AlertDescription>
         </Alert>
       )}
+      {document && <SectionLinks label="Document sections" sections={sections} />}
       <fieldset disabled={pending} className="flex min-w-0 flex-col gap-6">
-        <FieldGroup className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor="doc-title">Title</FieldLabel>
-            <Input
-              id="doc-title"
-              required
-              maxLength={240}
-              value={value.title}
-              onChange={(e) => {
-                const title = e.target.value;
-                setNameError(""); // the name may follow the title
-                setValue((old) => ({
-                  ...old,
-                  title,
-                  ...(!document &&
-                  (old.slug === "" ||
-                    old.slug ===
-                      old.title
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, "-")
-                        .replace(/^-|-$/g, "")
-                        .slice(0, 120))
-                    ? {
-                        slug: title
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .replace(/^-|-$/g, "")
-                          .slice(0, 120),
-                      }
-                    : {}),
-                }));
-              }}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="doc-slug">Slug</FieldLabel>
-            <Input
-              id="doc-slug"
-              required
-              readOnly={isLive}
-              maxLength={120}
-              pattern="[a-z0-9]+(-[a-z0-9]+)*"
-              value={value.slug}
-              aria-invalid={nameError ? true : undefined}
-              onChange={(e) => {
-                setNameError("");
-                patch("slug", e.target.value);
-              }}
-            />
-            <FieldDescription>
-              {isLive
-                ? "A published document keeps its name."
-                : "Unique name using lowercase letters, numbers, and hyphens."}
-            </FieldDescription>
-            {nameError && <FieldError>{nameError}</FieldError>}
-          </Field>
-        </FieldGroup>
-        <Field>
-          <FieldLabel htmlFor="doc-description">Short description</FieldLabel>
-          <Textarea
-            id="doc-description"
-            rows={2}
-            maxLength={4000}
-            value={value.description}
-            onChange={(e) => patch("description", e.target.value)}
+        {page ? (
+          <Outlet
+            context={
+              {
+                document: document!,
+                loadVersion,
+                editDraft,
+                onPromoted,
+                confirm: unlessUnsaved,
+                setDraftCount,
+                draftDiscarded,
+              } satisfies DocumentPageContext
+            }
           />
-        </Field>
-        <FieldGroup className="grid gap-4 sm:grid-cols-3">
-          <Field>
-            <FieldLabel htmlFor="doc-purpose">Purpose</FieldLabel>
-            <Input
-              id="doc-purpose"
-              list="document-purposes"
-              required
-              maxLength={80}
-              value={value.purpose}
-              onChange={(e) => patch("purpose", e.target.value)}
-            />
-            <datalist id="document-purposes">
-              {["explanation", "onboarding", "architecture", "how-to", "reference", "runbook", "troubleshooting"].map(
-                (p) => (
-                  <option key={p} value={p} />
-                ),
-              )}
-            </datalist>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="doc-audience">Audience</FieldLabel>
-            <Select value={value.audience} onValueChange={(v) => patch("audience", v as DocumentInput["audience"])}>
-              <SelectTrigger id="doc-audience">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="both">People and agents</SelectItem>
-                  <SelectItem value="people">People</SelectItem>
-                  <SelectItem value="agents">Agents</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="doc-tags">Tags</FieldLabel>
-            <Input
-              id="doc-tags"
-              placeholder="Comma-separated tags"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-            />
-            {/* the saved tags, each a link to the Documents list filtered by it */}
-            <TagLinks tags={splitTags(savedContent.tags)} label="Document tags" />
-          </Field>
-        </FieldGroup>
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="write">Write</TabsTrigger>
-            <TabsTrigger value="preview">Preview</TabsTrigger>
-            <TabsTrigger value="resources">Linked resources</TabsTrigger>
-            {!isDraft && (
-              <>
-                <TabsTrigger value="history" disabled={!document}>
-                  Version history
-                </TabsTrigger>
-                <TabsTrigger value="drafts" disabled={!document}>
-                  Drafts
-                  {draftCount > 0 && (
-                    <Badge variant="secondary" className="ml-1">
-                      {draftCount}
-                    </Badge>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="connections" disabled={!document}>
-                  Connections
-                </TabsTrigger>
-              </>
-            )}
-            <TabsTrigger value="agent-runs" disabled={!document}>
-              Agent runs
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="write" forceMount className="data-[state=inactive]:hidden">
+        ) : (
+          <>
+            <FieldGroup className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="doc-title">Title</FieldLabel>
+                <Input
+                  id="doc-title"
+                  required
+                  maxLength={240}
+                  value={value.title}
+                  onChange={(e) => {
+                    const title = e.target.value;
+                    setNameError(""); // the name may follow the title
+                    setValue((old) => ({
+                      ...old,
+                      title,
+                      ...(!document &&
+                      (old.slug === "" ||
+                        old.slug ===
+                          old.title
+                            .toLowerCase()
+                            .replace(/[^a-z0-9]+/g, "-")
+                            .replace(/^-|-$/g, "")
+                            .slice(0, 120))
+                        ? {
+                            slug: title
+                              .toLowerCase()
+                              .replace(/[^a-z0-9]+/g, "-")
+                              .replace(/^-|-$/g, "")
+                              .slice(0, 120),
+                          }
+                        : {}),
+                    }));
+                  }}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="doc-slug">Slug</FieldLabel>
+                <Input
+                  id="doc-slug"
+                  required
+                  readOnly={isLive}
+                  maxLength={120}
+                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                  value={value.slug}
+                  aria-invalid={nameError ? true : undefined}
+                  onChange={(e) => {
+                    setNameError("");
+                    patch("slug", e.target.value);
+                  }}
+                />
+                <FieldDescription>
+                  {isLive
+                    ? "A published document keeps its name."
+                    : "Unique name using lowercase letters, numbers, and hyphens."}
+                </FieldDescription>
+                {nameError && <FieldError>{nameError}</FieldError>}
+              </Field>
+            </FieldGroup>
             <Field>
-              <FieldLabel htmlFor="doc-markdown">Markdown</FieldLabel>
+              <FieldLabel htmlFor="doc-description">Short description</FieldLabel>
               <Textarea
-                id="doc-markdown"
-                className="min-h-96 font-mono"
-                required
-                maxLength={1000000}
-                value={value.markdown}
-                onChange={(e) => patch("markdown", e.target.value)}
+                id="doc-description"
+                rows={2}
+                maxLength={4000}
+                value={value.description}
+                onChange={(e) => patch("description", e.target.value)}
               />
-              <FieldDescription>
-                {isLive
-                  ? "Save keeps your changes as your draft of this document; Publish on the Drafts tab makes a draft the live version."
-                  : "Save keeps the document as a draft until it is published."}
-              </FieldDescription>
             </Field>
-          </TabsContent>
-          <TabsContent value="preview">
-            <div className="min-h-96 rounded-lg border p-4">
-              {value.markdown ? (
-                <Markdown content={value.markdown} />
-              ) : (
-                <p className="text-sm text-muted-foreground">Write Markdown to preview the document.</p>
-              )}
-            </div>
-          </TabsContent>
-          <TabsContent value="resources">
-            <DocumentResourceSelection
-              resources={resources}
-              value={value}
-              builtFor={resourceFor ? [resourceFor] : links.filter((link) => link.connection === "built_for")}
-              onChange={(next) =>
-                setValue({
-                  ...next,
-                  source_commits: Object.fromEntries(
-                    Object.entries(next.source_commits ?? {}).filter(([id]) => next.code_project_ids.includes(id)),
-                  ),
-                })
-              }
-            />
-            {document && (
-              <div className="mt-4 flex justify-end">
-                <Button type="button" disabled={pending || !linksDirty} onClick={() => void saveLinks()}>
-                  Save links
-                </Button>
-              </div>
-            )}
-            {linksError && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertDescription>{linksError}</AlertDescription>
-              </Alert>
-            )}
-            {Object.keys(value.source_commits ?? {}).length > 0 && (
-              <div className="mt-4 flex flex-col gap-2">
-                <h3 className="font-medium">Documented source commits</h3>
-                {Object.entries(value.source_commits ?? {}).map(([id, commit]) => (
-                  <p key={id} className="text-sm">
-                    {resources.code_projects.find((p) => p.id === id)?.name ?? id}:{" "}
-                    <code className="break-all">{commit}</code>
-                  </p>
-                ))}
-              </div>
-            )}
-            {document && <DocumentLinkHistory documentId={document.id} reloadKey={linksLoad} />}
-          </TabsContent>
-          {isLive && (
-            <TabsContent value="history">
-              <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
-                <div className="flex flex-col gap-2">
-                  {document.versions.map((version) => (
-                    <Button
-                      key={version.version}
-                      type="button"
-                      variant={historical?.version === version.version ? "secondary" : "outline"}
-                      className="h-auto justify-start whitespace-normal py-3 text-left"
-                      onClick={() => void openVersion(version.version)}
-                    >
-                      <span>
-                        Version {version.version}
-                        {version.live ? " · Current" : ""}
-                        {version.from_draft ? " · from draft" : ""}
-                        <span className="block text-xs font-normal text-muted-foreground">
-                          {new Date(version.created_at).toLocaleString()}
-                        </span>
-                      </span>
-                    </Button>
+            <FieldGroup className="grid gap-4 sm:grid-cols-3">
+              <Field>
+                <FieldLabel htmlFor="doc-purpose">Purpose</FieldLabel>
+                <Input
+                  id="doc-purpose"
+                  list="document-purposes"
+                  required
+                  maxLength={80}
+                  value={value.purpose}
+                  onChange={(e) => patch("purpose", e.target.value)}
+                />
+                <datalist id="document-purposes">
+                  {[
+                    "explanation",
+                    "onboarding",
+                    "architecture",
+                    "how-to",
+                    "reference",
+                    "runbook",
+                    "troubleshooting",
+                  ].map((p) => (
+                    <option key={p} value={p} />
                   ))}
-                </div>
-                <div className="min-w-0 rounded-lg border p-4">
-                  {historical ? (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="font-semibold">
-                          {historical.title} · v{historical.version}
-                        </h2>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            // The version's text only: links are saved apart (Save links).
-                            setValue({
-                              ...value,
-                              title: historical.title,
-                              description: historical.description,
-                              purpose: historical.purpose,
-                              audience: historical.audience,
-                              tags: historical.tags,
-                              markdown: historical.markdown,
-                            });
-                            setTags(historical.tags.join(", "));
-                            setTab("write");
-                            toast.success(
-                              `Version ${historical.version} loaded into the editor. Save keeps it as your draft.`,
-                            );
-                          }}
-                        >
-                          Use version as draft
-                        </Button>
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {historical.purpose} · {historical.audience} · {historical.origin}
-                      </p>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Resources at save time:{" "}
-                        {Object.values(historical.source_snapshot)
-                          .flat()
-                          .map((r) => r.name)
-                          .join(", ") || "None"}
-                      </p>
-                      {historical.source_snapshot.code_projects
-                        .filter((r) => r.git_commit)
-                        .map((r) => (
-                          <p key={r.id} className="mt-2 text-sm">
-                            {r.name}: <code className="break-all">{r.git_commit}</code>
-                          </p>
-                        ))}
-                      <Markdown content={historical.markdown} />
-                    </>
+                </datalist>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="doc-audience">Audience</FieldLabel>
+                <Select value={value.audience} onValueChange={(v) => patch("audience", v as DocumentInput["audience"])}>
+                  <SelectTrigger id="doc-audience">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="both">People and agents</SelectItem>
+                      <SelectItem value="people">People</SelectItem>
+                      <SelectItem value="agents">Agents</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="doc-tags">Tags</FieldLabel>
+                <Input
+                  id="doc-tags"
+                  placeholder="Comma-separated tags"
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                />
+                {/* the saved tags, each a link to the Documents list filtered by it */}
+                <TagLinks tags={splitTags(savedContent.tags)} label="Document tags" />
+              </Field>
+            </FieldGroup>
+            <Tabs value={tab} onValueChange={(value) => setTab(value as EditorTab)}>
+              <TabsList>
+                <TabsTrigger value="write">Write</TabsTrigger>
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+                <TabsTrigger value="resources">Linked resources</TabsTrigger>
+              </TabsList>
+              <TabsContent value="write" forceMount className="data-[state=inactive]:hidden">
+                <Field>
+                  <FieldLabel htmlFor="doc-markdown">Markdown</FieldLabel>
+                  <Textarea
+                    id="doc-markdown"
+                    className="min-h-96 font-mono"
+                    required
+                    maxLength={1000000}
+                    value={value.markdown}
+                    onChange={(e) => patch("markdown", e.target.value)}
+                  />
+                  <FieldDescription>
+                    {isLive
+                      ? "Save keeps your changes as your draft of this document; Publish on Drafts makes a draft the live version."
+                      : "Save keeps the document as a draft until it is published."}
+                  </FieldDescription>
+                </Field>
+              </TabsContent>
+              <TabsContent value="preview">
+                <div className="min-h-96 rounded-lg border p-4">
+                  {value.markdown ? (
+                    <Markdown content={value.markdown} />
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Select a version to read it or use it as the starting point for an edit.
-                    </p>
+                    <p className="text-sm text-muted-foreground">Write Markdown to preview the document.</p>
                   )}
                 </div>
-              </div>
-            </TabsContent>
-          )}
-          {isLive && (
-            <TabsContent value="drafts">
-              <DocumentDrafts
-                documentId={document.id}
-                selected={params.get("draft")}
-                onPromoted={onPromoted}
-                confirm={unlessUnsaved}
-                onCount={setDraftCount}
-                onDiscarded={(id) => {
-                  // The edited draft is gone: Save starts a new draft from the editor's text.
-                  if (editingDraft?.id === id) {
-                    setEditingDraft(null);
-                    setSavedContent(loadedContent());
+              </TabsContent>
+              <TabsContent value="resources">
+                <DocumentResourceSelection
+                  resources={resources}
+                  value={value}
+                  builtFor={resourceFor ? [resourceFor] : links.filter((link) => link.connection === "built_for")}
+                  onChange={(next) =>
+                    setValue({
+                      ...next,
+                      source_commits: Object.fromEntries(
+                        Object.entries(next.source_commits ?? {}).filter(([id]) => next.code_project_ids.includes(id)),
+                      ),
+                    })
                   }
-                }}
-                onEdit={(draft) => {
-                  setValue((old) => ({
-                    ...old,
-                    title: draft.title,
-                    description: draft.description,
-                    purpose: draft.purpose,
-                    audience: draft.audience,
-                    tags: draft.tags,
-                    markdown: draft.markdown,
-                  }));
-                  setTags(draft.tags.join(", "));
-                  setSavedContent({
-                    ...content(),
-                    title: draft.title,
-                    description: draft.description,
-                    purpose: draft.purpose,
-                    audience: draft.audience,
-                    tags: draft.tags.join(", "),
-                    markdown: draft.markdown,
-                  });
-                  setEditingDraft({
-                    id: draft.id,
-                    revision: draft.revision,
-                    created_at: draft.created_at,
-                    base_version: draft.base_version,
-                  });
-                  setTab("write");
-                  toast.success(`Draft “${draft.title}” loaded into the editor.`);
-                }}
-              />
-            </TabsContent>
-          )}
-          {isLive && (
-            <TabsContent value="connections">
-              <DocumentConnections documentId={document.id} />
-            </TabsContent>
-          )}
-          <TabsContent value="agent-runs">{document && <DocumentAgentRuns documentId={document.id} />}</TabsContent>
-        </Tabs>
+                />
+                {document && (
+                  <div className="mt-4 flex justify-end">
+                    <Button type="button" disabled={pending || !linksDirty} onClick={() => void saveLinks()}>
+                      Save links
+                    </Button>
+                  </div>
+                )}
+                {linksError && (
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertDescription>{linksError}</AlertDescription>
+                  </Alert>
+                )}
+                {Object.keys(value.source_commits ?? {}).length > 0 && (
+                  <div className="mt-4 flex flex-col gap-2">
+                    <h3 className="font-medium">Documented source commits</h3>
+                    {Object.entries(value.source_commits ?? {}).map(([id, commit]) => (
+                      <p key={id} className="text-sm">
+                        {resources.code_projects.find((p) => p.id === id)?.name ?? id}:{" "}
+                        <code className="break-all">{commit}</code>
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {document && <DocumentLinkHistory documentId={document.id} reloadKey={linksLoad} />}
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
       </fieldset>
       <ConfirmRemove
         removal={
@@ -904,16 +867,44 @@ function Editor({
   );
 }
 
+/** Where an old link to a document goes: `?tab=<sub-page>` opens that sub-page, `?tab=preview|resources` Edit with that
+ * tab open (`editorTab`), and a run link (`/documents/:id/agent/:runId`) the page with the run in its query (?run=). The
+ * rest of the query is kept. */
+function oldLink(documentId: string, params: URLSearchParams, runId: string | undefined) {
+  const next = new URLSearchParams(params);
+  const tab = next.get("tab") ?? "";
+  next.delete("tab");
+  if (runId !== undefined) next.set("run", runId);
+  const query = next.toString();
+  return {
+    to: `/documents/${encodeURIComponent(documentId)}${SUBPAGES.includes(tab) ? `/${tab}` : ""}${query ? `?${query}` : ""}`,
+    editorTab: EDITOR_TABS.includes(tab) ? tab : undefined,
+  };
+}
+
+/** The document page (`/documents/:documentId` and its sub-pages) or the New page's Write: an old link redirects first. */
 export default function DocumentEditorView() {
   const { documentId, runId } = useParams();
+  const [params] = useSearchParams();
+  if (documentId && (params.has("tab") || runId !== undefined)) {
+    const { to, editorTab } = oldLink(documentId, params, runId);
+    return <Navigate replace to={to} state={editorTab ? { editorTab } : undefined} />;
+  }
+  return <DocumentPage />;
+}
+
+/** The editor with Ask agent's pane beside it; the open run is in the query (?run=<id>). */
+function DocumentPage() {
+  const { documentId } = useParams();
   const navigate = useNavigate();
-  const [, setParams] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const runId = params.get("run");
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   // Ask agent's pane: a live document's (the New page writes with an agent on its own sub-page), remembered per browser.
   const [agentOpen, setAgentOpen] = useState(
-    () => documentId !== undefined && (runId !== undefined || readPane() === "open"),
+    () => documentId !== undefined && (runId !== null || readPane() === "open"),
   );
   const [agentDraft, setAgentDraft] = useState<SessionDetail["document_draft"] | null>(null);
   const [agentVersion, setAgentVersion] = useState(""); // changes after each of the agent's turns: the bar reloads the draft
@@ -946,15 +937,22 @@ export default function DocumentEditorView() {
       });
     return () => controller.abort();
   }, [documentId, refresh]);
-  // A run link followed on this page (the Agent runs tab, a draft's Agent run) opens the pane on that run.
+  // A run link followed on this page (Agent runs, a draft's Agent run) opens the pane on that run.
   useEffect(() => {
-    if (runId !== undefined) setAgentOpen(true);
+    if (runId !== null) setAgentOpen(true);
   }, [runId]);
-  // The URL follows the pane's run (a reload reopens it), keeping ?tab= and ?draft=.
+  // The URL follows the pane's run (a reload reopens it), keeping the sub-page and the rest of the query.
   const followRun = (id: string | null) => {
-    if (!documentId) return;
-    const pathname = id ? agentRunPath(documentId, id) : `/documents/${encodeURIComponent(documentId)}`;
-    if (pathname !== location.pathname) navigate({ pathname, search: location.search }, { replace: true });
+    if (!documentId || id === runId) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (id) next.set("run", id);
+        else next.delete("run");
+        return next;
+      },
+      { replace: true },
+    );
   };
   const toggleAgent = () => {
     const next = !agentOpen;
@@ -962,7 +960,7 @@ export default function DocumentEditorView() {
     if (documentId) write(PANE_KEY, next ? "open" : "closed");
     if (!next) {
       setAgentDraft(null);
-      if (runId !== undefined) followRun(null);
+      if (runId !== null) followRun(null);
     } // a closed pane keeps no run in the URL
   };
   const onPromoted = (result: PromoteResult) => {
@@ -975,7 +973,14 @@ export default function DocumentEditorView() {
           ? { ...d, status: "replaced" }
           : d,
     );
-    setParams({ tab: "drafts" }, { replace: true });
+    // Drafts shows what is left, keeping the open run.
+    navigate(
+      {
+        pathname: `/documents/${encodeURIComponent(result.document_id)}/drafts`,
+        search: runId ? `?${new URLSearchParams({ run: runId })}` : "",
+      },
+      { replace: true },
+    );
     setRefresh((n) => n + 1);
   };
   const editor = (current: { document: DocumentDetail | null; resources: DocumentResources }) => (
@@ -1043,7 +1048,7 @@ export default function DocumentEditorView() {
               key={documentId}
               scope={{ kind: "document", id: documentId!, title: paneTitle }}
               settings={settings}
-              initialRunId={runId ?? null}
+              initialRunId={runId}
               confirmUnsaved={(run) => confirmRef.current(run)}
               onDraftChange={(draft, version) => {
                 setAgentDraft(draft);

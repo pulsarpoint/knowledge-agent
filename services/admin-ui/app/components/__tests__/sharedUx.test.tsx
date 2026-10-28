@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Link, MemoryRouter, useNavigate } from "react-router";
+import { Link, MemoryRouter, Outlet, useNavigate } from "react-router";
 import { renderRoutes } from "~/lib/__tests__/dataRouter";
 import BackLink from "../BackLink";
+import SectionLinks from "../SectionLinks";
 import ConfirmRemove, { type Removal } from "../ConfirmRemove";
 import LeaveGuard, { useSheetGuard } from "../LeaveGuard";
 import { Sheet, SheetContent, SheetTitle } from "~/components/ui/sheet";
@@ -189,4 +190,42 @@ test("useSheetGuard: a dirty sheet asks Stay / Leave on close (Escape or Cancel)
   dialog = within(await screen.findByRole("alertdialog"));
   await user.click(dialog.getByRole("button", { name: "Leave" }));
   await waitFor(() => expect(screen.getByText("sheet closed")).toBeInTheDocument());
+});
+
+test("SectionLinks: the open section's help line under the links; a section without help shows none", async () => {
+  const sections = [
+    { to: "/page", label: "One", end: true, help: "What one is." },
+    { to: "/page/two", label: "Two", help: "What two is." },
+    { to: "/page/three", label: "Three" },
+  ];
+  const layout = (
+    <>
+      <SectionLinks label="Page sections" sections={sections} />
+      <Outlet />
+    </>
+  );
+  const { router } = renderRoutes(
+    [
+      {
+        path: "/page",
+        element: layout,
+        children: [
+          { index: true, element: <p>one</p> },
+          { path: "two/*", element: <p>two</p> },
+          { path: "three", element: <p>three</p> },
+        ],
+      },
+    ],
+    "/page",
+  );
+  expect(await screen.findByText("What one is.")).toBeInTheDocument();
+  expect(screen.queryByText("What two is.")).toBeNull();
+  await userEvent.click(screen.getByRole("link", { name: "Two" }));
+  expect(await screen.findByText("What two is.")).toBeInTheDocument();
+  expect(screen.queryByText("What one is.")).toBeNull();
+  await router.navigate("/page/two/deeper");
+  expect(await screen.findByText("What two is.")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("link", { name: "Three" }));
+  await screen.findByText("three");
+  expect(screen.queryByText(/What .* is\./)).toBeNull();
 });

@@ -92,6 +92,15 @@ test.each([
   expect(profiles.getAgent).toHaveBeenCalledTimes(1);
 });
 
+test.each([
+  ["general", "The agent's details, model and instructions, and its prompt."],
+  ["resources", "What the agent may use: documents, code projects, services, servers, skills and tools."],
+  ["chat", "Talk with the agent. Each conversation is kept as a run you can open again."],
+])("the %s sub-page has its help line under the section links", async (page, help) => {
+  open(`/agents/ops/${page}`);
+  expect(await screen.findByText(help)).toBeInTheDocument();
+});
+
 test("the agent's page opens General", async () => {
   open("/agents/ops");
   expect(await screen.findByText("Details of Operations")).toBeInTheDocument();

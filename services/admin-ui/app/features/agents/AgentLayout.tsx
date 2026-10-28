@@ -20,9 +20,13 @@ export interface AgentPageContext {
 export const useAgentPage = () => useOutletContext<AgentPageContext>();
 
 const SECTIONS = [
-  { page: "general", label: "General" },
-  { page: "resources", label: "Resources" },
-  { page: "chat", label: "Chat" },
+  { page: "general", label: "General", help: "The agent's details, model and instructions, and its prompt." },
+  {
+    page: "resources",
+    label: "Resources",
+    help: "What the agent may use: documents, code projects, services, servers, skills and tools.",
+  },
+  { page: "chat", label: "Chat", help: "Talk with the agent. Each conversation is kept as a run you can open again." },
 ];
 
 /** The agent page (`/agents/:agentId`): the header (All agents, name and badges, actions, description) and the
@@ -85,7 +89,7 @@ function AgentPage({ agentId }: { agentId: string }) {
           {/* The links keep the query: a chat's open run (?session_id=) is there again when coming back to Chat. */}
           <SectionLinks
             label="Agent sections"
-            sections={SECTIONS.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
+            sections={SECTIONS.map(({ page, ...section }) => ({ ...section, to: { pathname: page, search } }))}
           />
           <Outlet context={{ profile, setProfile, reload, reloaded } satisfies AgentPageContext} />
         </>

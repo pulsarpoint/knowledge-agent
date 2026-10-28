@@ -124,10 +124,10 @@ export const addLink = (documentId: string, toId: string) =>
   request<Connections>(`${documentUrl(documentId)}/links`, json("POST", { to_document_id: toId }));
 export const removeLink = (documentId: string, toId: string) =>
   request<Connections>(`${documentUrl(documentId)}/links/${encodeURIComponent(toId)}`, { method: "DELETE" });
-/** Where a draft opens: its document's Drafts tab, or a brand-new draft's own page (/documents/{id}, the id the
+/** Where a draft opens: its document's Drafts sub-page, or a brand-new draft's own page (/documents/{id}, the id the
  * document keeps when it is published). */
 export const draftPath = (draft: { id: string; document_id: string | null }) =>
-  draft.document_id ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/${draft.id}`;
+  draft.document_id ? `/documents/${draft.document_id}/drafts?draft=${draft.id}` : `/documents/${draft.id}`;
 /** What a page says after Publish made a brand-new draft the live document. */
 export const publishedNotice = (result: PromoteResult) => `Published as version ${result.version}.`;
 /** What the document page says after a draft of a live document was published (promoted). */

@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { Toaster } from "~/components/ui/sonner";
 import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
-import DocumentsView from "~/features/documents/DocumentsView";
 import DraftPageView from "~/features/documents/DraftPageView";
+import { documentRoute, documentsRoute } from "~/lib/__tests__/pageRoutes";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -140,16 +140,21 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
 function show(url: string) {
   const router = createMemoryRouter(
     [
-      { path: "/documents", element: <DocumentsView /> },
+      documentsRoute,
       { path: "/documents/new", element: <DocumentEditorView /> },
       { path: "/documents/drafts/:draftId", element: <DraftPageView /> },
-      { path: "/documents/:documentId", element: <DocumentEditorView /> },
+      documentRoute,
     ],
     { initialEntries: [url] },
   );
   render(<RouterProvider router={router} />);
   return router;
 }
+/** The document page's section links, by text. */
+const sections = () =>
+  within(screen.getByRole("navigation", { name: "Document sections" }))
+    .getAllByRole("link")
+    .map((link) => link.textContent);
 const BANNER = "Draft — not published yet";
 
 test("New → Save creates a brand-new draft and opens it at /documents/{id}; no Create document anywhere", async () => {
@@ -180,7 +185,7 @@ test("New → Save creates a brand-new draft and opens it at /documents/{id}; no
   expect(calls.some((c) => c.key.startsWith("POST /api/documentation/documents"))).toBe(false);
 });
 
-test("the brand-new draft page: banner, Save/Publish/Discard, an editable name, no Version history or Drafts tabs", async () => {
+test("the brand-new draft page: banner, Save/Publish/Discard, an editable name, no Version history or Drafts sections", async () => {
   const calls = api({
     "GET /api/documentation/documents/d5": () => [200, brandNew],
     "GET /api/documentation/resources": () => [200, resources],
@@ -191,10 +196,8 @@ test("the brand-new draft page: banner, Save/Publish/Discard, an editable name, 
   for (const name of ["Save", "Publish", "Discard"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
   for (const name of ["Save new version", "Create document", "Delete", "Ask agent"])
     expect(screen.queryByRole("button", { name })).toBeNull();
-  expect(screen.queryByRole("tab", { name: "Version history" })).toBeNull();
-  expect(screen.queryByRole("tab", { name: /^Drafts/ })).toBeNull();
+  expect(sections()).toEqual(["Edit", "Agent runs"]);
   expect(screen.getByRole("tab", { name: "Linked resources" })).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Agent runs" })).toBeInTheDocument();
   expect(screen.queryByText(/^Version \d/)).toBeNull();
   fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "disk-runbook" } });
   expect(screen.queryByLabelText("Folder")).toBeNull(); // documents have no folders
@@ -238,7 +241,7 @@ test("Publish publishes the brand-new draft and the page shows the live document
   );
   expect(await screen.findByText("Version 1")).toBeInTheDocument();
   expect(screen.queryByText(BANNER)).toBeNull();
-  expect(screen.getByRole("tab", { name: "Version history" })).toBeInTheDocument();
+  expect(sections()).toContain("Version history");
   expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
 });
 
@@ -295,7 +298,7 @@ test("on a live document the first Save creates your draft; the second Save upda
     markdown: "# Runbook v3",
   });
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook v3");
-  expect(screen.getByRole("tab", { name: "Drafts 1" })).toBeInTheDocument();
+  expect(sections()).toContain("Drafts (1)");
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Runbook v3, again" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
@@ -315,7 +318,7 @@ test("on a live document the first Save creates your draft; the second Save upda
   expect(calls.some((c) => c.key === "PUT /api/documentation/documents/doc-1")).toBe(false);
 });
 
-test("the Drafts tab carries a badge with the number of drafts", async () => {
+test("the Drafts section link carries the number of drafts", async () => {
   const row = {
     id: "x",
     title: "Runbook",
@@ -337,7 +340,8 @@ test("the Drafts tab carries a badge with the number of drafts", async () => {
     "GET /api/documentation/resources": () => [200, resources],
   });
   show("/documents/doc-1");
-  expect(await screen.findByRole("tab", { name: "Drafts 3" })).toBeInTheDocument();
+  await screen.findByRole("navigation", { name: "Document sections" });
+  expect(sections()).toContain("Drafts (3)");
 });
 
 test("Save links writes the links through the links route and keeps the new revision; a 409 shows its message", async () => {
@@ -438,7 +442,7 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
       { document_id: "d5", version: 1, revision: 2, deleted_drafts: 0 },
     ],
   });
-  show("/documents?view=drafts");
+  show("/documents/drafts");
   const table = within(await screen.findByRole("region", { name: "Drafts" }));
   const rows = table.getAllByRole("row").slice(1);
   const brandNewRow = within(rows[0]);
@@ -454,7 +458,7 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
   expect(ofLive.getByRole("link", { name: "Runbook" })).toHaveAttribute("href", "/documents/doc-1");
   expect(ofLive.getByRole("link", { name: "Runbook rewrite" })).toHaveAttribute(
     "href",
-    "/documents/doc-1?tab=drafts&draft=d7",
+    "/documents/doc-1/drafts?draft=d7",
   );
   expect(rowButtons(rows[1])).toEqual(["Actions for Runbook rewrite"]);
   fireEvent.click(brandNewRow.getByRole("button", { name: "Publish New runbook" }));

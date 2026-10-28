@@ -10,7 +10,7 @@ import { getCodeProjects, processCodeProject, type CodeProject } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Spinner } from "~/components/ui/spinner";
 
 const active = (project: CodeProject) =>
@@ -33,7 +33,8 @@ const GRAPH_ORDER: Record<GraphSort, (a: CodeProject, b: CodeProject) => number>
 };
 
 /** Every code project's graph in a table (status, counts, languages, last generated; View graph or Generate graph, and
- * Regenerate in the row menu) with search, sortable headers and Refresh; the explorer opens below. */
+ * Regenerate in the row menu) with search, sortable headers and Refresh; View graph opens the explorer in a right Sheet
+ * (the open project is in the URL, ?project=<id>). */
 export default function CodeGraphsView() {
   const [params, setParams] = useSearchParams();
   const selected = params.get("project");
@@ -216,19 +217,15 @@ export default function CodeGraphsView() {
           )
         }
       />
-      {open && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{open.name} · Code graph</CardTitle>
-            <Button type="button" variant="outline" className="self-start" onClick={() => select(null)}>
-              Close graph
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <CodeGraphExplorer projectId={open.id} sourceHash={open.code_index!.source_hash} />
-          </CardContent>
-        </Card>
-      )}
+      <Sheet open={open !== undefined} onOpenChange={(next) => !next && select(null)}>
+        <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-5xl">
+          <SheetHeader>
+            <SheetTitle>{open ? `${open.name} · Code graph` : "Code graph"}</SheetTitle>
+            <SheetDescription>The files of the code project, their symbols and relationships.</SheetDescription>
+          </SheetHeader>
+          {open && <CodeGraphExplorer projectId={open.id} sourceHash={open.code_index!.source_hash} />}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

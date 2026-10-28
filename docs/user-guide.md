@@ -189,6 +189,10 @@ runs, Documents, Events, Notifications, Memory) are paged by the server; there i
 so with its first-item button (for example **No schedules yet** with **New schedule**). **Refresh** is offered only
 where the list changes on its own: Agent runs, Events, Notifications, Memory and Code graphs.
 
+A page made of parts (an agent, a service, a server, an environment, a code project, a document, Documents, Events,
+Code projects, New document) shows them as links above the open part, each its own address, with one line under the
+links saying what the open part holds. Old links that named a part in the query (`?view=…`, `?tab=…`) still open it.
+
 Small records are created and edited in a side sheet on the right: agents (the **New agent** wizard), models, MCP
 servers, environments, servers, schedules, handlers, events and memory entries. A create sheet ends with **Create
 <thing>** and **Cancel**, an edit sheet with **Save** and **Cancel**. **Cancel** discards at once; closing a sheet
@@ -267,9 +271,9 @@ are shown as a safe summary ("Check the URL, branch, token permissions…").
 symbols, relationships, routes, languages and parse errors. It skips `.env*`, keys,
 dependency/build folders, binaries and files over 1 MiB, and reuses unchanged files.
 **Code → Code graphs** lists every project's graph (status, files, symbols, relationships, languages, last
-generated) with **View graph** (an explorer: files → symbols, filter, paging) and, in the row's ⋯ menu, **Regenerate graph**;
-a project without a graph has **Generate graph** in its row instead; on a project's page,
-**Overview → Re-index** generates it again. `/code-graphs?project=<id>` opens one
+generated) with **View graph** (an explorer in a side sheet: files → symbols, filter, paging) and, in the row's ⋯ menu,
+**Regenerate graph**; a project without a graph has **Generate graph** in its row instead; on a project's page,
+**Overview → Re-index** generates it again. `/code-graphs?project=<id>` opens one's sheet
 directly. The graph is a
 prerequisite for code documentation phases ([4.11](#411-write-a-new-document-with-an-agent)).
 
@@ -343,19 +347,20 @@ Registering does not connect to anything.
 A server cannot be deleted while service deployments reference it.
 
 A server's name opens its page (`/servers/:id`): a header (details, SSH state; **Chat** and **Discover** on
-the right) and tabs **Overview** (the services deployed on it) and **Documents**; the open tab
-is kept in the URL (`?view=documents`). Its chats are in the chat panel (see below). Services (`/services/:id`, with a tab per part: see
-[Services](#46-services)) and environments (`/environments/:id`: the first tab is the Workspace) have the same kind of
-page. In the environment
+the right) and the sub-pages **Overview** (`/servers/:id/overview`, the services deployed on it) and **Documents**
+(`/servers/:id/documents`) as links, each with a line saying what it holds; `/servers/:id` opens Overview, and an old link
+with `?view=documents` opens Documents. Its chats are in the chat panel (see below). Services (`/services/:id`, a sub-page
+per part: see [Services](#46-services)) and environments (`/environments/:id`: Workspace and Documents) have the same
+kind of page. In the environment
 workspace, the selected service's column has its own tabs **Details** and **Documents**.
 
 A server's, service's or environment's **inventory document** is the document tagged `inventory` built for it (the
-most recently updated one when several; the others are in its Documents list): the Documents tab shows it rendered, with **Open** to
+most recently updated one when several; the others are in its Documents list): the Documents sub-page shows it rendered, with **Open** to
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"); without one
-there is no box. **New document** in the tab's header opens the New document page built for the resource
+there is no box. **New document** in the sub-page's header opens the New document page built for the resource
 (`/documents/new?resource=server&resource_id=…`: "New document for server web-1.", the resource locked in Linked
 resources, no tags), and **Save** creates its draft; its **Write with an agent** tab is a chat on that resource
-(4.11): the documents the agent creates there are built for the resource, listed on its Documents tab as drafts and
+(4.11): the documents the agent creates there are built for the resource, listed on its Documents sub-page as drafts and
 linked to it when published. Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
@@ -421,7 +426,9 @@ environment when one of its deployments is; a service deployed in two environmen
   rooted at the environment), **Documents**, **Edit** and **Delete**.
 - An environment's page (`/environments/:id`) has a header (name, description, **System map**; **Chat** and
   **Discover** on the right; Chat opens the agent chat beside the page, its Chats sheet lists the earlier
-  chats about the environment) and two tabs, the open one kept in the URL (`?view=documents`; none: Workspace):
+  chats about the environment) and two sub-pages as links: **Workspace** (`/environments/:id/workspace`, the one
+  `/environments/:id` opens) and **Documents** (`/environments/:id/documents`; an old link with `?view=documents`
+  opens it):
   - **Documents**: the environment's own inventory document and documents (a server's or service's documents are in
     its column of the workspace);
   - **Workspace**, of three columns:
@@ -495,12 +502,12 @@ real entry (**Confirm**) or drops it (**Discard**). Agents never change a confir
   the Drafts filter (an open chat stays open). The count includes document drafts (new documents, and drafts of
   documents) linked to the environment, its servers and its services (also a draft whose only link there is the one it
   adds on publish); the text then says "3 drafts to review (1 document)". When only document drafts wait, the link
-  opens the **Documents** tab, whose **Drafts to review** section at the top lists every one of them: its title (a link
+  opens **Documents**, whose **Drafts to review** section at the top lists every one of them: its title (a link
   to the draft), the service, server or environment it belongs to, and "New document" or "New version". The
-  environment's own documents follow below. On a resource's Documents tab a new document's draft is listed marked
+  environment's own documents follow below. On a resource's Documents sub-page a new document's draft is listed marked
   "Draft — not published", and a document with a draft waiting shows "Draft waiting"; the System map's entry panel
   lists a new document's draft only once it is published.
-- **After the agent's turn.** The workspace, the header's count, the Documents tabs (with Drafts to review), the server
+- **After the agent's turn.** The workspace, the header's count, the Documents sub-pages (with Drafts to review), the server
   page and the service panel reload after each turn of the page's chat, so what the agent drafted appears without a
   reload.
 - **Map.** On the System map, draft boxes and lines are dashed (a line that adds up several connections is dashed only
@@ -516,8 +523,8 @@ service's type and role, code projects, environments and deployments, with **Doc
 creates the service and opens its page.
 
 **The service page** (`/services/:id`) has a header (**All services**, the name, type and role badges, the address of
-an external service; **Chat** and **Discover…**) and one tab per part, each its own page (the tabs show their counts
-and keep an open chat open):
+an external service; **Chat** and **Discover…**) and one sub-page per part, as links (they show their counts, keep an
+open chat open, and the open one's line under them says what it holds):
 
 - **View** (`/services/:id/view`): description, owner and address; **Where it runs**: its environments (links to
   their workspaces) and every deployment (environment / server, runtime, name, port, version) with **Edit** and
@@ -546,7 +553,7 @@ and keep an open chat open):
 Every Remove asks first in a dialog that names what goes. An entry an agent recorded shows its Draft badge with
 **Confirm** / **Discard**. Every change sends the revision it read; when someone changed it meanwhile the page says
 "This was changed meanwhile. Reload to see the latest." and reloads. An old link (`/services/:id`, `?view=documents`)
-opens the matching tab. Note: the *downloaded* commit of a code project is not the *deployed* version.
+opens the matching sub-page. Note: the *downloaded* commit of a code project is not the *deployed* version.
 
 **External services**: a service of type External service stands for a system outside your environments (a payment
 provider, a SaaS API). Give it an **Address** (a hostname or IP address; the field is shown for this type only; Add
@@ -779,8 +786,8 @@ See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent rece
 
 ### 4.11 Write a new document with an agent
 
-**Documents → New** has two tabs: **Write** (`/documents/new`, the form: title, name, tags, content) and **Write with an
-agent** (`/documents/new/agent`, a chat). Opened from a resource's Documents tab (**New document**), both keep the
+**Documents → New** has two sub-pages: **Write** (`/documents/new`, the form: title, name, tags, content) and **Write with an
+agent** (`/documents/new/agent`, a chat). Opened from a resource's Documents sub-page (**New document**), both keep the
 resource (`?resource=server&resource_id=…`).
 
 **Write with an agent** starts with no title and no name: the agent creates the documents itself. The page takes the full
@@ -859,26 +866,32 @@ whole-environment and code-project generation; documents written by service phas
 
 ### 4.12 Documents
 
-**Documents** (`/documents`) — all generated and hand-written documents. Search by
-title/slug/description and filter by linked resources and by one **Tag** (`?tag=`, exact, any case; the Drafts view
-filters by it too). Every tag badge — in the list, on a resource page and under a document's Tags — opens the list
+**Documents** (`/documents`) — all generated and hand-written documents, with the sub-pages **Documents** and
+**Drafts** (`/documents/drafts`; an old link with `?view=drafts` opens it) as links; switching keeps the resource and tag
+filters. Search by title/slug/description and filter by linked resources and by one **Tag** (`?tag=`, exact, any case;
+Drafts filters by it too). Every tag badge — in the list, on a resource page and under a document's Tags — opens the list
 filtered by that tag. The list is paged by the server (50 a page at first; the page and its size are in the link as
 `?offset=` and `?limit=`). **New document** writes one manually.
 
 Every save is a draft: content goes live only by **Publish** (a document that is only a draft, or a draft
-of a live document). The editor has fields Title, Slug, Short description, Purpose, Audience (People and agents /
-People / Agents), Tags, and tabs **Write**, **Preview**, **Linked resources** (including documented source commits)
-and, on a live document, **Version history** (**Use version as draft**), **Drafts n** (a badge counts the drafts) and
-**Connections**.
+of a live document). A document's page (`/documents/{id}`) has sub-pages as links, each with a line saying what it
+holds: **Edit** (the editor), and on a live document **Version history** (`/documents/{id}/history`, **Use version as
+draft**), **Drafts (n)** (`/documents/{id}/drafts`, counting the drafts) and **Connections**
+(`/documents/{id}/connections`), then **Agent runs** (`/documents/{id}/agent-runs`). Edit has the fields Title, Slug,
+Short description, Purpose, Audience (People and agents / People / Agents), Tags, and the tabs **Write**, **Preview**
+and **Linked resources** (including documented source commits). The editor stays open under the other sub-pages:
+unsaved changes are still there when you come back to Edit, and only leaving the document's page asks Stay / Leave. An
+old link with `?tab=history|drafts|connections|agent-runs` opens that sub-page; `?tab=preview|resources` opens Edit on
+that tab.
 
 - **New document**: **Save** creates a draft of the new document and opens it at `/documents/{id}`.
 - A document that is only a draft shows "Draft — not published yet" with **Save** (its name — the slug — can
   still change), **Publish** (it becomes version 1 of the document, same address) and **Discard**. It has no version
-  history or Drafts tab until it is published.
+  history or Drafts until it is published.
 - A live document shows "Version n" with **Save**, **Download document** (ZIP),
   **Delete** and **Ask agent**. The first **Save** creates your draft of the document and the editor goes on editing
   it — "Editing your draft (created {time}, from version {n}). Save updates it; Publish makes it live." — later Saves
-  update the same draft. Publish it on the **Drafts** tab.
+  update the same draft. Publish it on **Drafts**.
 - **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
   was built for stays locked. If someone changed the document's links meanwhile, Save links says so and writes
   nothing.
@@ -891,11 +904,11 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
 Anything a person or an agent saves is a **draft** (a document a discovery run drafts too); a version goes live
 only when a person publishes a draft.
 
-- The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
+- The list's **Drafts** column counts each document's open drafts and opens its Drafts sub-page; **Has drafts** shows only
   documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title and tags,
-  written by, updated; the title opens it) with **Discard** in the row's ⋯ menu; it ignores the filters. The **Drafts** view lists every draft with its tags: a draft of a new document
+  written by, updated; the title opens it) with **Discard** in the row's ⋯ menu; it ignores the filters. The **Drafts** sub-page lists every draft with its tags: a draft of a new document
   is marked **Not published** (**Publish** in the row, **Discard** in its menu); a draft of a live document names its document.
-- **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
+- **Drafts**: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
   the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the
   document it revises and the documents its author read, "(deleted)" when one is gone). **Edit** loads it into the
   editor; **Publish** makes it the live version — a stale draft first says "This draft was based on version n; the
@@ -905,7 +918,7 @@ only when a person publishes a draft.
 - A new document's draft opens at `/documents/{id}`; **Publish** creates the document there. If a document with that name was created meanwhile, the draft becomes a draft of it and opens
   on its draft page (`/documents/drafts/{id}`, where an agent's draft of a live document opens too) asking
   you to review it again.
-- **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
+- **Connections**: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
   live version was built from).
 - **Version history** marks versions published from a draft ("from draft").
 - Drafts are never exported, searched or shown to agents; deleting a document deletes its drafts and links.
@@ -930,14 +943,15 @@ prompt (**Revise a document** by default, any other saved prompt, or **Own promp
 next message will start with, as JSON. Your choices are remembered for the document in this browser. While a
 conversation is open its settings are fixed: Settings shows them, and **Start new chat with these settings** closes it
 and lets you change them for the next one. **New chat** closes the conversation; **Earlier runs** reopens another. The
-**Agent runs** tab lists the document's runs, open ones first. Deleting the document deletes its runs; their drafts are
+open run is in the page's link (`?run=<id>`, kept across the sub-pages; an old `/documents/{id}/agent/{run}` link opens
+it too). **Agent runs** lists the document's runs, open ones first. Deleting the document deletes its runs; their drafts are
 deleted with it.
 
 Agents find published documents with `search_documents` (full-text search over the documents their run may read)
 and read one with `get_document`.
 
 There are no documentation folders: a document's name (its slug) is unique in the workspace, and documents are found
-by their resources (each resource's Documents tab), tags and search. The old `/documentation/folders` links open
+by their resources (each resource's Documents sub-page), tags and search. The old `/documentation/folders` links open
 Documents.
 
 ### 4.13 Storage
@@ -1009,7 +1023,7 @@ Schedules run at most every 5 minutes. **History** (in a row's ⋯ menu) opens a
 
 ### 4.16 Events
 
-Administration → Events lists what happened at your sources and what handlers made of it: Time, Source, Type,
+Administration → Events (`/events`, with **Handlers** at `/events/handlers` beside it) lists what happened at your sources and what handlers made of it: Time, Source, Type,
 Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.19), Schedule (an Emit event schedule, 4.15) and Manual. For Jira:
 every scheduled pull (the Jira tickets schedule on Administration → Schedules, or Run now) records **Ticket created** for a ticket it sees for the first time
 and **Ticket updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type,

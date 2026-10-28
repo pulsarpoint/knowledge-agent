@@ -82,10 +82,7 @@ export function CodeProjectDependenciesPage() {
       )}
       <section aria-label="Depends on" className="flex min-w-0 flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-semibold">Depends on</h3>
-            <p className="text-sm text-muted-foreground">Code projects this one uses as libraries.</p>
-          </div>
+          <h3 className="text-lg font-semibold">Depends on</h3>
           <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
             <Plus data-icon="inline-start" />
             Add
@@ -118,12 +115,7 @@ export function CodeProjectDependenciesPage() {
         )}
       </section>
       <section aria-label="Used by" className="flex min-w-0 flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-lg font-semibold">Used by</h3>
-          <p className="text-sm text-muted-foreground">
-            Code projects that use this one, and the services built from them: they are affected when it changes.
-          </p>
-        </div>
+        <h3 className="text-lg font-semibold">Used by</h3>
         {data &&
           (data.used_by.code_projects.length === 0 && data.used_by.services.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing is recorded as using this code project.</p>

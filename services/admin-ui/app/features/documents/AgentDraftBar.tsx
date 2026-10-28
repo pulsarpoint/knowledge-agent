@@ -9,7 +9,7 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
 /** Above the editor while the Ask agent pane's run has an open draft: its base version and stale badge, Compare (the
- * Drafts tab with that draft) and Publish (asking first when it deletes the document's other drafts; with the stale
+ * Drafts sub-page with that draft) and Publish (asking first when it deletes the document's other drafts; with the stale
  * check: the server's message, then Publish anyway). A draft another draft's promote replaced says so; a promoted or
  * discarded one hides the bar. The agent may
  * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Publish

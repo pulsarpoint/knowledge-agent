@@ -1,10 +1,11 @@
 import AdminLayout from "../components/AdminLayout";
-import EventsPage from "~/features/events/EventsPage";
+import EventsLayout from "~/features/events/EventsPage";
 
+/** Events: the section links; the open sub-page (Events or Handlers) is a child route. */
 export default function EventsRoute() {
   return (
     <AdminLayout>
-      <EventsPage tab="events" />
+      <EventsLayout />
     </AdminLayout>
   );
 }

@@ -18,15 +18,25 @@ export default [
   ]),
   route("code-graphs", "./routes/codeGraphs.tsx"),
   route("storage", "./routes/storage.tsx"),
-  route("documents", "./routes/documents.tsx"),
+  // Documents: Documents and Drafts are sub-pages (an old ?view=drafts link redirects from the index).
+  route("documents", "./routes/documents.tsx", [
+    index("./routes/documentsIndex.tsx"),
+    route("drafts", "./routes/documentsDrafts.tsx"),
+  ]),
   // New document: Write (the form) and Write with an agent (a chat) are sub-pages.
   route("documents/new", "./routes/documentNew.tsx", [
     index("./routes/documentNewWrite.tsx"),
     route("agent", "./routes/documentNewAgent.tsx"),
   ]),
   route("documents/drafts/:draftId", "./routes/documentDraft.tsx"),
-  // The run link is a child of the document page: following one (or the pane changing run) keeps the page mounted.
+  // The document page holds the editor (its index is Edit); History, Drafts, Connections and Agent runs are sub-pages.
+  // The Ask agent pane's run is in the query (?run=<id>); an old run link (agent/:runId) or ?tab= link redirects.
   route("documents/:documentId", "./routes/documentDetail.tsx", [
+    index("./routes/documentWrite.tsx"),
+    route("history", "./routes/documentHistory.tsx"),
+    route("drafts", "./routes/documentDrafts.tsx"),
+    route("connections", "./routes/documentConnections.tsx"),
+    route("agent-runs", "./routes/documentAgentRuns.tsx"),
     route("agent/:runId", "./routes/documentAgentRun.tsx"),
   ]),
   route("prompts", "./routes/promptLibrary.tsx"),
@@ -52,7 +62,12 @@ export default [
     route("documents", "./routes/serviceDocuments.tsx"),
   ]),
   route("environments", "./routes/environments.tsx"),
-  route("environments/:environmentId", "./routes/environment.tsx"),
+  // The environment page holds its header; each section is a sub-page (an old ?view= link redirects from the index).
+  route("environments/:environmentId", "./routes/environment.tsx", [
+    index("./routes/environmentIndex.tsx"),
+    route("workspace", "./routes/environmentWorkspace.tsx"),
+    route("documents", "./routes/environmentDocuments.tsx"),
+  ]),
   route("system-map", "./routes/systemMap.tsx"),
   // The agent page holds its header; each section is a sub-page (an old ?view= link redirects from the index).
   route("agents/:agentId", "./routes/agentDetail.tsx", [
@@ -70,15 +85,23 @@ export default [
   route("skills/:skillId", "./routes/skill.tsx"),
   route("llm-settings", "./routes/llmSettings.tsx"),
   route("servers", "./routes/servers.tsx"),
+  // The server page holds its header; each section is a sub-page (an old ?view= link redirects from the index).
   // A resource page's chat is in its query (?chat=<id>): changing it keeps the page mounted.
-  route("servers/:serverId", "./routes/server.tsx"),
+  route("servers/:serverId", "./routes/server.tsx", [
+    index("./routes/serverIndex.tsx"),
+    route("overview", "./routes/serverOverview.tsx"),
+    route("documents", "./routes/serverDocuments.tsx"),
+  ]),
   route("jira/settings", "./routes/jiraSettings.tsx"),
   route("jira/tickets", "./routes/jiraTickets.tsx"),
   route("activity/runs", "./routes/runs.tsx"),
   route("activity/runs/:runKey", "./routes/runRecord.tsx"),
   route("schedules", "./routes/schedules.tsx"),
-  route("events", "./routes/events.tsx"),
-  route("events/handlers", "./routes/eventHandlers.tsx"),
+  // Events: Events and Handlers are sub-pages.
+  route("events", "./routes/events.tsx", [
+    index("./routes/eventsList.tsx"),
+    route("handlers", "./routes/eventHandlers.tsx"),
+  ]),
   route("notifications", "./routes/notifications.tsx"),
   route("memory", "./routes/memory.tsx"),
 ] satisfies RouteConfig;

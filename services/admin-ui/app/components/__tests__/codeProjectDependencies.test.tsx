@@ -197,13 +197,12 @@ test("Remove asks first, then deletes the dependency with its revision", async (
   await waitFor(() => expect(writes(calls)).toEqual([["DELETE /api/code-dependencies/d1?revision=4", null]]));
 });
 
-test("Dependencies explains both lists", async () => {
+test("Dependencies explains both lists in the sub-page's help line", async () => {
   api();
   renderCodeProjects("/code-projects/c1/dependencies");
-  expect(await screen.findByText("Code projects this one uses as libraries.")).toBeInTheDocument();
   expect(
-    screen.getByText(
-      "Code projects that use this one, and the services built from them: they are affected when it changes.",
+    await screen.findByText(
+      "Depends on: the code projects this one uses as libraries. Used by: the code projects that use this one and the services built from them, affected when it changes.",
     ),
   ).toBeInTheDocument();
 });

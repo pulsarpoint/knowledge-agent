@@ -1,10 +1,3 @@
-import AdminLayout from "../components/AdminLayout";
-import EventsPage from "~/features/events/EventsPage";
+import HandlersView from "~/features/events/HandlersView";
 
-export default function EventHandlersRoute() {
-  return (
-    <AdminLayout>
-      <EventsPage tab="handlers" />
-    </AdminLayout>
-  );
-}
+export default HandlersView;

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import { Link } from "react-router";
+import OldLinkRedirect from "~/components/OldLinkRedirect";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { processCodeProject } from "./api";
@@ -15,15 +16,7 @@ const when = (value: string | null) => (value ? new Date(value).toLocaleString()
 
 /** `/code-projects/:codeProjectId`: opens Overview; an old link (`?view=overview|documents`) opens its sub-page, keeping
  * the rest of the query (an open chat). */
-export function CodeProjectIndex() {
-  const [current] = useSearchParams();
-  const { hash } = useLocation();
-  const params = new URLSearchParams(current);
-  const page = params.get("view") === "documents" ? "documents" : "overview";
-  params.delete("view");
-  const query = params.toString();
-  return <Navigate replace to={`${page}${query ? `?${query}` : ""}${hash}`} />;
-}
+export const CodeProjectIndex = () => <OldLinkRedirect pages={{ documents: "documents" }} fallback="overview" />;
 
 /** The project's details, checkout folders, code graph (Re-index), recent syncs and Built into (the services built
  * from it). */

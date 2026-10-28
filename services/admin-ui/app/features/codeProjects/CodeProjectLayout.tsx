@@ -28,10 +28,22 @@ export interface CodeProjectPageContext {
 export const useCodeProjectPage = () => useOutletContext<CodeProjectPageContext>();
 
 const SECTIONS = [
-  { page: "overview", label: "Overview" },
-  { page: "dependencies", label: "Dependencies" },
-  { page: "documents", label: "Documents" },
-  { page: "settings", label: "Settings" },
+  { page: "overview", label: "Overview", help: "What the code project is, its files and its code graph." },
+  {
+    page: "dependencies",
+    label: "Dependencies",
+    help: "Depends on: the code projects this one uses as libraries. Used by: the code projects that use this one and the services built from them, affected when it changes.",
+  },
+  {
+    page: "documents",
+    label: "Documents",
+    help: "Documents about this code project and drafts waiting to be published.",
+  },
+  {
+    page: "settings",
+    label: "Settings",
+    help: "Change the code project's name, source and sync options, or delete it.",
+  },
 ];
 const when = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
 const message = (reason: unknown, fallback: string) =>
@@ -174,7 +186,7 @@ function CodeProjectPage({ codeProjectId }: { codeProjectId: string }) {
     >
       <SectionLinks
         label="Code project sections"
-        sections={SECTIONS.map(({ page, label }) => ({ to: { pathname: page, search }, label }))}
+        sections={SECTIONS.map(({ page, ...section }) => ({ ...section, to: { pathname: page, search } }))}
       />
       {error && (
         <Alert variant="destructive">

@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
-import DocumentsView from "~/features/documents/DocumentsView";
 import EntryDocuments from "~/features/servers/EntryDocuments";
 import { menuItems, rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
+import { documentRoute, documentsRoute } from "~/lib/__tests__/pageRoutes";
 
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;
@@ -50,9 +50,9 @@ function show(url: string) {
   const router = createMemoryRouter(
     [
       { path: "/servers/:serverId", element: <EntryDocuments entry={{ kind: "server", id: "s1", name: "web-1" }} /> },
-      { path: "/documents", element: <DocumentsView /> },
+      documentsRoute,
       { path: "/documents/new", element: <DocumentEditorView /> },
-      { path: "/documents/:documentId", element: <DocumentEditorView /> },
+      documentRoute,
     ],
     { initialEntries: [url] },
   );
@@ -502,7 +502,7 @@ describe("the Documents list", () => {
     expect(calls.filter((c) => c.key.includes("tag=")).every((c) => c.key.endsWith("tag=inventory"))).toBe(true);
   });
 
-  test("the Drafts tab filters by tag too, and the tag carries over between the tabs", async () => {
+  test("Drafts filters by tag too, and the tag carries over between the sub-pages", async () => {
     const calls = api({
       "GET /api/documentation/documents?tag=inventory": () => [200, { documents: [], total: 0 }],
       "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
@@ -511,8 +511,11 @@ describe("the Documents list", () => {
     });
     const router = show("/documents?tag=inventory");
     expect(await screen.findByLabelText("Tag")).toHaveValue("inventory");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Drafts" }), { button: 0, ctrlKey: false });
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "Documents sections" })).getByRole("link", { name: "Drafts" }),
+    );
     await waitFor(() => expect(calls.some((c) => c.key === "GET /api/documentation/drafts?tag=inventory")).toBe(true));
+    expect(router.state.location.pathname).toBe("/documents/drafts");
     expect(new URLSearchParams(router.state.location.search).get("tag")).toBe("inventory");
     expect(screen.getByLabelText("Tag")).toHaveValue("inventory");
   });
@@ -551,7 +554,9 @@ describe("the Documents list", () => {
     const row = within(newDrafts).getByRole("link", { name: "web-1 overview" }).closest("tr")!;
     expect(within(row).getByRole("link", { name: "inventory" })).toHaveAttribute("href", "/documents?tag=inventory");
     expect(within(row).getByRole("link", { name: "ops" })).toHaveAttribute("href", "/documents?tag=ops");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Drafts" }), { button: 0, ctrlKey: false });
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "Documents sections" })).getByRole("link", { name: "Drafts" }),
+    );
     const drafts = await screen.findByRole("region", { name: "Drafts" });
     const tagged = within(drafts).getAllByRole("link", { name: "web-1 overview" })[0].closest("tr")!;
     expect(within(tagged).getByRole("link", { name: "inventory" })).toHaveAttribute("href", "/documents?tag=inventory");

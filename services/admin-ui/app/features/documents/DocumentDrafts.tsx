@@ -6,7 +6,7 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** The document page's Drafts tab: its drafts, newest first (who wrote each, when, the version it is based on, "stale"
+/** The document page's Drafts sub-page: its drafts, newest first (who wrote each, when, the version it is based on, "stale"
  * when the live version moved on), and the selected one in the draft view with Edit, Publish and Discard. Publishing one
  * deletes the others (the draft view asks first). */
 export default function DocumentDrafts({
@@ -24,7 +24,7 @@ export default function DocumentDrafts({
   onPromoted: (result: PromoteResult) => void;
   /** Runs Edit and Publish, after asking when the editor has unsaved changes. */
   confirm?: (run: () => void) => void;
-  /** How many drafts the document has, each time the list loads (the tab's badge). */
+  /** How many drafts the document has, each time the list loads (the section link's count). */
   onCount?: (count: number) => void;
   /** A draft was discarded here (the editor stops editing it). */
   onDiscarded?: (draftId: string) => void;

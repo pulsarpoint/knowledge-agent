@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { Toaster } from "~/components/ui/sonner";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
+import { documentRoute } from "~/lib/__tests__/pageRoutes";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -116,12 +117,23 @@ function show(url: string) {
     [
       { path: "/documents/new", element: <DocumentEditorView /> },
       { path: "/documents/drafts/:draftId", element: <p>Draft page</p> },
-      { path: "/documents/:documentId", element: <DocumentEditorView /> },
+      documentRoute,
     ],
     { initialEntries: [url] },
   );
   render(<RouterProvider router={router} />);
   return router;
+}
+
+/** One of the document page's section links. */
+const section = (name: string | RegExp) =>
+  within(screen.getByRole("navigation", { name: "Document sections" })).getByRole("link", { name });
+/** Types into the editor on Edit, then comes back to Drafts: the text stays (the editor stays under the sub-pages). */
+async function typeOnEdit(text: string) {
+  fireEvent.click(section("Edit"));
+  fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: text } });
+  fireEvent.click(section(/^Drafts/));
+  return within(await screen.findByRole("region", { name: "Draft" }));
 }
 
 test("Save keeps the editor text as the person's draft of the document and the editor goes on editing it", async () => {
@@ -144,7 +156,7 @@ test("Save keeps the editor text as the person's draft of the document and the e
   expect(await screen.findByText("Draft saved.")).toBeInTheDocument();
   expect(screen.getByText(/^Editing your draft \(created .*, from version 1\)\./)).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "Write", selected: true })).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Drafts 1" })).toBeInTheDocument();
+  expect(section("Drafts (1)")).toBeInTheDocument();
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook v3 draft");
 });
 
@@ -280,33 +292,35 @@ test("version history notes the versions published from a draft", async () => {
 
 test("with unsaved changes, Edit on a draft asks first; Cancel keeps the text, Discard changes loads the draft", async () => {
   api(base);
-  show("/documents/doc-1?tab=drafts&draft=d1");
-  const view = within(await screen.findByRole("region", { name: "Draft" }));
-  fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# My unsaved text" } });
+  show("/documents/doc-1/drafts?draft=d1");
+  await screen.findByRole("region", { name: "Draft" });
+  let view = await typeOnEdit("# My unsaved text");
   fireEvent.click(view.getByRole("button", { name: "Edit" }));
   const dialog = within(await screen.findByRole("alertdialog"));
   expect(dialog.getByText("Discard unsaved changes?")).toBeInTheDocument();
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-  expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
+  fireEvent.click(section("Edit"));
+  expect(await screen.findByLabelText("Markdown")).toHaveValue("# My unsaved text");
   expect(screen.queryByText(/Editing your draft/)).toBeNull();
+  fireEvent.click(section(/^Drafts/));
+  view = within(await screen.findByRole("region", { name: "Draft" }));
   fireEvent.click(view.getByRole("button", { name: "Edit" }));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
   await waitFor(() => expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook draft text"));
   expect(screen.getByText(/Editing your draft/)).toBeInTheDocument();
 });
 
-test("with unsaved changes, Publish on the Drafts tab asks first; Cancel publishes nothing", async () => {
+test("with unsaved changes, Publish on Drafts asks first; Cancel publishes nothing", async () => {
   const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0 };
   const calls = api({ ...base, "POST /api/documentation/drafts/d1/promote": () => [200, promoted] });
-  show("/documents/doc-1?tab=drafts&draft=d1");
-  const view = within(await screen.findByRole("region", { name: "Draft" }));
-  fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# My unsaved text" } });
+  show("/documents/doc-1/drafts?draft=d1");
+  await screen.findByRole("region", { name: "Draft" });
+  const view = await typeOnEdit("# My unsaved text");
   fireEvent.click(view.getByRole("button", { name: "Publish" }));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
-  expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
   fireEvent.click(view.getByRole("button", { name: "Publish" }));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
   await waitFor(() =>
@@ -436,13 +450,14 @@ test("discarding the draft being edited on the Drafts tab lets Save start a new 
   expect(await screen.findByLabelText("Markdown")).toHaveValue("# Runbook draft text");
   expect(screen.getByText(/Editing your draft/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-  fireEvent.mouseDown(screen.getByRole("tab", { name: /^Drafts/ }));
+  fireEvent.click(section(/^Drafts/));
   fireEvent.click(
     within(await screen.findByRole("region", { name: "Draft" })).getByRole("button", { name: "Discard" }),
   );
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard draft" }));
   await waitFor(() => expect(screen.queryByText(/Editing your draft/)).toBeNull());
-  expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook draft text");
+  fireEvent.click(section("Edit"));
+  expect(await screen.findByLabelText("Markdown")).toHaveValue("# Runbook draft text");
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>

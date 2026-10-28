@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import DocumentEditorView from "~/features/documents/DocumentEditorView";
-import DocumentsView from "~/features/documents/DocumentsView";
 import { DocumentationPromptEditorView } from "~/features/documents/DocumentationPromptsView";
 import { Toaster } from "~/components/ui/sonner";
+import { documentRoute, documentsRoute } from "~/lib/__tests__/pageRoutes";
 
 beforeEach(() => {
   render(<Toaster />);
@@ -110,11 +110,7 @@ function setup(url: string, saveStatus = 200) {
   });
   vi.stubGlobal("fetch", fetch);
   const router = createMemoryRouter(
-    [
-      { path: "/documents", element: <DocumentsView /> },
-      { path: "/documents/new", element: <DocumentEditorView /> },
-      { path: "/documents/:documentId", element: <DocumentEditorView /> },
-    ],
+    [documentsRoute, { path: "/documents/new", element: <DocumentEditorView /> }, documentRoute],
     { initialEntries: [url] },
   );
   render(<RouterProvider router={router} />);
@@ -152,16 +148,22 @@ test("creates a document with multiple resource types and deployment context", a
 });
 
 test("previews a saved version and loads it as an unsaved draft without changing history", async () => {
-  const { fetch } = setup("/documents/doc-1");
+  const { fetch, router } = setup("/documents/doc-1");
   await screen.findByLabelText("Title");
-  tab("Version history");
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "Document sections" })).getByRole("link", {
+      name: "Version history",
+    }),
+  );
   expect(await screen.findByRole("button", { name: /^Version 2 · Current/ })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^Version 1/ })).not.toHaveTextContent("Current");
   fireEvent.click(screen.getByRole("button", { name: /^Version 1/ }));
   expect(await screen.findByText("# Original")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url]) => url === "/api/documentation/documents/doc-1/versions/1")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Use version as draft" }));
+  // the version's text opens on Edit
   expect(await screen.findByLabelText("Markdown")).toHaveValue("# Original");
+  expect(router.state.location.pathname).toBe("/documents/doc-1");
   expect(screen.getByLabelText("Short description")).toHaveValue("Original description");
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT" || init?.method === "POST")).toBe(false);
   expect(screen.queryByRole("button", { name: "Save new version" })).toBeNull();

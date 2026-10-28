@@ -206,6 +206,9 @@ test("Write is the form alone; the tabs keep the resource and lead to Write with
   const agent = within(tabs).getByRole("link", { name: "Write with an agent" });
   expect(write).toHaveAttribute("href", "/documents/new?resource=server&resource_id=s1");
   expect(write).toHaveAttribute("aria-current", "page");
+  expect(
+    screen.getByText("Write the document yourself. Save keeps it as a draft until it is published."),
+  ).toBeVisible();
   expect(agent).toHaveAttribute("href", "/documents/new/agent?resource=server&resource_id=s1");
   expect(await screen.findByLabelText("Title")).toBeInTheDocument();
   expect(screen.getByText("New document for server web-1.")).toBeInTheDocument();
@@ -216,6 +219,7 @@ test("Write is the form alone; the tabs keep the resource and lead to Write with
   expect(router.state.location.search).toBe("?resource=server&resource_id=s1");
   expect(await screen.findByRole("region", { name: "Ask agent" })).toBeInTheDocument();
   expect(within(tabs).getByRole("link", { name: "Write with an agent" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByText("Tell an agent what to write. It saves a draft you review, edit and publish.")).toBeVisible();
 });
 
 test("without a resource the chat needs a picked resource, then starts writing from the picked ones", async () => {

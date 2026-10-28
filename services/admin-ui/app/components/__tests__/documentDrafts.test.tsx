@@ -3,7 +3,8 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import userEvent from "@testing-library/user-event";
 import { Toaster } from "~/components/ui/sonner";
 import { rowAction, rowButtons } from "~/lib/__tests__/rowMenu";
-import DocumentsView from "~/features/documents/DocumentsView";
+import routes from "~/routes";
+import { documentsRoute } from "~/lib/__tests__/pageRoutes";
 import DraftPageView from "~/features/documents/DraftPageView";
 
 beforeEach(() => {
@@ -118,7 +119,7 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
 function show(url: string) {
   const router = createMemoryRouter(
     [
-      { path: "/documents", element: <DocumentsView /> },
+      documentsRoute,
       { path: "/documents/drafts/:draftId", element: <DraftPageView /> },
       { path: "/documents/:documentId", element: <p>Document page</p> },
     ],
@@ -137,7 +138,7 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
     "POST /api/documentation/drafts/d9/discard": () => [200, {}],
   });
   show("/documents");
-  expect(await screen.findByRole("link", { name: "2 drafts" })).toHaveAttribute("href", "/documents/doc-1?tab=drafts");
+  expect(await screen.findByRole("link", { name: "2 drafts" })).toHaveAttribute("href", "/documents/doc-1/drafts");
   const section = within(screen.getByRole("region", { name: "New drafts" }));
   expect(section.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
   expect(section.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/sessions/s1");
@@ -269,7 +270,7 @@ test("a failed discard on the list shows why and refreshes the list so a retry w
   expect(screen.getByText("Changed meanwhile")).toBeInTheDocument();
 });
 
-test("the Drafts tab lists the drafts with the resource filters: an environment asks GET /drafts?environment_id=", async () => {
+test("the Drafts sub-page lists the drafts with the resource filters: an environment asks GET /drafts?environment_id=", async () => {
   const ofDocument = {
     ...newDraft,
     id: "d4",
@@ -289,11 +290,11 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
     "GET /api/documentation/drafts": () => [200, { drafts: [ofDocument, newDraft] }],
     "GET /api/documentation/drafts?environment_id=env-1": () => [200, { drafts: [ofDocument] }],
   });
-  const router = show("/documents?view=drafts");
+  const router = show("/documents/drafts");
   const list = within(await screen.findByRole("region", { name: "Drafts" }));
   expect(list.getByRole("link", { name: "Runbook, shorter" })).toHaveAttribute(
     "href",
-    "/documents/doc-1?tab=drafts&draft=d4",
+    "/documents/doc-1/drafts?draft=d4",
   );
   expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
   expect(list.getByText("New document")).toBeInTheDocument();
@@ -301,7 +302,7 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
   expect(list.getByRole("columnheader", { name: "Created" })).toBeInTheDocument();
   expect(list.queryByRole("columnheader", { name: "Updated" })).toBeNull();
   expect(screen.queryByLabelText("Search documents")).toBeNull();
-  await router.navigate("/documents?view=drafts&environment_id=env-1");
+  await router.navigate("/documents/drafts?environment_id=env-1");
   await waitFor(() =>
     expect(calls.some((c) => c.key === "GET /api/documentation/drafts?environment_id=env-1")).toBe(true),
   );
@@ -349,4 +350,53 @@ test("no documents at all shows an empty state with New document", async () => {
   show("/documents");
   expect(await screen.findByText("No documents yet")).toBeInTheDocument();
   expect(screen.getAllByRole("link", { name: "New document" })).toHaveLength(2);
+});
+
+test("routes: Documents is a parent route with Documents (the index) and Drafts as sub-pages", () => {
+  const page = routes.find((item) => item.path === "documents")!;
+  expect(page.file).toBe("./routes/documents.tsx");
+  expect(page.children?.map((item) => [item.index ?? false, item.path, item.file])).toEqual([
+    [true, undefined, "./routes/documentsIndex.tsx"],
+    [false, "drafts", "./routes/documentsDrafts.tsx"],
+  ]);
+});
+
+test.each([
+  ["/documents?view=drafts", "/documents/drafts", ""],
+  ["/documents?view=drafts&environment_id=env-1", "/documents/drafts", "?environment_id=env-1"],
+  ["/documents?view=documents&tag=ops", "/documents", "?tag=ops"],
+])("an old link %s opens its sub-page, keeping the filters", async (url, pathname, search) => {
+  api({
+    "GET /api/documentation/resources": () => [200, { ...resources, environments: [{ id: "env-1", name: "Prod" }] }],
+    "GET /api/documentation/drafts": () => [200, { drafts: [] }],
+    "GET /api/documentation/drafts?environment_id=env-1": () => [200, { drafts: [] }],
+    "GET /api/documentation/documents?tag=ops": () => [200, { documents: [], total: 0 }],
+    "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
+  });
+  const router = show(url);
+  await waitFor(() => expect(router.state.location.pathname).toBe(pathname));
+  expect(router.state.location.search).toBe(search);
+  expect(await screen.findByText(pathname.endsWith("drafts") ? /No drafts/ : /No documents/)).toBeInTheDocument();
+});
+
+test("the section links carry the resource and tag filters, each sub-page with its help line", async () => {
+  api({
+    "GET /api/documentation/resources": () => [200, resources],
+    "GET /api/documentation/documents?tag=ops&q=disk&has_drafts=true": () => [200, { documents: [doc], total: 1 }],
+    "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
+    "GET /api/documentation/drafts?tag=ops": () => [200, { drafts: [] }],
+  });
+  const router = show("/documents?tag=ops&q=disk&has_drafts=true");
+  const nav = within(screen.getByRole("navigation", { name: "Documents sections" }));
+  expect(nav.getByRole("link", { name: "Documents" })).toHaveAttribute("aria-current", "page");
+  expect(nav.getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/documents/drafts?tag=ops");
+  expect(screen.getByText("The live documents, with their links, versions and drafts.")).toBeVisible();
+  expect(screen.getByRole("link", { name: "New document" })).toHaveAttribute("href", "/documents/new");
+  fireEvent.click(nav.getByRole("link", { name: "Drafts" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/drafts"));
+  expect(await screen.findByText("No drafts match these filters.")).toBeInTheDocument();
+  expect(
+    screen.getByText("Every draft, of new documents and of live ones, waiting to be published or discarded."),
+  ).toBeVisible();
+  expect(nav.getByRole("link", { name: "Documents" })).toHaveAttribute("href", "/documents?tag=ops");
 });

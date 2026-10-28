@@ -116,11 +116,15 @@ test("the list has Code projects and Code folder sub-pages; folder is not taken 
   expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute("href", "/code-projects/code-1");
   expect(sectionLink("Code projects sections", "Code projects")).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("button", { name: "New code project" })).toBeInTheDocument();
+  expect(
+    screen.getByText("Local folders and Git sources organized into projects that agents can search."),
+  ).toBeVisible();
   expect(screen.queryByRole("button", { name: "Code root" })).toBeNull(); // no folders on the list
   await user.click(sectionLink("Code projects sections", "Code folder"));
   expect(router.state.location.pathname).toBe("/code-projects/folder");
   expect(await screen.findByText("/host/code → /work/code")).toBeInTheDocument();
   expect(sectionLink("Code projects sections", "Code folder")).toHaveAttribute("aria-current", "page");
+  expect(screen.getByText("Browse the mounted code folder that projects point into.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "New code project" })).toBeNull();
   expect(fetch.mock.calls.some(([url]) => String(url).includes("/api/code-projects/folder"))).toBe(false);
 });

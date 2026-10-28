@@ -53,7 +53,7 @@ test("savedIn counts only a successful update_document or edit_document", () => 
   ).toBe(false);
 });
 
-test("the Agent runs tab lists the runs with their drafts", async () => {
+test("Agent runs lists the runs with their drafts", async () => {
   api({
     "GET /api/sessions?document_id=doc-1": () => [
       200,
@@ -89,12 +89,9 @@ test("the Agent runs tab lists the runs with their drafts", async () => {
     </MemoryRouter>,
   );
   const first = await screen.findByRole("link", { name: "Remove the old backup steps." });
-  expect(first).toHaveAttribute("href", "/documents/doc-1/agent/r2");
+  expect(first).toHaveAttribute("href", "/documents/doc-1?run=r2");
   expect(screen.getByText(/Waiting for you · GPT · a@b.c/)).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open draft" })).toHaveAttribute(
-    "href",
-    "/documents/doc-1?tab=drafts&draft=d1",
-  );
+  expect(screen.getByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/doc-1/drafts?draft=d1");
   expect(screen.getAllByRole("link", { name: "Open draft" })).toHaveLength(1);
 });
 
@@ -121,7 +118,7 @@ test("a draft written by an Ask agent run links to its run page", () => {
       <DraftAuthor draft={{ ...base, session_purpose: "revision" }} />
     </MemoryRouter>,
   );
-  expect(screen.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/documents/doc-1/agent/s1");
+  expect(screen.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/documents/doc-1?run=s1");
   rerender(
     <MemoryRouter>
       <DraftAuthor draft={{ ...base, session_purpose: "documents" }} />
