@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import EventsView from "~/features/events/EventsView";
 import { describeChanges } from "~/features/events/api";
+import { expectOneToolbarRow } from "~/lib/__tests__/toolbarRow";
 
 const row = (id: number, extra = {}) => ({
   id,
@@ -53,6 +54,11 @@ const view = () =>
     </MemoryRouter>,
   );
 afterEach(() => vi.unstubAllGlobals());
+/** Opens the Filters sheet, where the Handled, Emitted by and Schedule filters are. */
+async function openFilters(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /^Filters/ }));
+  return within(await screen.findByRole("dialog", { name: "Filters" }));
+}
 
 test("lists events with source and status and pages by the API's offset and total", async () => {
   const user = userEvent.setup();
@@ -128,9 +134,11 @@ test("filters by type, status, handler and search", async () => {
   await user.click(screen.getByRole("combobox", { name: "Status" }));
   await user.click(screen.getByRole("option", { name: "Failed" }));
   expect(await screen.findByText("DEMO-8")).toBeInTheDocument();
+  await openFilters(user);
   await user.click(screen.getByRole("combobox", { name: "Emitted by" }));
   await user.click(screen.getByRole("option", { name: "Triage" }));
   expect(await screen.findByText("DEMO-7")).toBeInTheDocument();
+  await user.keyboard("{Escape}");
   await user.type(screen.getByRole("searchbox", { name: "Search events" }), "DEMO-7");
   await waitFor(() =>
     expect(
@@ -443,6 +451,7 @@ test("the Handlers column counts handler runs and the Handled filter narrows the
   expect(within(table).getByText("2 handlers")).toBeInTheDocument();
   expect(within(table).getByText("1 handler")).toBeInTheDocument();
   expect(within(table).getByText("—")).toBeInTheDocument();
+  await openFilters(user);
   await user.click(screen.getByRole("combobox", { name: "Handled" }));
   await user.click(screen.getByRole("option", { name: "Not handled" }));
   await waitFor(() => expect(screen.queryByText("DEMO-3")).toBeNull());
@@ -461,9 +470,51 @@ test("the Schedule filter lists emit schedules and asks for their events by subj
   });
   view();
   await screen.findByText("DEMO-2");
+  await openFilters(user);
   await user.click(screen.getByRole("combobox", { name: "Schedule" }));
   expect(screen.getByRole("option", { name: "Nightly check" })).toBeInTheDocument();
   await user.click(screen.getByRole("option", { name: "Morning summary" }));
+  await user.keyboard("{Escape}");
   expect(await within(await screen.findByRole("table")).findByText("Morning summary")).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url]) => url === "/api/events?source=schedule&subject=Morning+summary")).toBe(true);
+});
+
+test("search, source, type, status, Filters, Refresh and New event share one toolbar row", async () => {
+  api({ "/api/events/facets": FACETS, "/api/events": { events: [row(2)], next_offset: null } });
+  view();
+  await screen.findByText("DEMO-2");
+  expectOneToolbarRow(
+    screen.getByRole("searchbox", { name: "Search events" }),
+    screen.getByRole("combobox", { name: "Source" }),
+    screen.getByRole("combobox", { name: "Type" }),
+    screen.getByRole("combobox", { name: "Status" }),
+    screen.getByRole("button", { name: "Filters" }),
+    screen.getByRole("button", { name: "Refresh" }),
+    screen.getByRole("button", { name: "New event" }),
+  );
+  for (const label of ["Handled", "Emitted by", "Schedule"])
+    expect(screen.queryByRole("combobox", { name: label })).toBeNull();
+});
+
+test("the Filters badge counts the hidden filters set, and Reset clears them", async () => {
+  const user = userEvent.setup();
+  const fetch = api({
+    "/api/events/facets": FACETS,
+    "/api/events": { events: [row(2)], next_offset: null },
+    "/api/events?handled=no": { events: [row(1)], next_offset: null },
+    "/api/events?handled=no&handler_id=h-1": { events: [row(7)], next_offset: null },
+  });
+  view();
+  await screen.findByText("DEMO-2");
+  await openFilters(user);
+  await user.click(screen.getByRole("combobox", { name: "Handled" }));
+  await user.click(screen.getByRole("option", { name: "Not handled" }));
+  await user.click(screen.getByRole("combobox", { name: "Emitted by" }));
+  await user.click(screen.getByRole("option", { name: "Triage" }));
+  expect(await screen.findByText("DEMO-7")).toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  expect(within(screen.getByRole("button", { name: "Filters, 2 active" })).getByText("2")).toBeInTheDocument();
+  await user.click((await openFilters(user)).getByRole("button", { name: "Reset" }));
+  expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
+  expect(fetch.mock.calls.at(-1)?.[0]).toBe("/api/events");
 });

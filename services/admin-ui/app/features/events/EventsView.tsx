@@ -26,7 +26,8 @@ import {
 } from "./api";
 import { statusLabels } from "~/features/sessions/api";
 import NewEventSheet, { type Prefill } from "./NewEventSheet";
-import DataTable, { sortHeader, TableEmpty, type Sort } from "~/components/DataTable";
+import DataTable, { FILTER_WIDTH, sortHeader, TableEmpty, type Sort } from "~/components/DataTable";
+import FiltersSheet from "~/components/FiltersSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -57,18 +58,16 @@ function FilterSelect({
   all,
   options,
   onChange,
-  className,
 }: {
   label: string;
   value: string;
   all: string;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
-  className: string;
 }) {
   return (
     <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? "" : next)}>
-      <SelectTrigger aria-label={label} className={className}>
+      <SelectTrigger aria-label={label} className={FILTER_WIDTH}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -84,6 +83,9 @@ function FilterSelect({
     </Select>
   );
 }
+
+/** The filters behind the Filters button (source, type and status stay in the toolbar row). */
+const HIDDEN_FILTERS = ["handled", "handler", "schedule"] as const;
 
 export default function EventsView() {
   const [params, setParams] = useSearchParams();
@@ -284,13 +286,6 @@ export default function EventsView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
-          <RefreshCw data-icon="inline-start" />
-          Refresh
-        </Button>
-        {newEvent}
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Events</AlertTitle>
@@ -318,7 +313,6 @@ export default function EventsView() {
             <FilterSelect
               label="Source"
               all="All sources"
-              className="w-full sm:w-40"
               value={filters.source}
               onChange={set("source")}
               options={facets.sources.map((source) => ({ value: source, label: sourceLabel(source) }))}
@@ -326,7 +320,6 @@ export default function EventsView() {
             <FilterSelect
               label="Type"
               all="All types"
-              className="w-full sm:w-52"
               value={filters.type}
               onChange={set("type")}
               options={facets.types.map((type) => ({ value: type, label: typeLabel(type) }))}
@@ -334,38 +327,54 @@ export default function EventsView() {
             <FilterSelect
               label="Status"
               all="All statuses"
-              className="w-full sm:w-40"
               value={filters.status}
               onChange={set("status")}
               options={facets.statuses.map((status) => ({ value: status, label: STATUS_LABELS[status] ?? status }))}
             />
-            <FilterSelect
-              label="Handled"
-              all="Handled or not"
-              className="w-full sm:w-40"
-              value={filters.handled}
-              onChange={set("handled")}
-              options={[
-                { value: "yes", label: "Handled" },
-                { value: "no", label: "Not handled" },
-              ]}
-            />
-            <FilterSelect
-              label="Emitted by"
-              all="All handlers"
-              className="w-full sm:w-44"
-              value={filters.handler}
-              onChange={set("handler")}
-              options={facets.handlers.map((handler) => ({ value: handler.id, label: handler.name }))}
-            />
-            <FilterSelect
-              label="Schedule"
-              all="All schedules"
-              className="w-full sm:w-44"
-              value={filters.schedule}
-              onChange={set("schedule")}
-              options={facets.schedules.map((name) => ({ value: name, label: name }))}
-            />
+            <FiltersSheet
+              active={HIDDEN_FILTERS.filter((field) => filters[field]).length}
+              onReset={() => {
+                setFilters((current) => ({
+                  ...current,
+                  ...Object.fromEntries(HIDDEN_FILTERS.map((field) => [field, ""])),
+                }));
+                setPage(1);
+              }}
+            >
+              <FilterSelect
+                label="Handled"
+                all="Handled or not"
+                value={filters.handled}
+                onChange={set("handled")}
+                options={[
+                  { value: "yes", label: "Handled" },
+                  { value: "no", label: "Not handled" },
+                ]}
+              />
+              <FilterSelect
+                label="Emitted by"
+                all="All handlers"
+                value={filters.handler}
+                onChange={set("handler")}
+                options={facets.handlers.map((handler) => ({ value: handler.id, label: handler.name }))}
+              />
+              <FilterSelect
+                label="Schedule"
+                all="All schedules"
+                value={filters.schedule}
+                onChange={set("schedule")}
+                options={facets.schedules.map((name) => ({ value: name, label: name }))}
+              />
+            </FiltersSheet>
+          </>
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setReload((count) => count + 1)}>
+              <RefreshCw data-icon="inline-start" />
+              Refresh
+            </Button>
+            {newEvent}
           </>
         }
         empty={
