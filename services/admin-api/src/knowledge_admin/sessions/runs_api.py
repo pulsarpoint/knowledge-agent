@@ -1,13 +1,18 @@
 """Administrator view of complete agent run records."""
 
+import json
 from collections import Counter
 from functools import partial
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from knowledge_admin.agents.runner import known_secrets
 from knowledge_admin.db import storage
+from knowledge_admin.http_errors import validation_text
+from knowledge_admin.sessions import explorer
 from knowledge_admin.sessions.run_record import tool_counts
 
 RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload->>'kind' AS kind,
@@ -68,6 +73,27 @@ NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent
     WHERE e.run_key=%s AND e.kind='tool_call' AND e.payload->>'parent_call_id'=%s AND e.payload->>'call_id' IS NOT NULL
       AND e.agent_id=(SELECT i.agent_id FROM ka.agent_run_events i WHERE i.run_key=%s AND i.kind='input'
                       AND i.payload->>'parent_call_id'=%s AND i.payload ? 'expert' LIMIT 1)"""
+
+
+class ExploreInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    method: str = Field(min_length=1, max_length=64)
+    args: dict = Field(default_factory=dict)
+
+
+def explored(conn, store, project, run_key: str) -> explorer.SessionRecord:
+    """The run's explorer record in this workspace (404 like the record), redacted as the Debug tab is: with the
+    secrets the session's pinned configuration references (known_secrets)."""
+    pinned = conn.execute(
+        """SELECT agent_config FROM ka.agent_sessions
+        WHERE project_id=%s AND id::text=split_part(%s, ':', 2) AND starts_with(%s, 'cc:')""",
+        (project, run_key, run_key),
+    ).fetchone()
+    secrets = known_secrets(store, pinned['agent_config']) if pinned and pinned['agent_config'] else []
+    try:
+        return explorer.SessionRecord.load(conn, project, run_key, secrets)
+    except explorer.RunNotFound:
+        raise HTTPException(404, 'Run record not found.') from None
 
 
 def build_api(app_name: str, store) -> APIRouter:
@@ -166,5 +192,26 @@ def build_api(app_name: str, store) -> APIRouter:
                 {key: event[key] for key in ('seq', 'kind', 'agent_id', 'payload', 'created_at')} for event in events
             ],
         }
+
+    @router.get('/{run_key}/explore')
+    def explore_methods(run_key: str):
+        """The explorer's methods exactly as the run reviewer's model gets them (explorer.listing)."""
+        with database().connect() as conn:
+            explored(conn, store, store.project(conn, app_name), run_key)
+        return {'methods': explorer.listing()}
+
+    @router.post('/{run_key}/explore')
+    def explore(run_key: str, value: ExploreInput):
+        """Run one explorer method on the run's record: its result and the size of the serialised result."""
+        with database().connect() as conn:
+            record = explored(conn, store, store.project(conn, app_name), run_key)
+        try:
+            result = explorer.call(record, value.method, value.args)
+        except ValidationError as exc:
+            raise HTTPException(400, validation_text(exc.errors())) from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        size = len(json.dumps(result, ensure_ascii=False))
+        return {'result': result, 'size_chars': size, 'approx_tokens': -(-size // 4)}
 
     return router
